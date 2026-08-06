@@ -39,3 +39,5 @@ export async function POST(request: Request) {
   const result = await runExpiryAlertCheck({ force });
   return NextResponse.json(result);
 }
+
+export const dynamic = 'force-dynamic';
