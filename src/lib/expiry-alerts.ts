@@ -1,3 +1,7 @@
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://placeholder.supabase.co';
+if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'placeholder';
+if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
+if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = 'placeholder';
 import {
   fetchAllWorkerVocs,
   fetchCompanyInsurances,
@@ -442,4 +446,5 @@ export async function notifyWorkerAboutExpiries(
 }
 
 export { WARNING_DAYS as EXPIRY_ALERT_WINDOW_DAYS, DEDUPE_WINDOW_DAYS };
+
 

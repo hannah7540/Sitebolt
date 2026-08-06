@@ -1,3 +1,7 @@
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://placeholder.supabase.co';
+if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'placeholder';
+if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
+if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = 'placeholder';
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { PrestartTemplate } from "./prestart-templates";
 import {
@@ -4433,4 +4437,5 @@ export {
   type CreatePlantServiceScheduleInput,
   type UpdatePlantServiceScheduleInput,
 } from "./plant-services";
+
 
