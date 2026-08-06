@@ -1,0 +1,681 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  Loader2,
+  Lock,
+  Mail,
+  Phone,
+  Save,
+  User,
+} from "lucide-react";
+import type { DbProject } from "@/lib/project-resolver";
+import type { Worker, WorkerVoc } from "@/lib/supabase";
+import {
+  fetchWorkerVocs,
+  getWorkerAssignedProjectIds,
+  isWorkerRevoked,
+  setWorkerRevokedState,
+  updateWorker,
+  updateWorkerStatusFromVocs,
+} from "@/lib/supabase";
+import { setWorkerProjectAssignments } from "@/lib/project-assignments";
+import {
+  hydrateCardsVocsFromWorker,
+  parseCardsVocs,
+  serializeCardsVocs,
+  splitWorkerName,
+  type WorkerCardVocEntry,
+} from "@/lib/worker-cards-vocs";
+import { getVocDisplayTitle } from "@/lib/voc-utils";
+import WorkerAssignedProjectsPicker from "@/components/organisation/WorkerAssignedProjectsPicker";
+import WorkerCardsVocsEditor from "@/components/workers/WorkerCardsVocsEditor";
+import WorkerInductionsTab from "@/components/workers/WorkerInductionsTab";
+import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
+import { cn } from "@/lib/utils";
+import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
+
+type ProfileTab = "basic" | "cards" | "inductions" | "financial";
+
+type AccountStatusOption = "active" | "pending_induction" | "Revoked";
+
+const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Casual", "Contractor"] as const;
+
+const TAB_ITEMS: Array<{ id: ProfileTab; label: string }> = [
+  { id: "basic", label: "Basic Info" },
+  { id: "cards", label: "CARDS / VOCs" },
+  { id: "inductions", label: "Inductions" },
+  { id: "financial", label: "Financial Information" },
+];
+
+interface WorkerProfileViewProps {
+  worker: Worker;
+  workers?: Worker[];
+  initialVocs?: WorkerVoc[];
+  projects: DbProject[];
+  initialTab?: ProfileTab;
+  onBack: () => void;
+  onWorkerUpdated: (worker: Worker) => void;
+}
+
+function WorkerProfileStatusBadge({ worker }: { worker: Worker }) {
+  if (isWorkerRevoked(worker)) {
+    return (
+      <span className="rounded bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
+        Revoked
+      </span>
+    );
+  }
+
+  const status = worker.status ?? "active";
+  const styles: Record<string, string> = {
+    active: "bg-emerald-100 text-emerald-800",
+    pending_induction: "bg-blue-100 text-blue-800",
+    expired_ticket: "bg-red-100 text-red-800",
+  };
+  const label =
+    status === "pending_induction"
+      ? "Pending Induction"
+      : status === "expired_ticket"
+        ? "Non-Compliant"
+        : "Active";
+
+  return (
+    <span className={cn("rounded px-2.5 py-1 text-xs font-bold", styles[status] ?? styles.active)}>
+      {label}
+    </span>
+  );
+}
+
+function LockedField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className={cn(labelClass, "flex items-center gap-1.5")}>
+        {label}
+        <Lock className="h-3 w-3 text-slate-400" aria-hidden />
+      </span>
+      <input className={cn(inputClass, "cursor-not-allowed bg-slate-50 text-slate-600")} value={value ?? ""} disabled readOnly />
+    </label>
+  );
+}
+
+export default function WorkerProfileView({
+  worker,
+  workers = [],
+  initialVocs = [],
+  projects,
+  initialTab = "basic",
+  onBack,
+  onWorkerUpdated,
+}: WorkerProfileViewProps) {
+  const [currentWorker, setCurrentWorker] = useState(worker);
+  const [tab, setTab] = useState<ProfileTab>(initialTab);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [vocs, setVocs] = useState<WorkerVoc[]>(initialVocs);
+  const [loadingVocs, setLoadingVocs] = useState(initialVocs.length === 0);
+  const [cardEntries, setCardEntries] = useState<WorkerCardVocEntry[]>(() =>
+    hydrateCardsVocsFromWorker(worker, initialVocs).filter(
+      (entry) => (entry.category as string) !== "site_induction"
+    )
+  );
+
+  useEffect(() => {
+    setCurrentWorker(worker);
+    setCardEntries(
+      hydrateCardsVocsFromWorker(worker, vocs).filter(
+        (entry) => (entry.category as string) !== "site_induction"
+      )
+    );
+  }, [worker, vocs]);
+
+  useEffect(() => {
+    if (initialVocs.length > 0) {
+      setVocs(initialVocs);
+      setLoadingVocs(false);
+      return;
+    }
+    let cancelled = false;
+    fetchWorkerVocs(worker.id).then((rows) => {
+      if (!cancelled) {
+        setVocs(rows);
+        setLoadingVocs(false);
+        setCardEntries(
+          hydrateCardsVocsFromWorker(worker, rows).filter(
+            (entry) => (entry.category as string) !== "site_induction"
+          )
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [worker.id, initialVocs, worker]);
+
+  const patchWorker = (updated: Worker) => {
+    setCurrentWorker(updated);
+    onWorkerUpdated(updated);
+  };
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-orange-600"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to worker directory
+      </button>
+
+      <div className="mb-6 flex flex-wrap items-start gap-4">
+        <button
+          type="button"
+          onClick={() => setShowPhotoModal(true)}
+          className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-orange-200 bg-orange-50 transition hover:border-orange-400"
+          aria-label="Edit profile photo"
+        >
+          {currentWorker.photo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={currentWorker.photo_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <User className="h-8 w-8 text-orange-400" />
+          )}
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-900">{currentWorker.full_name}</h1>
+            <WorkerProfileStatusBadge worker={currentWorker} />
+          </div>
+          <p className="mt-1 text-sm text-slate-600">
+            {currentWorker.trade || "No trade set"}
+            {currentWorker.worker_code ? ` · Worker #${currentWorker.worker_code}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-4 text-sm text-slate-600">
+            {currentWorker.phone ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Phone className="h-4 w-4 text-slate-400" />
+                {currentWorker.phone}
+              </span>
+            ) : null}
+            <span className="inline-flex items-center gap-1.5">
+              <Mail className="h-4 w-4 text-slate-400" />
+              {currentWorker.email}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+        {TAB_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={cn(
+              "rounded-lg px-4 py-2 text-sm font-medium transition",
+              tab === item.id
+                ? "bg-orange-500 text-white shadow-sm"
+                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-orange-50 hover:text-orange-600"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "basic" ? (
+        <BasicInfoTab
+          worker={currentWorker}
+          projects={projects}
+          onSaved={patchWorker}
+        />
+      ) : tab === "cards" ? (
+        <CardsVocsTab
+          worker={currentWorker}
+          entries={cardEntries}
+          loading={loadingVocs}
+          onEntriesChange={setCardEntries}
+          onSaved={patchWorker}
+        />
+      ) : tab === "inductions" ? (
+        <WorkerInductionsTab
+          worker={currentWorker}
+          workers={workers.length > 0 ? workers : [currentWorker]}
+          projects={projects}
+        />
+      ) : (
+        <FinancialInfoTab worker={currentWorker} />
+      )}
+
+      {showPhotoModal && (
+        <WorkerPhotoEditModal
+          workerId={currentWorker.id}
+          currentPhotoUrl={currentWorker.photo_url}
+          onClose={() => setShowPhotoModal(false)}
+          onPhotoUpdated={(photoUrl) => {
+            patchWorker({ ...currentWorker, photo_url: photoUrl });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function BasicInfoTab({
+  worker,
+  projects,
+  onSaved,
+}: {
+  worker: Worker;
+  projects: DbProject[];
+  onSaved: (worker: Worker) => void;
+}) {
+  const nameParts = splitWorkerName(worker);
+  const [firstName, setFirstName] = useState(nameParts.firstName);
+  const [lastName, setLastName] = useState(nameParts.lastName);
+  const [email, setEmail] = useState(worker.email);
+  const [phone, setPhone] = useState(worker.phone ?? "");
+  const [trade, setTrade] = useState(worker.trade ?? "");
+  const [workerCode, setWorkerCode] = useState(worker.worker_code ?? "");
+  const [employmentType, setEmploymentType] = useState(worker.employment_type ?? "");
+  const [hourlyRate, setHourlyRate] = useState(
+    worker.hourly_rate != null ? String(worker.hourly_rate) : ""
+  );
+  const [accountStatus, setAccountStatus] = useState<AccountStatusOption>(() =>
+    isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
+  );
+  const [projectIds, setProjectIds] = useState<string[]>(() =>
+    getWorkerAssignedProjectIds(worker)
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const parts = splitWorkerName(worker);
+    setFirstName(parts.firstName);
+    setLastName(parts.lastName);
+    setEmail(worker.email);
+    setPhone(worker.phone ?? "");
+    setTrade(worker.trade ?? "");
+    setWorkerCode(worker.worker_code ?? "");
+    setEmploymentType(worker.employment_type ?? "");
+    setHourlyRate(worker.hourly_rate != null ? String(worker.hourly_rate) : "");
+    setAccountStatus(
+      isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
+    );
+    setProjectIds(getWorkerAssignedProjectIds(worker));
+  }, [worker]);
+
+  const fullName = useMemo(
+    () => [firstName.trim(), lastName.trim()].filter(Boolean).join(" "),
+    [firstName, lastName]
+  );
+
+  const handleSave = async () => {
+    if (!fullName || !email.trim()) {
+      setError("First name, last name, and email are required.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const parsedRate = hourlyRate.trim() ? Number(hourlyRate) : null;
+    if (hourlyRate.trim() && Number.isNaN(parsedRate)) {
+      setSaving(false);
+      setError("Hourly rate must be a valid number.");
+      return;
+    }
+
+    const wasRevoked = isWorkerRevoked(worker);
+    const wantsRevoked = accountStatus === "Revoked";
+
+    if (wantsRevoked !== wasRevoked) {
+      const { error: revokeError } = await setWorkerRevokedState(worker.id, wantsRevoked);
+      if (revokeError) {
+        setSaving(false);
+        setError(revokeError);
+        return;
+      }
+    }
+
+    const nextStatus =
+      accountStatus === "Revoked"
+        ? "Revoked"
+        : accountStatus === "pending_induction"
+          ? "pending_induction"
+          : "active";
+
+    const { error: updateError } = await updateWorker(worker.id, {
+      first_name: firstName.trim() || null,
+      last_name: lastName.trim() || null,
+      full_name: fullName,
+      email: email.trim(),
+      phone: phone.trim() || null,
+      trade: trade.trim() || null,
+      worker_code: workerCode.trim() || null,
+      employment_type: employmentType.trim() || null,
+      hourly_rate: parsedRate,
+      status: nextStatus,
+    });
+
+    if (updateError) {
+      setSaving(false);
+      setError(updateError);
+      return;
+    }
+
+    const { error: assignError } = await setWorkerProjectAssignments(
+      { ...worker, full_name: fullName },
+      projectIds
+    );
+
+    setSaving(false);
+
+    if (assignError) {
+      setError(assignError);
+      return;
+    }
+
+    onSaved({
+      ...worker,
+      first_name: firstName.trim() || null,
+      last_name: lastName.trim() || null,
+      full_name: fullName,
+      email: email.trim(),
+      phone: phone.trim() || null,
+      trade: trade.trim() || null,
+      worker_code: workerCode.trim() || null,
+      employment_type: employmentType.trim() || null,
+      hourly_rate: parsedRate,
+      status: nextStatus,
+      is_revoked: wantsRevoked,
+      is_archived: wantsRevoked,
+      assigned_project_ids: wantsRevoked ? [] : projectIds,
+      assigned_project_id: wantsRevoked ? null : projectIds[0] ?? null,
+    });
+  };
+
+  return (
+    <div className={cn(sectionClass, "space-y-4")}>
+      <p className="text-sm text-slate-500">
+        Update contact details, employment information, project assignment, and account status.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block space-y-1">
+          <span className={labelClass}>First name</span>
+          <input className={inputClass} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Last name</span>
+          <input className={inputClass} value={lastName} onChange={(e) => setLastName(e.target.value)} />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Email</span>
+          <input
+            type="email"
+            className={inputClass}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Phone</span>
+          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Role / trade</span>
+          <input className={inputClass} value={trade} onChange={(e) => setTrade(e.target.value)} />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Worker code / number</span>
+          <input
+            className={inputClass}
+            value={workerCode}
+            onChange={(e) => setWorkerCode(e.target.value)}
+            placeholder="e.g. W-1042"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Employment type</span>
+          <select
+            className={inputClass}
+            value={employmentType}
+            onChange={(e) => setEmploymentType(e.target.value)}
+          >
+            <option value="">Select type</option>
+            {EMPLOYMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Base hourly rate ($)</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            className={inputClass}
+            value={hourlyRate}
+            onChange={(e) => setHourlyRate(e.target.value)}
+            placeholder="0.00"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Account status</span>
+          <select
+            className={inputClass}
+            value={accountStatus}
+            onChange={(e) => setAccountStatus(e.target.value as AccountStatusOption)}
+          >
+            <option value="active">Active</option>
+            <option value="pending_induction">Pending Induction</option>
+            <option value="Revoked">Revoked</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="space-y-2">
+        <span className={labelClass}>Assigned projects</span>
+        <WorkerAssignedProjectsPicker
+          projects={projects}
+          selectedIds={projectIds}
+          onChange={setProjectIds}
+          disabled={accountStatus === "Revoked"}
+          saving={saving}
+        />
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void handleSave()}
+        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Save basic info
+      </button>
+    </div>
+  );
+}
+
+function CardsVocsTab({
+  worker,
+  entries,
+  loading,
+  onEntriesChange,
+  onSaved,
+}: {
+  worker: Worker;
+  entries: WorkerCardVocEntry[];
+  loading: boolean;
+  onEntriesChange: (entries: WorkerCardVocEntry[]) => void;
+  onSaved: (worker: Worker) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+
+    const missingPlantVocType = entries.find(
+      (entry) => entry.category === "plant_voc" && !getVocDisplayTitle({
+        voc_type: entry.voc_type,
+        title: entry.ticket_name,
+      })
+    );
+    if (missingPlantVocType) {
+      setSaving(false);
+      setError("Please select a VOC type for each Plant Operations VOC entry.");
+      return;
+    }
+
+    const serialized = serializeCardsVocs(entries);
+    const { error: updateError } = await updateWorker(worker.id, {
+      cards_vocs: serialized,
+    });
+
+    if (updateError) {
+      setSaving(false);
+      setError(updateError);
+      return;
+    }
+
+    await updateWorkerStatusFromVocs(
+      worker.id,
+      worker.drivers_licence_expiry,
+      serialized.map((entry) => entry.expiry_date)
+    );
+
+    setSaving(false);
+    onSaved({
+      ...worker,
+      cards_vocs: serialized,
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+        Loading tickets and VOCs…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">
+        Manage white cards, HRWL, plant VOCs, and first aid certificates.
+      </p>
+
+      <WorkerCardsVocsEditor
+        workerId={worker.id}
+        entries={entries}
+        onChange={onEntriesChange}
+      />
+
+      {error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void handleSave()}
+        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Save CARDS / VOCs
+      </button>
+    </div>
+  );
+}
+
+function FinancialInfoTab({ worker }: { worker: Worker }) {
+  return (
+    <div className="space-y-4">
+      <div className={cn(cardClass, "border-amber-200 bg-amber-50/60 p-4")}>
+        <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+          <Lock className="h-4 w-4" />
+          Managed via Worker Onboarding / Self-Service
+        </p>
+        <p className="mt-1 text-xs text-amber-800">
+          Sensitive financial and personal details are read-only at the organisation admin level.
+          Workers update these fields during onboarding or through their self-service portal.
+        </p>
+      </div>
+
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Bank details</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LockedField label="Account name" value={worker.bank_name} />
+          <LockedField label="BSB" value={worker.bank_bsb} />
+          <LockedField label="Account number" value={worker.bank_account_number} />
+        </div>
+      </div>
+
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Tax information</p>
+        <LockedField label="Tax File Number (TFN)" value={worker.tfn} />
+      </div>
+
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Emergency contacts</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LockedField label="Contact name" value={worker.emergency_contact_name} />
+          <LockedField label="Phone number" value={worker.emergency_contact_phone} />
+          <LockedField
+            label="Relationship"
+            value={worker.emergency_contact_relationship ?? worker.emergency_contact}
+          />
+        </div>
+      </div>
+
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Superannuation fund</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LockedField label="Fund name" value={worker.super_fund} />
+          <LockedField
+            label="USI / member number"
+            value={
+              [worker.super_usi, worker.super_member_number].filter(Boolean).join(" · ") || null
+            }
+          />
+        </div>
+      </div>
+
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Redundancy fund</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LockedField label="Fund name" value={worker.redundancy_fund_name} />
+          <LockedField label="Member number" value={worker.redundancy_member_number} />
+        </div>
+      </div>
+    </div>
+  );
+}

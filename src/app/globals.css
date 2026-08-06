@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --accent: #f97316;
+  --accent-dark: #ea580c;
+  --surface: #ffffff;
+  --surface-elevated: #f1f5f9;
+  --border: #e2e8f0;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  --plumbing-bg-image: url("https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/Assets/Plumbing%20Background%20Picture.png");
+  --plumbing-bg-overlay: rgba(248, 250, 252, 0.9);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100%;
+  background-color: var(--background);
+  background-image:
+    linear-gradient(var(--plumbing-bg-overlay), var(--plumbing-bg-overlay)),
+    var(--plumbing-bg-image);
+  background-repeat: repeat;
+  background-size: 300px;
+  color: var(--text-body);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.app-plumbing-bg {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(var(--plumbing-bg-overlay), var(--plumbing-bg-overlay)),
+    var(--plumbing-bg-image);
+  background-repeat: repeat;
+  background-size: 300px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.calendar-scroll-x {
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #f97316 #e2e8f0;
+}
+
+.calendar-scroll-x::-webkit-scrollbar {
+  height: 12px;
+}
+
+.calendar-scroll-x::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 6px;
+}
+
+.calendar-scroll-x::-webkit-scrollbar-thumb {
+  background: linear-gradient(to right, #fb923c, #f97316);
+  border-radius: 6px;
+  border: 2px solid #e2e8f0;
+}
+
+.calendar-scroll-x::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to right, #f97316, #ea580c);
+}
