@@ -20,7 +20,7 @@ export default function ForgotPasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
@@ -54,7 +54,7 @@ export default function ForgotPasswordForm({
         <p className="text-sm text-slate-600">
           If an account exists for <strong>{email.trim()}</strong>, we sent a password reset
           link. Open the link to set a new password on{" "}
-          <span className="font-medium text-slate-800">/auth/reset-password</span>.
+          <span className="font-medium text-slate-800">/reset-password</span>.
         </p>
 
         <button
@@ -86,18 +86,24 @@ export default function ForgotPasswordForm({
         Enter your email and we&apos;ll send a link to reset your password.
       </p>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <label className="block space-y-1">
-          <span className={labelClass}>Email</span>
+      <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
+        <div className="space-y-1">
+          <label htmlFor="forgot-password-email" className={labelClass}>
+            Email
+          </label>
           <input
+            id="forgot-password-email"
+            name="email"
             type="email"
             className={inputClass}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
+            inputMode="email"
+            spellCheck={false}
             required
           />
-        </label>
+        </div>
 
         {error ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">

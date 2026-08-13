@@ -1,7 +1,4 @@
-import { createSupabaseBrowserClient } from "./supabase/client";
-import { getResetPasswordRedirectUrl } from "./worker-auth-email";
-
-/** Request a password reset email; redirect lands on /auth/reset-password via auth callback. */
+/** Request a password reset email via the Resend-backed API route. */
 export async function requestPasswordResetEmail(
   email: string
 ): Promise<{ error: string | null }> {
@@ -11,12 +8,18 @@ export async function requestPasswordResetEmail(
   }
 
   try {
-    const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo: getResetPasswordRedirectUrl(),
+    const response = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: trimmed }),
     });
 
-    if (error) return { error: error.message };
+    const payload = (await response.json()) as { error?: string; success?: boolean };
+
+    if (!response.ok) {
+      return { error: payload.error ?? "Failed to send reset email." };
+    }
+
     return { error: null };
   } catch (cause) {
     return {

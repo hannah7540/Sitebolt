@@ -15,7 +15,7 @@ function getConfirmInviteRedirectUrl(): string {
 }
 
 function getResetPasswordRedirectUrl(): string {
-  return getAuthCallbackUrl("/auth/reset-password");
+  return getAuthCallbackUrl("/reset-password");
 }
 
 export interface WorkerInviteEmailResult {

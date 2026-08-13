@@ -7,7 +7,7 @@ import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import {
   buildWorkerInviteCallbackUrl,
-  WORKER_INVITE_CALLBACK_PATH,
+  AUTH_CALLBACK_PATH,
   WORKER_INVITE_NEXT_PATH,
   type WorkerInviteLinkType,
 } from "@/lib/worker-invite-link";
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
         type: linkType,
         email: email,
         options: {
-          redirectTo: `${PRODUCTION_SITE_URL}${WORKER_INVITE_CALLBACK_PATH}?next=${encodeURIComponent(WORKER_INVITE_NEXT_PATH)}`,
+          redirectTo: `${PRODUCTION_SITE_URL}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(WORKER_INVITE_NEXT_PATH)}`,
         },
       });
 

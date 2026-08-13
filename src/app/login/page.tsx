@@ -119,22 +119,30 @@ function LoginPageContent() {
           Sign in with your administrator account to open the project dashboard.
         </p>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <label className="block space-y-1">
-            <span className={labelClass}>Email</span>
+        <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
+          <div className="space-y-1">
+            <label htmlFor="login-email" className={labelClass}>
+              Email
+            </label>
             <input
+              id="login-email"
+              name="email"
               type="email"
               className={inputClass}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              inputMode="email"
+              spellCheck={false}
               required
             />
-          </label>
+          </div>
 
-          <label className="block space-y-1">
+          <div className="space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span className={labelClass}>Password</span>
+              <label htmlFor="login-password" className={labelClass}>
+                Password
+              </label>
               <button
                 type="button"
                 onClick={() => setShowForgotPassword(true)}
@@ -144,6 +152,8 @@ function LoginPageContent() {
               </button>
             </div>
             <input
+              id="login-password"
+              name="password"
               type="password"
               className={inputClass}
               value={password}
@@ -151,7 +161,7 @@ function LoginPageContent() {
               autoComplete="current-password"
               required
             />
-          </label>
+          </div>
 
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
