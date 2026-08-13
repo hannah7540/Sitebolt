@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, AlertTriangle, Link2, Pencil, UserX, UserCheck, Search, X } from "lucide-react";
+import {
+  Plus,
+  AlertTriangle,
+  Link2,
+  Pencil,
+  UserX,
+  UserCheck,
+  Search,
+  X,
+  Mail,
+} from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
   getWorkerAssignedProjectIds,
@@ -27,6 +37,9 @@ import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
+import { DEFAULT_SYSTEM_FROM_ADDRESS } from "@/lib/email-config";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
 
@@ -101,6 +114,36 @@ const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
   { id: "All", label: "All" },
 ];
 
+function canResendWorkerInvite(worker: Worker): boolean {
+  if (isWorkerRevoked(worker)) return false;
+  if ((worker.status ?? "active") !== "pending_induction") return false;
+  return Boolean(worker.email?.trim());
+}
+
+async function sendWorkerInviteEmail(email: string, workerId?: string): Promise<void> {
+  const response = await fetch("/api/workers/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, workerId }),
+  });
+  const data = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    throw new Error(data.error ?? "Failed to send worker invite.");
+  }
+}
+
+async function sendWorkerPasswordResetEmail(email: string): Promise<void> {
+  const response = await fetch("/api/workers/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    throw new Error(data.error ?? "Failed to send password setup email.");
+  }
+}
+
 export default function WorkerDirectoryPanel({
   workers,
   workerVocs,
@@ -121,7 +164,9 @@ export default function WorkerDirectoryPanel({
   const [workerProjectMap, setWorkerProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [actionId, setActionId] = useState<string | null>(null);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   useEffect(() => {
     setWorkerList(workers);
@@ -255,6 +300,31 @@ export default function WorkerDirectoryPanel({
   const openWorkerProfile = (worker: Worker, tab: WorkerProfileTab = "basic") => {
     setProfileInitialTab(tab);
     setSelectedWorker(worker);
+  };
+
+  const handleResendInvite = async (worker: Worker) => {
+    const email = worker.email?.trim();
+    if (!email) return;
+
+    setResendingInviteId(worker.id);
+
+    try {
+      try {
+        await sendWorkerInviteEmail(email, worker.id);
+      } catch {
+        await sendWorkerPasswordResetEmail(email);
+      }
+
+      showSuccess(
+        `Invitation email resent to ${email} from ${DEFAULT_SYSTEM_FROM_ADDRESS}`
+      );
+    } catch (error) {
+      showError(
+        error instanceof Error ? error.message : "Failed to resend invitation email."
+      );
+    } finally {
+      setResendingInviteId(null);
+    }
   };
 
   if (selectedWorker) {
@@ -446,6 +516,17 @@ export default function WorkerDirectoryPanel({
                           Assign
                         </button>
                       )}
+                      {canResendWorkerInvite(w) && (
+                        <button
+                          type="button"
+                          disabled={resendingInviteId === w.id}
+                          onClick={() => void handleResendInvite(w)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          <Mail className="h-3.5 w-3.5" />
+                          {resendingInviteId === w.id ? "Sending…" : "Resend Invite"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={actionId === w.id}
@@ -511,6 +592,10 @@ export default function WorkerDirectoryPanel({
           hideFinancialFields={hideFinancialFields}
           canAssignPayRules={canAssignPayRules}
         />
+      )}
+
+      {toast && (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       )}
 
       {assignWorker && (
