@@ -13,7 +13,8 @@ export default function AcceptInviteClient({ initialHasSession }: AcceptInviteCl
       title="Accept invitation"
       description="Create a password to activate your SiteBolt worker account."
       submitLabel="Activate account"
-      successMessage="Your account is ready. You can sign in with your new password."
+      successMessage="Account activated! Complete your profile setup next."
+      successRedirectPath="/onboarding"
     />
   );
 }

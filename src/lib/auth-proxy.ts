@@ -10,6 +10,7 @@ import {
 } from "@/lib/security-roles";
 import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+import { WORKER_ONBOARDING_PATH } from "@/lib/worker-onboarding";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -27,6 +28,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/organisation",
   "/projects",
   "/worker-dashboard",
+  "/onboarding",
   "/accounts",
   "/admin",
   "/settings",
@@ -67,6 +69,7 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/accept-invite") ||
     pathname.startsWith("/update-password") ||
     pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/onboarding") ||
     pathname.startsWith("/portal/")
   );
 }
@@ -95,6 +98,46 @@ interface AuthContext {
   user: User | null;
   role: SecurityRole;
   workerId: string | null;
+  onboardingCompleted: boolean;
+}
+
+async function resolveWorkerOnboardingCompleted(
+  supabase: ReturnType<typeof createServerClient>,
+  workerId: string
+): Promise<boolean> {
+  const selectVariants = [
+    "onboarding_completed",
+    "status, induction_completed_at",
+  ] as const;
+
+  for (const select of selectVariants) {
+    const { data, error } = await supabase
+      .from("workers")
+      .select(select)
+      .eq("id", workerId)
+      .maybeSingle();
+
+    if (error) {
+      if (error.message.toLowerCase().includes("onboarding_completed")) continue;
+      return false;
+    }
+
+    if (!data) return false;
+
+    const row = data as {
+      onboarding_completed?: boolean | null;
+      status?: string | null;
+      induction_completed_at?: string | null;
+    };
+
+    if (typeof row.onboarding_completed === "boolean") {
+      return row.onboarding_completed;
+    }
+
+    return row.status === "active" || Boolean(row.induction_completed_at);
+  }
+
+  return false;
 }
 
 async function resolveAuthContext(
@@ -102,7 +145,7 @@ async function resolveAuthContext(
   user: User | null
 ): Promise<AuthContext> {
   if (!user) {
-    return { user: null, role: "general_worker", workerId: null };
+    return { user: null, role: "general_worker", workerId: null, onboardingCompleted: true };
   }
 
   const { data: profile } = await supabase
@@ -112,10 +155,16 @@ async function resolveAuthContext(
     .maybeSingle();
 
   if (profile?.role) {
+    const workerId = profile.worker_id ?? null;
+    const onboardingCompleted = workerId
+      ? await resolveWorkerOnboardingCompleted(supabase, workerId)
+      : true;
+
     return {
       user,
       role: normalizeSecurityRole(profile.role),
-      workerId: profile.worker_id ?? null,
+      workerId,
+      onboardingCompleted,
     };
   }
 
@@ -126,10 +175,16 @@ async function resolveAuthContext(
     .maybeSingle();
 
   if (workerByAuth?.id) {
+    const onboardingCompleted = await resolveWorkerOnboardingCompleted(
+      supabase,
+      workerByAuth.id
+    );
+
     return {
       user,
       role: normalizeSecurityRole(workerByAuth.security_role),
       workerId: workerByAuth.id,
+      onboardingCompleted,
     };
   }
 
@@ -142,10 +197,16 @@ async function resolveAuthContext(
       .maybeSingle();
 
     if (workerByEmail?.id) {
+      const onboardingCompleted = await resolveWorkerOnboardingCompleted(
+        supabase,
+        workerByEmail.id
+      );
+
       return {
         user,
         role: normalizeSecurityRole(workerByEmail.security_role),
         workerId: workerByEmail.id,
+        onboardingCompleted,
       };
     }
   }
@@ -157,6 +218,7 @@ async function resolveAuthContext(
     user,
     role: normalizeSecurityRole(typeof rawRole === "string" ? rawRole : null),
     workerId: null,
+    onboardingCompleted: true,
   };
 }
 
@@ -232,6 +294,18 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       "/reset-password",
       sessionResponse
     );
+  }
+
+  if (
+    context.user &&
+    context.role === "general_worker" &&
+    context.workerId &&
+    !context.onboardingCompleted &&
+    !pathname.startsWith(WORKER_ONBOARDING_PATH) &&
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/accept-invite")
+  ) {
+    return redirectWithCookies(request, WORKER_ONBOARDING_PATH, sessionResponse);
   }
 
   if (pathname.startsWith("/login")) {

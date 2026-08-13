@@ -29,6 +29,7 @@ function WorkerDashboardContent() {
   const router = useRouter();
   const queryWorkerId = searchParams.get("worker_id");
   const fromAdmin = searchParams.get("from") === "admin";
+  const showWelcome = searchParams.get("welcome") === "1";
 
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [pickerLoading, setPickerLoading] = useState(true);
@@ -155,12 +156,21 @@ function WorkerDashboardContent() {
   const sessionRole = normalizeSecurityRole(linkedWorker?.security_role);
 
   return (
-    <WorkerDashboardView
-      workerId={workerId}
-      showAdminSwitch={showAdminSwitch}
-      preferAdminProfile={fromAdmin}
-      sessionRole={sessionRole}
-    />
+    <>
+      {showWelcome ? (
+        <div className="mx-auto max-w-5xl px-4 pt-4">
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Welcome to SiteBolt! Your account setup is complete.
+          </p>
+        </div>
+      ) : null}
+      <WorkerDashboardView
+        workerId={workerId}
+        showAdminSwitch={showAdminSwitch}
+        preferAdminProfile={fromAdmin}
+        sessionRole={sessionRole}
+      />
+    </>
   );
 }
 

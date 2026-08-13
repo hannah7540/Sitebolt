@@ -114,6 +114,7 @@ export interface Worker {
   status: WorkerStatus | string;
   induction_signature_url: string | null;
   induction_completed_at: string | null;
+  onboarding_completed?: boolean;
   security_role: SecurityRole;
   accounts_access_role: AccountsAccessRole;
   can_access_accounts: boolean;
@@ -184,6 +185,7 @@ const WORKER_SELECT_COLUMNS = [
   "status",
   "induction_signature_url",
   "induction_completed_at",
+  "onboarding_completed",
   "security_role",
   "accounts_access_role",
   "can_access_accounts",
@@ -1815,6 +1817,7 @@ export async function updateWorker(
     cards_vocs?: unknown;
     worker_code?: string | null;
     employment_type?: string | null;
+    onboarding_completed?: boolean;
   }
 ): Promise<{ error: string | null }> {
   let payload = { ...updates };

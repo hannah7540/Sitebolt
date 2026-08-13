@@ -1,0 +1,89 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+export const WORKER_ONBOARDING_PATH = "/onboarding";
+
+export interface WorkerOnboardingRecord {
+  id: string;
+  email: string;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  trade: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  white_card_number: string | null;
+  drivers_licence_number: string | null;
+  onboarding_completed: boolean;
+}
+
+export async function findWorkerIdForAuthUser(
+  supabase: SupabaseClient,
+  userId: string,
+  email: string | null | undefined
+): Promise<string | null> {
+  const authLookup = await supabase
+    .from("workers")
+    .select("id")
+    .eq("auth_user_id", userId)
+    .maybeSingle();
+
+  if (!authLookup.error && authLookup.data?.id) {
+    return authLookup.data.id as string;
+  }
+
+  const trimmedEmail = email?.trim();
+  if (trimmedEmail) {
+    const emailLookup = await supabase
+      .from("workers")
+      .select("id")
+      .ilike("email", trimmedEmail)
+      .maybeSingle();
+
+    if (!emailLookup.error && emailLookup.data?.id) {
+      return emailLookup.data.id as string;
+    }
+  }
+
+  return null;
+}
+
+export async function fetchWorkerOnboardingCompleted(
+  workerId: string
+): Promise<boolean> {
+  const supabase = createSupabaseBrowserClient();
+  const selectVariants = [
+    "onboarding_completed",
+    "status, induction_completed_at",
+  ] as const;
+
+  for (const select of selectVariants) {
+    const { data, error } = await supabase
+      .from("workers")
+      .select(select)
+      .eq("id", workerId)
+      .maybeSingle();
+
+    if (error) {
+      if (error.message.toLowerCase().includes("onboarding_completed")) continue;
+      return false;
+    }
+
+    if (!data) return false;
+
+    const row = data as {
+      onboarding_completed?: boolean | null;
+      status?: string | null;
+      induction_completed_at?: string | null;
+    };
+
+    if (typeof row.onboarding_completed === "boolean") {
+      return row.onboarding_completed;
+    }
+
+    return row.status === "active" || Boolean(row.induction_completed_at);
+  }
+
+  return false;
+}

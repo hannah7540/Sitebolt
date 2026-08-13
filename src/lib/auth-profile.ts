@@ -11,6 +11,10 @@ import {
   normalizeSecurityRole,
 } from "@/lib/security-roles";
 import { setAdminWorkerId, setStoredWorkerId, workerDashboardUrl } from "@/lib/user-session";
+import {
+  WORKER_ONBOARDING_PATH,
+  fetchWorkerOnboardingCompleted,
+} from "@/lib/worker-onboarding";
 
 export interface UserProfileRow {
   role: string;
@@ -153,6 +157,10 @@ export async function resolvePostAuthPathForUser(user: User): Promise<string> {
     return "/admin";
   }
   if (bound.workerId) {
+    const onboardingCompleted = await fetchWorkerOnboardingCompleted(bound.workerId);
+    if (!onboardingCompleted) {
+      return WORKER_ONBOARDING_PATH;
+    }
     return workerDashboardUrl(bound.workerId);
   }
   return "/worker-dashboard";
