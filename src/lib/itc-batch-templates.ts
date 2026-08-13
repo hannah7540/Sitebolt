@@ -1,3 +1,6 @@
+import { formatItcAutoName } from "./itc-naming";
+import { electricalConduitSpecRulesForDb } from "./itc-electrical-conduit-specs";
+
 export const ITC_SERVICE_TYPES = [
   "HV",
   "LV",
@@ -72,6 +75,8 @@ export interface ItcInspectionActivity {
   itc_id: string;
   activity_number: number;
   title: string;
+  inspection_criteria?: string | null;
+  check_result?: string | null;
   requires_photo: boolean;
   check_by: string | null;
   checked_date: string | null;
@@ -109,23 +114,93 @@ export interface ItcCompletedDocument {
 
 /** 14 standard inspection activities from itc complete.xlsx */
 export const STANDARD_ITC_INSPECTION_ACTIVITIES = [
-  { activity_number: 1, title: "Survey Setout", requires_photo: false },
-  { activity_number: 2, title: "Grade & Depth", requires_photo: false },
-  { activity_number: 3, title: "Trench Width", requires_photo: false },
-  { activity_number: 4, title: "Foundation Inspect", requires_photo: true },
-  { activity_number: 5, title: "Bedding + Haunch", requires_photo: false },
-  { activity_number: 6, title: "Line & Grade", requires_photo: false },
-  { activity_number: 7, title: "Joints & Fittings", requires_photo: false },
-  { activity_number: 8, title: "Service Installation", requires_photo: false },
-  { activity_number: 9, title: "Warning Tape / Cover", requires_photo: true },
-  { activity_number: 10, title: "Backfill", requires_photo: false },
-  { activity_number: 11, title: "Compaction Test", requires_photo: false },
-  { activity_number: 12, title: "CCTV Inspection", requires_photo: false },
-  { activity_number: 13, title: "Reinstatement", requires_photo: true },
-  { activity_number: 14, title: "Final Sign-Off", requires_photo: false },
+  {
+    activity_number: 1,
+    title: "Survey Setout",
+    inspection_criteria: "Setout coordinates and levels match approved design drawings.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 2,
+    title: "Grade & Depth",
+    inspection_criteria: "Trench grade and depth comply with specification and design.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 3,
+    title: "Trench Width",
+    inspection_criteria: "Minimum trench width achieved for bedding, side fill, and cover.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 4,
+    title: "Foundation Inspect",
+    inspection_criteria: "Trench base free of soft spots, water, and unsuitable material.",
+    requires_photo: true,
+  },
+  {
+    activity_number: 5,
+    title: "Bedding + Haunch",
+    inspection_criteria: "Bedding thickness and haunching meet minimum specification.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 6,
+    title: "Line & Grade",
+    inspection_criteria: "Service installed to correct line and grade during placement.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 7,
+    title: "Joints & Fittings",
+    inspection_criteria: "Joints, bends, and fittings installed per manufacturer requirements.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 8,
+    title: "Service Installation",
+    inspection_criteria: "Conduit configuration, spacers, and separation distances verified.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 9,
+    title: "Warning Tape / Cover",
+    inspection_criteria: "Warning tape and initial cover material installed to specification.",
+    requires_photo: true,
+  },
+  {
+    activity_number: 10,
+    title: "Backfill",
+    inspection_criteria: "Backfill placed in layers without damage to installed services.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 11,
+    title: "Compaction Test",
+    inspection_criteria: "Compaction testing completed and results meet specification.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 12,
+    title: "CCTV Inspection",
+    inspection_criteria: "CCTV inspection completed with acceptable outcome recorded.",
+    requires_photo: false,
+  },
+  {
+    activity_number: 13,
+    title: "Reinstatement",
+    inspection_criteria: "Surface reinstatement completed to project requirements.",
+    requires_photo: true,
+  },
+  {
+    activity_number: 14,
+    title: "Final Sign-Off",
+    inspection_criteria: "All inspection activities complete and ready for certificate issue.",
+    requires_photo: false,
+  },
 ] as const;
 
-export const DEFAULT_SPEC_RULES: Omit<ItcServiceSpecRule, "id">[] = [
+const LEGACY_ELECTRICAL_SPEC_RULES: Omit<ItcServiceSpecRule, "id">[] = [
   {
     service_type: "HV",
     material_and_size: "4 x 100mm HD Orange Conduit",
@@ -198,6 +273,11 @@ export const DEFAULT_SPEC_RULES: Omit<ItcServiceSpecRule, "id">[] = [
     bedding_and_overlay_material: "Bed Sand",
     cover_material: "Roadbase",
   },
+];
+
+export const DEFAULT_SPEC_RULES: Omit<ItcServiceSpecRule, "id">[] = [
+  ...electricalConduitSpecRulesForDb().map(({ sort_order: _sort, ...rule }) => rule),
+  ...LEGACY_ELECTRICAL_SPEC_RULES,
   {
     service_type: "Sewer",
     material_and_size: "225mm PVC SN8",
@@ -295,10 +375,10 @@ export function buildItcNumber(
   serviceType: string,
   sequence: number
 ): string {
-  const zoneCode = zone.trim().toUpperCase().replace(/\s+/g, "") || "ZN";
-  const serviceCode = ITC_SERVICE_TYPE_CODES[serviceType] ?? "SVC";
-  return `${zoneCode}-${serviceCode}-${String(sequence).padStart(4, "0")}`;
+  return formatItcAutoName(zone, serviceType, sequence);
 }
+
+export { formatItcAutoName, itcAutoNamePrefix } from "./itc-naming";
 
 export function groupBatchItemsByServiceType(
   items: ItcBatchItemDraft[]

@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabase";
+import { getWorkerDisplayName } from "./worker-utils";
 
 export type WorkerProfileRow = {
   id: string;
@@ -10,8 +11,7 @@ export type WorkerProfileRow = {
 };
 
 const WORKER_PROFILE_SELECT_VARIANTS = [
-  "id, full_name, first_name, last_name, worker_name",
-  "id, full_name, first_name, last_name",
+  "id, first_name, last_name, full_name",
   "id, first_name, last_name",
   "id, full_name",
   "id",
@@ -32,13 +32,7 @@ export function resolveWorkerProfileDisplayName(
   profile: WorkerProfileRow,
   fallback = "Unknown Worker"
 ): string {
-  return (
-    profile.full_name?.trim() ||
-    profile.worker_name?.trim() ||
-    `${profile.first_name || ""} ${profile.last_name || ""}`.trim() ||
-    profile.name?.trim() ||
-    fallback
-  );
+  return getWorkerDisplayName(profile, fallback);
 }
 
 async function queryWorkerProfiles(

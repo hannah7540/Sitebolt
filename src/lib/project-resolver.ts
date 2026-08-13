@@ -10,6 +10,8 @@ export interface DbProject {
   location: string | null;
   project_code: string | null;
   client: string | null;
+  project_managers: string[];
+  project_administrators: string[];
   project_admins: string[];
   assigned_workers: string[];
   is_active: boolean;
@@ -26,6 +28,8 @@ type RawProjectRow = {
   location?: string | null;
   project_code?: string | null;
   client?: string | null;
+  project_managers?: string[] | null;
+  project_administrators?: string[] | null;
   project_admins?: string[] | null;
   assigned_workers?: string[] | null;
   is_active?: boolean | null;
@@ -36,10 +40,17 @@ type RawProjectRow = {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function resolveAdministratorsFromRow(row: RawProjectRow): string[] {
+  const administrators = normalizeWorkerUuidArray(row.project_administrators);
+  if (administrators.length > 0) return administrators;
+  return normalizeWorkerUuidArray(row.project_admins);
+}
+
 function normalizeProject(row: RawProjectRow): DbProject {
   const slug = row.slug ?? "";
   const project_name = row.project_name ?? null;
   const is_archived = isProjectArchivedRow(row);
+  const project_administrators = resolveAdministratorsFromRow(row);
   return {
     id: row.id,
     slug,
@@ -48,7 +59,9 @@ function normalizeProject(row: RawProjectRow): DbProject {
     location: row.location ?? null,
     project_code: row.project_code ?? null,
     client: row.client ?? null,
-    project_admins: normalizeWorkerUuidArray(row.project_admins),
+    project_managers: normalizeWorkerUuidArray(row.project_managers),
+    project_administrators,
+    project_admins: project_administrators,
     assigned_workers: normalizeWorkerUuidArray(row.assigned_workers),
     is_active: isProjectActive(row.is_active) && !is_archived,
     is_archived,
@@ -206,6 +219,32 @@ export function isNetworkFetchError(error: unknown): boolean {
   );
 }
 
+export const SUPABASE_NETWORK_OFFLINE_WARNING = "Supabase network connection offline";
+
+export function logSupabaseNetworkOfflineWarning(
+  context?: string,
+  error?: unknown
+): void {
+  const message = context
+    ? `${SUPABASE_NETWORK_OFFLINE_WARNING} (${context})`
+    : SUPABASE_NETWORK_OFFLINE_WARNING;
+  if (error !== undefined) {
+    console.warn(message, error);
+    return;
+  }
+  console.warn(message);
+}
+
+/** Returns true when callers should use empty array / null-safe fallbacks. */
+export function handleSupabaseNetworkFetchError(
+  error: unknown,
+  context?: string
+): boolean {
+  if (!isNetworkFetchError(error)) return false;
+  logSupabaseNetworkOfflineWarning(context, error);
+  return true;
+}
+
 /** Active when true, null, or undefined — only explicit false is inactive. */
 export function isProjectActive(
   isActive: boolean | null | undefined
@@ -222,6 +261,7 @@ export function filterActiveProjects(projects: DbProject[]): DbProject[] {
 
 const PROJECT_SELECT_VARIANTS = [
   "*",
+  "id, project_name, slug, location, project_code, client, project_managers, project_administrators, project_admins, assigned_workers, is_active, is_archived, status",
   "id, project_name, slug, location, project_code, client, project_admins, assigned_workers, is_active, is_archived, status",
   "id, project_name, slug, location, project_admins, assigned_workers, is_active, is_archived, status",
   "id, project_name, slug, location, is_active, is_archived, status",
@@ -245,12 +285,19 @@ async function queryAllProjects(): Promise<DbProject[]> {
         continue;
       }
 
+      if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
+        return projectsCache ?? [];
+      }
+
       console.error("Failed to fetch projects:", error.message);
       break;
     }
 
     return projectsCache ?? [];
   } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
+      return projectsCache ?? [];
+    }
     console.error("Failed to fetch projects:", error);
     return projectsCache ?? [];
   }
@@ -281,6 +328,9 @@ export async function fetchProjects(): Promise<DbProject[]> {
     projectsCache = projects;
     return projects;
   } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
+      return projectsCache ?? [];
+    }
     console.error("fetchProjects failed:", error);
     return projectsCache ?? [];
   }
@@ -301,6 +351,8 @@ export type ProjectSaveInput = {
   location?: string | null;
   project_code?: string | null;
   client?: string | null;
+  project_managers?: string[] | null;
+  project_administrators?: string[] | null;
   project_admins?: string[] | null;
   assigned_workers?: string[] | null;
   is_active?: boolean;
@@ -318,6 +370,8 @@ type ProjectWritePayload = {
   location: string | null;
   project_code: string | null;
   client: string | null;
+  project_managers: string[];
+  project_administrators: string[];
   project_admins: string[];
   assigned_workers: string[];
   is_active: boolean;
@@ -326,20 +380,26 @@ type ProjectWritePayload = {
 };
 
 const PROJECT_RETURN_SELECT =
-  "id, project_name, slug, location, project_code, client, project_admins, assigned_workers, is_active, is_archived, status";
+  "id, project_name, slug, location, project_code, client, project_managers, project_administrators, project_admins, assigned_workers, is_active, is_archived, status";
 
 const PROJECT_BASIC_RETURN_SELECT =
   "id, project_name, slug, location, is_active, is_archived, status";
 
 function buildProjectWritePayload(input: ProjectSaveInput): ProjectWritePayload {
   const archived = input.status === "Archived";
+  const administrators = normalizeWorkerUuidArray(
+    input.project_administrators ?? input.project_admins
+  );
+  const managers = normalizeWorkerUuidArray(input.project_managers);
   return {
     project_name: input.project_name.trim(),
     slug: slugifyTitle(input.project_name),
     location: input.location?.trim() || null,
     project_code: input.project_code?.trim() || null,
     client: input.client?.trim() || null,
-    project_admins: normalizeWorkerUuidArray(input.project_admins),
+    project_managers: managers,
+    project_administrators: administrators,
+    project_admins: administrators,
     assigned_workers: normalizeWorkerUuidArray(input.assigned_workers),
     is_active: archived ? false : input.is_active ?? true,
     is_archived: archived,
@@ -372,6 +432,8 @@ async function persistProjectWrite(
 
   if (error && isMissingColumnError(error.message)) {
     const optionalKeys = [
+      "project_managers",
+      "project_administrators",
       "project_admins",
       "assigned_workers",
       "project_code",
@@ -386,7 +448,7 @@ async function persistProjectWrite(
     for (const key of optionalKeys) {
       if (!(key in body)) continue;
       delete body[key];
-      if (key === "project_admins" || key === "assigned_workers") {
+      if (key === "project_admins" || key === "assigned_workers" || key === "project_managers" || key === "project_administrators") {
         select = PROJECT_BASIC_RETURN_SELECT;
       }
       ({ data, error } = await runWrite(body, select));

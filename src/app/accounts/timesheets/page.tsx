@@ -1,69 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
 import AccountsTimesheetsPanel from "@/components/accounts/AccountsTimesheetsPanel";
-import { fetchWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
-import {
-  getAdminWorkerId,
-  resolveAdminWorkerFromList,
-} from "@/lib/user-session";
+import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import {
   canAccessAccountsArea,
-  normalizeAccountsAccessRole,
-  normalizeSecurityRole,
+  canViewAccountsTimesheets,
+  isAccountsTimesheetsReadOnly,
 } from "@/lib/security-roles";
 
 function AccountsTimesheetsContent() {
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [adminWorkerId, setAdminWorkerIdState] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    sessionRole,
+    accountsAccessRole,
+    canAccessAccounts,
+    loading,
+    sessionReady,
+  } = useAdminConsole();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      if (!isSupabaseConfigured()) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
-      const workerData = await fetchWorkers();
-      if (cancelled) return;
-
-      setWorkers(workerData);
-      const resolved =
-        resolveAdminWorkerFromList(workerData) ??
-        workerData[0]?.id ??
-        getAdminWorkerId();
-      setAdminWorkerIdState(resolved);
-      setLoading(false);
-    }
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const accountsAccessRole = useMemo(() => {
-    const linked = workers.find((worker) => worker.id === adminWorkerId);
-    return normalizeAccountsAccessRole(linked?.accounts_access_role);
-  }, [workers, adminWorkerId]);
-
-  const sessionRole = useMemo(() => {
-    const linked = workers.find((worker) => worker.id === adminWorkerId);
-    return normalizeSecurityRole(linked?.security_role ?? "full_access");
-  }, [workers, adminWorkerId]);
-
-  const canAccessAccounts = useMemo(() => {
-    const linked = workers.find((worker) => worker.id === adminWorkerId);
-    return linked?.can_access_accounts === true;
-  }, [workers, adminWorkerId]);
-
-  if (loading) {
+  if (loading || !sessionReady) {
     return (
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
@@ -73,6 +29,7 @@ function AccountsTimesheetsContent() {
   }
 
   if (
+    !canViewAccountsTimesheets(sessionRole) &&
     !canAccessAccountsArea({
       securityRole: sessionRole,
       accountsAccessRole,
@@ -87,7 +44,14 @@ function AccountsTimesheetsContent() {
     );
   }
 
-  return <AccountsTimesheetsPanel accountsAccessRole={accountsAccessRole} />;
+  const readOnly = isAccountsTimesheetsReadOnly(sessionRole, accountsAccessRole);
+
+  return (
+    <AccountsTimesheetsPanel
+      accountsAccessRole={accountsAccessRole}
+      readOnly={readOnly}
+    />
+  );
 }
 
 export default function AccountsTimesheetsPage() {

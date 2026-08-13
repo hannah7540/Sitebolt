@@ -1,5 +1,19 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { fetchWorkerProfileNameMap } from "./worker-profile-lookup";
+import { insertWithFormMetadataFallback } from "./form-metadata-consolidation";
+import {
+  buildTestTimesheetInsertPayload,
+  enrichFormTestContext,
+  resolveTimesheetTestPicklists,
+  validateActBreakForTimesheetPayload,
+} from "./form-test-timesheet-helpers";
+import {
+  buildSiteFormTestPayload,
+  SITE_FORM_TEST_CHECKLIST,
+  SITE_FORM_TYPES,
+} from "./site-form-payload";
+import { buildWorkerFullName, buildWorkerNameFields, getWorkerDisplayName } from "./worker-utils";
+import { fetchTimesheetFormOptions } from "./timesheet-options";
 import {
   getPostgrestErrorCode,
   toSupabaseRequestError,
@@ -24,11 +38,17 @@ export interface FormSubmissionTestResult {
 export interface FormTestContext {
   workerId: string;
   workerName: string;
+  workerFirstName?: string;
+  workerLastName?: string;
+  workerState?: string | null;
   projectId: string;
   projectName: string;
   plantId: string | null;
   formTemplateId: string | null;
   createdTemplateId: string | null;
+  timesheetProjectId?: string | null;
+  timesheetProjectName?: string;
+  timesheetTaskName?: string;
 }
 
 export interface FormSubmissionTestDefinition {
@@ -39,6 +59,19 @@ export interface FormSubmissionTestDefinition {
   prepare?: (ctx: FormTestContext) => Promise<void>;
   buildPayloads: (ctx: FormTestContext) => Record<string, unknown>[];
   cleanup?: (ctx: FormTestContext, insertedId: string) => Promise<string | null>;
+  verifyInsert?: (
+    ctx: FormTestContext,
+    insertedId: string
+  ) => Promise<{ passed: boolean; message?: string; details?: string[] }>;
+}
+
+export interface FormSubmissionVerifyDefinition {
+  id: string;
+  table: string;
+  label: string;
+  run: (
+    ctx: FormTestContext
+  ) => Promise<{ passed: boolean; message?: string; details?: string[] }>;
 }
 
 const TEST_TAG = "FORM-TEST";
@@ -91,10 +124,22 @@ export function generateFixSqlFromError(
 
   if (pgColumnMatch?.[1]) {
     const column = pgColumnMatch[1];
+    const columnType =
+      column === "form_time"
+        ? "time"
+        : column === "form_date"
+          ? "date"
+          : column === "additional_workers"
+            ? "jsonb NOT NULL DEFAULT '[]'::jsonb"
+            : column.endsWith("_at")
+              ? "timestamptz NOT NULL DEFAULT now()"
+              : "text";
+    const columnDefault =
+      column === "form_time" || column === "form_date" ? "" : " -- TODO: choose correct default";
     return [
       `-- Missing column detected while testing public.${table}`,
       `ALTER TABLE public.${table}`,
-      `  ADD COLUMN IF NOT EXISTS ${column} text; -- TODO: choose correct type/nullability/default`,
+      `  ADD COLUMN IF NOT EXISTS ${column} ${columnType}${columnDefault};`,
     ].join("\n");
   }
 
@@ -235,80 +280,152 @@ export const FORM_SUBMISSION_TEST_DEFINITIONS: FormSubmissionTestDefinition[] = 
     id: "worker_timesheets",
     table: "worker_timesheets",
     label: "Worker Timesheets (public.worker_timesheets)",
+    prepare: async (ctx) => {
+      const { picklists, error } = await resolveTimesheetTestPicklists();
+      if (!picklists) {
+        throw new Error(error ?? "No active timesheet picklists available.");
+      }
+      ctx.timesheetProjectId = picklists.projectId;
+      ctx.timesheetProjectName = picklists.projectName;
+      ctx.timesheetTaskName = picklists.taskName;
+    },
     buildPayloads: (ctx) => {
-      const now = nowIso();
-      const workDate = new Date().toISOString().split("T")[0];
+      const workDate = todayIso();
+      const primary = buildTestTimesheetInsertPayload({
+        workerId: ctx.workerId,
+        projectId: ctx.timesheetProjectId ?? ctx.projectId,
+        projectName: ctx.timesheetProjectName ?? ctx.projectName,
+        taskName: ctx.timesheetTaskName ?? "Labourer",
+        workDate,
+        notes: TEST_TIMESHEET_NOTES,
+      });
+
+      const payloads = [primary];
+
+      const legacy = buildTestTimesheetInsertPayload({
+        workerId: ctx.workerId,
+        projectId: ctx.timesheetProjectId ?? ctx.projectId,
+        projectName: ctx.timesheetProjectName ?? ctx.projectName,
+        taskName: ctx.timesheetTaskName ?? "Labourer",
+        workDate,
+        notes: TEST_TIMESHEET_NOTES,
+        includeBreak: false,
+      });
+
+      if (!validateActBreakForTimesheetPayload(ctx.workerState, legacy)) {
+        payloads.push(legacy);
+      }
+
+      return payloads;
+    },
+    verifyInsert: async (_ctx, insertedId) => {
+      const { data, error } = await supabase
+        .from("worker_timesheets")
+        .select("*")
+        .eq("id", insertedId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return {
+          passed: false,
+          message: error?.message ?? "Inserted timesheet could not be reloaded.",
+        };
+      }
+
+      const record = data as Record<string, unknown>;
+      const workHours = Number(record.work_hours ?? 0);
+      const breakHours = Number(record.break_hours ?? 0);
+      const dailyTotal = Number(record.daily_total_hours ?? record.total_hours ?? 0);
+      const expectedDaily = Math.max(0, Math.round((workHours - breakHours) * 100) / 100);
+
+      if (Math.abs(dailyTotal - expectedDaily) > 0.02) {
+        return {
+          passed: false,
+          message: "Stored daily total does not match work minus break hours.",
+          details: [
+            `work_hours: ${workHours}`,
+            `break_hours: ${breakHours}`,
+            `daily_total_hours: ${dailyTotal}`,
+            `expected: ${expectedDaily}`,
+          ],
+        };
+      }
+
+      return {
+        passed: true,
+        message: "Timesheet hour totals persisted correctly.",
+        details: [
+          `project_name: ${String(record.project_name ?? "")}`,
+          `worker_trade: ${String(record.worker_trade ?? "")}`,
+          `daily_total_hours: ${dailyTotal}`,
+        ],
+      };
+    },
+  },
+  {
+    id: "workers_profile",
+    table: "workers",
+    label: "Workers Profile (first_name / last_name)",
+    buildPayloads: () => {
+      const stamp = uniqueSuffix();
+      const firstName = "Form";
+      const lastName = `Test ${stamp}`;
+      const nameFields = buildWorkerNameFields(firstName, lastName);
       return [
         {
-          worker_id: ctx.workerId,
-          work_date: workDate,
-          timesheet_date: workDate,
-          week_start_date: workDate,
-          week_end_date: workDate,
-          project_id: ctx.projectId,
-          project_name: ctx.projectName,
-          worker_trade: "Plumber",
-          trade: "Plumber",
-          start_time: "06:30:00",
-          finish_time: TEST_FINISH_TIME,
-          end_time: TEST_FINISH_TIME,
-          break_minutes: 30,
-          total_hours: TEST_DAILY_TOTAL_HOURS,
-          work_hours: 8,
-          break_hours: 0.5,
-          daily_total_hours: TEST_DAILY_TOTAL_HOURS,
-          activities: [
-            {
-              id: "activity-test",
-              start_time: "06:30",
-              end_time: "14:30",
-              label: "WORKING ON SITE",
-            },
-          ],
-          entries: [
-            {
-              id: "activity-test",
-              start_time: "06:30",
-              end_time: "14:30",
-              label: "WORKING ON SITE",
-            },
-          ],
-          breaks: [],
-          notes: TEST_TIMESHEET_NOTES,
-          signature_url: "https://example.com/form-test-signature.png",
-          is_draft: false,
-          status: "pending",
-          submitted_at: new Date().toISOString(),
-          created_at: now,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          worker_id: ctx.workerId,
-          work_date: workDate,
-          timesheet_date: workDate,
-          week_start_date: workDate,
-          week_end_date: workDate,
-          project_id: ctx.projectId,
-          project_name: ctx.projectName,
-          worker_trade: "Plumber",
-          trade: "Plumber",
-          start_time: "07:00:00",
-          finish_time: TEST_LEGACY_FINISH_TIME,
-          end_time: TEST_LEGACY_FINISH_TIME,
-          break_minutes: 30,
-          total_hours: TEST_DAILY_TOTAL_HOURS,
-          daily_total_hours: TEST_DAILY_TOTAL_HOURS,
-          activities: [],
-          entries: [],
-          breaks: [],
-          is_draft: false,
-          notes: TEST_TIMESHEET_NOTES,
-          status: "pending",
-          submitted_at: new Date().toISOString(),
-          created_at: now,
-          updated_at: new Date().toISOString(),
+          ...nameFields,
+          email: `form-test-${stamp}@example.com`,
+          status: "pending_induction",
+          created_at: nowIso(),
+          updated_at: nowIso(),
         },
       ];
+    },
+    verifyInsert: async (_ctx, insertedId) => {
+      const { data, error } = await supabase
+        .from("workers")
+        .select("first_name, last_name, full_name")
+        .eq("id", insertedId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return {
+          passed: false,
+          message: error?.message ?? "Inserted worker could not be reloaded.",
+        };
+      }
+
+      const record = data as Record<string, unknown>;
+      const firstName = String(record.first_name ?? "").trim();
+      const lastName = String(record.last_name ?? "").trim();
+      const displayName = getWorkerDisplayName({
+        first_name: firstName,
+        last_name: lastName,
+        full_name: String(record.full_name ?? ""),
+      });
+
+      if (!firstName || !lastName) {
+        return {
+          passed: false,
+          message: "Worker first_name and last_name were not persisted.",
+          details: [`first_name: ${firstName || "—"}`, `last_name: ${lastName || "—"}`],
+        };
+      }
+
+      const expectedFullName = buildWorkerFullName(firstName, lastName);
+      if (displayName !== expectedFullName) {
+        return {
+          passed: false,
+          message: "Worker display name does not match first_name + last_name.",
+          details: [`expected: ${expectedFullName}`, `actual: ${displayName}`],
+        };
+      }
+
+      return {
+        passed: true,
+        message: "Worker first_name and last_name persisted and compose full name.",
+        details: [displayName],
+      };
     },
   },
   {
@@ -403,57 +520,19 @@ export const FORM_SUBMISSION_TEST_DEFINITIONS: FormSubmissionTestDefinition[] = 
     table: "site_forms",
     label: "Site Safety Forms (public.site_forms)",
     buildPayloads: (ctx) => {
-      const formDate = todayIso();
-      return [
-        {
-          form_type: "daily_prestart",
-          title: "Site Safety Walk",
-          project_id: ctx.projectId,
-          project_name: ctx.projectName || "Test Project",
-          status: "Completed",
-          worker_id: ctx.workerId,
-          submitted_by_worker_id: ctx.workerId,
-          submitted_at: nowIso(),
-          form_date: formDate,
-          form_time: "06:30:00",
-          location_scope: "Site wide",
-          checklist_data: { test: true, tag: TEST_TAG },
-          photo_urls: [],
-          attendees: [{ name: ctx.workerName }],
-          submitter_signature_url: "https://example.com/form-test-signature.png",
-          created_at: nowIso(),
-        },
-        {
-          form_type: "toolbox_talk",
-          title: "Site Safety Walk",
-          project_id: ctx.projectId,
-          project_name: ctx.projectName || "Test Project",
-          status: "Completed",
-          worker_id: ctx.workerId,
-          submitted_by_worker_id: ctx.workerId,
-          submitted_at: nowIso(),
-          form_date: formDate,
-          checklist_data: { topic: `${TEST_TAG} toolbox` },
-          photo_urls: [],
-          attendees: [],
-          created_at: nowIso(),
-        },
-        {
-          form_type: "safety_walk",
-          title: "Site Safety Walk",
-          project_id: ctx.projectId,
-          project_name: ctx.projectName || "Test Project",
-          status: "Completed",
-          worker_id: ctx.workerId,
-          submitted_by_worker_id: ctx.workerId,
-          submitted_at: nowIso(),
-          form_date: formDate,
-          checklist_data: { hazards: [] },
-          photo_urls: [],
-          attendees: [],
-          created_at: nowIso(),
-        },
-      ];
+      const tag = TEST_TAG;
+      return SITE_FORM_TYPES.map((formType) =>
+        buildSiteFormTestPayload(
+          ctx,
+          formType,
+          {
+            test: true,
+            tag,
+            ...SITE_FORM_TEST_CHECKLIST[formType],
+          },
+          tag
+        )
+      );
     },
   },
   {
@@ -522,6 +601,71 @@ export const FORM_SUBMISSION_TEST_DEFINITIONS: FormSubmissionTestDefinition[] = 
   },
 ];
 
+export const FORM_SUBMISSION_VERIFY_DEFINITIONS: FormSubmissionVerifyDefinition[] = [
+  {
+    id: "timesheet_projects_read",
+    table: "timesheet_projects",
+    label: "Timesheet Projects Picklist (public.timesheet_projects)",
+    run: async () => {
+      const result = await fetchTimesheetFormOptions();
+      if (result.projects.length === 0) {
+        return {
+          passed: false,
+          message:
+            result.error ??
+            "No active timesheet_projects rows returned. Check data and RLS SELECT policies.",
+        };
+      }
+
+      const sample = result.projects[0]!;
+      if (!sample.client?.trim() || !sample.project?.trim()) {
+        return {
+          passed: false,
+          message: "Active timesheet project is missing client or project values.",
+          details: [`id: ${sample.id}`],
+        };
+      }
+
+      return {
+        passed: true,
+        message: `Readable active projects: ${result.projects.length}.`,
+        details: [`sample: ${sample.client} — ${sample.project}`],
+      };
+    },
+  },
+  {
+    id: "timesheet_tasks_read",
+    table: "timesheet_tasks",
+    label: "Timesheet Tasks Picklist (public.timesheet_tasks)",
+    run: async () => {
+      const result = await fetchTimesheetFormOptions();
+      if (result.tasks.length === 0) {
+        return {
+          passed: false,
+          message:
+            result.error ??
+            "No active timesheet_tasks rows returned. Check data and RLS SELECT policies.",
+        };
+      }
+
+      const sample = result.tasks[0]!;
+      if (!sample.name?.trim()) {
+        return {
+          passed: false,
+          message: "Active timesheet task is missing a name.",
+          details: [`id: ${sample.id}`],
+        };
+      }
+
+      return {
+        passed: true,
+        message: `Readable active tasks: ${result.tasks.length}.`,
+        details: [`sample: ${sample.name}`],
+      };
+    },
+  },
+];
+
 export async function resolveFormTestContext(): Promise<
   { context: FormTestContext } | { error: string }
 > {
@@ -529,20 +673,38 @@ export async function resolveFormTestContext(): Promise<
     return { error: "Supabase is not configured. Form tests require a live database connection." };
   }
 
-  const { data: workers, error: workerError } = await supabase
+  const { data: workerCandidates, error: workerError } = await supabase
     .from("workers")
-    .select("id")
-    .limit(1);
+    .select("id, first_name, last_name, full_name")
+    .limit(20);
 
-  if (workerError || !workers?.[0]) {
+  if (workerError || !workerCandidates?.length) {
     return {
       error: workerError?.message ?? "No workers found. Add at least one worker before testing.",
     };
   }
 
-  const workerId = String(workers[0].id);
+  const preferredWorker =
+    workerCandidates.find((row) => {
+      const firstName = String(row.first_name ?? "").trim();
+      const lastName = String(row.last_name ?? "").trim();
+      return Boolean(firstName && lastName);
+    }) ?? workerCandidates[0]!;
+
+  const workerId = String(preferredWorker.id);
+  const profileRecord = preferredWorker as Record<string, unknown>;
+
+  const workerFirstName = String(profileRecord?.first_name ?? "").trim();
+  const workerLastName = String(profileRecord?.last_name ?? "").trim();
   const profileMap = await fetchWorkerProfileNameMap([workerId]);
-  const workerName = profileMap.get(workerId) ?? "Form Test Worker";
+  const workerName = getWorkerDisplayName(
+    {
+      first_name: workerFirstName || null,
+      last_name: workerLastName || null,
+      full_name: profileRecord?.full_name ? String(profileRecord.full_name) : null,
+    },
+    profileMap.get(workerId) ?? "Form Test Worker"
+  );
 
   let projectId = "project-1";
   let projectName = "Form Test Project";
@@ -571,6 +733,8 @@ export async function resolveFormTestContext(): Promise<
     context: {
       workerId,
       workerName,
+      workerFirstName: workerFirstName || undefined,
+      workerLastName: workerLastName || undefined,
       projectId,
       projectName,
       plantId,
@@ -628,15 +792,47 @@ async function runSingleTest(
   }
 
   for (const payload of payloads) {
-    const { data, error } = await supabase
-      .from(definition.table)
-      .insert(payload)
-      .select("id")
-      .single();
+    let lastAttemptError: SupabaseRequestError | null = null;
+    let insertedId: string | null = null;
 
-    if (!error && data?.id) {
-      const insertedId = String(data.id);
+    const result = await insertWithFormMetadataFallback(
+      supabase,
+      definition.table,
+      payload,
+      "id"
+    );
+
+    if (result.data?.id) {
+      insertedId = String(result.data.id);
+    } else {
+      lastAttemptError = toSupabaseRequestError({ message: result.error ?? "Insert failed." });
+    }
+
+    if (!lastAttemptError && insertedId) {
       let cleanupWarning: string | null = null;
+
+      if (definition.verifyInsert) {
+        const verification = await definition.verifyInsert(ctx, insertedId);
+        if (!verification.passed) {
+          if (definition.cleanup) {
+            cleanupWarning = await definition.cleanup(ctx, insertedId);
+          } else {
+            cleanupWarning = await tryDeleteRow(definition.table, insertedId);
+          }
+
+          const result: FormSubmissionTestResult = {
+            ...base,
+            status: "failed",
+            insertedId,
+            errorCode: "VERIFY",
+            errorMessage: verification.message ?? "Post-insert verification failed.",
+            cleanupWarning: cleanupWarning ?? undefined,
+            durationMs: Math.round(performance.now() - started),
+          };
+          onUpdate(result);
+          return result;
+        }
+      }
 
       if (definition.cleanup) {
         cleanupWarning = await definition.cleanup(ctx, insertedId);
@@ -655,7 +851,7 @@ async function runSingleTest(
       return result;
     }
 
-    lastError = toSupabaseRequestError(error);
+    lastError = lastAttemptError;
   }
 
   const result: FormSubmissionTestResult = {
@@ -682,15 +878,21 @@ export async function runAllFormSubmissionTests(options?: {
     return { context: null, results: [], error: resolved.error };
   }
 
-  const ctx = resolved.context;
-  const results: FormSubmissionTestResult[] = FORM_SUBMISSION_TEST_DEFINITIONS.map(
-    (definition) => ({
+  const ctx = await enrichFormTestContext(resolved.context);
+  const results: FormSubmissionTestResult[] = [
+    ...FORM_SUBMISSION_TEST_DEFINITIONS.map((definition) => ({
       id: definition.id,
       table: definition.table,
       label: definition.label,
       status: "pending" as const,
-    })
-  );
+    })),
+    ...FORM_SUBMISSION_VERIFY_DEFINITIONS.map((definition) => ({
+      id: definition.id,
+      table: definition.table,
+      label: definition.label,
+      status: "pending" as const,
+    })),
+  ];
 
   const publish = () => options?.onProgress?.([...results]);
 
@@ -703,6 +905,34 @@ export async function runAllFormSubmissionTests(options?: {
       publish();
     });
     results[index] = result;
+    publish();
+  }
+
+  for (
+    let offset = 0;
+    offset < FORM_SUBMISSION_VERIFY_DEFINITIONS.length;
+    offset += 1
+  ) {
+    const definition = FORM_SUBMISSION_VERIFY_DEFINITIONS[offset]!;
+    const index = FORM_SUBMISSION_TEST_DEFINITIONS.length + offset;
+    const started = performance.now();
+    results[index] = {
+      id: definition.id,
+      table: definition.table,
+      label: definition.label,
+      status: "running",
+    };
+    publish();
+
+    const verification = await definition.run(ctx);
+    results[index] = {
+      id: definition.id,
+      table: definition.table,
+      label: definition.label,
+      status: verification.passed ? "passed" : "failed",
+      errorMessage: verification.passed ? undefined : verification.message,
+      durationMs: Math.round(performance.now() - started),
+    };
     publish();
   }
 

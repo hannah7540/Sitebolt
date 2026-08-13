@@ -14,7 +14,8 @@ export type ReportModuleId =
   | "safety_walks"
   | "toolbox_talks"
   | "rfis"
-  | "swms";
+  | "swms"
+  | "timesheets_hours";
 
 export const REPORT_MODULE_OPTIONS: {
   id: ReportModuleId;
@@ -54,7 +55,13 @@ export const REPORT_MODULE_OPTIONS: {
     id: "swms",
     label: "SWMS (List of SWMS + signed vs unsigned worker tracking)",
   },
+  {
+    id: "timesheets_hours",
+    label: "Timesheets & Daily Hours (Attendance and hours only — no pay data)",
+  },
 ];
+
+export type ReportExportFormat = "pdf" | "excel";
 
 export interface GeneratedReportRecord {
   id: string;
@@ -68,6 +75,7 @@ export interface GeneratedReportRecord {
   project_names: string[];
   file_name: string;
   csv_content: string;
+  export_format: ReportExportFormat;
 }
 
 export interface SaveGeneratedReportInput {
@@ -80,6 +88,7 @@ export interface SaveGeneratedReportInput {
   project_names: string[];
   file_name: string;
   csv_content: string;
+  export_format: ReportExportFormat;
 }
 
 const LOCAL_GENERATED_REPORTS_KEY = "sitebolt_generated_reports_local";
@@ -90,6 +99,10 @@ function normalizeModules(raw: unknown): ReportModuleId[] {
   return raw
     .map((value) => String(value))
     .filter((value): value is ReportModuleId => valid.has(value as ReportModuleId));
+}
+
+function normalizeExportFormat(raw: unknown): ReportExportFormat {
+  return raw === "pdf" ? "pdf" : "excel";
 }
 
 function normalizeReportRow(row: Record<string, unknown>): GeneratedReportRecord {
@@ -109,6 +122,7 @@ function normalizeReportRow(row: Record<string, unknown>): GeneratedReportRecord
       : [],
     file_name: String(row.file_name ?? "sitebolt-report.csv"),
     csv_content: String(row.csv_content ?? ""),
+    export_format: normalizeExportFormat(row.export_format),
   };
 }
 
@@ -203,6 +217,7 @@ export async function saveGeneratedReport(
     project_names: input.project_names,
     file_name: input.file_name,
     csv_content: input.csv_content,
+    export_format: input.export_format,
   };
 
   if (!isSupabaseConfigured()) {
@@ -238,16 +253,54 @@ export async function saveGeneratedReport(
   };
 }
 
-export function downloadGeneratedReportCsv(
-  report: GeneratedReportRecord
-): void {
-  const blob = new Blob([report.csv_content], {
-    type: "text/csv;charset=utf-8;",
-  });
+export function buildReportExcelFileName(startDate: string, endDate: string): string {
+  return `sitebolt-report-${startDate}-to-${endDate}.csv`;
+}
+
+export function buildReportPdfFileName(startDate: string, endDate: string): string {
+  return `sitebolt-report-${startDate}-to-${endDate}.pdf`;
+}
+
+function downloadBlob(fileName: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = report.file_name;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
   link.click();
+  link.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadGeneratedReportExcel(report: GeneratedReportRecord): void {
+  const fileName = report.file_name.endsWith(".csv")
+    ? report.file_name
+    : buildReportExcelFileName(report.start_date, report.end_date);
+  const blob = new Blob([report.csv_content], {
+    type: "text/csv;charset=utf-8;",
+  });
+  downloadBlob(fileName, blob);
+}
+
+export async function downloadGeneratedReportPdf(
+  report: GeneratedReportRecord
+): Promise<void> {
+  const { generateReportPdfFromCsv, downloadReportBlob } = await import(
+    "./pdf/report-pdf"
+  );
+  const { fileName, blob } = await generateReportPdfFromCsv({
+    csvContent: report.csv_content,
+    startDate: report.start_date,
+    endDate: report.end_date,
+    projectNames: report.project_names,
+    modules: report.selected_modules,
+    actionedByName: report.actioned_by_name,
+  });
+  downloadReportBlob(fileName, blob);
+}
+
+/** @deprecated Use downloadGeneratedReportExcel */
+export function downloadGeneratedReportCsv(report: GeneratedReportRecord): void {
+  downloadGeneratedReportExcel(report);
 }

@@ -1,0 +1,265 @@
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import type { User } from "@supabase/supabase-js";
+import {
+  canAccessAdminConsole,
+  canManageOrganisation,
+  normalizeSecurityRole,
+  type SecurityRole,
+} from "@/lib/security-roles";
+import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
+import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+
+const PUBLIC_PATH_PREFIXES = [
+  "/login",
+  "/auth/",
+  "/portal/",
+  "/swms/sign/",
+  "/scan/",
+  "/prestart/",
+] as const;
+
+const AUTH_REQUIRED_PREFIXES = [
+  "/organisation",
+  "/projects",
+  "/worker-dashboard",
+  "/accounts",
+  "/admin",
+  "/settings",
+] as const;
+
+/** Project-scoped admin roles land on the main project console. */
+const PROJECTS_HOME_PATH = "/";
+
+const GENERAL_WORKER_HOME_PATH = "/worker-dashboard";
+
+export const AUTH_PROXY_MATCHER = [
+  "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+];
+
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return true;
+  }
+  return false;
+}
+
+function requiresAuthentication(pathname: string): boolean {
+  if (isPublicPath(pathname)) return false;
+  if (pathname === "/") return true;
+  return AUTH_REQUIRED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
+function isGeneralWorkerAllowedPath(pathname: string): boolean {
+  return (
+    pathname === GENERAL_WORKER_HOME_PATH ||
+    pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`) ||
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/portal/")
+  );
+}
+
+function isProjectRoleBlockedPath(pathname: string): boolean {
+  return isOrganisationPath(pathname) || isAccountsPath(pathname);
+}
+
+function copyCookies(from: NextResponse, to: NextResponse): void {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie);
+  });
+}
+
+function redirectWithCookies(
+  request: NextRequest,
+  path: string,
+  sessionResponse: NextResponse
+): NextResponse {
+  const redirect = NextResponse.redirect(new URL(path, request.url));
+  copyCookies(sessionResponse, redirect);
+  return redirect;
+}
+
+interface AuthContext {
+  user: User | null;
+  role: SecurityRole;
+  workerId: string | null;
+}
+
+async function resolveAuthContext(
+  supabase: ReturnType<typeof createServerClient>,
+  user: User | null
+): Promise<AuthContext> {
+  if (!user) {
+    return { user: null, role: "general_worker", workerId: null };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, worker_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.role) {
+    return {
+      user,
+      role: normalizeSecurityRole(profile.role),
+      workerId: profile.worker_id ?? null,
+    };
+  }
+
+  const { data: workerByAuth } = await supabase
+    .from("workers")
+    .select("id, security_role")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+
+  if (workerByAuth?.id) {
+    return {
+      user,
+      role: normalizeSecurityRole(workerByAuth.security_role),
+      workerId: workerByAuth.id,
+    };
+  }
+
+  const email = user.email?.trim();
+  if (email) {
+    const { data: workerByEmail } = await supabase
+      .from("workers")
+      .select("id, security_role")
+      .ilike("email", email)
+      .maybeSingle();
+
+    if (workerByEmail?.id) {
+      return {
+        user,
+        role: normalizeSecurityRole(workerByEmail.security_role),
+        workerId: workerByEmail.id,
+      };
+    }
+  }
+
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  const rawRole = metadata?.role ?? metadata?.security_role ?? metadata?.profile_role;
+
+  return {
+    user,
+    role: normalizeSecurityRole(typeof rawRole === "string" ? rawRole : null),
+    workerId: null,
+  };
+}
+
+function resolveAuthenticatedHomePath(context: AuthContext): string {
+  if (context.user && canAccessAdminConsole(context.role)) {
+    return "/admin";
+  }
+
+  if (context.workerId) {
+    const params = new URLSearchParams({ worker_id: context.workerId });
+    return `${GENERAL_WORKER_HOME_PATH}?${params.toString()}`;
+  }
+
+  return GENERAL_WORKER_HOME_PATH;
+}
+
+function resolveGeneralWorkerHomePath(context: AuthContext): string {
+  if (context.workerId) {
+    const params = new URLSearchParams({ worker_id: context.workerId });
+    return `${GENERAL_WORKER_HOME_PATH}?${params.toString()}`;
+  }
+  return GENERAL_WORKER_HOME_PATH;
+}
+
+/**
+ * Supabase session refresh + RBAC redirects for Next.js Proxy / Middleware.
+ */
+export async function runAuthProxy(request: NextRequest): Promise<NextResponse> {
+  let sessionResponse = NextResponse.next({ request });
+
+  if (!isSupabaseConfigured()) {
+    return sessionResponse;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => {
+          request.cookies.set(name, value);
+        });
+        sessionResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => {
+          sessionResponse.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const context = await resolveAuthContext(supabase, user);
+
+  if (pathname.startsWith("/login")) {
+    if (context.user) {
+      return redirectWithCookies(
+        request,
+        resolveAuthenticatedHomePath(context),
+        sessionResponse
+      );
+    }
+    return sessionResponse;
+  }
+
+  if (requiresAuthentication(pathname) && !context.user) {
+    const loginUrl = new URL("/login", request.url);
+    const nextPath = `${pathname}${request.nextUrl.search}`;
+    if (nextPath !== "/") {
+      loginUrl.searchParams.set("next", nextPath);
+    }
+    return redirectWithCookies(
+      request,
+      `${loginUrl.pathname}${loginUrl.search}`,
+      sessionResponse
+    );
+  }
+
+  if (context.user && context.role === "general_worker") {
+    if (!isGeneralWorkerAllowedPath(pathname)) {
+      return redirectWithCookies(
+        request,
+        resolveGeneralWorkerHomePath(context),
+        sessionResponse
+      );
+    }
+    return sessionResponse;
+  }
+
+  if (
+    context.user &&
+    (context.role === "project_admin" || context.role === "project_super_admin") &&
+    isProjectRoleBlockedPath(pathname)
+  ) {
+    return redirectWithCookies(request, PROJECTS_HOME_PATH, sessionResponse);
+  }
+
+  if (
+    context.user &&
+    context.role === "super_admin" &&
+    isAccountsPath(pathname) &&
+    pathname.startsWith("/accounts/pay-rules")
+  ) {
+    return redirectWithCookies(request, "/accounts/timesheets", sessionResponse);
+  }
+
+  if (context.user && !canManageOrganisation(context.role) && isOrganisationPath(pathname)) {
+    return redirectWithCookies(request, PROJECTS_HOME_PATH, sessionResponse);
+  }
+
+  return sessionResponse;
+}

@@ -3,6 +3,8 @@
 import CameraCaptureInput from "./CameraCaptureInput";
 import {
   CLIENT_OPTIONS,
+  isSiteFormSectionPhotoRequired,
+  shouldShowSiteFormPhotoUpload,
   type SiteFormData,
   type SiteFormFieldDef,
   type SiteFormFieldValue,
@@ -214,6 +216,15 @@ export default function SiteFormFieldInput({
       field.type === "tri_state_with_photo"
         ? (["yes", "no", "na"] as const)
         : (["yes", "no"] as const);
+    const showPhoto = shouldShowSiteFormPhotoUpload(field, formData);
+    const photoRequired = isSiteFormSectionPhotoRequired(field, formData);
+
+    const handleAnswerChange = (option: string) => {
+      onChange(field.id, option);
+      if (field.photoFieldId && !shouldShowSiteFormPhotoUpload(field, { ...formData, [field.id]: option })) {
+        onPhotoCapture(field.photoFieldId, null);
+      }
+    };
 
     return (
       <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -228,7 +239,7 @@ export default function SiteFormFieldInput({
                   type="radio"
                   name={field.id}
                   checked={triValue === option}
-                  onChange={() => onChange(field.id, option)}
+                  onChange={() => handleAnswerChange(option)}
                   className="border-slate-300 text-orange-500 focus:ring-orange-500"
                   required={field.required}
                 />
@@ -237,13 +248,13 @@ export default function SiteFormFieldInput({
             ))}
           </div>
         </FieldWrap>
-        {field.photoFieldId && (
+        {field.photoFieldId && showPhoto && (
           <CameraCaptureInput
-            label="Photo evidence *"
+            label={photoRequired ? "Photo evidence *" : "Photo evidence (optional)"}
             onCapture={(file) => onPhotoCapture(field.photoFieldId!, file)}
           />
         )}
-        {field.photoFieldId && photoFiles[field.photoFieldId] && (
+        {field.photoFieldId && showPhoto && photoFiles[field.photoFieldId] && (
           <p className="text-xs text-emerald-700">Photo captured.</p>
         )}
       </div>

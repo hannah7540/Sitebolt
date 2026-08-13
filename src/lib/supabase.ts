@@ -2,53 +2,53 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL 
 if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'placeholder';
 if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
 if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = 'placeholder';
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase as browserSupabaseClient } from "./supabase/client";
+import { isSupabaseConfigured } from "./supabase/env";
+
+export { isSupabaseConfigured } from "./supabase/env";
+export { createSupabaseBrowserClient, signOutSupabase } from "./supabase/index";
+
+export const supabase: SupabaseClient = browserSupabaseClient;
 import type { PrestartTemplate } from "./prestart-templates";
 import {
   getReadingFieldKey,
   getServiceFieldKey,
   usesKilometres,
 } from "./prestart-templates";
-import { computeWorkerStatusFromExpiries, getWorkerDisplayName } from "./worker-utils";
+import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields } from "./worker-utils";
 import {
   resolveProjectId,
   isProjectUuid,
   getProjectDisplayName,
   getCachedProjects,
   normalizeWorkerUuidArray,
+  handleSupabaseNetworkFetchError,
 } from "./project-resolver";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
+import { validateActBreakRequirement } from "./timesheet-act-break-validation";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
 import {
   buildProjectScopeOrFilter,
   isMissingScopeColumnError,
   resolveProjectScopeValues,
 } from "./project-scope";
-import { normalizeSecurityRole, normalizeAccountsAccessRole, type SecurityRole, type AccountsAccessRole } from "./security-roles";
+import { normalizeSecurityRole, coerceSecurityRole, normalizeAccountsAccessRole, DEFAULT_WORKER_SECURITY_ROLE, type SecurityRole, type AccountsAccessRole } from "./security-roles";
 import {
   getVocExpiriesFromDetails,
   type SubcontractorWorkerFormInput,
   buildSubcontractorWorkerPayload,
 } from "./subcontractor-worker-payload";
+import { nullIfBlank, parseMissingColumnFromError } from "./form-payload-utils";
+import {
+  insertSiteFormRecord,
+  isMissingSiteFormColumnError,
+} from "./site-form-payload";
+import {
+  consolidatePayloadForTable,
+  insertWithFormMetadataFallback,
+} from "./form-metadata-consolidation";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-export function isSupabaseConfigured(): boolean {
-  return (
-    supabaseUrl.length > 0 &&
-    supabaseAnonKey.length > 0 &&
-    !supabaseUrl.includes("YOUR_SUPABASE") &&
-    supabaseAnonKey !== "YOUR_SUPABASE_ANON_KEY"
-  );
-}
-
-export const supabase: SupabaseClient = createClient(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    db: { schema: "public" },
-  }
-);
 
 export type PlantStatus =
   | "available"
@@ -119,13 +119,18 @@ export interface Worker {
   employment_type?: string | null;
   hourly_rate?: number | null;
   pay_rate_id?: string | null;
+  pay_rule_id?: string | null;
   pay_rule_template_id?: string | null;
   is_hsr?: boolean;
+  is_apprentice?: boolean;
+  has_company_vehicle?: boolean;
+  assigned_vehicle_asset_id?: string | null;
   cards_vocs?: unknown;
   is_revoked: boolean;
   is_archived: boolean;
   is_subcontractor?: boolean;
   subcontractor_id?: string | null;
+  state?: string | null;
   created_at?: string;
 }
 
@@ -181,15 +186,53 @@ const WORKER_SELECT_COLUMNS = [
   "worker_code",
   "employment_type",
   "hourly_rate",
+  "pay_rate_id",
+  "pay_rule_id",
+  "pay_rule_template_id",
   "cards_vocs",
   "is_revoked",
   "is_archived",
   "is_subcontractor",
   "subcontractor_id",
+  "is_apprentice",
+  "has_company_vehicle",
+  "assigned_vehicle_asset_id",
+  "state",
   "created_at",
 ] as const;
 
+let cachedWorkerSelectColumns: string[] | null = null;
+
+const WORKER_COLUMNS_CACHE_KEY = "sitebolt_worker_select_columns";
+
+function loadCachedWorkerColumnsFromStorage(): string[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(WORKER_COLUMNS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((column): column is string => typeof column === "string");
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedWorkerColumnsToStorage(columns: string[]): void {
+  cachedWorkerSelectColumns = columns;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(WORKER_COLUMNS_CACHE_KEY, JSON.stringify(columns));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 const WORKER_SELECT = WORKER_SELECT_COLUMNS.join(", ");
+const WORKER_SELECT_WITHOUT_VOC = WORKER_SELECT_COLUMNS.filter(
+  (column) =>
+    !["voc_details", "voc_title", "voc_issuing_org", "voc_document_url"].includes(column)
+).join(", ");
 const WORKER_SELECT_WITHOUT_DOC_URLS = WORKER_SELECT_COLUMNS.filter(
   (column) => !["white_card_doc_url", "silica_cert_doc_url"].includes(column)
 ).join(", ");
@@ -217,6 +260,7 @@ const WORKER_SELECT_CORE = "id, email, status, assigned_project_id, security_rol
 
 const WORKER_SELECT_VARIANTS = [
   WORKER_SELECT,
+  WORKER_SELECT_WITHOUT_VOC,
   WORKER_SELECT_WITHOUT_DOC_URLS,
   WORKER_SELECT_WITHOUT_SUBCONTRACTOR,
   WORKER_SELECT_WITHOUT_ALT_NAMES,
@@ -350,6 +394,7 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
         ? null
         : Number(row.hourly_rate),
     pay_rate_id: row.pay_rate_id ? String(row.pay_rate_id) : null,
+    pay_rule_id: row.pay_rule_id ? String(row.pay_rule_id) : null,
     pay_rule_template_id: row.pay_rule_template_id
       ? String(row.pay_rule_template_id)
       : null,
@@ -360,6 +405,12 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     ),
     is_subcontractor: row.is_subcontractor ?? false,
     subcontractor_id: row.subcontractor_id ?? null,
+    is_apprentice: row.is_apprentice === true,
+    has_company_vehicle: row.has_company_vehicle === true,
+    assigned_vehicle_asset_id: row.assigned_vehicle_asset_id
+      ? String(row.assigned_vehicle_asset_id)
+      : null,
+    state: row.state ?? null,
     created_at: row.created_at,
   };
 }
@@ -368,7 +419,14 @@ async function queryWorkerRows(options?: {
   id?: string;
   limit?: number;
 }): Promise<Worker[]> {
-  for (const select of WORKER_SELECT_VARIANTS) {
+  let columns =
+    cachedWorkerSelectColumns ??
+    loadCachedWorkerColumnsFromStorage() ??
+    [...WORKER_SELECT_COLUMNS];
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const select = columns.join(", ");
+
     for (const orderColumn of WORKER_ORDER_COLUMNS) {
       try {
         if (options?.id) {
@@ -379,11 +437,22 @@ async function queryWorkerRows(options?: {
             .maybeSingle();
 
           if (!error) {
+            saveCachedWorkerColumnsToStorage(columns);
             return data ? [normalizeWorkerRow(data as unknown as RawWorkerRow)] : [];
+          }
+
+          const missingColumn = parseMissingColumnFromError(error.message);
+          if (missingColumn && columns.includes(missingColumn as (typeof WORKER_SELECT_COLUMNS)[number])) {
+            columns = columns.filter((column) => column !== missingColumn);
+            break;
           }
 
           if (isMissingWorkerColumnError(error.message)) {
             break;
+          }
+
+          if (handleSupabaseNetworkFetchError(error, "fetch worker")) {
+            return [];
           }
 
           console.error("Failed to fetch worker:", error.message);
@@ -404,20 +473,36 @@ async function queryWorkerRows(options?: {
         const { data, error } = await query;
 
         if (!error) {
+          saveCachedWorkerColumnsToStorage(columns);
           return ((data ?? []) as unknown as RawWorkerRow[]).map(normalizeWorkerRow);
+        }
+
+        const missingColumn = parseMissingColumnFromError(error.message);
+        if (missingColumn && columns.includes(missingColumn as (typeof WORKER_SELECT_COLUMNS)[number])) {
+          columns = columns.filter((column) => column !== missingColumn);
+          break;
         }
 
         if (isMissingWorkerColumnError(error.message)) {
           continue;
         }
 
+        if (handleSupabaseNetworkFetchError(error, "fetch workers")) {
+          return [];
+        }
+
         console.error("Failed to fetch workers:", error.message);
         return [];
       } catch (error) {
+        if (handleSupabaseNetworkFetchError(error, "fetch workers")) {
+          return [];
+        }
         console.error("Failed to fetch workers:", error);
-        continue;
+        break;
       }
     }
+
+    if (columns.length === 0) break;
   }
 
   return [];
@@ -549,7 +634,8 @@ export interface LeaveRequest {
 }
 
 export type WorkerOnboardingInput = Omit<Worker, "id" | "created_at"> & {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   email: string;
 };
 
@@ -574,6 +660,10 @@ export interface PlantAsset {
   next_service_kms: number | null;
   service_contact_name: string | null;
   service_contact_phone: string | null;
+  service_contact_company?: string | null;
+  service_contact_email?: string | null;
+  assigned_worker_id?: string | null;
+  assigned_worker_name?: string | null;
   assigned_project_id: string | null;
   project_id: string | null;
   current_project_id: string | null;
@@ -589,6 +679,9 @@ export interface PlantAsset {
   plant_documents?: unknown;
   service_history_doc_url?: string | null;
   plant_risk_assessment_doc_url?: string | null;
+  heavy_vehicle_check_required?: boolean;
+  last_heavy_vehicle_check_date?: string | null;
+  next_heavy_vehicle_check_due_date?: string | null;
   created_at?: string;
 }
 
@@ -709,11 +802,7 @@ export function resolveAssignmentWorkerName(
   worker: WorkerAssignmentSource | null | undefined
 ): string {
   if (!worker) return "Worker";
-  return (
-    String(
-      worker.full_name || worker.name || worker.worker_name || "Worker"
-    ).trim() || "Worker"
-  );
+  return getWorkerDisplayName(worker, "Worker");
 }
 
 const PLANT_PROJECT_OPTIONAL_COLUMNS = [
@@ -747,6 +836,14 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
     next_service_kms: record.next_service_kms ?? null,
     service_contact_name: record.service_contact_name ?? null,
     service_contact_phone: record.service_contact_phone ?? null,
+    service_contact_company: record.service_contact_company ?? null,
+    service_contact_email: record.service_contact_email ?? null,
+    assigned_worker_id: record.assigned_worker_id
+      ? String(record.assigned_worker_id)
+      : null,
+    assigned_worker_name: record.assigned_worker_name
+      ? String(record.assigned_worker_name)
+      : null,
     assigned_project_id: record.assigned_project_id ?? null,
     project_id: record.project_id ?? null,
     current_project_id: record.current_project_id ?? null,
@@ -763,6 +860,13 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
     plant_documents: record.plant_documents ?? [],
     service_history_doc_url: record.service_history_doc_url ?? null,
     plant_risk_assessment_doc_url: record.plant_risk_assessment_doc_url ?? null,
+    heavy_vehicle_check_required: record.heavy_vehicle_check_required === true,
+    last_heavy_vehicle_check_date: record.last_heavy_vehicle_check_date
+      ? String(record.last_heavy_vehicle_check_date)
+      : null,
+    next_heavy_vehicle_check_due_date: record.next_heavy_vehicle_check_due_date
+      ? String(record.next_heavy_vehicle_check_due_date)
+      : null,
     created_at: record.created_at,
   };
 }
@@ -1235,19 +1339,6 @@ export async function fetchWorkers(): Promise<Worker[]> {
   return fetchWorkerRows();
 }
 
-/** First worker id for dashboard auto-selection fallback. */
-export async function fetchFirstWorkerId(): Promise<string | null> {
-  if (!isSupabaseConfigured()) return null;
-
-  try {
-    const workers = await queryWorkerRows({ limit: 1 });
-    return workers[0]?.id ?? null;
-  } catch (error) {
-    console.error("fetchFirstWorkerId failed:", error);
-    return null;
-  }
-}
-
 /** All workers for Security Settings — no status filters; surfaces fetch errors. */
 export async function fetchAllWorkers(): Promise<{
   workers: Worker[];
@@ -1278,6 +1369,9 @@ export async function fetchAllWorkers(): Promise<{
       }
 
       if (!isMissingWorkerColumnError(error.message)) {
+        if (handleSupabaseNetworkFetchError(error, "fetch all workers")) {
+          return { workers: [], error: null };
+        }
         return { workers: [], error: formatWorkerFetchError(error.message) };
       }
     }
@@ -1285,6 +1379,9 @@ export async function fetchAllWorkers(): Promise<{
     const workers = await queryWorkerRows();
     return { workers, error: null };
   } catch (err) {
+    if (handleSupabaseNetworkFetchError(err, "fetch all workers")) {
+      return { workers: [], error: null };
+    }
     console.error("fetchAllWorkers failed:", err);
     return {
       workers: [],
@@ -1299,19 +1396,30 @@ export async function fetchAllWorkers(): Promise<{
 export async function fetchPlantList(): Promise<PlantAsset[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from(MASTER_PLANT_TABLE)
-    .select("*")
-    .order("unit_number");
+  try {
+    const { data, error } = await supabase
+      .from(MASTER_PLANT_TABLE)
+      .select("*")
+      .order("unit_number");
 
-  if (error) {
-    console.error(`Failed to fetch ${MASTER_PLANT_TABLE}:`, error.message);
+    if (error) {
+      if (handleSupabaseNetworkFetchError(error, "fetch plant")) {
+        return [];
+      }
+      console.error(`Failed to fetch ${MASTER_PLANT_TABLE}:`, error.message);
+      return [];
+    }
+
+    return (data ?? [])
+      .map((row) => normalizePlantRecord(row as RawPlantRow))
+      .filter((row) => Boolean(row.id));
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch plant")) {
+      return [];
+    }
+    console.error(`Failed to fetch ${MASTER_PLANT_TABLE}:`, error);
     return [];
   }
-
-  return (data ?? [])
-    .map((row) => normalizePlantRecord(row as RawPlantRow))
-    .filter((row) => Boolean(row.id));
 }
 
 export async function fetchPlant(): Promise<PlantAsset[]> {
@@ -1337,8 +1445,34 @@ export async function fetchPlantById(id: string): Promise<PlantAsset | null> {
   return normalizePlantRecord(data as RawPlantRow);
 }
 
+function prepareWorkerWritePayload(
+  worker: Partial<WorkerOnboardingInput> & Record<string, unknown>
+): Record<string, unknown> {
+  const payload = { ...worker };
+
+  const firstName = String(payload.first_name ?? "").trim();
+  const lastName = String(payload.last_name ?? "").trim();
+  const legacyFullName = String(payload.full_name ?? "").trim();
+
+  if (firstName || lastName) {
+    Object.assign(payload, buildWorkerNameFields(firstName, lastName));
+  } else if (legacyFullName) {
+    const parts = legacyFullName.split(/\s+/).filter(Boolean);
+    Object.assign(
+      payload,
+      buildWorkerNameFields(parts[0] ?? "", parts.slice(1).join(" "))
+    );
+  }
+
+  return payload;
+}
+
 export async function addWorker(
-  worker: Partial<WorkerOnboardingInput> & { full_name: string; email: string },
+  worker: Partial<Omit<WorkerOnboardingInput, "first_name" | "last_name" | "email">> & {
+    first_name: string;
+    last_name: string;
+    email: string;
+  },
   vocExpiries: (string | null | undefined)[] = []
 ): Promise<{ error: string | null; workerId: string | null }> {
   const expiries = [worker.drivers_licence_expiry, ...vocExpiries];
@@ -1362,9 +1496,16 @@ export async function addWorker(
     resolvedProjectId = id;
   }
 
+  const insertPayload = prepareWorkerWritePayload({
+    ...worker,
+    security_role: worker.security_role ?? DEFAULT_WORKER_SECURITY_ROLE,
+    assigned_project_id: resolvedProjectId,
+    status,
+  });
+
   const { data, error } = await supabase
     .from("workers")
-    .insert([{ ...worker, assigned_project_id: resolvedProjectId, status }])
+    .insert([insertPayload])
     .select("id")
     .single();
 
@@ -1424,9 +1565,10 @@ export async function addSubcontractorWorkerFromForm(
 export async function addSubcontractorWorker(
   payload: Record<string, unknown>
 ): Promise<{ error: string | null; workerId: string | null }> {
-  const full_name = String(payload.full_name ?? "").trim();
+  const first_name = String(payload.first_name ?? "").trim();
+  const last_name = String(payload.last_name ?? "").trim();
   const email = String(payload.email ?? "").trim();
-  if (!full_name || !email) {
+  if (!first_name || !last_name || !email) {
     return {
       error: "First name, last name, and email are required.",
       workerId: null,
@@ -1453,8 +1595,9 @@ export async function addSubcontractorWorker(
   for (let index = 0; index < attempts.length; index++) {
     const attempt = attempts[index];
     const result = await addWorker(
-      attempt as Partial<WorkerOnboardingInput> & {
-        full_name: string;
+      attempt as Partial<Omit<WorkerOnboardingInput, "first_name" | "last_name" | "email">> & {
+        first_name: string;
+        last_name: string;
         email: string;
       },
       vocExpiries
@@ -1519,30 +1662,52 @@ export async function assignWorkersToProject(
 }
 
 export async function fetchWorkerVocs(workerId: string): Promise<WorkerVoc[]> {
-  const { data, error } = await supabase
-    .from("worker_vocs")
-    .select("*")
-    .eq("worker_id", workerId)
-    .order("expiry_date");
+  try {
+    const { data, error } = await supabase
+      .from("worker_vocs")
+      .select("*")
+      .eq("worker_id", workerId)
+      .order("expiry_date");
 
-  if (error) {
-    console.error("Failed to fetch worker VOCs:", error.message);
+    if (error) {
+      if (handleSupabaseNetworkFetchError(error, "fetch worker VOCs")) {
+        return [];
+      }
+      console.error("Failed to fetch worker VOCs:", error.message);
+      return [];
+    }
+    return (data ?? []) as WorkerVoc[];
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch worker VOCs")) {
+      return [];
+    }
+    console.error("Failed to fetch worker VOCs:", error);
     return [];
   }
-  return (data ?? []) as WorkerVoc[];
 }
 
 export async function fetchAllWorkerVocs(): Promise<WorkerVoc[]> {
-  const { data, error } = await supabase
-    .from("worker_vocs")
-    .select("*")
-    .order("expiry_date");
+  try {
+    const { data, error } = await supabase
+      .from("worker_vocs")
+      .select("*")
+      .order("expiry_date");
 
-  if (error) {
-    console.error("Failed to fetch worker VOCs:", error.message);
+    if (error) {
+      if (handleSupabaseNetworkFetchError(error, "fetch all worker VOCs")) {
+        return [];
+      }
+      console.error("Failed to fetch worker VOCs:", error.message);
+      return [];
+    }
+    return (data ?? []) as WorkerVoc[];
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch all worker VOCs")) {
+      return [];
+    }
+    console.error("Failed to fetch worker VOCs:", error);
     return [];
   }
-  return (data ?? []) as WorkerVoc[];
 }
 
 export async function insertWorkerVocs(
@@ -1654,6 +1819,8 @@ export async function updateWorker(
     payload = { ...payload, assigned_project_id: resolvedProjectId };
   }
 
+  payload = prepareWorkerWritePayload(payload) as typeof payload;
+
   const { error } = await supabase
     .from("workers")
     .update(payload)
@@ -1715,18 +1882,38 @@ export async function addPlant(asset: {
   category: string;
   make?: string;
   model?: string;
+  serial_number?: string;
+  current_hours?: number | null;
+  next_service_hours?: number | null;
   prestart_template?: PrestartTemplate;
   service_contact_name?: string;
   service_contact_phone?: string;
-}): Promise<{ error: string | null }> {
-  const { error } = await supabase.from(MASTER_PLANT_TABLE).insert([
-    {
-      ...asset,
-      prestart_template: asset.prestart_template ?? "excavator",
-      status: "available",
-    },
-  ]);
-  return { error: error?.message ?? null };
+  service_contact_company?: string;
+  service_contact_email?: string;
+  heavy_vehicle_check_required?: boolean;
+  last_heavy_vehicle_check_date?: string | null;
+  next_heavy_vehicle_check_due_date?: string | null;
+}): Promise<{ error: string | null; data: PlantAsset | null }> {
+  const { data, error } = await supabase
+    .from(MASTER_PLANT_TABLE)
+    .insert([
+      {
+        ...asset,
+        prestart_template: asset.prestart_template ?? "excavator",
+        status: "available",
+      },
+    ])
+    .select("*")
+    .single();
+
+  if (error) {
+    return { error: error.message, data: null };
+  }
+
+  return {
+    error: null,
+    data: normalizePlantRecord(data as RawPlantRow),
+  };
 }
 
 export async function updatePlantTemplate(
@@ -1777,8 +1964,15 @@ export async function updatePlant(
     ownership_type?: string | null;
     status?: string;
     prestart_template?: PrestartTemplate | null;
+    current_hours?: number | null;
+    next_service_hours?: number | null;
     service_contact_name?: string | null;
     service_contact_phone?: string | null;
+    service_contact_company?: string | null;
+    service_contact_email?: string | null;
+    heavy_vehicle_check_required?: boolean;
+    last_heavy_vehicle_check_date?: string | null;
+    next_heavy_vehicle_check_due_date?: string | null;
     plant_documents?: unknown;
     photo_url?: string | null;
   }
@@ -1808,11 +2002,34 @@ export async function updatePlant(
   if (updates.prestart_template !== undefined) {
     payload.prestart_template = updates.prestart_template;
   }
+  if (updates.current_hours !== undefined) {
+    payload.current_hours = updates.current_hours;
+  }
+  if (updates.next_service_hours !== undefined) {
+    payload.next_service_hours = updates.next_service_hours;
+  }
   if (updates.service_contact_name !== undefined) {
     payload.service_contact_name = updates.service_contact_name?.trim() || null;
   }
   if (updates.service_contact_phone !== undefined) {
     payload.service_contact_phone = updates.service_contact_phone?.trim() || null;
+  }
+  if (updates.service_contact_company !== undefined) {
+    payload.service_contact_company = updates.service_contact_company?.trim() || null;
+  }
+  if (updates.service_contact_email !== undefined) {
+    payload.service_contact_email = updates.service_contact_email?.trim() || null;
+  }
+  if (updates.heavy_vehicle_check_required !== undefined) {
+    payload.heavy_vehicle_check_required = updates.heavy_vehicle_check_required;
+  }
+  if (updates.last_heavy_vehicle_check_date !== undefined) {
+    payload.last_heavy_vehicle_check_date =
+      updates.last_heavy_vehicle_check_date || null;
+  }
+  if (updates.next_heavy_vehicle_check_due_date !== undefined) {
+    payload.next_heavy_vehicle_check_due_date =
+      updates.next_heavy_vehicle_check_due_date || null;
   }
   if (updates.plant_documents !== undefined) payload.plant_documents = updates.plant_documents;
   if (updates.photo_url !== undefined) payload.photo_url = updates.photo_url;
@@ -1850,6 +2067,12 @@ export async function updatePlant(
       updates.ownership_type?.trim().toLowerCase() === "subcontractor";
   }
   if (updates.status !== undefined) equipmentPayload.status = updates.status;
+  if (updates.current_hours !== undefined) {
+    equipmentPayload.current_hours = updates.current_hours;
+  }
+  if (updates.next_service_hours !== undefined) {
+    equipmentPayload.next_service_hours = updates.next_service_hours;
+  }
   if (updates.plant_documents !== undefined) {
     equipmentPayload.plant_documents = updates.plant_documents;
   }
@@ -1912,31 +2135,34 @@ export async function submitPlantPrestart(input: {
   const currentReading = Number(input.checkData[readingKey] ?? 0);
   const nextServiceDue = Number(input.checkData[serviceKey] ?? 0);
 
-  const basePayload: Record<string, unknown> = {
-    plant_id: input.plantId,
-    operator_name: input.operatorName,
-    project_id: resolvedProjectId,
-    site_id: resolvedProjectId,
-    current_reading: currentReading,
-    next_service_due: nextServiceDue,
-    check_data: input.checkData,
-    has_defect: input.hasDefect,
-    defect_comments: input.defectComments ?? null,
-    defect_photo_url: input.defectPhotoUrl ?? null,
-    signature_url: input.signatureUrl ?? null,
-  };
+  const basePayload: Record<string, unknown> = consolidatePayloadForTable(
+    "plant_prestarts",
+    {
+      plant_id: input.plantId,
+      operator_name: input.operatorName,
+      project_id: resolvedProjectId,
+      site_id: resolvedProjectId,
+      current_reading: currentReading,
+      next_service_due: nextServiceDue,
+      check_data: input.checkData,
+      has_defect: input.hasDefect,
+      defect_comments: nullIfBlank(input.defectComments),
+      defect_photo_url: nullIfBlank(input.defectPhotoUrl),
+      signature_url: nullIfBlank(input.signatureUrl),
+    }
+  );
 
   let insertError = (
-    await supabase.from("plant_prestarts").insert([basePayload])
+    await insertWithFormMetadataFallback(supabase, "plant_prestarts", basePayload)
   ).error;
 
   if (
     insertError &&
-    isMissingScopeColumnError(insertError.message, "site_id")
+    isMissingScopeColumnError(insertError, "site_id")
   ) {
     const { site_id: _siteId, ...withoutSiteId } = basePayload;
     insertError = (
-      await supabase.from("plant_prestarts").insert([withoutSiteId])
+      await insertWithFormMetadataFallback(supabase, "plant_prestarts", withoutSiteId)
     ).error;
   }
 
@@ -2089,19 +2315,30 @@ export async function fetchWorkerSchedules(
   startDate: string,
   endDate: string
 ): Promise<WorkerScheduleEntry[]> {
-  const { data, error } = await supabase
-    .from("worker_schedule")
-    .select("*")
-    .lte("start_date", endDate)
-    .gte("end_date", startDate)
-    .order("start_date");
+  try {
+    const { data, error } = await supabase
+      .from("worker_schedule")
+      .select("*")
+      .lte("start_date", endDate)
+      .gte("end_date", startDate)
+      .order("start_date");
 
-  if (error) {
-    console.error("Failed to fetch worker schedules:", error.message);
+    if (error) {
+      if (handleSupabaseNetworkFetchError(error, "fetch worker schedules")) {
+        return [];
+      }
+      console.error("Failed to fetch worker schedules:", error.message);
+      return [];
+    }
+
+    return (data ?? []) as WorkerScheduleEntry[];
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch worker schedules")) {
+      return [];
+    }
+    console.error("Failed to fetch worker schedules:", error);
     return [];
   }
-
-  return (data ?? []) as WorkerScheduleEntry[];
 }
 
 export async function assignWorkerToProject(input: {
@@ -2159,39 +2396,50 @@ export async function fetchWorkerTimesheets(
 ): Promise<WorkerTimesheet[]> {
   if (!isSupabaseConfigured()) return [];
 
-  let query = supabase
-    .from("worker_timesheets")
-    .select("*")
-    .eq("worker_id", workerId)
-    .order("work_date", { ascending: false })
-    .order("created_at", { ascending: false });
+  try {
+    let query = supabase
+      .from("worker_timesheets")
+      .select("*")
+      .eq("worker_id", workerId)
+      .order("work_date", { ascending: false })
+      .order("created_at", { ascending: false });
 
-  if (options?.startDate) {
-    query = query.gte("work_date", options.startDate);
-  }
-  if (options?.endDate) {
-    query = query.lte("work_date", options.endDate);
-  }
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    if (!error.message.toLowerCase().includes("worker_timesheets")) {
-      console.error("Failed to fetch worker timesheets:", error.message);
+    if (options?.startDate) {
+      query = query.gte("work_date", options.startDate);
     }
+    if (options?.endDate) {
+      query = query.lte("work_date", options.endDate);
+    }
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      if (handleSupabaseNetworkFetchError(error, "fetch worker timesheets")) {
+        return [];
+      }
+      if (!error.message.toLowerCase().includes("worker_timesheets")) {
+        console.error("Failed to fetch worker timesheets:", error.message);
+      }
+      return [];
+    }
+
+    return (data ?? []).map((row) => {
+      const timesheet = row as WorkerTimesheet;
+      return {
+        ...timesheet,
+        status: normalizeTimesheetStatus(timesheet.status),
+      };
+    });
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch worker timesheets")) {
+      return [];
+    }
+    console.error("Failed to fetch worker timesheets:", error);
     return [];
   }
-
-  return (data ?? []).map((row) => {
-    const timesheet = row as WorkerTimesheet;
-    return {
-      ...timesheet,
-      status: normalizeTimesheetStatus(timesheet.status),
-    };
-  });
 }
 
 export async function insertWorkerTimesheet(input: {
@@ -2218,6 +2466,31 @@ export async function insertWorkerTimesheet(input: {
       error: "Finish time must be after start time (minus breaks).",
       data: null,
     };
+  }
+
+  const { data: workerRow } = await supabase
+    .from("workers")
+    .select("state")
+    .eq("id", input.workerId)
+    .maybeSingle();
+
+  const workerState =
+    normalizeWorkerStateRegion(
+      (workerRow as { state?: string | null } | null)?.state
+    ) ??
+    (workerRow as { state?: string | null } | null)?.state ??
+    null;
+
+  const actBreakError = validateActBreakRequirement({
+    workerState,
+    submit: true,
+    breaks: [],
+    breakMinutes: input.breakMinutes,
+    notes: input.notes,
+    activities: [{ label: "WORKING ON SITE" }],
+  });
+  if (actBreakError) {
+    return { error: actBreakError, data: null };
   }
 
   let projectId = input.projectId;
@@ -2393,7 +2666,7 @@ export async function updateWorkerSecurityRole(
       return { error: "Worker id is required." };
     }
 
-    const role = normalizeSecurityRole(securityRole);
+    const role = coerceSecurityRole(securityRole);
 
     const { error } = await supabase
       .from("workers")
@@ -2421,7 +2694,7 @@ export async function updateWorkerSecurityRole(
       if (lower.includes("workers_security_role_check")) {
         return {
           error:
-            "Invalid security role. Choose Full Access, Admin Access, or General Worker.",
+            "Invalid security role. Choose a valid role from the Security Settings list.",
         };
       }
       return { error: error.message };
@@ -2573,17 +2846,6 @@ export async function fetchWorkersForProject(projectId: string): Promise<Worker[
 }
 
 const SITE_FORM_ORDER_COLUMNS = ["created_at", "submitted_at"] as const;
-
-function isMissingSiteFormColumnError(message: string, column: string): boolean {
-  const lower = message.toLowerCase();
-  const columnLower = column.toLowerCase();
-  return (
-    lower.includes(columnLower) &&
-    (lower.includes("does not exist") ||
-      lower.includes("could not find") ||
-      lower.includes("schema cache"))
-  );
-}
 
 export async function fetchSiteForms(options?: {
   projectId?: string;
@@ -2794,7 +3056,41 @@ type RawSiteFormRow = {
   additional_workers?: import("./site-forms").SiteFormAdditionalWorker[] | null;
   submitter_signature_url?: string | null;
   created_at?: string | null;
+  status?: string | null;
+  title?: string | null;
+  notes?: string | null;
+  is_viewed?: boolean | null;
+  viewed_at?: string | null;
+  form_metadata?: Record<string, unknown> | null;
 };
+
+function readSiteFormMetadataBoolean(
+  row: RawSiteFormRow,
+  key: "is_viewed"
+): boolean {
+  if (row[key] === true) return true;
+  const meta = row.form_metadata;
+  if (meta && typeof meta === "object" && meta[key] === true) return true;
+  return false;
+}
+
+function readSiteFormMetadataString(
+  row: RawSiteFormRow,
+  columnKey: "viewed_at" | "status" | "title" | "notes"
+): string | null {
+  const columnValue = row[columnKey];
+  if (typeof columnValue === "string" && columnValue.trim()) {
+    return columnValue.trim();
+  }
+  const meta = row.form_metadata;
+  if (meta && typeof meta === "object") {
+    const metaValue = meta[columnKey];
+    if (typeof metaValue === "string" && metaValue.trim()) {
+      return metaValue.trim();
+    }
+  }
+  return null;
+}
 
 function normalizeSiteFormRow(row: RawSiteFormRow): import("./site-forms").SiteFormSubmission {
   const formData =
@@ -2829,6 +3125,11 @@ function normalizeSiteFormRow(row: RawSiteFormRow): import("./site-forms").SiteF
       : [],
     submitter_signature_url: row.submitter_signature_url ?? null,
     created_at: createdAt || undefined,
+    status: readSiteFormMetadataString(row, "status"),
+    title: readSiteFormMetadataString(row, "title"),
+    notes: readSiteFormMetadataString(row, "notes"),
+    is_viewed: readSiteFormMetadataBoolean(row, "is_viewed"),
+    viewed_at: readSiteFormMetadataString(row, "viewed_at"),
   };
 }
 
@@ -2839,11 +3140,16 @@ export async function insertSiteForm(input: {
   formDate: string;
   formTime?: string | null;
   locationScope?: string | null;
+  weatherConditions?: string | null;
+  title?: string | null;
+  status?: string | null;
+  projectName?: string | null;
+  notes?: string | null;
   formData: import("./site-forms").SiteFormData;
-  photoUrls: string[];
-  attendees: import("./site-forms").SiteFormAttendee[];
+  photoUrls?: string[];
+  attendees?: import("./site-forms").SiteFormAttendee[];
   additionalWorkers?: import("./site-forms").SiteFormAdditionalWorker[];
-  submitterSignatureUrl: string | null;
+  submitterSignatureUrl?: string | null;
 }): Promise<{ error: string | null; id: string | null }> {
   try {
     const { resolveProjectId } = await import("./project-resolver");
@@ -2858,55 +3164,24 @@ export async function insertSiteForm(input: {
       };
     }
 
-    const payload: Record<string, unknown> = {
-      form_type: input.formType,
-      project_id: resolvedProjectId,
-      site_id: resolvedProjectId,
-      worker_id: input.workerId,
-      form_date: input.formDate,
-      form_time: input.formTime || null,
-      location_scope: input.locationScope?.trim() || null,
-      form_data: input.formData,
-      checklist_data: input.formData,
-      photo_urls: input.photoUrls,
+    return insertSiteFormRecord(supabase, {
+      formType: input.formType,
+      projectId: resolvedProjectId,
+      workerId: input.workerId,
+      formDate: input.formDate,
+      formTime: input.formTime,
+      locationScope: input.locationScope,
+      weatherConditions: input.weatherConditions,
+      title: input.title,
+      status: input.status,
+      projectName: input.projectName,
+      notes: input.notes,
+      formData: input.formData,
+      photoUrls: input.photoUrls,
       attendees: input.attendees,
-      additional_workers: input.additionalWorkers ?? [],
-      submitter_signature_url: input.submitterSignatureUrl,
-    };
-
-    let { data, error } = await supabase
-      .from("site_forms")
-      .insert([payload])
-      .select("id")
-      .single();
-
-    if (
-      error &&
-      isMissingSiteFormColumnError(error.message, "additional_workers")
-    ) {
-      const { additional_workers: _additionalWorkers, ...withoutAdditionalWorkers } =
-        payload;
-      ({ data, error } = await supabase
-        .from("site_forms")
-        .insert([withoutAdditionalWorkers])
-        .select("id")
-        .single());
-    }
-
-    if (error && isMissingScopeColumnError(error.message, "site_id")) {
-      const { site_id: _siteId, ...withoutSiteId } = payload;
-      ({ data, error } = await supabase
-        .from("site_forms")
-        .insert([withoutSiteId])
-        .select("id")
-        .single());
-    }
-
-    if (error) {
-      return { error: error.message, id: null };
-    }
-
-    return { error: null, id: data?.id ?? null };
+      additionalWorkers: input.additionalWorkers,
+      submitterSignatureUrl: input.submitterSignatureUrl,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Failed to submit form.",
@@ -3111,9 +3386,10 @@ function buildSwmsInsertPayload(input: {
   previousVersionId?: string | null;
 }): Record<string, string | boolean> {
   const selectedDate = resolveSwmsSelectedDate(input.documentDate);
-  const scope = input.swmsScope ?? (input.projectId ? "site_specific" : "company");
+  const projectId = nullIfBlank(input.projectId);
+  const scope = input.swmsScope ?? (projectId ? "site_specific" : "company");
   const payload: Record<string, string | boolean> = {
-    title: input.title.trim(),
+    title: nullIfBlank(input.title) ?? "Untitled SWMS",
     document_date: selectedDate,
     issue_date: selectedDate,
     date: selectedDate,
@@ -3122,17 +3398,20 @@ function buildSwmsInsertPayload(input: {
     is_archived: false,
     status: "Active",
     swms_scope: scope,
-    version: input.version?.trim() || "1.0",
+    version: nullIfBlank(input.version) ?? "1.0",
   };
 
-  if (input.projectId?.trim()) {
-    payload.project_id = input.projectId.trim();
+  const masterSwmsId = nullIfBlank(input.masterSwmsId);
+  const previousVersionId = nullIfBlank(input.previousVersionId);
+
+  if (projectId) {
+    payload.project_id = projectId;
   }
-  if (input.masterSwmsId?.trim()) {
-    payload.master_swms_id = input.masterSwmsId.trim();
+  if (masterSwmsId) {
+    payload.master_swms_id = masterSwmsId;
   }
-  if (input.previousVersionId?.trim()) {
-    payload.previous_version_id = input.previousVersionId.trim();
+  if (previousVersionId) {
+    payload.previous_version_id = previousVersionId;
   }
 
   return payload;

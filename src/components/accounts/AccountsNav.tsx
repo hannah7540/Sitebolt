@@ -3,27 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Clock, Scale } from "lucide-react";
+import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
+import {
+  canAccessPayRules,
+  canViewAccountsTimesheets,
+} from "@/lib/security-roles";
 import { cn } from "@/lib/utils";
-
-const ACCOUNTS_TABS = [
-  {
-    label: "Timesheets",
-    href: "/accounts/timesheets",
-    icon: Clock,
-  },
-  {
-    label: "Pay Rules",
-    href: "/accounts/pay-rules",
-    icon: Scale,
-  },
-] as const;
 
 export default function AccountsNav() {
   const pathname = usePathname();
+  const adminConsole = useAdminConsoleOptional();
+  const sessionRole = adminConsole?.sessionRole ?? "general_worker";
+
+  const tabs = [
+    canViewAccountsTimesheets(sessionRole)
+      ? {
+          label: "Timesheets",
+          href: "/accounts/timesheets",
+          icon: Clock,
+        }
+      : null,
+    canAccessPayRules(sessionRole)
+      ? {
+          label: "Pay Rules",
+          href: "/accounts/pay-rules",
+          icon: Scale,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    label: string;
+    href: string;
+    icon: typeof Clock;
+  }>;
+
+  if (tabs.length === 0) return null;
 
   return (
     <nav className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
-      {ACCOUNTS_TABS.map((tab) => {
+      {tabs.map((tab) => {
         const isActive =
           pathname === tab.href || pathname?.startsWith(`${tab.href}/`);
         const Icon = tab.icon;

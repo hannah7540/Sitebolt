@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Loader2, Search, Wrench, X } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
-  ASSET_TYPE_LABELS,
+  assetTypeRequiresCalibration,
   buildAssetProjectMap,
   fetchLaserSignouts,
   fetchProjectAssetAssignments,
   filterAssetsForProject,
+  getAssetTypeLabel,
+  isLaserAssetType,
   signInLaser,
   signOutLaser,
   updateAssetStatus,
@@ -16,6 +18,7 @@ import {
   type AssetLaserSignout,
   type AssetStatus,
 } from "@/lib/assets";
+import AssetCategoryAccordionList from "./AssetCategoryAccordionList";
 import AssetServicingContactBox from "./AssetServicingContactBox";
 import LaserStatusWidget from "./LaserStatusWidget";
 import { cardClass, inputClass } from "@/lib/ui-classes";
@@ -82,7 +85,7 @@ export default function ProjectAssetsPanel({
   }, [assets, projectId, assetProjectMap]);
 
   const projectLasers = useMemo(
-    () => assignedAssets.filter((a) => a.asset_type === "site_laser"),
+    () => assignedAssets.filter((a) => isLaserAssetType(a.asset_type)),
     [assignedAssets]
   );
 
@@ -186,7 +189,7 @@ export default function ProjectAssetsPanel({
                 </h1>
                 <StatusBadge status={selectedAsset.status} />
                 <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                  {ASSET_TYPE_LABELS[selectedAsset.asset_type]}
+                  {getAssetTypeLabel(selectedAsset.asset_type)}
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-600">
@@ -194,11 +197,12 @@ export default function ProjectAssetsPanel({
                 {selectedAsset.serial_number ? ` · S/N ${selectedAsset.serial_number}` : ""}
               </p>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                {selectedAsset.asset_type === "site_laser" &&
+                {isLaserAssetType(selectedAsset.asset_type) &&
                 selectedAsset.next_service_due_date ? (
                   <span>Service due: {selectedAsset.next_service_due_date}</span>
                 ) : null}
-                {selectedAsset.next_calibration_due_date ? (
+                {assetTypeRequiresCalibration(selectedAsset.asset_type) &&
+                selectedAsset.next_calibration_due_date ? (
                   <span>Calibration due: {selectedAsset.next_calibration_due_date}</span>
                 ) : null}
               </div>
@@ -221,7 +225,7 @@ export default function ProjectAssetsPanel({
                   : "Return to Active Service"}
               </button>
 
-              {selectedAsset.asset_type === "site_laser" &&
+              {isLaserAssetType(selectedAsset.asset_type) &&
               selectedAsset.status === "active" ? (
                 activeSignout ? (
                   <button
@@ -266,7 +270,9 @@ export default function ProjectAssetsPanel({
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-orange-500">Project Assets</h1>
-        <p className="text-sm text-slate-500">{projectName}</p>
+        <p className="text-sm text-slate-500">
+          {projectName} · grouped by asset type
+        </p>
       </div>
 
       <LaserStatusWidget lasers={projectLasers} signouts={signouts} />
@@ -323,25 +329,24 @@ export default function ProjectAssetsPanel({
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
           Loading assets…
         </div>
-      ) : filteredAssets.length === 0 ? (
-        <div className={`${cardClass} p-8 text-center text-sm text-slate-500`}>
-          {searchQuery
-            ? "No assets match your search."
-            : activeTab === "active"
-              ? "No active assets assigned to this project."
-              : "No assets currently in service or calibration."}
-        </div>
       ) : (
-        <div className="space-y-3">
-          {filteredAssets.map((asset) => {
+        <AssetCategoryAccordionList
+          assets={filteredAssets}
+          emptyMessage={
+            searchQuery
+              ? "No assets match your search."
+              : activeTab === "active"
+                ? "No active assets assigned to this project."
+                : "No assets currently in service or calibration."
+          }
+          renderAsset={(asset) => {
             const activeSignout = getActiveSignout(asset.id);
 
             return (
               <button
-                key={asset.id}
                 type="button"
                 onClick={() => setSelectedAssetId(asset.id)}
-                className={`${cardClass} w-full p-4 text-left transition hover:border-orange-200 hover:shadow-md`}
+                className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-orange-200 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -350,15 +355,12 @@ export default function ProjectAssetsPanel({
                         {asset.asset_number} — {asset.name}
                       </h3>
                       <StatusBadge status={asset.status} />
-                      <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                        {ASSET_TYPE_LABELS[asset.asset_type]}
-                      </span>
                     </div>
                     <p className="mt-1 text-sm text-slate-600">
                       {[asset.make, asset.model].filter(Boolean).join(" ")}
                       {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
                     </p>
-                    {asset.asset_type === "site_laser" && activeSignout ? (
+                    {isLaserAssetType(asset.asset_type) && activeSignout ? (
                       <p className="mt-2 text-xs font-semibold text-orange-600">
                         Signed out
                         {activeSignout.worker_name ? ` by ${activeSignout.worker_name}` : ""}
@@ -369,8 +371,8 @@ export default function ProjectAssetsPanel({
                 </div>
               </button>
             );
-          })}
-        </div>
+          }}
+        />
       )}
     </div>
   );

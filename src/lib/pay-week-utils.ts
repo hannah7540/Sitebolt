@@ -55,22 +55,64 @@ export interface PayWeekOption {
   label: string;
 }
 
-export function listPayWeekOptions(count = 16, anchor: Date = new Date()): PayWeekOption[] {
-  const currentStart = getPayWeekStart(anchor);
-  const options: PayWeekOption[] = [];
+export interface ListPayWeekOptionsConfig {
+  pastCount?: number;
+  futureCount?: number;
+  anchor?: Date;
+}
 
-  for (let offset = 0; offset < count; offset += 1) {
+const DEFAULT_PAST_PAY_WEEKS = 26;
+const DEFAULT_FUTURE_PAY_WEEKS = 26;
+
+function buildPayWeekOption(start: Date): PayWeekOption {
+  const end = getPayWeekEnd(start);
+  return {
+    startIso: localIsoDate(start),
+    endIso: localIsoDate(end),
+    label: formatPayWeekRange(start, end),
+  };
+}
+
+/** Resolve a pay-week option from any ISO date within or near that week. */
+export function resolvePayWeekOption(startIso: string): PayWeekOption {
+  const [year, month, day] = startIso.split("-").map(Number);
+  const start = getPayWeekStart(new Date(year, month - 1, day));
+  return buildPayWeekOption(start);
+}
+
+/** Shift a pay-week start ISO by whole weeks (negative = past, positive = future). */
+export function shiftPayWeekStart(startIso: string, weekDelta: number): string {
+  const [year, month, day] = startIso.split("-").map(Number);
+  const start = new Date(year, month - 1, day);
+  start.setDate(start.getDate() + weekDelta * 7);
+  return localIsoDate(start);
+}
+
+export function listPayWeekOptions(
+  countOrConfig: number | ListPayWeekOptionsConfig = DEFAULT_PAST_PAY_WEEKS,
+  anchor: Date = new Date()
+): PayWeekOption[] {
+  const config: ListPayWeekOptionsConfig =
+    typeof countOrConfig === "number"
+      ? { pastCount: countOrConfig, futureCount: 0, anchor }
+      : countOrConfig;
+
+  const pastCount = config.pastCount ?? DEFAULT_PAST_PAY_WEEKS;
+  const futureCount = config.futureCount ?? DEFAULT_FUTURE_PAY_WEEKS;
+  const anchorDate = config.anchor ?? anchor;
+  const currentStart = getPayWeekStart(anchorDate);
+  const optionByStart = new Map<string, PayWeekOption>();
+
+  for (let offset = -futureCount; offset <= pastCount; offset += 1) {
     const start = new Date(currentStart);
     start.setDate(start.getDate() - offset * 7);
-    const end = getPayWeekEnd(start);
-    options.push({
-      startIso: localIsoDate(start),
-      endIso: localIsoDate(end),
-      label: formatPayWeekRange(start, end),
-    });
+    const option = buildPayWeekOption(start);
+    optionByStart.set(option.startIso, option);
   }
 
-  return options;
+  return [...optionByStart.values()].sort((left, right) =>
+    right.startIso.localeCompare(left.startIso)
+  );
 }
 
 export function isDateInPayWeek(

@@ -121,3 +121,28 @@ export async function uploadItcSignature(input: {
     };
   }
 }
+
+export async function uploadItcMarkup(input: {
+  projectId: string;
+  discipline: string;
+  file: File;
+}): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const ext = input.file.name.split(".").pop() || "pdf";
+    const path = `${input.projectId}/redlines/${input.discipline}-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("itp-uploads").upload(path, input.file, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: input.file.type || "application/octet-stream",
+    });
+
+    if (error) return { url: null, error: error.message };
+    const { data } = supabase.storage.from("itp-uploads").getPublicUrl(path);
+    return { url: data.publicUrl, error: null };
+  } catch (error) {
+    return {
+      url: null,
+      error: error instanceof Error ? error.message : "Redline upload failed",
+    };
+  }
+}

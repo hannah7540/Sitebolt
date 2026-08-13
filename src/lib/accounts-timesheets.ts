@@ -4,10 +4,47 @@ import {
   type WorkerTimesheet,
   type MyobExportStatus,
   type TimesheetStatus,
+  type LeaveRequest,
+  type LeaveRequestStatus,
 } from "./supabase";
+import { handleSupabaseNetworkFetchError } from "./project-resolver";
 import { mapTimesheetRow } from "./timesheet-entries";
-import { formatTimesheetHours, isTimesheetApproved, isTimesheetPending, normalizeTimesheetStatus } from "./timesheet-utils";
-import { fetchWorkerProfileNameMap } from "./worker-profile-lookup";
+import {
+  formatTimesheetHours,
+  isTimesheetApproved,
+  isTimesheetPending,
+  normalizeTimesheetStatus,
+} from "./timesheet-utils";
+import { getWorkerDisplayName } from "./worker-utils";
+import type { PayRateRule } from "./pay-rates-and-rules";
+import {
+  calculateTimesheetPay,
+  formatPayCurrency,
+  type TimesheetPayLineItem,
+} from "./calculateTimesheetPay";
+import { resolveTimesheetLineItems } from "./timesheet-line-items";
+import {
+  buildPayrollExportFilename,
+  buildPayrollExportLinesForTimesheet,
+  buildPayrollTimesheetExportCsvFromLines,
+} from "./payroll-timesheet-csv-export";
+import type { DbProject } from "./project-resolver";
+import {
+  normalizeWorkerStateRegion,
+  WORKER_STATE_REGION_OPTIONS,
+  type WorkerStateRegion,
+} from "./worker-state-region";
+import {
+  getLeaveEndDate,
+  getLeaveStartDate,
+  isLeaveRequestApproved,
+  isLeaveRequestPending,
+} from "./leave-requests";
+import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
+import { resolveLeaveTimesheetDaySpec } from "./leave-timesheet-rules";
+import { enumerateDateRange } from "./scheduler-utils";
+import { getProjectDisplayName } from "./project-resolver";
+import { isDateInPayWeek } from "./pay-week-utils";
 
 export type AccountsTimesheetFilter =
   | "all"
@@ -15,11 +52,190 @@ export type AccountsTimesheetFilter =
   | "approved"
   | "exported";
 
+export interface TimesheetLinePayBreakdown extends TimesheetPayLineItem {}
+
+export interface AccountsTimesheetLineBreakdown {
+  summary: string;
+  items: TimesheetLinePayBreakdown[];
+  totalAmount: number;
+}
+
 export interface AccountsTimesheetRow extends WorkerTimesheet {
   worker_name: string;
+  worker_first_name?: string | null;
+  worker_last_name?: string | null;
   worker_trade?: string | null;
   pay_rate_id?: string | null;
   worker_is_hsr?: boolean;
+  worker_is_apprentice?: boolean;
+  worker_has_company_vehicle?: boolean;
+  worker_state?: string | null;
+  is_leave_preview?: boolean;
+  leave_preview_request_status?: LeaveRequestStatus;
+}
+
+const LEAVE_PREVIEW_ID_PREFIX = "leave-preview-";
+
+export function isLeavePreviewTimesheetRow(row: Pick<AccountsTimesheetRow, "id" | "is_leave_preview">): boolean {
+  return row.is_leave_preview === true || row.id.startsWith(LEAVE_PREVIEW_ID_PREFIX);
+}
+
+function intersectDateRangeWithPayWeek(
+  rangeStart: string,
+  rangeEnd: string,
+  weekStartIso: string,
+  weekEndIso: string
+): string[] {
+  const overlapStart = rangeStart > weekStartIso ? rangeStart : weekStartIso;
+  const overlapEnd = rangeEnd < weekEndIso ? rangeEnd : weekEndIso;
+  if (overlapEnd < overlapStart) return [];
+  return enumerateDateRange(overlapStart, overlapEnd);
+}
+
+function buildLeavePreviewTimesheetRow(
+  request: LeaveRequest,
+  dayIso: string,
+  workerMeta: AccountsTimesheetRow | null
+): AccountsTimesheetRow {
+  const leaveType = normalizeLeaveTypeLabel(request.leave_type);
+  const daySpec = resolveLeaveTimesheetDaySpec(leaveType, dayIso);
+  const projectId = request.project_id?.trim() || null;
+  const projectName = projectId ? getProjectDisplayName(projectId) : null;
+  const previewSuffix = isLeaveRequestPending(request.status)
+    ? "Pending leave request (advance preview)"
+    : "Approved leave request (advance preview)";
+  const workerName =
+    request.worker_name?.trim() ||
+    workerMeta?.worker_name ||
+    "Unknown worker";
+
+  return {
+    id: `${LEAVE_PREVIEW_ID_PREFIX}${request.id}-${dayIso}`,
+    worker_id: request.worker_id,
+    work_date: dayIso,
+    project_id: projectId,
+    project_name: projectName,
+    start_time: daySpec.startTime,
+    finish_time: daySpec.finishTime,
+    break_minutes: 0,
+    total_hours: daySpec.totalHours,
+    work_hours: daySpec.workHours,
+    daily_total_hours: daySpec.totalHours,
+    activities: daySpec.activities.map((activity) => ({
+      id: activity.id,
+      startTime: activity.start_time,
+      endTime: activity.end_time,
+      label: activity.label,
+    })),
+    breaks: [],
+    notes: `${leaveType} - ${previewSuffix}`,
+    status: "pending",
+    is_draft: false,
+    leave_request_id: request.id,
+    worker_name: workerName,
+    worker_first_name: workerMeta?.worker_first_name ?? null,
+    worker_last_name: workerMeta?.worker_last_name ?? null,
+    worker_trade: workerMeta?.worker_trade ?? null,
+    pay_rate_id: workerMeta?.pay_rate_id ?? null,
+    worker_is_hsr: workerMeta?.worker_is_hsr ?? false,
+    worker_is_apprentice: workerMeta?.worker_is_apprentice ?? false,
+    worker_has_company_vehicle: workerMeta?.worker_has_company_vehicle ?? false,
+    worker_state: workerMeta?.worker_state ?? null,
+    myob_export_status: "not_exported",
+    overtime_hours: 0,
+    is_leave_preview: true,
+    leave_preview_request_status: request.status,
+  };
+}
+
+/** Add synthetic leave rows for pending/approved requests not yet backed by timesheets. */
+export function mergeAdvanceLeaveRequestsIntoTimesheets(
+  rows: AccountsTimesheetRow[],
+  leaveRequests: LeaveRequest[],
+  weekStartIso: string,
+  weekEndIso: string
+): AccountsTimesheetRow[] {
+  const existingByWorkerDate = new Set(
+    rows.map((row) => `${row.worker_id}:${row.work_date}`)
+  );
+  const workerMetaById = new Map<string, AccountsTimesheetRow>();
+  for (const row of rows) {
+    if (!workerMetaById.has(row.worker_id)) {
+      workerMetaById.set(row.worker_id, row);
+    }
+  }
+
+  const previewRows: AccountsTimesheetRow[] = [];
+
+  for (const request of leaveRequests) {
+    if (!isLeaveRequestPending(request.status) && !isLeaveRequestApproved(request.status)) {
+      continue;
+    }
+
+    const leaveStart = getLeaveStartDate(request);
+    const leaveEnd = getLeaveEndDate(request);
+    const overlappingDays = intersectDateRangeWithPayWeek(
+      leaveStart,
+      leaveEnd,
+      weekStartIso,
+      weekEndIso
+    );
+
+    for (const dayIso of overlappingDays) {
+      if (!isDateInPayWeek(dayIso, weekStartIso, weekEndIso)) continue;
+      const key = `${request.worker_id}:${dayIso}`;
+      if (existingByWorkerDate.has(key)) continue;
+
+      previewRows.push(
+        buildLeavePreviewTimesheetRow(
+          request,
+          dayIso,
+          workerMetaById.get(request.worker_id) ?? null
+        )
+      );
+      existingByWorkerDate.add(key);
+    }
+  }
+
+  if (previewRows.length === 0) return rows;
+  return [...rows, ...previewRows];
+}
+
+export { WORKER_STATE_REGION_OPTIONS as ACCOUNTS_TIMESHEET_STATE_OPTIONS };
+export type { WorkerStateRegion as AccountsTimesheetStateFilter };
+
+/** Parse NSW/ACT/WA/NZ from a project location string (e.g. "Perth, WA"). */
+export function parseStateFromProjectLocation(
+  location: string | null | undefined
+): WorkerStateRegion | null {
+  const direct = normalizeWorkerStateRegion(location);
+  if (direct) return direct;
+
+  const text = location?.trim();
+  if (!text) return null;
+
+  const upper = text.toUpperCase();
+  for (const state of WORKER_STATE_REGION_OPTIONS) {
+    if (new RegExp(`\\b${state}\\b`).test(upper)) {
+      return state;
+    }
+  }
+
+  return null;
+}
+
+/** Worker state first; fall back to the timesheet project's location. */
+export function resolveTimesheetStateForFilter(
+  row: Pick<AccountsTimesheetRow, "worker_state" | "project_id">,
+  projectById: Map<string, DbProject>
+): WorkerStateRegion | null {
+  const workerState = normalizeWorkerStateRegion(row.worker_state);
+  if (workerState) return workerState;
+
+  if (!row.project_id) return null;
+
+  const project = projectById.get(row.project_id);
+  return parseStateFromProjectLocation(project?.location ?? null);
 }
 
 export function resolveTimesheetOvertimeHours(row: WorkerTimesheet): number {
@@ -27,6 +243,70 @@ export function resolveTimesheetOvertimeHours(row: WorkerTimesheet): number {
     return Number(row.overtime_hours);
   }
   return Math.max(0, Math.round((Number(row.total_hours) - 8) * 100) / 100);
+}
+
+type WorkerPayrollRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  trade?: string | null;
+  pay_rule_id?: string | null;
+  pay_rate_id?: string | null;
+  is_hsr?: boolean | null;
+  is_apprentice?: boolean | null;
+  has_company_vehicle?: boolean | null;
+  state?: string | null;
+};
+
+const WORKER_PAYROLL_SELECT_VARIANTS = [
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id, trade, is_hsr, is_apprentice, has_company_vehicle, state",
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id, trade, is_hsr, is_apprentice, state",
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id, trade, is_hsr, is_apprentice",
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id, trade, is_hsr",
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id, trade",
+  "id, first_name, last_name, full_name, pay_rule_id, pay_rate_id",
+  "id, first_name, last_name, full_name, pay_rate_id",
+  "id, first_name, last_name, full_name",
+  "id, first_name, last_name",
+] as const;
+
+function isMissingWorkerColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("column") &&
+    (lower.includes("does not exist") ||
+      lower.includes("schema cache") ||
+      lower.includes("could not find"))
+  );
+}
+
+async function fetchWorkerPayrollRows(workerIds: string[]): Promise<WorkerPayrollRow[]> {
+  if (workerIds.length === 0) return [];
+
+  try {
+    for (const select of WORKER_PAYROLL_SELECT_VARIANTS) {
+      const { data, error } = await supabase.from("workers").select(select).in("id", workerIds);
+      if (!error) {
+        return (data ?? []) as unknown as WorkerPayrollRow[];
+      }
+      if (handleSupabaseNetworkFetchError(error, "fetch worker payroll rows")) {
+        return [];
+      }
+      if (!isMissingWorkerColumnError(error.message)) {
+        console.warn("Failed to resolve worker payroll fields for timesheets:", error.message);
+        return [];
+      }
+    }
+
+    return [];
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch worker payroll rows")) {
+      return [];
+    }
+    console.warn("Failed to resolve worker payroll fields for timesheets:", error);
+    return [];
+  }
 }
 
 export function formatTimesheetDatePeriod(workDate: string): string {
@@ -114,74 +394,78 @@ export function filterAccountsTimesheets(
 export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const { data: timesheetData, error: timesheetError } = await supabase
-    .from("worker_timesheets")
-    .select("*")
-    .order("work_date", { ascending: false })
-    .order("created_at", { ascending: false });
+  try {
+    const { data: timesheetData, error: timesheetError } = await supabase
+      .from("worker_timesheets")
+      .select("*")
+      .order("work_date", { ascending: false })
+      .order("created_at", { ascending: false });
 
-  if (timesheetError) {
-    if (!timesheetError.message.toLowerCase().includes("worker_timesheets")) {
-      console.error("Failed to fetch accounts timesheets:", timesheetError.message);
+    if (timesheetError) {
+      if (handleSupabaseNetworkFetchError(timesheetError, "fetch accounts timesheets")) {
+        return [];
+      }
+      if (!timesheetError.message.toLowerCase().includes("worker_timesheets")) {
+        console.error("Failed to fetch accounts timesheets:", timesheetError.message);
+      }
+      return [];
     }
+
+    const timesheets = (timesheetData ?? []).map((row) =>
+      mapTimesheetRow(row as Record<string, unknown>)
+    );
+    if (timesheets.length === 0) return [];
+
+    const workerIds = [...new Set(timesheets.map((row) => row.worker_id))];
+    const workerRows = await fetchWorkerPayrollRows(workerIds);
+
+    const workerNameById = new Map<string, string>();
+    const workerFirstNameById = new Map<string, string | null>();
+    const workerLastNameById = new Map<string, string | null>();
+    const workerTradeById = new Map<string, string | null>();
+    const workerPayRateById = new Map<string, string | null>();
+    const workerHsrById = new Map<string, boolean>();
+    const workerApprenticeById = new Map<string, boolean>();
+    const workerCompanyVehicleById = new Map<string, boolean>();
+    const workerStateById = new Map<string, string | null>();
+
+    for (const worker of workerRows) {
+      const row = worker as WorkerPayrollRow;
+      workerNameById.set(row.id, getWorkerDisplayName(row, "Unknown worker"));
+      workerFirstNameById.set(row.id, row.first_name?.trim() || null);
+      workerLastNameById.set(row.id, row.last_name?.trim() || null);
+      workerTradeById.set(row.id, row.trade?.trim() || null);
+      workerPayRateById.set(
+        row.id,
+        row.pay_rule_id?.trim() || row.pay_rate_id?.trim() || null
+      );
+      workerHsrById.set(row.id, Boolean(row.is_hsr));
+      workerApprenticeById.set(row.id, Boolean(row.is_apprentice));
+      workerCompanyVehicleById.set(row.id, Boolean(row.has_company_vehicle));
+      workerStateById.set(row.id, row.state?.trim() || null);
+    }
+
+    return timesheets.map((row) => ({
+      ...row,
+      worker_name: workerNameById.get(row.worker_id) ?? "Unknown worker",
+      worker_first_name: workerFirstNameById.get(row.worker_id) ?? null,
+      worker_last_name: workerLastNameById.get(row.worker_id) ?? null,
+      worker_trade: row.worker_trade ?? workerTradeById.get(row.worker_id) ?? null,
+      pay_rate_id: workerPayRateById.get(row.worker_id) ?? null,
+      worker_is_hsr: workerHsrById.get(row.worker_id) ?? false,
+      worker_is_apprentice: workerApprenticeById.get(row.worker_id) ?? false,
+      worker_has_company_vehicle: workerCompanyVehicleById.get(row.worker_id) ?? false,
+      worker_state: workerStateById.get(row.worker_id) ?? null,
+      myob_export_status: (row.myob_export_status ?? "not_exported") as MyobExportStatus,
+      overtime_hours: resolveTimesheetOvertimeHours(row),
+    }));
+  } catch (error) {
+    if (handleSupabaseNetworkFetchError(error, "fetch accounts timesheets")) {
+      return [];
+    }
+    console.error("Failed to fetch accounts timesheets:", error);
     return [];
   }
-
-  const timesheets = (timesheetData ?? []).map((row) =>
-    mapTimesheetRow(row as Record<string, unknown>)
-  );
-  if (timesheets.length === 0) return [];
-
-  const workerIds = [...new Set(timesheets.map((row) => row.worker_id))];
-  const workerNameById = await fetchWorkerProfileNameMap(workerIds);
-
-  const { data: workerData, error: workerError } = await supabase
-    .from("workers")
-    .select("id, trade, pay_rate_id, is_hsr")
-    .in("id", workerIds);
-
-  type WorkerPayrollRow = {
-    id: string;
-    trade?: string | null;
-    pay_rate_id?: string | null;
-    is_hsr?: boolean | null;
-  };
-
-  let workerRows: WorkerPayrollRow[] | null = (workerData ?? []) as WorkerPayrollRow[];
-  if (workerError) {
-    console.warn("Failed to resolve worker payroll fields for timesheets:", workerError.message);
-    const { data: fallbackData } = await supabase
-      .from("workers")
-      .select("id, trade, pay_rate_id")
-      .in("id", workerIds);
-    workerRows = (fallbackData ?? []) as WorkerPayrollRow[];
-  }
-
-  const workerTradeById = new Map<string, string | null>();
-  const workerPayRateById = new Map<string, string | null>();
-  const workerHsrById = new Map<string, boolean>();
-
-  for (const worker of workerRows ?? []) {
-    const row = worker as {
-      id: string;
-      trade?: string | null;
-      pay_rate_id?: string | null;
-      is_hsr?: boolean | null;
-    };
-    workerTradeById.set(row.id, row.trade?.trim() || null);
-    workerPayRateById.set(row.id, row.pay_rate_id?.trim() || null);
-    workerHsrById.set(row.id, Boolean(row.is_hsr));
-  }
-
-  return timesheets.map((row) => ({
-    ...row,
-    worker_name: workerNameById.get(row.worker_id) ?? "Unknown worker",
-    worker_trade: row.worker_trade ?? workerTradeById.get(row.worker_id) ?? null,
-    pay_rate_id: workerPayRateById.get(row.worker_id) ?? null,
-    worker_is_hsr: workerHsrById.get(row.worker_id) ?? false,
-    myob_export_status: (row.myob_export_status ?? "not_exported") as MyobExportStatus,
-    overtime_hours: resolveTimesheetOvertimeHours(row),
-  }));
 }
 
 export async function approveAccountsTimesheets(
@@ -357,41 +641,39 @@ export function buildMyobTimesheetCsv(rows: AccountsTimesheetRow[]): string {
   return [headers.join(","), ...lines].join("\n");
 }
 
+export function formatPayrollExportUnits(hours: number): number {
+  return Math.round(hours * 100) / 100;
+}
+
+export function buildPayrollTimesheetExportCsv(
+  rows: AccountsTimesheetRow[],
+  payRules: PayRateRule[] = [],
+  projects: DbProject[] = []
+): string {
+  const exportLines = rows.flatMap((row) => {
+    const payRule = resolveTimesheetPayRule(row, payRules);
+    return buildPayrollExportLinesForTimesheet(row, payRule, projects);
+  });
+
+  return buildPayrollTimesheetExportCsvFromLines(exportLines);
+}
+
+export { buildPayrollExportFilename } from "./payroll-timesheet-csv-export";
+
 export function downloadPayrollTimesheetCsv(
   rows: AccountsTimesheetRow[],
-  filename = "sitebolt-timesheets-payroll.csv"
+  payRules: PayRateRule[] = [],
+  options: {
+    filename?: string;
+    projects?: DbProject[];
+  } = {}
 ): void {
-  const headers = [
-    "Worker Name",
-    "Trade",
-    "Project",
-    "Work Date",
-    "Work Hours",
-    "Break Hours",
-    "Total Hours",
-    "Status",
-    "Signature URL",
-    "Notes",
-  ];
-
-  const lines = rows.map((row) =>
-    [
-      row.worker_name,
-      row.worker_trade ?? "",
-      row.project_name ?? "",
-      row.work_date,
-      row.work_hours ?? row.total_hours,
-      row.break_hours ?? row.break_minutes / 60,
-      row.daily_total_hours ?? row.total_hours,
-      row.status,
-      row.signature_url ?? "",
-      row.notes ?? "",
-    ]
-      .map(escapeCsvValue)
-      .join(",")
+  const csv = buildPayrollTimesheetExportCsv(
+    rows,
+    payRules,
+    options.projects ?? []
   );
-
-  const csv = [headers.join(","), ...lines].join("\n");
+  const filename = options.filename ?? buildPayrollExportFilename(rows);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -429,4 +711,69 @@ export function summarizeTimesheetHours(rows: AccountsTimesheetRow[]): {
     totalHours: formatTimesheetHours(Math.round(totalHours * 100) / 100),
     totalOvertime: formatTimesheetHours(Math.round(totalOvertime * 100) / 100),
   };
+}
+
+/** Resolve the pay rule linked to a worker timesheet row via workers.pay_rate_id. */
+export function resolveTimesheetPayRule(
+  row: AccountsTimesheetRow,
+  payRules: PayRateRule[]
+): PayRateRule | null {
+  const payRateId = row.pay_rate_id?.trim();
+  if (!payRateId) return null;
+  return payRules.find((rule) => rule.id === payRateId) ?? null;
+}
+
+/** Admin-only gross pay calculation for Accounts timesheets. */
+export function calculateAccountsTimesheetPay(
+  row: AccountsTimesheetRow,
+  payRules: PayRateRule[]
+): import("./calculateTimesheetPay").TimesheetPayBreakdown | null {
+  const payRule = resolveTimesheetPayRule(row, payRules);
+  if (!payRule) return null;
+
+  return calculateTimesheetPay(row, payRule, {
+    hsrApplicable: row.worker_is_hsr ?? false,
+    isApprentice: row.worker_is_apprentice ?? false,
+    hasCompanyVehicle: row.worker_has_company_vehicle ?? false,
+  });
+}
+
+/** Itemized hours and pay amounts per daily line entry. */
+export function resolveTimesheetLineBreakdown(
+  row: AccountsTimesheetRow,
+  payRules: PayRateRule[]
+): AccountsTimesheetLineBreakdown {
+  const payBreakdown = calculateAccountsTimesheetPay(row, payRules);
+  const resolvedItems = resolveTimesheetLineItems(row);
+
+  if (!payBreakdown) {
+    return {
+      summary:
+        resolvedItems.length > 0
+          ? resolvedItems
+              .map((item) => `${item.hours}h ${item.label}`)
+              .join(", ")
+          : "—",
+      items: resolvedItems.map((item) => ({
+        category: item.category,
+        label: item.label,
+        hours: item.hours,
+        rate: 0,
+        amount: 0,
+      })),
+      totalAmount: 0,
+    };
+  }
+
+  return {
+    summary: payBreakdown.line_items
+      .map((item) => `${item.hours}h ${item.label}`)
+      .join(", "),
+    items: payBreakdown.line_items,
+    totalAmount: payBreakdown.line_items.reduce((sum, item) => sum + item.amount, 0),
+  };
+}
+
+export function formatTimesheetLineBreakdownAmount(amount: number): string {
+  return formatPayCurrency(amount);
 }

@@ -12,6 +12,7 @@ import {
   SITE_FORM_LABELS,
   defaultFormData,
   getSiteFormFields,
+  isSiteFormSectionPhotoRequired,
   type SiteFormAttendee,
   type SiteFormAdditionalWorker,
   type SiteFormData,
@@ -157,16 +158,15 @@ export default function SiteSafetyFormModal({
   };
 
   const validateBeforeSubmit = (): string | null => {
-    for (const photoFieldId of sectionPhotoIds) {
-      if (!sectionPhotoFiles[photoFieldId]) {
-        const field = getSiteFormFields(formType).find(
-          (f) => f.photoFieldId === photoFieldId
-        );
-        return `Please capture a photo for "${field?.label ?? photoFieldId}".`;
-      }
-    }
-
     for (const field of getSiteFormFields(formType)) {
+      if (
+        field.photoFieldId &&
+        isSiteFormSectionPhotoRequired(field, formData) &&
+        !sectionPhotoFiles[field.photoFieldId]
+      ) {
+        return `Please capture a photo for "${field.label}".`;
+      }
+
       if (!field.required) continue;
       const value = formData[field.id];
       if (field.type === "multi_select" || field.type === "multi_select_other") {
@@ -234,7 +234,10 @@ export default function SiteSafetyFormModal({
 
       for (const photoFieldId of sectionPhotoIds) {
         const file = sectionPhotoFiles[photoFieldId];
-        if (!file) continue;
+        if (!file) {
+          delete savedFormData[photoFieldId];
+          continue;
+        }
         const url = await uploadSiteFormPhoto(
           file,
           `${basePath}/${photoFieldId.replace(/_/g, "-")}`

@@ -1,15 +1,26 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { nullIfBlank } from "./form-payload-utils";
 import { resolveProjectId } from "./project-resolver";
 import {
   DEFAULT_ITC_FORM_STEPS,
-  DEMO_ITC_ZONES,
   deriveItcStatus,
+  isItcStepUnlocked,
   type ItcChangeRequestStatus,
   type ItcConduitConfig,
   type ItcFormStepTemplate,
   type ItcSignoffStatus,
   type ItcStatus,
 } from "./itc-templates";
+import {
+  formatItcAutoName,
+  ITC_FIELD_PHOTO_STEP_KEY,
+  ITC_MAX_FIELD_PHOTOS,
+  ITC_MAX_FINAL_PHOTOS,
+  itcAutoNamePrefix,
+  parseItcAutoNameSequence,
+} from "./itc-naming";
+import type { ItcInspectionActivity } from "./itc-batch-templates";
+import { STANDARD_ITC_INSPECTION_ACTIVITIES } from "./itc-batch-templates";
 
 export interface ItcZone {
   id: string;
@@ -29,10 +40,19 @@ export interface ProjectItc {
   zone_code: string | null;
   building: string | null;
   service_discipline: string;
+  trade_discipline: string | null;
+  service_type: string | null;
+  material_colour: string | null;
   start_location: string | null;
   end_location: string | null;
   conduits: ItcConduitConfig[];
   length_m: number | null;
+  length_of_run_m: number | null;
+  number_of_tees: number | null;
+  redline_markup_url: string | null;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  form_data: Record<string, unknown>;
   status: ItcStatus;
   progress_percent: number;
   map_x: number | null;
@@ -42,8 +62,41 @@ export interface ProjectItc {
   assigned_to: string | null;
   assigned_name: string | null;
   has_open_cr: boolean;
+  linked_compaction_tests?: string[];
+  material_and_size?: string | null;
+  upstream_pit_number?: string | null;
+  downstream_pit_number?: string | null;
+  number_of_conduits?: number | null;
+  package_name?: string | null;
+  client_name?: string | null;
+  subcontractor_name?: string | null;
+  min_horizontal_sep_mm?: number | null;
+  min_vertical_sep_mm?: number | null;
+  min_bedding_mm?: number | null;
+  min_side_mm?: number | null;
+  min_overlay_mm?: number | null;
+  min_cover_mm?: number | null;
+  bedding_and_overlay_material?: string | null;
+  cover_material?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ItcStepPhoto {
+  id: string;
+  itc_id: string;
+  step_key: string;
+  activity_number: number | null;
+  photo_url: string;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  captured_at: string | null;
+  uploaded_by: string | null;
+  uploaded_by_name: string | null;
+  is_approved_for_export: boolean;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
 }
 
 export interface ItcPhoto {
@@ -71,6 +124,8 @@ export interface ItcSignoff {
   signature_url: string | null;
   status: ItcSignoffStatus;
   submitted_at: string | null;
+  signed_at: string | null;
+  signed_by_worker_id: string | null;
   verified_by: string | null;
   verified_by_name: string | null;
   verified_at: string | null;
@@ -94,9 +149,11 @@ export interface ItcChangeRequest {
 export interface ItcDetailBundle {
   itc: ProjectItc;
   photos: ItcPhoto[];
+  stepPhotos: ItcStepPhoto[];
   signoffs: ItcSignoff[];
   changeRequests: ItcChangeRequest[];
   steps: ItcFormStepTemplate[];
+  inspectionActivities: ItcInspectionActivity[];
 }
 
 export interface BulkCreateItcInput {
@@ -153,10 +210,22 @@ function normalizeItc(row: Record<string, unknown>): ProjectItc {
     zone_code: row.zone_code ? String(row.zone_code) : null,
     building: row.building ? String(row.building) : null,
     service_discipline: String(row.service_discipline ?? "Electrical"),
+    trade_discipline: row.trade_discipline ? String(row.trade_discipline) : null,
+    service_type: row.service_type ? String(row.service_type) : null,
+    material_colour: row.material_colour ? String(row.material_colour) : null,
     start_location: row.start_location ? String(row.start_location) : null,
     end_location: row.end_location ? String(row.end_location) : null,
     conduits,
     length_m: row.length_m == null ? null : Number(row.length_m),
+    length_of_run_m: row.length_of_run_m == null ? null : Number(row.length_of_run_m),
+    number_of_tees: row.number_of_tees == null ? null : Number(row.number_of_tees),
+    redline_markup_url: row.redline_markup_url ? String(row.redline_markup_url) : null,
+    gps_lat: row.gps_lat == null ? null : Number(row.gps_lat),
+    gps_lng: row.gps_lng == null ? null : Number(row.gps_lng),
+    form_data:
+      row.form_data && typeof row.form_data === "object"
+        ? (row.form_data as Record<string, unknown>)
+        : {},
     status: (row.status as ItcStatus) ?? "not_started",
     progress_percent: Number(row.progress_percent ?? 0),
     map_x: row.map_x == null ? null : Number(row.map_x),
@@ -166,9 +235,82 @@ function normalizeItc(row: Record<string, unknown>): ProjectItc {
     assigned_to: row.assigned_to ? String(row.assigned_to) : null,
     assigned_name: row.assigned_name ? String(row.assigned_name) : null,
     has_open_cr: row.has_open_cr === true,
+    material_and_size: row.material_and_size
+      ? String(row.material_and_size)
+      : null,
+    upstream_pit_number: row.upstream_pit_number ? String(row.upstream_pit_number) : null,
+    downstream_pit_number: row.downstream_pit_number ? String(row.downstream_pit_number) : null,
+    number_of_conduits: row.number_of_conduits == null ? null : Number(row.number_of_conduits),
+    package_name: row.package_name ? String(row.package_name) : null,
+    client_name: row.client_name ? String(row.client_name) : null,
+    subcontractor_name: row.subcontractor_name ? String(row.subcontractor_name) : null,
+    min_horizontal_sep_mm:
+      row.min_horizontal_sep_mm == null ? null : Number(row.min_horizontal_sep_mm),
+    min_vertical_sep_mm:
+      row.min_vertical_sep_mm == null ? null : Number(row.min_vertical_sep_mm),
+    min_bedding_mm: row.min_bedding_mm == null ? null : Number(row.min_bedding_mm),
+    min_side_mm: row.min_side_mm == null ? null : Number(row.min_side_mm),
+    min_overlay_mm: row.min_overlay_mm == null ? null : Number(row.min_overlay_mm),
+    min_cover_mm: row.min_cover_mm == null ? null : Number(row.min_cover_mm),
+    bedding_and_overlay_material: row.bedding_and_overlay_material
+      ? String(row.bedding_and_overlay_material)
+      : null,
+    cover_material: row.cover_material ? String(row.cover_material) : null,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
+}
+
+function normalizeInspectionActivity(row: Record<string, unknown>): ItcInspectionActivity {
+  return {
+    id: String(row.id),
+    itc_id: String(row.itc_id ?? ""),
+    activity_number: Number(row.activity_number ?? 0),
+    title: String(row.title ?? ""),
+    inspection_criteria: row.inspection_criteria ? String(row.inspection_criteria) : null,
+    check_result: row.check_result ? String(row.check_result) : null,
+    requires_photo: row.requires_photo === true,
+    check_by: row.check_by ? String(row.check_by) : null,
+    checked_date: row.checked_date ? String(row.checked_date) : null,
+    comments: row.comments ? String(row.comments) : null,
+    photo_url: row.photo_url ? String(row.photo_url) : null,
+    sort_order: Number(row.sort_order ?? 0),
+  };
+}
+
+function buildDefaultInspectionActivities(itcId: string): ItcInspectionActivity[] {
+  return STANDARD_ITC_INSPECTION_ACTIVITIES.map((activity, index) => ({
+    id: `${itcId}-act-${activity.activity_number}`,
+    itc_id: itcId,
+    activity_number: activity.activity_number,
+    title: activity.title,
+    inspection_criteria: activity.inspection_criteria,
+    check_result: null,
+    requires_photo: activity.requires_photo,
+    check_by: null,
+    checked_date: null,
+    comments: null,
+    photo_url: null,
+    sort_order: index,
+  }));
+}
+
+export function mergeInspectionActivities(
+  itcId: string,
+  stored: ItcInspectionActivity[]
+): ItcInspectionActivity[] {
+  const defaults = buildDefaultInspectionActivities(itcId);
+  if (!stored.length) return defaults;
+
+  return defaults.map((template) => {
+    const match = stored.find((row) => row.activity_number === template.activity_number);
+    if (!match) return template;
+    return {
+      ...template,
+      ...match,
+      inspection_criteria: match.inspection_criteria ?? template.inspection_criteria,
+    };
+  });
 }
 
 function normalizePhoto(row: Record<string, unknown>): ItcPhoto {
@@ -188,6 +330,25 @@ function normalizePhoto(row: Record<string, unknown>): ItcPhoto {
   };
 }
 
+function normalizeStepPhoto(row: Record<string, unknown>): ItcStepPhoto {
+  return {
+    id: String(row.id),
+    itc_id: String(row.itc_id),
+    step_key: String(row.step_key ?? "general"),
+    activity_number: row.activity_number == null ? null : Number(row.activity_number),
+    photo_url: String(row.photo_url ?? ""),
+    gps_lat: row.gps_lat == null ? null : Number(row.gps_lat),
+    gps_lng: row.gps_lng == null ? null : Number(row.gps_lng),
+    captured_at: row.captured_at ? String(row.captured_at) : null,
+    uploaded_by: row.uploaded_by ? String(row.uploaded_by) : null,
+    uploaded_by_name: row.uploaded_by_name ? String(row.uploaded_by_name) : null,
+    is_approved_for_export: row.is_approved_for_export === true,
+    approved_by: row.approved_by ? String(row.approved_by) : null,
+    approved_by_name: row.approved_by_name ? String(row.approved_by_name) : null,
+    approved_at: row.approved_at ? String(row.approved_at) : null,
+  };
+}
+
 function normalizeSignoff(row: Record<string, unknown>): ItcSignoff {
   return {
     id: String(row.id),
@@ -204,6 +365,10 @@ function normalizeSignoff(row: Record<string, unknown>): ItcSignoff {
     signature_url: row.signature_url ? String(row.signature_url) : null,
     status: (row.status as ItcSignoffStatus) ?? "draft",
     submitted_at: row.submitted_at ? String(row.submitted_at) : null,
+    signed_at: row.signed_at ? String(row.signed_at) : null,
+    signed_by_worker_id: row.signed_by_worker_id
+      ? String(row.signed_by_worker_id)
+      : null,
     verified_by: row.verified_by ? String(row.verified_by) : null,
     verified_by_name: row.verified_by_name ? String(row.verified_by_name) : null,
     verified_at: row.verified_at ? String(row.verified_at) : null,
@@ -227,94 +392,8 @@ function normalizeChangeRequest(row: Record<string, unknown>): ItcChangeRequest 
   };
 }
 
-function buildDemoZones(projectId: string): ItcZone[] {
-  return DEMO_ITC_ZONES.map((zone, index) => ({
-    id: `demo-zone-${index}`,
-    project_id: projectId,
-    zone_code: zone.zone_code,
-    zone_name: zone.zone_name,
-    map_x: zone.map_x,
-    map_y: zone.map_y,
-    sort_order: zone.sort_order,
-  }));
-}
-
-function buildDemoItcs(projectId: string, zones: ItcZone[]): ProjectItc[] {
-  const samples = [
-    {
-      itc_number: "ITC-MP0-001",
-      zone_code: "MP0",
-      building: "Building 1",
-      start: "Pit 12",
-      end: "Pit 18",
-      status: "ongoing" as ItcStatus,
-      progress: 45,
-      trench: "T-MP0-A",
-    },
-    {
-      itc_number: "ITC-MP0-002",
-      zone_code: "MP0",
-      building: "Building 1",
-      start: "Pit 18",
-      end: "Node B",
-      status: "complete" as ItcStatus,
-      progress: 100,
-      trench: "T-MP0-A",
-    },
-    {
-      itc_number: "ITC-MP1-003",
-      zone_code: "MP1",
-      building: "Building 2",
-      start: "Hub North",
-      end: "Pit 04",
-      status: "issue" as ItcStatus,
-      progress: 60,
-      trench: "T-MP1-B",
-    },
-    {
-      itc_number: "ITC-HRN-004",
-      zone_code: "HRN",
-      building: "Haul Road",
-      start: "Pit 22",
-      end: "Pit 26",
-      status: "not_started" as ItcStatus,
-      progress: 0,
-      trench: "T-HRN-1",
-    },
-  ];
-
-  return samples.map((sample, index) => {
-    const zone = zones.find((row) => row.zone_code === sample.zone_code);
-    return {
-      id: `demo-itc-${index}`,
-      project_id: projectId,
-      itc_number: sample.itc_number,
-      zone_id: zone?.id ?? null,
-      zone_code: sample.zone_code,
-      building: sample.building,
-      service_discipline: "Electrical LV",
-      start_location: sample.start,
-      end_location: sample.end,
-      conduits: [
-        { n: 4, size: "100mm" },
-        { n: 2, size: "50mm" },
-      ],
-      length_m: 86 + index * 12,
-      status: sample.status,
-      progress_percent: sample.progress,
-      map_x: (zone?.map_x ?? 0.5) + index * 0.03,
-      map_y: (zone?.map_y ?? 0.5) + index * 0.02,
-      trench_group: sample.trench,
-      drawing_rev: "Rev C",
-      assigned_to: null,
-      assigned_name: null,
-      has_open_cr: sample.status === "issue",
-    };
-  });
-}
-
 export async function fetchItcZones(projectId: string): Promise<ItcZone[]> {
-  if (!isSupabaseConfigured()) return buildDemoZones(projectId);
+  if (!isSupabaseConfigured()) return [];
 
   try {
     const resolved = await resolveProject(projectId);
@@ -328,13 +407,13 @@ export async function fetchItcZones(projectId: string): Promise<ItcZone[]> {
       if (!isMissingTableError(error.message, "itc_zones")) {
         console.warn("fetchItcZones failed:", error.message);
       }
-      return buildDemoZones(projectId);
+      return [];
     }
 
-    if (!data?.length) return buildDemoZones(projectId);
+    if (!data?.length) return [];
     return data.map((row) => normalizeZone(row as Record<string, unknown>));
   } catch {
-    return buildDemoZones(projectId);
+    return [];
   }
 }
 
@@ -342,12 +421,7 @@ export async function fetchProjectItcs(
   projectId: string,
   zoneCode?: string | null
 ): Promise<ProjectItc[]> {
-  if (!isSupabaseConfigured()) {
-    const zones = buildDemoZones(projectId);
-    const demo = buildDemoItcs(projectId, zones);
-    if (!zoneCode || zoneCode === "ALL") return demo;
-    return demo.filter((row) => row.zone_code === zoneCode);
-  }
+  if (!isSupabaseConfigured()) return [];
 
   try {
     const resolved = await resolveProject(projectId);
@@ -361,91 +435,68 @@ export async function fetchProjectItcs(
       if (!isMissingTableError(error.message, "project_itcs")) {
         console.warn("fetchProjectItcs failed:", error.message);
       }
-      const zones = await fetchItcZones(projectId);
-      const demo = buildDemoItcs(projectId, zones);
-      if (!zoneCode || zoneCode === "ALL") return demo;
-      return demo.filter((row) => row.zone_code === zoneCode);
+      return [];
     }
 
-    if (!data?.length) {
-      const zones = await fetchItcZones(projectId);
-      const demo = buildDemoItcs(projectId, zones);
-      if (!zoneCode || zoneCode === "ALL") return demo;
-      return demo.filter((row) => row.zone_code === zoneCode);
-    }
+    if (!data?.length) return [];
 
     return data.map((row) => normalizeItc(row as Record<string, unknown>));
   } catch {
-    const zones = buildDemoZones(projectId);
-    const demo = buildDemoItcs(projectId, zones);
-    if (!zoneCode || zoneCode === "ALL") return demo;
-    return demo.filter((row) => row.zone_code === zoneCode);
+    return [];
   }
 }
 
 export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | null> {
-  if (!itcId.startsWith("demo-itc-")) {
-    if (!isSupabaseConfigured()) return null;
+  if (!isSupabaseConfigured()) return null;
 
-    const { data: itcRow, error } = await supabase
-      .from("project_itcs")
+  const { data: itcRow, error } = await supabase
+    .from("project_itcs")
+    .select("*")
+    .eq("id", itcId)
+    .maybeSingle();
+
+  if (error || !itcRow) return null;
+
+  const [
+    { data: photoRows },
+    { data: stepPhotoRows },
+    { data: signoffRows },
+    { data: crRows },
+    { data: activityRows },
+  ] = await Promise.all([
+    supabase.from("itc_photos").select("*").eq("itc_id", itcId),
+    supabase.from("itc_step_photos").select("*").eq("itc_id", itcId).order("created_at"),
+    supabase.from("itc_signoffs").select("*").eq("itc_id", itcId).order("step_index"),
+    supabase
+      .from("itc_change_requests")
       .select("*")
-      .eq("id", itcId)
-      .maybeSingle();
+      .eq("itc_id", itcId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("itc_inspection_activities")
+      .select("*")
+      .eq("itc_id", itcId)
+      .order("sort_order"),
+  ]);
 
-    if (error || !itcRow) return null;
-
-    const [{ data: photoRows }, { data: signoffRows }, { data: crRows }] =
-      await Promise.all([
-        supabase.from("itc_photos").select("*").eq("itc_id", itcId),
-        supabase.from("itc_signoffs").select("*").eq("itc_id", itcId).order("step_index"),
-        supabase
-          .from("itc_change_requests")
-          .select("*")
-          .eq("itc_id", itcId)
-          .order("created_at", { ascending: false }),
-      ]);
-
-    return {
-      itc: normalizeItc(itcRow as Record<string, unknown>),
-      photos: (photoRows ?? []).map((row) => normalizePhoto(row as Record<string, unknown>)),
-      signoffs: (signoffRows ?? []).map((row) =>
-        normalizeSignoff(row as Record<string, unknown>)
-      ),
-      changeRequests: (crRows ?? []).map((row) =>
-        normalizeChangeRequest(row as Record<string, unknown>)
-      ),
-      steps: DEFAULT_ITC_FORM_STEPS,
-    };
-  }
-
-  const projectId = "demo";
-  const zones = buildDemoZones(projectId);
-  const itc = buildDemoItcs(projectId, zones).find((row) => row.id === itcId);
-  if (!itc) return null;
+  const storedActivities = (activityRows ?? []).map((row) =>
+    normalizeInspectionActivity(row as Record<string, unknown>)
+  );
 
   return {
-    itc,
-    photos: [],
-    signoffs: [],
-    changeRequests: itc.has_open_cr
-      ? [
-          {
-            id: "demo-cr-1",
-            itc_id: itcId,
-            signoff_id: null,
-            requested_by: "worker-1",
-            requested_by_name: "Site Worker",
-            reason: "Compaction test number entered incorrectly.",
-            status: "pending",
-            reviewed_by: null,
-            reviewed_by_name: null,
-            reviewed_at: null,
-            resolution_notes: null,
-          },
-        ]
-      : [],
+    itc: normalizeItc(itcRow as Record<string, unknown>),
+    photos: (photoRows ?? []).map((row) => normalizePhoto(row as Record<string, unknown>)),
+    stepPhotos: (stepPhotoRows ?? []).map((row) =>
+      normalizeStepPhoto(row as Record<string, unknown>)
+    ),
+    signoffs: (signoffRows ?? []).map((row) =>
+      normalizeSignoff(row as Record<string, unknown>)
+    ),
+    changeRequests: (crRows ?? []).map((row) =>
+      normalizeChangeRequest(row as Record<string, unknown>)
+    ),
     steps: DEFAULT_ITC_FORM_STEPS,
+    inspectionActivities: mergeInspectionActivities(itcId, storedActivities),
   };
 }
 
@@ -453,24 +504,37 @@ export async function bulkCreateItcs(
   input: BulkCreateItcInput
 ): Promise<{ error: string | null; created: number }> {
   if (!isSupabaseConfigured()) {
-    const count = Math.max(0, input.endPit - input.startPit + 1);
-    return { error: null, created: count };
+    return { error: "Supabase is not configured", created: 0 };
   }
 
   try {
     const resolved = await resolveProject(input.projectId);
     const prefix = input.pitPrefix?.trim() || "Pit";
     const rows = [];
+    let sequence = await getNextItcSequence(
+      resolved,
+      input.zoneCode,
+      input.serviceDiscipline
+    );
 
     for (let pit = input.startPit; pit <= input.endPit; pit += 1) {
       const nextPit = pit + 1;
+      const itcNumber = formatItcAutoName(
+        input.zoneCode,
+        input.serviceDiscipline,
+        sequence
+      );
+      sequence += 1;
+
       if (nextPit > input.endPit && input.endHub.trim()) {
         rows.push({
           project_id: resolved,
-          itc_number: `ITC-${input.zoneCode}-${String(pit).padStart(2, "0")}`,
+          itc_number: itcNumber,
           zone_code: input.zoneCode,
           building: input.building?.trim() || null,
           service_discipline: input.serviceDiscipline,
+          service_type: input.serviceDiscipline,
+          trade_discipline: input.serviceDiscipline,
           start_location: `${prefix} ${pit}`,
           end_location: input.endHub.trim(),
           conduits: input.conduits,
@@ -484,10 +548,12 @@ export async function bulkCreateItcs(
 
       rows.push({
         project_id: resolved,
-        itc_number: `ITC-${input.zoneCode}-${String(pit).padStart(2, "0")}`,
+        itc_number: itcNumber,
         zone_code: input.zoneCode,
         building: input.building?.trim() || null,
         service_discipline: input.serviceDiscipline,
+        service_type: input.serviceDiscipline,
+        trade_discipline: input.serviceDiscipline,
         start_location: pit === input.startPit ? input.startHub.trim() : `${prefix} ${pit}`,
         end_location:
           nextPit <= input.endPit ? `${prefix} ${nextPit}` : input.endHub.trim(),
@@ -522,7 +588,6 @@ export async function saveItcPhoto(input: {
   gpsLng?: number | null;
   uploadedBy?: string;
 }): Promise<{ error: string | null }> {
-  if (input.itcId.startsWith("demo-itc-")) return { error: null };
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const payload = {
@@ -555,28 +620,6 @@ export async function upsertItcSignoffDraft(input: {
   fieldData?: Record<string, unknown>;
   signatureUrl?: string | null;
 }): Promise<{ error: string | null; signoff?: ItcSignoff }> {
-  if (input.itcId.startsWith("demo-itc-")) {
-    return {
-      error: null,
-      signoff: {
-        id: `demo-signoff-${input.stepIndex}`,
-        itc_id: input.itcId,
-        step_key: input.stepKey,
-        step_index: input.stepIndex,
-        author_id: input.authorId,
-        author_name: input.authorName,
-        comments: input.comments ?? null,
-        field_data: input.fieldData ?? {},
-        signature_url: input.signatureUrl ?? null,
-        status: "draft",
-        submitted_at: null,
-        verified_by: null,
-        verified_by_name: null,
-        verified_at: null,
-      },
-    };
-  }
-
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const { data: existing } = await supabase
@@ -591,15 +634,31 @@ export async function upsertItcSignoffDraft(input: {
     return { error: "Submitted sign-offs are locked. Submit a Change Request to alter." };
   }
 
+  const { data: authorSignoffs } = await supabase
+    .from("itc_signoffs")
+    .select("step_index, author_id, status")
+    .eq("itc_id", input.itcId)
+    .eq("author_id", input.authorId);
+
+  const priorSignoffs = (authorSignoffs ?? []).map((row) => ({
+    step_index: Number(row.step_index),
+    author_id: String(row.author_id),
+    status: String(row.status),
+  }));
+
+  if (!isItcStepUnlocked(input.stepIndex, priorSignoffs, input.authorId)) {
+    return { error: "Complete and submit the previous step before working on this one." };
+  }
+
   const payload = {
     itc_id: input.itcId,
     step_key: input.stepKey,
     step_index: input.stepIndex,
     author_id: input.authorId,
     author_name: input.authorName.trim(),
-    comments: input.comments?.trim() || null,
+    comments: nullIfBlank(input.comments),
     field_data: input.fieldData ?? {},
-    signature_url: input.signatureUrl ?? null,
+    signature_url: nullIfBlank(input.signatureUrl),
     status: "draft" as const,
     updated_at: new Date().toISOString(),
   };
@@ -620,14 +679,58 @@ export async function upsertItcSignoffDraft(input: {
 export async function submitItcSignoff(input: {
   signoffId: string;
   itcId: string;
+  signedByWorkerId: string;
 }): Promise<{ error: string | null }> {
-  if (input.itcId.startsWith("demo-itc-")) return { error: null };
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const { data: signoffRow, error: fetchError } = await supabase
+    .from("itc_signoffs")
+    .select("*")
+    .eq("id", input.signoffId)
+    .maybeSingle();
+
+  if (fetchError || !signoffRow) {
+    return { error: fetchError?.message ?? "Sign-off not found." };
+  }
+
+  if (signoffRow.status === "submitted") {
+    return { error: "This step is already submitted and locked." };
+  }
+
+  if (!signoffRow.signature_url) {
+    return { error: "A signature is required before submitting this step." };
+  }
+
+  const { data: authorSignoffs } = await supabase
+    .from("itc_signoffs")
+    .select("step_index, author_id, status")
+    .eq("itc_id", input.itcId)
+    .eq("author_id", signoffRow.author_id);
+
+  if (
+    !isItcStepUnlocked(
+      Number(signoffRow.step_index),
+      (authorSignoffs ?? []).map((row) => ({
+        step_index: Number(row.step_index),
+        author_id: String(row.author_id),
+        status: String(row.status),
+      })),
+      String(signoffRow.author_id)
+    )
+  ) {
+    return { error: "Complete and submit the previous step before submitting this one." };
+  }
 
   const submittedAt = new Date().toISOString();
   const { error } = await supabase
     .from("itc_signoffs")
-    .update({ status: "submitted", submitted_at: submittedAt, updated_at: submittedAt })
+    .update({
+      status: "submitted",
+      submitted_at: submittedAt,
+      signed_at: submittedAt,
+      signed_by_worker_id: input.signedByWorkerId,
+      updated_at: submittedAt,
+    })
     .eq("id", input.signoffId)
     .eq("status", "draft");
 
@@ -685,14 +788,10 @@ export async function bulkSignOffItcStep(input: {
     });
     if (draft.error || !draft.signoff) continue;
 
-    if (itcId.startsWith("demo-itc-")) {
-      signed += 1;
-      continue;
-    }
-
     const submit = await submitItcSignoff({
       signoffId: draft.signoff.id,
       itcId,
+      signedByWorkerId: input.authorId,
     });
     if (!submit.error) signed += 1;
   }
@@ -707,7 +806,6 @@ export async function createItcChangeRequest(input: {
   requestedByName: string;
   reason: string;
 }): Promise<{ error: string | null }> {
-  if (input.itcId.startsWith("demo-itc-")) return { error: null };
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const { error } = await supabase.from("itc_change_requests").insert({
@@ -734,7 +832,6 @@ export async function verifyItcSignoff(input: {
   verifiedBy: string;
   verifiedByName: string;
 }): Promise<{ error: string | null }> {
-  if (input.signoffId.startsWith("demo-")) return { error: null };
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const { error } = await supabase
@@ -843,6 +940,246 @@ export async function reviewItcChangeRequest(input: {
   }
 
   return { error: null };
+}
+
+export async function fetchItcStepPhotos(itcId: string): Promise<ItcStepPhoto[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await supabase
+    .from("itc_step_photos")
+    .select("*")
+    .eq("itc_id", itcId)
+    .order("created_at");
+
+  if (error) {
+    if (!isMissingTableError(error.message, "itc_step_photos")) {
+      console.warn("fetchItcStepPhotos failed:", error.message);
+    }
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeStepPhoto(row as Record<string, unknown>));
+}
+
+export async function addItcStepPhoto(input: {
+  itcId: string;
+  stepKey: string;
+  activityNumber?: number | null;
+  photoUrl: string;
+  gpsLat?: number | null;
+  gpsLng?: number | null;
+  uploadedBy?: string;
+  uploadedByName?: string;
+}): Promise<{ error: string | null; photo?: ItcStepPhoto }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  if (input.stepKey === ITC_FIELD_PHOTO_STEP_KEY) {
+    const { count, error: countError } = await supabase
+      .from("itc_step_photos")
+      .select("id", { count: "exact", head: true })
+      .eq("itc_id", input.itcId)
+      .eq("step_key", ITC_FIELD_PHOTO_STEP_KEY);
+
+    if (countError) return { error: countError.message };
+    if ((count ?? 0) >= ITC_MAX_FIELD_PHOTOS) {
+      return { error: `Maximum of ${ITC_MAX_FIELD_PHOTOS} field photos reached.` };
+    }
+  }
+
+  const payload = {
+    itc_id: input.itcId,
+    step_key: input.stepKey,
+    activity_number: input.activityNumber ?? null,
+    photo_url: input.photoUrl,
+    gps_lat: input.gpsLat ?? null,
+    gps_lng: input.gpsLng ?? null,
+    captured_at: new Date().toISOString(),
+    uploaded_by: input.uploadedBy ?? null,
+    uploaded_by_name: input.uploadedByName ?? null,
+  };
+
+  const { data, error } = await supabase
+    .from("itc_step_photos")
+    .insert([payload])
+    .select("*")
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Failed to save step photo" };
+  return { error: null, photo: normalizeStepPhoto(data as Record<string, unknown>) };
+}
+
+export async function setStepPhotoApproval(input: {
+  photoId: string;
+  approved: boolean;
+  approvedBy?: string;
+  approvedByName?: string;
+}): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  if (input.approved) {
+    const { data: photoRow } = await supabase
+      .from("itc_step_photos")
+      .select("itc_id, step_key")
+      .eq("id", input.photoId)
+      .maybeSingle();
+
+    if (photoRow?.step_key === ITC_FIELD_PHOTO_STEP_KEY) {
+      const { count, error: countError } = await supabase
+        .from("itc_step_photos")
+        .select("id", { count: "exact", head: true })
+        .eq("itc_id", photoRow.itc_id)
+        .eq("step_key", ITC_FIELD_PHOTO_STEP_KEY)
+        .eq("is_approved_for_export", true);
+
+      if (countError) return { error: countError.message };
+      if ((count ?? 0) >= ITC_MAX_FINAL_PHOTOS) {
+        return {
+          error: `Maximum of ${ITC_MAX_FINAL_PHOTOS} final photos can be featured on the certified report.`,
+        };
+      }
+    }
+  }
+
+  const payload = input.approved
+    ? {
+        is_approved_for_export: true,
+        approved_by: input.approvedBy ?? null,
+        approved_by_name: input.approvedByName?.trim() || null,
+        approved_at: new Date().toISOString(),
+      }
+    : {
+        is_approved_for_export: false,
+        approved_by: null,
+        approved_by_name: null,
+        approved_at: null,
+      };
+
+  const { error } = await supabase
+    .from("itc_step_photos")
+    .update(payload)
+    .eq("id", input.photoId);
+
+  return { error: error?.message ?? null };
+}
+
+export async function getNextItcSequence(
+  projectId: string,
+  siteNumber: string,
+  serviceType: string
+): Promise<number> {
+  if (!isSupabaseConfigured()) return 1;
+
+  const prefix = itcAutoNamePrefix(siteNumber, serviceType);
+  const { data } = await supabase
+    .from("project_itcs")
+    .select("itc_number")
+    .eq("project_id", projectId)
+    .ilike("itc_number", `${prefix}%`);
+
+  let maxSeq = 0;
+  for (const row of data ?? []) {
+    const seq = parseItcAutoNameSequence(String(row.itc_number ?? ""));
+    if (seq != null) maxSeq = Math.max(maxSeq, seq);
+  }
+  return maxSeq + 1;
+}
+
+export async function createItcDraft(input: {
+  projectId: string;
+  zoneCode?: string;
+  serviceDiscipline?: string;
+  serviceType?: string;
+}): Promise<{ error: string | null; itc?: ProjectItc }> {
+  const zone = input.zoneCode?.trim() || "SITE";
+  const service =
+    input.serviceType?.trim() || input.serviceDiscipline?.trim() || "General";
+
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured" };
+  }
+
+  const resolved = await resolveProject(input.projectId);
+  const sequence = await getNextItcSequence(resolved, zone, service);
+  const itcNumber = formatItcAutoName(zone, service, sequence);
+
+  const { data, error } = await supabase
+    .from("project_itcs")
+    .insert({
+      project_id: resolved,
+      itc_number: itcNumber,
+      zone_code: zone,
+      service_discipline: service,
+      service_type: service,
+      trade_discipline: service,
+      status: "not_started",
+      progress_percent: 0,
+      form_data: {},
+    })
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    return { error: error?.message ?? "Failed to create ITC draft" };
+  }
+
+  return { error: null, itc: normalizeItc(data as Record<string, unknown>) };
+}
+
+export async function updateItcTradeForm(input: {
+  itcId: string;
+  payload: Record<string, unknown>;
+}): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const formData = input.payload.form_data;
+  const updatePayload: Record<string, unknown> = {
+    ...input.payload,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.payload.upstream_pit_number) {
+    updatePayload.start_location = input.payload.upstream_pit_number;
+  }
+  if (input.payload.downstream_pit_number) {
+    updatePayload.end_location = input.payload.downstream_pit_number;
+  }
+
+  const { error } = await supabase
+    .from("project_itcs")
+    .update(updatePayload)
+    .eq("id", input.itcId);
+
+  return { error: error?.message ?? null };
+}
+
+export async function updateItcGpsLocation(input: {
+  itcId: string;
+  projectId: string;
+  gpsLat: number;
+  gpsLng: number;
+}): Promise<{ error: string | null; linkedTests?: string[] }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const { error } = await supabase
+    .from("project_itcs")
+    .update({
+      gps_lat: input.gpsLat,
+      gps_lng: input.gpsLng,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.itcId);
+
+  if (error) return { error: error.message };
+
+  const { linkItcToNearbyCompactionTests } = await import("./itc-compaction-service");
+  const linkedTests = await linkItcToNearbyCompactionTests(
+    input.itcId,
+    input.projectId,
+    input.gpsLat,
+    input.gpsLng
+  );
+
+  return { error: null, linkedTests };
 }
 
 export { DEFAULT_ITC_FORM_STEPS };

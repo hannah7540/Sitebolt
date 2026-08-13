@@ -12,6 +12,7 @@ import {
   formatProjectSaveError,
   isProjectArchived,
 } from "@/lib/project-resolver";
+import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import {
   modalOverlayClass,
   modalClass,
@@ -81,12 +82,17 @@ export default function ProjectFormModal({
   onSaved,
   onError,
 }: ProjectFormModalProps) {
+  const activeWorkers = workers.filter((worker) => !worker.is_revoked && !worker.is_archived);
+
   const [title, setTitle] = useState(project?.project_name ?? project?.name ?? "");
   const [projectCode, setProjectCode] = useState(project?.project_code ?? "");
   const [client, setClient] = useState(project?.client ?? "");
   const [location, setLocation] = useState(project?.location ?? "");
-  const [projectAdmins, setProjectAdmins] = useState<string[]>(() =>
-    normalizeWorkerUuidArray(project?.project_admins)
+  const [projectManagers, setProjectManagers] = useState<string[]>(() =>
+    normalizeWorkerUuidArray(project?.project_managers)
+  );
+  const [projectAdministrators, setProjectAdministrators] = useState<string[]>(() =>
+    normalizeWorkerUuidArray(project?.project_administrators ?? project?.project_admins)
   );
   const [assignedWorkers, setAssignedWorkers] = useState<string[]>(() =>
     normalizeWorkerUuidArray(project?.assigned_workers)
@@ -113,7 +119,8 @@ export default function ProjectFormModal({
     setError(null);
 
     try {
-      const adminIds = normalizeWorkerUuidArray(projectAdmins);
+      const managerIds = normalizeWorkerUuidArray(projectManagers);
+      const administratorIds = normalizeWorkerUuidArray(projectAdministrators);
       const workerIds = normalizeWorkerUuidArray(assignedWorkers);
 
       const saveInput = {
@@ -121,7 +128,9 @@ export default function ProjectFormModal({
         project_code: projectCode.trim() || null,
         client: client.trim() || null,
         location,
-        project_admins: adminIds,
+        project_managers: managerIds,
+        project_administrators: administratorIds,
+        project_admins: administratorIds,
         assigned_workers: workerIds,
         is_active: !archived,
         status: statusLabel,
@@ -217,15 +226,29 @@ export default function ProjectFormModal({
             />
           </label>
 
-          <WorkerChecklist
-            label="Project admins"
-            workers={workers}
-            selected={projectAdmins}
-            onChange={setProjectAdmins}
+          <WorkerSearchSelect
+            mode="multiple"
+            workers={activeWorkers}
+            selected={projectManagers}
+            onChange={setProjectManagers}
+            label="Project Managers"
+            searchPlaceholder="Search by first name, last name, or email..."
+            placeholder="Select project manager(s)"
           />
+
+          <WorkerSearchSelect
+            mode="multiple"
+            workers={activeWorkers}
+            selected={projectAdministrators}
+            onChange={setProjectAdministrators}
+            label="Project Administrators"
+            searchPlaceholder="Search by first name, last name, or email..."
+            placeholder="Select project administrator(s)"
+          />
+
           <WorkerChecklist
             label="Assigned workers"
-            workers={workers}
+            workers={activeWorkers}
             selected={assignedWorkers}
             onChange={setAssignedWorkers}
           />

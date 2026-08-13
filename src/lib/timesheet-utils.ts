@@ -1,10 +1,18 @@
 import type { WorkerTimesheet, TimesheetStatus } from "./supabase";
+import {
+  resolveLineItemHours,
+  sumLeaveLineHours,
+  sumWorkLineHours,
+} from "./timesheet-line-items";
 
 export interface TimesheetActivitySlot {
   id: string;
   startTime: string;
   endTime: string;
   label: string;
+  category?: import("./timesheet-line-items").TimesheetLineCategory;
+  durationMode?: import("./timesheet-line-items").TimesheetDurationMode;
+  hours?: number | null;
 }
 
 export interface TimesheetBreakSlot {
@@ -19,6 +27,9 @@ export function createDefaultActivitySlot(): TimesheetActivitySlot {
     startTime: "06:30",
     endTime: "14:30",
     label: "WORKING ON SITE",
+    category: "work",
+    durationMode: "partial",
+    hours: 8,
   };
 }
 
@@ -55,6 +66,34 @@ export function minutesToHours(minutes: number): number {
   return Math.round((minutes / 60) * 100) / 100;
 }
 
+export const DEFAULT_TIMESHEET_START_TIME = "06:30";
+export const DEFAULT_TIMESHEET_END_TIME = "14:30";
+export const DEFAULT_TIMESHEET_SEGMENT_HOURS = 4;
+
+export function minutesToTimeString(totalMinutes: number): string {
+  const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+export function addHoursToTime(time: string, hours: number): string {
+  return minutesToTimeString(timeToMinutes(time) + Math.round(hours * 60));
+}
+
+export function validateLineItemTimeRange(
+  startTime: string,
+  endTime: string
+): string | null {
+  if (!startTime || !endTime) {
+    return "Start and finish times are required.";
+  }
+  if (calculateSlotMinutes(startTime, endTime) <= 0) {
+    return "Finish time must be after start time.";
+  }
+  return null;
+}
+
 export function calculateDailyTotalsFromSlots(
   activities: TimesheetActivitySlot[],
   breaks: TimesheetBreakSlot[]
@@ -62,19 +101,85 @@ export function calculateDailyTotalsFromSlots(
   workHours: number;
   breakHours: number;
   dailyTotalHours: number;
+  leaveHours: number;
 } {
-  const workMinutes = activities.reduce(
-    (sum, row) => sum + calculateSlotMinutes(row.startTime, row.endTime),
-    0
-  );
+  const workHours = sumWorkLineHours(activities);
+  const leaveHours = sumLeaveLineHours(activities);
   const breakMinutes = breaks.reduce(
     (sum, row) => sum + calculateSlotMinutes(row.startTime, row.endTime),
     0
   );
-  const workHours = minutesToHours(workMinutes);
   const breakHours = minutesToHours(breakMinutes);
-  const dailyTotalHours = Math.max(0, minutesToHours(workMinutes - breakMinutes));
-  return { workHours, breakHours, dailyTotalHours };
+  const dailyTotalHours = Math.max(
+    0,
+    Math.round((workHours - breakHours + leaveHours) * 100) / 100
+  );
+
+  return { workHours, breakHours, dailyTotalHours, leaveHours };
+}
+
+export interface ResolvedTimesheetDisplayTotals {
+  startTime: string;
+  endTime: string;
+  workHours: number;
+  breakHours: number;
+  dailyTotalHours: number;
+  leaveHours: number;
+}
+
+/** Derive start/end and hour totals from activity/break slots or legacy fields. */
+export function resolveTimesheetDisplayTotals(
+  row: Pick<
+    WorkerTimesheet,
+    | "start_time"
+    | "finish_time"
+    | "break_minutes"
+    | "work_hours"
+    | "break_hours"
+    | "daily_total_hours"
+    | "total_hours"
+    | "activities"
+    | "breaks"
+  >
+): ResolvedTimesheetDisplayTotals {
+  const activities = row.activities ?? [];
+  const breaks = row.breaks ?? [];
+
+  if (activities.length > 0 || breaks.length > 0) {
+    const totals = calculateDailyTotalsFromSlots(activities, breaks);
+    return {
+      startTime: activities[0]?.startTime ?? row.start_time,
+      endTime: activities[activities.length - 1]?.endTime ?? row.finish_time,
+      workHours: totals.workHours,
+      breakHours: totals.breakHours,
+      dailyTotalHours: totals.dailyTotalHours,
+      leaveHours: totals.leaveHours,
+    };
+  }
+
+  const workMinutes = calculateSlotMinutes(row.start_time, row.finish_time);
+  const breakMinutes = Number(row.break_minutes ?? 0) || 0;
+  const breakHours =
+    row.break_hours != null
+      ? Number(row.break_hours)
+      : minutesToHours(breakMinutes);
+  const workHours =
+    row.work_hours != null ? Number(row.work_hours) : minutesToHours(workMinutes);
+  const dailyTotalHours =
+    row.daily_total_hours != null
+      ? Number(row.daily_total_hours)
+      : row.total_hours != null
+        ? Number(row.total_hours)
+        : calculateTimesheetHours(row.start_time, row.finish_time, breakMinutes);
+
+  return {
+    startTime: row.start_time,
+    endTime: row.finish_time,
+    workHours,
+    breakHours,
+    dailyTotalHours,
+    leaveHours: 0,
+  };
 }
 
 export function formatTimesheetHoursLabel(hours: number): string {

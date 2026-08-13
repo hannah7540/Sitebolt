@@ -294,10 +294,17 @@ export default function ProjectsManagementPanel({
                       </p>
                     )}
                     <p className="mt-2 text-xs text-slate-500">
-                      Admins:{" "}
-                      {project.project_admins.length > 0
-                        ? project.project_admins.map(workerName).join(", ")
+                      Managers:{" "}
+                      {project.project_managers.length > 0
+                        ? project.project_managers.map(workerName).join(", ")
                         : "None"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Administrators:{" "}
+                      {(project.project_administrators.length > 0
+                        ? project.project_administrators
+                        : project.project_admins
+                      ).map(workerName).join(", ") || "None"}
                     </p>
                     <p className="text-xs text-slate-500">
                       Workers:{" "}

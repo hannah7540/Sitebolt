@@ -15,7 +15,8 @@ import {
   getWorkerTicketStatus,
   getAllExpiryWarnings,
 } from "@/lib/worker-compliance";
-import { getTicketStatus } from "@/lib/worker-utils";
+import { getTicketStatus, buildWorkerFullName } from "@/lib/worker-utils";
+import { splitWorkerName } from "@/lib/worker-cards-vocs";
 import type { VocDraft } from "@/lib/voc-utils";
 import { getVocDisplayTitle } from "@/lib/voc-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
@@ -121,6 +122,9 @@ export default function WorkerMyDetailsPanel({
   const uploadPrefixRef = useRef(`workers/${worker.id}/profile/${Date.now()}`);
   const uploadPrefix = uploadPrefixRef.current;
 
+  const initialNames = splitWorkerName(worker);
+  const [firstName, setFirstName] = useState(initialNames.firstName);
+  const [lastName, setLastName] = useState(initialNames.lastName);
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [dob, setDob] = useState(worker.dob ?? "");
   const [emergencyName, setEmergencyName] = useState(
@@ -185,6 +189,11 @@ export default function WorkerMyDetailsPanel({
   const warnings = getAllExpiryWarnings(worker, existingVocs);
 
   const handleSave = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("First name and last name are required.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -197,6 +206,8 @@ export default function WorkerMyDetailsPanel({
       ]);
 
       const { error: updateError } = await updateWorker(worker.id, {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         phone: phone.trim() || null,
         dob: dob || null,
         emergency_contact_name: emergencyName.trim() || null,
@@ -266,6 +277,9 @@ export default function WorkerMyDetailsPanel({
 
       onSaved({
         ...worker,
+        first_name: firstName.trim() || null,
+        last_name: lastName.trim() || null,
+        full_name: buildWorkerFullName(firstName, lastName),
         phone: phone.trim() || null,
         dob: dob || null,
         emergency_contact_name: emergencyName.trim() || null,
@@ -299,7 +313,9 @@ export default function WorkerMyDetailsPanel({
         </button>
 
         <h2 className="text-xl font-bold text-slate-900">My Details & Compliance</h2>
-        <p className="mt-1 text-sm text-slate-500">{worker.full_name}</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {buildWorkerFullName(firstName, lastName) || worker.full_name}
+        </p>
 
         <div className="mt-3 flex items-center gap-2">
           <span className="text-xs text-slate-500">Compliance:</span>
@@ -339,6 +355,24 @@ export default function WorkerMyDetailsPanel({
         <div className="mt-4 space-y-4">
           <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">Personal</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="First Name *">
+                <input
+                  className={inputClass}
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Last Name *">
+                <input
+                  className={inputClass}
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  required
+                />
+              </Field>
+            </div>
             <Field label="Phone Number">
               <input
                 type="tel"

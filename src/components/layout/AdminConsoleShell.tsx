@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Menu, X } from "lucide-react";
 import Sidebar, { type ActiveView } from "@/components/Sidebar";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
@@ -12,35 +12,59 @@ import {
 } from "@/contexts/AdminConsoleContext";
 import {
   fetchWorkers,
+  getWorkerAssignedProjectIds,
   isSupabaseConfigured,
   type Worker,
 } from "@/lib/supabase";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import { resolveAdminWorkerFromAuthSession } from "@/lib/auth-profile";
+import { redirectToLogin } from "@/lib/auth-guard";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
-  getAdminWorkerId,
-  resolveAdminWorkerFromList,
   setAdminWorkerId,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
   canAccessAccountsArea,
   canAccessAdminConsole,
+  canAccessPayRules,
+  canManageAccountsTimesheets,
+  canViewAccountsTimesheets,
+  isAccountsTimesheetsReadOnly,
   normalizeAccountsAccessRole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
+import {
+  canAccessOrganisationRoute,
+  filterProjectsForRole,
+  isOrganisationPath,
+  isPayRulesPath,
+  isTimesheetsPath,
+  PROJECT_VIEWS,
+} from "@/lib/rbac-guards";
+import {
+  extractProjectIdFromPathname,
+  getProjectViewPath,
+  parseProjectRoute,
+} from "@/lib/project-nav-routes";
+import type { NavigateOptions } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 
 interface AdminConsoleShellProps {
   children: ReactNode;
   requireAccountsAccess?: boolean;
+  requireOrganisationAccess?: boolean;
+  requirePayRulesAccess?: boolean;
 }
 
 export default function AdminConsoleShell({
   children,
   requireAccountsAccess = false,
+  requireOrganisationAccess = false,
+  requirePayRulesAccess = false,
 }: AdminConsoleShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [sidebarProjects, setSidebarProjects] = useState<DbProject[]>([]);
@@ -68,16 +92,23 @@ export default function AdminConsoleShell({
     await fetchProjects();
     const projects = getCachedProjects();
 
-    const resolvedAdminId =
-      resolveAdminWorkerFromList(workerData) ??
-      workerData[0]?.id ??
-      getAdminWorkerId();
+    const authSession = await resolveAdminWorkerFromAuthSession();
 
-    if (resolvedAdminId) {
-      setAdminWorkerId(resolvedAdminId);
-      setAdminWorkerIdState(resolvedAdminId);
+    if (!authSession.hasSession) {
+      setLoading(false);
+      setSessionReady(true);
+      redirectToLogin(router, pathname);
+      return;
+    }
+
+    if (authSession.workerId) {
+      setAdminWorkerId(authSession.workerId);
+      setAdminWorkerIdState(authSession.workerId);
     } else {
-      setAdminWorkerIdState(getAdminWorkerId());
+      setAccessDenied(
+        "Your account is signed in but does not have admin console access. Sign in with an owner or admin account at /login."
+      );
+      setAdminWorkerIdState(null);
     }
 
     setWorkers(workerData);
@@ -87,7 +118,7 @@ export default function AdminConsoleShell({
     );
     setLoading(false);
     setSessionReady(true);
-  }, []);
+  }, [pathname, router]);
 
   useEffect(() => {
     void loadSession();
@@ -107,8 +138,18 @@ export default function AdminConsoleShell({
   );
 
   const sessionRole = useMemo(
-    () => normalizeSecurityRole(sessionWorker?.security_role ?? "full_access"),
+    () => normalizeSecurityRole(sessionWorker?.security_role),
     [sessionWorker]
+  );
+
+  const assignedProjectIds = useMemo(
+    () => (sessionWorker ? getWorkerAssignedProjectIds(sessionWorker) : []),
+    [sessionWorker]
+  );
+
+  const visibleProjects = useMemo(
+    () => filterProjectsForRole(sessionRole, sidebarProjects, assignedProjectIds),
+    [sessionRole, sidebarProjects, assignedProjectIds]
   );
 
   const accountsAccessRole = useMemo(
@@ -118,51 +159,92 @@ export default function AdminConsoleShell({
 
   const canAccessAccounts = sessionWorker?.can_access_accounts === true;
 
+  const accountsReadOnly = useMemo(
+    () => isAccountsTimesheetsReadOnly(sessionRole, accountsAccessRole),
+    [sessionRole, accountsAccessRole]
+  );
+
   useEffect(() => {
     if (!sessionReady || loading) return;
 
-    if (requireAccountsAccess && sessionWorker) {
-      if (
-        !canAccessAccountsArea({
+    if (!sessionWorker || workers.length === 0) return;
+
+    if (!canAccessAdminConsole(sessionRole)) {
+      router.replace(`/worker-dashboard?worker_id=${sessionWorker.id}`);
+      return;
+    }
+
+    const organisationRoute =
+      requireOrganisationAccess || isOrganisationPath(pathname);
+    if (organisationRoute && !canAccessOrganisationRoute(sessionRole)) {
+      setAccessDenied("You do not have access to Organisation settings.");
+      return;
+    }
+
+    const payRulesRoute = requirePayRulesAccess || isPayRulesPath(pathname);
+    if (payRulesRoute && !canAccessPayRules(sessionRole)) {
+      setAccessDenied("You do not have access to Pay Rules.");
+      return;
+    }
+
+    const timesheetsRoute = requireAccountsAccess || isTimesheetsPath(pathname);
+    if (timesheetsRoute) {
+      const allowed =
+        canViewAccountsTimesheets(sessionRole) ||
+        canAccessAccountsArea({
           securityRole: sessionWorker.security_role,
           accountsAccessRole: sessionWorker.accounts_access_role,
           canAccessAccounts: sessionWorker.can_access_accounts,
-        })
-      ) {
+        });
+      if (!allowed) {
         setAccessDenied("You do not have Accounts access for this area.");
         return;
       }
-      setAccessDenied(null);
     }
 
-    if (!sessionWorker || workers.length === 0) return;
-
-    if (!canAccessAdminConsole(normalizeSecurityRole(sessionWorker.security_role))) {
-      router.replace(`/worker-dashboard?worker_id=${sessionWorker.id}`);
-    }
+    setAccessDenied(null);
   }, [
     sessionReady,
     loading,
     sessionWorker,
     workers.length,
+    sessionRole,
     requireAccountsAccess,
+    requireOrganisationAccess,
+    requirePayRulesAccess,
+    pathname,
     router,
   ]);
 
-  const handleNavigate = (view: ActiveView) => {
+  const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
+
+  const handleNavigate = (view: ActiveView, options?: NavigateOptions) => {
     setSidebarOpen(false);
+    const projectId =
+      options?.projectId ??
+      routeContext?.projectId ??
+      extractProjectIdFromPathname(pathname) ??
+      dashboardProject?.id ??
+      visibleProjects[0]?.id ??
+      null;
+
+    if (projectId && PROJECT_VIEWS.includes(view)) {
+      router.push(getProjectViewPath(projectId, view));
+      return;
+    }
+
     router.push("/");
   };
 
   const handleOpenProfile = () => {
     setSidebarOpen(false);
-    router.push("/");
+    router.push("/settings/account");
   };
 
   const contextValue = useMemo<AdminConsoleContextValue>(
     () => ({
       workers,
-      projects: sidebarProjects,
+      projects: visibleProjects,
       adminWorkerId,
       sessionReady,
       loading,
@@ -170,10 +252,13 @@ export default function AdminConsoleShell({
       sessionRole,
       accountsAccessRole,
       canAccessAccounts,
+      assignedProjectIds,
+      accountsReadOnly,
+      canManageAccounts: canManageAccountsTimesheets(sessionRole),
     }),
     [
       workers,
-      sidebarProjects,
+      visibleProjects,
       adminWorkerId,
       sessionReady,
       loading,
@@ -181,6 +266,8 @@ export default function AdminConsoleShell({
       sessionRole,
       accountsAccessRole,
       canAccessAccounts,
+      assignedProjectIds,
+      accountsReadOnly,
     ]
   );
 
@@ -229,9 +316,10 @@ export default function AdminConsoleShell({
           )}
         >
           <Sidebar
-            activeView="dashboard"
+            activeView={routeContext?.view ?? "dashboard"}
             projects={sidebarProjects}
-            selectedProjectId={dashboardProject?.id}
+            assignedProjectIds={assignedProjectIds}
+            selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
             sessionRole={sessionRole}
             accountsAccessRole={accountsAccessRole}
             canAccessAccounts={canAccessAccounts}

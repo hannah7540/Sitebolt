@@ -12,13 +12,67 @@ export function getPlantPrestartDisplayTitle(
 }
 
 export function formatPrestartSubmittedTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-AU", {
+  const date = new Date(iso);
+  const datePart = date.toLocaleDateString("en-AU", {
     day: "numeric",
     month: "short",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
+  const timePart = date
+    .toLocaleTimeString("en-AU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toLowerCase();
+  return `${datePart}, ${timePart}`;
+}
+
+/** @alias formatPrestartSubmittedTime */
+export const formatPlantPrestartDisplayDateTime = formatPrestartSubmittedTime;
+
+export type PlantPrestartDashboardStatus = "passed" | "defect" | "failed";
+
+export function getPlantPrestartDashboardStatus(
+  prestart: PlantPrestart
+): PlantPrestartDashboardStatus {
+  if (!prestart.has_defect) return "passed";
+
+  const comments = (prestart.defect_comments ?? "").toLowerCase();
+  const status = (prestart.defect_status ?? "").toLowerCase();
+  if (
+    status === "failed" ||
+    comments.includes("out of service") ||
+    comments.includes("tagged out") ||
+    comments.includes("failed")
+  ) {
+    return "failed";
+  }
+
+  return "defect";
+}
+
+export function getPlantPrestartStatusLabel(
+  prestart: PlantPrestart
+): "Passed" | "Defect" | "Failed" {
+  const status = getPlantPrestartDashboardStatus(prestart);
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed";
+  return "Defect";
+}
+
+export function sortPlantPrestartsNewestFirst(
+  prestarts: PlantPrestart[]
+): PlantPrestart[] {
+  return [...prestarts].sort((left, right) => {
+    const leftTime = new Date(left.submitted_at ?? left.created_at).getTime();
+    const rightTime = new Date(right.submitted_at ?? right.created_at).getTime();
+    return rightTime - leftTime;
+  });
+}
+
+export function getPlantPrestartSubmittedIsoDate(prestart: PlantPrestart): string {
+  return localIsoDate(new Date(prestart.submitted_at ?? prestart.created_at));
 }
 
 export function isPrestartSubmittedOnDate(

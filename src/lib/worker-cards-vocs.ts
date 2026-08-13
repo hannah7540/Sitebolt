@@ -1,4 +1,5 @@
 import type { Worker, WorkerVoc } from "./supabase";
+import { splitWorkerFullName } from "./worker-utils";
 import { getVocDisplayTitle } from "./voc-utils";
 
 export type WorkerCardCategory =
@@ -200,11 +201,5 @@ export function splitWorkerName(worker: Worker): { firstName: string; lastName: 
   const last = worker.last_name?.trim() ?? "";
   if (first || last) return { firstName: first, lastName: last };
 
-  const parts = worker.full_name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return {
-    firstName: parts[0],
-    lastName: parts.slice(1).join(" "),
-  };
+  return splitWorkerFullName(worker.full_name ?? "");
 }

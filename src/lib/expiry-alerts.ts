@@ -192,18 +192,36 @@ export async function fetchUpcomingExpiries(): Promise<ExpiryCheckSummary> {
 }
 
 export async function fetchExpiryAlertRecipients(workers: Worker[]): Promise<string[]> {
+  const settings = await fetchExpiryAlertSettings();
+
+  const designatedEmails = workers
+    .filter((worker) =>
+      settings.notification_recipient_worker_ids.includes(worker.id) &&
+      Boolean(worker.email?.trim()) &&
+      !worker.is_revoked &&
+      !worker.is_archived
+    )
+    .map((worker) => worker.email!.trim());
+
+  if (designatedEmails.length > 0) {
+    const secondary = settings.secondary_recipient_emails ?? [];
+    return [...new Set([...designatedEmails, ...secondary])];
+  }
+
   const adminEmails = workers
     .filter((worker) => {
       const role = normalizeSecurityRole(worker.security_role);
       return (
-        (role === "full_access" || role === "admin_access") &&
+        (role === "full_access" ||
+          role === "project_super_admin" ||
+          role === "super_admin" ||
+          role === "owner") &&
         isActiveWorker(worker) &&
         Boolean(worker.email?.trim())
       );
     })
     .map((worker) => worker.email.trim());
 
-  const settings = await fetchExpiryAlertSettings();
   const secondary = settings.secondary_recipient_emails ?? [];
 
   return [...new Set([...adminEmails, ...secondary])];

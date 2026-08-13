@@ -46,11 +46,13 @@ export function resolveWorkerName(
   const fromExplicit = explicitName?.trim();
   if (fromExplicit) return fromExplicit;
 
+  const fromFirstLast = `${worker?.first_name || ""} ${worker?.last_name || ""}`.trim();
+  if (fromFirstLast) return fromFirstLast;
+
   return (
     worker?.full_name?.trim() ||
     worker?.name?.trim() ||
     worker?.worker_name?.trim() ||
-    `${worker?.first_name || ""} ${worker?.last_name || ""}`.trim() ||
     "Worker"
   );
 }

@@ -6,9 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "audit:all": "npx tsx scripts/audit-all-forms-and-buttons.ts",
+    "seed:payroll-test": "npx tsx scripts/seed-payroll-test-week.ts",
+    "seed:dashboard-calendars": "npx tsx scripts/seed-dashboard-and-calendars.ts",
+    "seed:admin": "npx tsx scripts/seed-master-admin.ts",
+    "seed:inductions": "npx tsx scripts/seed-standard-inductions.ts",
+    "export:inductions": "npx tsx scripts/export-induction-templates.ts",
+    "db:reset": "npx tsx scripts/reset-test-data.ts",
+    "db:go-live": "npx tsx scripts/production-go-live-cleanup.ts",
+    "seed:test-data": "npx tsx scripts/seed-test-data.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
@@ -25,6 +37,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/prismjs": "^1.26.6",
@@ -33,6 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
+    "tsx": "^4.23.11",
     "typescript": "^5"
   }
 }

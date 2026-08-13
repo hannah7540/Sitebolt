@@ -2,6 +2,48 @@ export type TicketStatus = "valid" | "expires_soon" | "expired" | "unknown";
 
 export const WARNING_DAYS = 30;
 
+/** Build a display full name from first and last name parts. */
+export function buildWorkerFullName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined
+): string {
+  return [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ");
+}
+
+/** Persisted worker name columns derived from first/last name inputs. */
+export function buildWorkerNameFields(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined
+): {
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string;
+  worker_name: string;
+} {
+  const first_name = firstName?.trim() || null;
+  const last_name = lastName?.trim() || null;
+  const full_name = buildWorkerFullName(first_name, last_name);
+  return {
+    first_name,
+    last_name,
+    full_name,
+    worker_name: full_name,
+  };
+}
+
+export function splitWorkerFullName(fullName: string): {
+  firstName: string;
+  lastName: string;
+} {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 /** Name fields that may exist across worker schema variants. */
 export type WorkerNameFields = {
   first_name?: string | null;

@@ -12,23 +12,25 @@ import {
 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
-  ASSET_TYPE_LABELS,
+  getAssetTypeLabel,
   addAsset,
   assignAssetToProject,
   buildAssetProjectMap,
   fetchProjectAssetAssignments,
   getAssetAssignedProjectIds,
+  isLaserAssetType,
+  assetTypeRequiresCalibration,
   updateAsset,
   type Asset,
   type AssetInput,
   type AssetStatus,
-  type AssetType,
 } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import AssetCategoryAccordionList from "./AssetCategoryAccordionList";
 import AssetFormModal from "./AssetFormModal";
 import AssetQRModal from "./AssetQRModal";
 import AssignAssetToProjectModal from "./AssignAssetToProjectModal";
-import { cardClass, inputClass } from "@/lib/ui-classes";
+import { inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 interface AssetAdminPanelProps {
@@ -61,7 +63,6 @@ export default function AssetAdminPanel({
 }: AssetAdminPanelProps) {
   const [assetList, setAssetList] = useState<Asset[]>(assets);
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<AssetType | "all">("all");
   const [statusFilter, setStatusFilter] = useState<AssetStatus | "all">("all");
   const [showAddForm, setShowAddForm] = useState(initialShowAdd);
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
@@ -92,9 +93,6 @@ export default function AssetAdminPanel({
   const filteredAssets = useMemo(() => {
     let list = assetList;
 
-    if (typeFilter !== "all") {
-      list = list.filter((a) => a.asset_type === typeFilter);
-    }
     if (statusFilter !== "all") {
       list = list.filter((a) => a.status === statusFilter);
     }
@@ -107,15 +105,17 @@ export default function AssetAdminPanel({
       const make = (item.make ?? "").toLowerCase();
       const model = (item.model ?? "").toLowerCase();
       const serial = (item.serial_number ?? "").toLowerCase();
+      const typeLabel = getAssetTypeLabel(item.asset_type).toLowerCase();
       return (
         num.includes(q) ||
         name.includes(q) ||
         make.includes(q) ||
         model.includes(q) ||
-        serial.includes(q)
+        serial.includes(q) ||
+        typeLabel.includes(q)
       );
     });
-  }, [assetList, searchQuery, typeFilter, statusFilter]);
+  }, [assetList, searchQuery, statusFilter]);
 
   const getProjectName = (asset: Asset) => {
     const ids = getAssetAssignedProjectIds(
@@ -140,12 +140,79 @@ export default function AssetAdminPanel({
     return { error };
   };
 
+  const renderAssetCard = (asset: Asset) => (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-slate-900">
+              {asset.asset_number} — {asset.name}
+            </h3>
+            <StatusBadge status={asset.status} />
+          </div>
+          <p className="mt-1 text-sm text-slate-600">
+            {[asset.make, asset.model].filter(Boolean).join(" ")}
+            {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            {isLaserAssetType(asset.asset_type) && asset.next_service_due_date ? (
+              <span>Service due: {asset.next_service_due_date}</span>
+            ) : null}
+            {assetTypeRequiresCalibration(asset.asset_type) &&
+            asset.next_calibration_due_date ? (
+              <span>Calibration due: {asset.next_calibration_due_date}</span>
+            ) : null}
+            {getProjectName(asset) ? (
+              <span className="text-orange-600">Assigned: {getProjectName(asset)}</span>
+            ) : (
+              <span className="text-slate-400">Unassigned</span>
+            )}
+          </div>
+          {asset.service_contact_company || asset.service_contact_name ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Contact:{" "}
+              {[asset.service_contact_company, asset.service_contact_name]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setQrAsset(asset)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+          >
+            <QrCode className="h-3.5 w-3.5" /> QR
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditAsset(asset);
+              setShowAddForm(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => setAssignAsset(asset)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+          >
+            <Link2 className="h-3.5 w-3.5" /> Assign
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-orange-500">Organisation Assets</h1>
         <p className="text-sm text-slate-500">
-          Manage Site Lasers and Pressure Gauges with inline service and calibration contacts.
+          Company-wide asset register grouped by type — laptops, iPads, lasers, pressure gauges, and assigned accounts.
         </p>
       </div>
 
@@ -184,18 +251,6 @@ export default function AssetAdminPanel({
 
       <div className="mb-4 flex flex-wrap gap-3">
         <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as AssetType | "all")}
-          className={`${inputClass} w-auto min-w-[160px]`}
-        >
-          <option value="all">All Types</option>
-          {(Object.keys(ASSET_TYPE_LABELS) as AssetType[]).map((type) => (
-            <option key={type} value={type}>
-              {ASSET_TYPE_LABELS[type]}
-            </option>
-          ))}
-        </select>
-        <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as AssetStatus | "all")}
           className={`${inputClass} w-auto min-w-[180px]`}
@@ -214,83 +269,16 @@ export default function AssetAdminPanel({
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
           Loading assets…
         </div>
-      ) : filteredAssets.length === 0 ? (
-        <div className={`${cardClass} p-8 text-center text-sm text-slate-500`}>
-          {searchQuery || typeFilter !== "all" || statusFilter !== "all"
-            ? "No assets match your search or filters."
-            : "No assets registered yet. Add your first Site Laser or Pressure Gauge."}
-        </div>
       ) : (
-        <div className="space-y-3">
-          {filteredAssets.map((asset) => (
-            <div key={asset.id} className={`${cardClass} p-4`}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-slate-900">
-                      {asset.asset_number} — {asset.name}
-                    </h3>
-                    <StatusBadge status={asset.status} />
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                      {ASSET_TYPE_LABELS[asset.asset_type]}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {[asset.make, asset.model].filter(Boolean).join(" ")}
-                    {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                    {asset.asset_type === "site_laser" && asset.next_service_due_date ? (
-                      <span>Service due: {asset.next_service_due_date}</span>
-                    ) : null}
-                    {asset.next_calibration_due_date ? (
-                      <span>Calibration due: {asset.next_calibration_due_date}</span>
-                    ) : null}
-                    {getProjectName(asset) ? (
-                      <span className="text-orange-600">Assigned: {getProjectName(asset)}</span>
-                    ) : (
-                      <span className="text-slate-400">Unassigned</span>
-                    )}
-                  </div>
-                  {asset.service_contact_company || asset.service_contact_name ? (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Contact:{" "}
-                      {[asset.service_contact_company, asset.service_contact_name]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setQrAsset(asset)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-                  >
-                    <QrCode className="h-3.5 w-3.5" /> QR
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditAsset(asset);
-                      setShowAddForm(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-                  >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAssignAsset(asset)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-                  >
-                    <Link2 className="h-3.5 w-3.5" /> Assign
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <AssetCategoryAccordionList
+          assets={filteredAssets}
+          emptyMessage={
+            searchQuery || statusFilter !== "all"
+              ? "No assets match your search or filters."
+              : "No assets registered yet. Add your first asset."
+          }
+          renderAsset={renderAssetCard}
+        />
       )}
 
       {showAddForm ? (

@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
-  ASSET_TYPE_LABELS,
   fetchAssetById,
+  getAssetTypeLabel,
+  isLaserAssetType,
   signInLaser,
   signOutLaser,
   fetchLaserSignouts,
@@ -39,7 +40,7 @@ export default function ScanAssetPageClient({ assetId }: ScanAssetPageProps) {
       }
       setAsset(row);
 
-      if (row.asset_type === "site_laser" && row.assigned_project_id) {
+      if (isLaserAssetType(row.asset_type) && row.assigned_project_id) {
         const signouts = await fetchLaserSignouts(row.assigned_project_id);
         const active = getActiveLaserSignouts(
           signouts.filter((s) => s.asset_id === row.id)
@@ -119,7 +120,7 @@ export default function ScanAssetPageClient({ assetId }: ScanAssetPageProps) {
           </h1>
           <p className="text-slate-600">{asset.name}</p>
           <p className="mt-1 text-sm text-slate-500">
-            {ASSET_TYPE_LABELS[asset.asset_type]} · {ASSET_STATUS_LABELS[asset.status]}
+            {getAssetTypeLabel(asset.asset_type)} · {ASSET_STATUS_LABELS[asset.status]}
           </p>
 
           <div className="my-4 flex justify-center">
@@ -135,7 +136,7 @@ export default function ScanAssetPageClient({ assetId }: ScanAssetPageProps) {
             <p className="text-sm text-slate-500">S/N {asset.serial_number}</p>
           ) : null}
 
-          {asset.asset_type === "site_laser" && asset.assigned_project_id ? (
+          {isLaserAssetType(asset.asset_type) && asset.assigned_project_id ? (
             <div className="mt-6 space-y-3 border-t border-slate-200 pt-4">
               <p className="text-sm font-semibold text-slate-800">Laser Sign Out / In</p>
               {activeSignoutId ? (

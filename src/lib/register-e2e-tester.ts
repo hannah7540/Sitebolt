@@ -1,5 +1,12 @@
 import { fetchAccountsTimesheets } from "./accounts-timesheets";
 import {
+  buildExpectedWorkerDisplayName,
+  buildTestTimesheetInsertPayload,
+  enrichFormTestContext,
+  loadWorkerTimesheetRow,
+  validateTimesheetHourCalculations,
+} from "./form-test-timesheet-helpers";
+import {
   fetchFormTemplateAssignments,
   FORM_WORKER_ASSIGNMENTS_TABLE,
 } from "./induction-form-builder";
@@ -9,6 +16,7 @@ import {
 } from "./form-submission-tester";
 import { fetchRfis } from "./rfi-service";
 import { supabase, isSupabaseConfigured, fetchSiteForms } from "./supabase";
+import { buildSiteFormInsertPayload } from "./site-form-payload";
 import {
   fetchWorkerRequests,
   formatUniformItemsSummary,
@@ -362,47 +370,17 @@ async function runTimesheetsRegisterE2E(
   status: RegisterE2EStepStatus;
 }> {
   const steps: RegisterE2EStepResult[] = [];
-  const now = new Date().toISOString();
   const workDate = todayIso();
+  const expectedWorkerName = buildExpectedWorkerDisplayName(ctx);
 
-  const activityEntries = [
-    {
-      id: "activity-e2e",
-      start_time: "06:30",
-      end_time: "14:30",
-      label: "WORKING ON SITE",
-    },
-  ];
-
-  const submitPayload = {
-    worker_id: ctx.workerId,
-    work_date: workDate,
-    timesheet_date: workDate,
-    week_start_date: workDate,
-    week_end_date: workDate,
-    project_id: ctx.projectId,
-    project_name: ctx.projectName,
-    worker_trade: "Plumber",
-    trade: "Plumber",
-    start_time: "06:30:00",
-    finish_time: "14:30:00",
-    end_time: "14:30:00",
-    break_minutes: 30,
-    total_hours: 8,
-    work_hours: 8,
-    break_hours: 0.5,
-    daily_total_hours: 8,
-    activities: activityEntries,
-    entries: activityEntries,
-    breaks: [],
+  const submitPayload = buildTestTimesheetInsertPayload({
+    workerId: ctx.workerId,
+    projectId: ctx.timesheetProjectId ?? ctx.projectId,
+    projectName: ctx.timesheetProjectName ?? ctx.projectName,
+    taskName: ctx.timesheetTaskName ?? "Labourer",
+    workDate,
     notes: `${marker} Test timesheet entry`,
-    signature_url: "https://example.com/e2e-timesheet-signature.png",
-    is_draft: false,
-    status: "pending",
-    submitted_at: new Date().toISOString(),
-    created_at: now,
-    updated_at: new Date().toISOString(),
-  };
+  });
 
   const inserted = await insertRow("worker_timesheets", submitPayload);
   if (!inserted.id) {
@@ -415,7 +393,49 @@ async function runTimesheetsRegisterE2E(
   }
 
   steps.push(
-    step("submit", "Submission", "passed", "Inserted worker timesheet row.", [inserted.id])
+    step("submit", "Submission", "passed", "Inserted worker timesheet row.", [
+      inserted.id,
+      `project_name: ${String(submitPayload.project_name ?? "")}`,
+      `worker_trade: ${String(submitPayload.worker_trade ?? "")}`,
+    ])
+  );
+
+  const loadedTimesheet = await loadWorkerTimesheetRow(inserted.id);
+  if (!loadedTimesheet) {
+    steps.push(
+      step("query", "Register Query", "failed", "Inserted timesheet could not be reloaded.")
+    );
+    steps.push(step("mapping", "Mapping Check", "skipped", "Skipped — reload failed."));
+    return { insertedId: inserted.id, steps, mappedCorrectly: false, status: "failed" };
+  }
+
+  const calculationErrors = validateTimesheetHourCalculations(loadedTimesheet);
+  if (calculationErrors.length > 0) {
+    steps.push(
+      step(
+        "query",
+        "Hour Calculations",
+        "failed",
+        "Timesheet hour totals failed validation.",
+        calculationErrors
+      )
+    );
+    steps.push(step("mapping", "Mapping Check", "skipped", "Skipped — calculation check failed."));
+    return { insertedId: inserted.id, steps, mappedCorrectly: false, status: "failed" };
+  }
+
+  steps.push(
+    step(
+      "query",
+      "Hour Calculations",
+      "passed",
+      "Work, break, and daily totals calculated correctly on retrieval.",
+      [
+        `work_hours: ${loadedTimesheet.work_hours ?? "derived"}`,
+        `break_hours: ${loadedTimesheet.break_hours ?? "derived"}`,
+        `daily_total_hours: ${loadedTimesheet.daily_total_hours ?? loadedTimesheet.total_hours}`,
+      ]
+    )
   );
 
   const rows = await fetchAccountsTimesheets();
@@ -443,36 +463,58 @@ async function runTimesheetsRegisterE2E(
     )
   );
 
-  const { data: rawTimesheet } = await supabase
-    .from("worker_timesheets")
-    .select("*")
-    .eq("id", inserted.id)
-    .maybeSingle();
+  if (matched.worker_name !== expectedWorkerName) {
+    steps.push(
+      step(
+        "mapping",
+        "Worker Name Mapping",
+        "failed",
+        `Expected worker name "${expectedWorkerName}", got "${matched.worker_name}".`,
+        [
+          `first_name: ${ctx.workerFirstName ?? "—"}`,
+          `last_name: ${ctx.workerLastName ?? "—"}`,
+        ]
+      )
+    );
+    return { insertedId: inserted.id, steps, mappedCorrectly: false, status: "failed" };
+  }
 
-  const rawRecord =
-    rawTimesheet && typeof rawTimesheet === "object"
-      ? (rawTimesheet as Record<string, unknown>)
-      : {};
+  steps.push(
+    step(
+      "mapping",
+      "Worker Name Mapping",
+      "passed",
+      "Register worker name matches first_name + last_name.",
+      [matched.worker_name]
+    )
+  );
 
-  const entries = rawRecord.entries ?? matched.activities;
+  const totals = {
+    work_hours: loadedTimesheet.work_hours,
+    break_hours: loadedTimesheet.break_hours,
+    daily_total_hours:
+      loadedTimesheet.daily_total_hours ?? loadedTimesheet.total_hours,
+  };
 
   const missing = missingFields(
     {
       worker_name: matched.worker_name,
       worker_trade: matched.worker_trade,
       timesheet_date: matched.work_date,
-      daily_total_hours: matched.daily_total_hours ?? matched.total_hours,
-      activities: matched.activities,
-      entries,
+      daily_total_hours: totals.daily_total_hours,
+      work_hours: totals.work_hours,
+      break_hours: totals.break_hours,
+      project_name: matched.project_name,
       signature_url: matched.signature_url,
     },
     [
       { key: "worker_name", label: "Worker Name" },
-      { key: "worker_trade", label: "Trade" },
+      { key: "worker_trade", label: "Payroll Category / Task" },
       { key: "timesheet_date", label: "Timesheet Date" },
+      { key: "work_hours", label: "Work Total Hours" },
+      { key: "break_hours", label: "Break Total Hours" },
       { key: "daily_total_hours", label: "Daily Total Hours" },
-      { key: "activities", label: "Activities JSON", allowEmptyArray: true },
-      { key: "entries", label: "Entries JSON", allowEmptyArray: true },
+      { key: "project_name", label: "Job Name" },
       { key: "signature_url", label: "Signature URL" },
     ]
   );
@@ -481,7 +523,7 @@ async function runTimesheetsRegisterE2E(
     steps.push(
       step(
         "mapping",
-        "Mapping Check",
+        "Register Field Mapping",
         "failed",
         "Required register display fields are empty.",
         missing
@@ -493,16 +535,17 @@ async function runTimesheetsRegisterE2E(
   steps.push(
     step(
       "mapping",
-      "Mapping Check",
+      "Register Field Mapping",
       "passed",
       "Accounts timesheet register fields mapped correctly.",
       [
         "worker_name",
         "worker_trade",
         "timesheet_date",
+        "work_hours",
+        "break_hours",
         "daily_total_hours",
-        "activities",
-        "entries",
+        "project_name",
         "signature_url",
       ]
     )
@@ -649,24 +692,24 @@ async function runSiteFormsRegisterE2E(
 }> {
   const steps: RegisterE2EStepResult[] = [];
   const formDate = new Date().toISOString().split("T")[0]!;
+  const submittedAt = new Date().toISOString();
   const checklistData = { test: true, tag: marker, hazards: [] as string[] };
 
-  const submitPayload = {
-    form_type: "safety_walk",
-    title: "Site Safety Walk",
-    project_id: ctx.projectId,
-    project_name: ctx.projectName || "Test Project",
-    status: "Completed",
-    worker_id: ctx.workerId,
-    submitted_by_worker_id: ctx.workerId,
-    submitted_at: new Date().toISOString(),
-    form_date: formDate,
-    checklist_data: checklistData,
-    form_data: checklistData,
-    photo_urls: [],
+  const submitPayload = buildSiteFormInsertPayload({
+    formType: "safety_walk",
+    projectId: ctx.projectId,
+    workerId: ctx.workerId,
+    formDate,
+    formTime: "06:30:00",
+    locationScope: "Site wide",
+    weatherConditions: "Clear",
+    formData: checklistData,
+    photoUrls: [],
     attendees: [],
-    created_at: new Date().toISOString(),
-  };
+    additionalWorkers: [],
+    submitterSignatureUrl: "https://example.com/form-test-signature.png",
+    submittedAt,
+  });
 
   const inserted = await insertRow("site_forms", submitPayload);
   if (!inserted.id) {
@@ -862,7 +905,7 @@ export async function runRegisterE2EVerificationTests(options?: {
     return { context: null, results: [], error: resolved.error };
   }
 
-  const ctx = resolved.context;
+  const ctx = await enrichFormTestContext(resolved.context);
   const cleanupRecords: CleanupRecord[] = [];
   const results: RegisterE2ETestResult[] = REGISTER_E2E_TESTS.map((definition) => ({
     id: definition.id,

@@ -9,8 +9,20 @@ import {
   unassignWorkerFromProject,
 } from "./project-assignments";
 import { resolveProjectId, fetchProjects } from "./project-resolver";
-import { resolveFormTestContext, type FormTestContext } from "./form-submission-tester";
+import { type FormTestContext } from "./form-submission-tester";
+import { buildWorkerNameFields } from "./worker-utils";
+import {
+  buildPayrollCsvForSampleRow,
+  buildSampleAccountsTimesheetRow,
+  buildTestTimesheetInsertPayload,
+  loadWorkerTimesheetRow,
+  resolveEnrichedFormTestContext,
+  validatePayrollCsvExportRow,
+  validateTimesheetHourCalculations,
+} from "./form-test-timesheet-helpers";
+import { PAYROLL_CSV_V2_HEADER } from "./payroll-timesheet-csv-export";
 import { supabase, isSupabaseConfigured, fetchWorkers, type Worker } from "./supabase";
+import { buildSiteFormInsertPayload } from "./site-form-payload";
 
 export const ACTION_WORKFLOW_MARKER = "ACTION-WF-";
 
@@ -174,32 +186,16 @@ async function insertPendingTimesheet(
   ctx: FormTestContext,
   marker: string
 ): Promise<{ id: string | null; error: string | null }> {
-  const workDate = todayIso();
-  const now = new Date().toISOString();
-  return insertRow("worker_timesheets", {
-    worker_id: ctx.workerId,
-    work_date: workDate,
-    timesheet_date: workDate,
-    project_id: ctx.projectId,
-    project_name: ctx.projectName,
-    worker_trade: "Plumber",
-    trade: "Plumber",
-    start_time: "06:30:00",
-    finish_time: "14:30:00",
-    end_time: "14:30:00",
-    break_minutes: 30,
-    total_hours: 8,
-    daily_total_hours: 8,
-    activities: [],
-    entries: [],
-    breaks: [],
+  const payload = buildTestTimesheetInsertPayload({
+    workerId: ctx.workerId,
+    projectId: ctx.timesheetProjectId ?? ctx.projectId,
+    projectName: ctx.timesheetProjectName ?? ctx.projectName,
+    taskName: ctx.timesheetTaskName ?? "Labourer",
+    workDate: todayIso(),
     notes: `${marker} workflow timesheet test`,
-    is_draft: false,
-    status: "pending",
-    submitted_at: now,
-    created_at: now,
-    updated_at: now,
   });
+
+  return insertRow("worker_timesheets", payload);
 }
 
 async function insertOpenRfi(
@@ -235,22 +231,25 @@ async function insertSiteForm(
 ): Promise<{ id: string | null; error: string | null }> {
   const now = new Date().toISOString();
   const formDate = todayIso();
-  return insertRow("site_forms", {
-    form_type: "safety_walk",
-    title: "Site Safety Walk",
-    project_id: ctx.projectId,
-    project_name: ctx.projectName || "Test Project",
-    status: "Completed",
-    worker_id: ctx.workerId,
-    submitted_by_worker_id: ctx.workerId,
-    submitted_at: now,
-    form_date: formDate,
-    checklist_data: { test: true, tag: marker },
-    photo_urls: [],
-    attendees: [],
-    created_at: now,
-    updated_at: now,
-  });
+  const checklistData = { test: true, tag: marker };
+  return insertRow(
+    "site_forms",
+    buildSiteFormInsertPayload({
+      formType: "safety_walk",
+      projectId: ctx.projectId,
+      workerId: ctx.workerId,
+      formDate,
+      formTime: "06:30:00",
+      locationScope: "Site wide",
+      weatherConditions: "Clear",
+      formData: checklistData,
+      photoUrls: [],
+      attendees: [],
+      additionalWorkers: [],
+      submitterSignatureUrl: "https://example.com/form-test-signature.png",
+      submittedAt: now,
+    })
+  );
 }
 
 async function insertPlantPrestart(
@@ -339,13 +338,11 @@ async function resolveLiveTargetProjectId(): Promise<{
 }
 
 async function upsertAssignTestWorker(): Promise<{ id: string; error: string | null }> {
+  const nameFields = buildWorkerNameFields("Test", "Worker");
   const payloads: Record<string, unknown>[] = [
     {
       id: ASSIGN_TEST_WORKER_ID,
-      first_name: "Test",
-      last_name: "Worker",
-      full_name: "Test Worker",
-      worker_name: "Test Worker",
+      ...nameFields,
       status: "Active",
       assigned_project_ids: [],
     },
@@ -784,7 +781,6 @@ async function runAssignWorkerWorkflow(
             id: workerId,
             first_name: "Test",
             last_name: "Worker",
-            worker_name: "Test Worker",
             full_name: "Test Worker",
             assigned_project_ids: snapshot.projectIds,
           } as Worker,
@@ -2000,6 +1996,140 @@ async function runResendInductionWorkflow(
   };
 }
 
+async function runPayrollCsvExportDiagnostic(
+  ctx: FormTestContext,
+  _workers: Worker[],
+  cleanupRecords: CleanupRecord[]
+): Promise<ActionWorkflowTestResult> {
+  const id = "payroll_csv_export";
+  const steps: ActionWorkflowStepResult[] = [];
+  const started = performance.now();
+  const marker = workflowMarker();
+
+  const inserted = await insertPendingTimesheet(ctx, marker);
+  if (!inserted.id) {
+    steps.push(step("setup", "Mock Record Setup", "failed", inserted.error ?? "Insert failed."));
+    steps.push(step("execute", "CSV Export Build", "skipped", "Skipped — setup failed."));
+    steps.push(step("verify", "CSV Row Field Check", "skipped", "Skipped — setup failed."));
+    return {
+      id,
+      module: "Accounts Timesheets",
+      buttonLabel: "Export CSV",
+      targetTable: "worker_timesheets",
+      status: "failed",
+      actionPassed: false,
+      steps,
+      durationMs: Math.round(performance.now() - started),
+    };
+  }
+
+  cleanupRecords.push({ table: "worker_timesheets", id: inserted.id });
+  steps.push(
+    step("setup", "Mock Record Setup", "passed", "Pending timesheet inserted with picklist values.", [
+      inserted.id,
+      `project: ${ctx.timesheetProjectName ?? ctx.projectName}`,
+      `task: ${ctx.timesheetTaskName ?? "Labourer"}`,
+    ])
+  );
+
+  const loaded = await loadWorkerTimesheetRow(inserted.id);
+  if (!loaded) {
+    steps.push(step("execute", "CSV Export Build", "failed", "Inserted timesheet could not be reloaded."));
+    steps.push(step("verify", "CSV Row Field Check", "skipped", "Skipped — reload failed."));
+    return {
+      id,
+      module: "Accounts Timesheets",
+      buttonLabel: "Export CSV",
+      targetTable: "worker_timesheets",
+      status: "failed",
+      actionPassed: false,
+      steps,
+      recordId: inserted.id,
+      durationMs: Math.round(performance.now() - started),
+    };
+  }
+
+  const calculationErrors = validateTimesheetHourCalculations(loaded);
+  if (calculationErrors.length > 0) {
+    steps.push(
+      step(
+        "execute",
+        "CSV Export Build",
+        "failed",
+        "Timesheet hour totals failed validation before export.",
+        calculationErrors
+      )
+    );
+    steps.push(step("verify", "CSV Row Field Check", "skipped", "Skipped — calculation check failed."));
+    return {
+      id,
+      module: "Accounts Timesheets",
+      buttonLabel: "Export CSV",
+      targetTable: "worker_timesheets",
+      status: "failed",
+      actionPassed: false,
+      steps,
+      recordId: inserted.id,
+      durationMs: Math.round(performance.now() - started),
+    };
+  }
+
+  const sampleRow = buildSampleAccountsTimesheetRow(ctx, loaded);
+  const csv = buildPayrollCsvForSampleRow(sampleRow);
+  steps.push(
+    step("execute", "CSV Export Build", "passed", "Payroll CSV generated from timesheet row.", [
+      `worker: ${sampleRow.worker_first_name ?? ""} ${sampleRow.worker_last_name ?? ""}`.trim(),
+      `daily_total_hours: ${sampleRow.daily_total_hours ?? sampleRow.total_hours ?? 0}`,
+    ])
+  );
+
+  const csvErrors = validatePayrollCsvExportRow(sampleRow, csv, 0);
+  if (csvErrors.length > 0) {
+    steps.push(
+      step(
+        "verify",
+        "CSV Row Field Check",
+        "failed",
+        "Payroll CSV row fields did not match expected mapping.",
+        csvErrors
+      )
+    );
+    return {
+      id,
+      module: "Accounts Timesheets",
+      buttonLabel: "Export CSV",
+      targetTable: "worker_timesheets",
+      status: "failed",
+      actionPassed: false,
+      steps,
+      recordId: inserted.id,
+      durationMs: Math.round(performance.now() - started),
+    };
+  }
+
+  steps.push(
+    step(
+      "verify",
+      "CSV Row Field Check",
+      "passed",
+      "CSV row fields validated for Payroll V2 NSW schema.",
+      [PAYROLL_CSV_V2_HEADER],
+    )
+  );
+
+  return {
+    id,
+    module: "Accounts Timesheets",
+    buttonLabel: "Export CSV",
+    targetTable: "worker_timesheets",
+    status: "passed",
+    actionPassed: true,
+    steps,
+    recordId: inserted.id,
+    durationMs: Math.round(performance.now() - started),
+  };
+}
+
 const ACTION_WORKFLOW_RUNNERS: Array<{
   id: string;
   module: string;
@@ -2007,6 +2137,13 @@ const ACTION_WORKFLOW_RUNNERS: Array<{
   targetTable: string;
   run: WorkflowRunner;
 }> = [
+  {
+    id: "payroll_csv_export",
+    module: "Accounts Timesheets",
+    buttonLabel: "Export CSV",
+    targetTable: "worker_timesheets",
+    run: (ctx, workers, cleanup) => runPayrollCsvExportDiagnostic(ctx, workers, cleanup),
+  },
   {
     id: "assign_worker_to_project",
     module: "Project Assignments",
@@ -2115,7 +2252,7 @@ export async function runActionWorkflowTests(options?: {
     };
   }
 
-  const resolved = await resolveFormTestContext();
+  const resolved = await resolveEnrichedFormTestContext();
   if ("error" in resolved) {
     return { context: null, results: [], error: resolved.error };
   }

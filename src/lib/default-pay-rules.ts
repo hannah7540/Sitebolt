@@ -1,8 +1,10 @@
 import {
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE_INPUT,
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE_NAME,
+  ACT_SITE_WORKER_TEMPLATE_INPUT,
+  ACT_SITE_WORKER_TEMPLATE_NAME,
   NSW_SITE_WORKER_TEMPLATE_INPUT,
   NSW_SITE_WORKER_TEMPLATE_NAME,
+  NZ_SITE_WORKER_TEMPLATE_INPUT,
+  NZ_SITE_WORKER_TEMPLATE_NAME,
   PRESET_PAY_RULE_TEMPLATE_NAMES,
   WA_SITE_WORKER_TEMPLATE_NAME,
   type PayRuleCondition,
@@ -14,7 +16,8 @@ import {
 
 export const DEFAULT_WA_SITE_WORKER_TEMPLATE_ID = "default-wa-site-worker";
 export const DEFAULT_NSW_SITE_WORKER_TEMPLATE_ID = "default-nsw-site-worker";
-export const DEFAULT_NSW_APPRENTICE_TEMPLATE_ID = "default-nsw-apprentice-site-worker";
+export const DEFAULT_ACT_SITE_WORKER_TEMPLATE_ID = "default-act-site-worker";
+export const DEFAULT_NZ_SITE_WORKER_TEMPLATE_ID = "default-nz-site-worker";
 
 const WEEKDAYS: WeekdayCode[] = ["mon", "tue", "wed", "thu", "fri"];
 const WEEKEND: WeekdayCode[] = ["sat", "sun"];
@@ -175,16 +178,22 @@ const NSW_SITE_WORKER_TEMPLATE = inputToDefaultTemplate(
   NSW_SITE_WORKER_TEMPLATE_INPUT
 );
 
-const NSW_APPRENTICE_SITE_WORKER_TEMPLATE = inputToDefaultTemplate(
-  DEFAULT_NSW_APPRENTICE_TEMPLATE_ID,
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE_INPUT
+const ACT_SITE_WORKER_TEMPLATE = inputToDefaultTemplate(
+  DEFAULT_ACT_SITE_WORKER_TEMPLATE_ID,
+  ACT_SITE_WORKER_TEMPLATE_INPUT
+);
+
+const NZ_SITE_WORKER_TEMPLATE = inputToDefaultTemplate(
+  DEFAULT_NZ_SITE_WORKER_TEMPLATE_ID,
+  NZ_SITE_WORKER_TEMPLATE_INPUT
 );
 
 /** Hardcoded frontend fallback templates — always available offline. */
 export const DEFAULT_PAY_RULES: PayRuleTemplate[] = [
   WA_SITE_WORKER_TEMPLATE,
   NSW_SITE_WORKER_TEMPLATE,
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE,
+  ACT_SITE_WORKER_TEMPLATE,
+  NZ_SITE_WORKER_TEMPLATE,
 ];
 
 export function cloneDefaultPayRules(): PayRuleTemplate[] {
@@ -202,7 +211,7 @@ export function getWaSiteWorkerDisplayLine(sortOrder: number): string | null {
   return WA_SITE_WORKER_DISPLAY_LINES[sortOrder] ?? null;
 }
 
-/** Always return the 3 preset templates — prefer Supabase rows when available. */
+/** Always return preset templates — prefer Supabase rows when available. */
 export function resolvePresetPayRuleTemplates(
   remote: PayRuleTemplate[] | null | undefined
 ): PayRuleTemplate[] {

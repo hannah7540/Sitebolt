@@ -1,14 +1,20 @@
 "use client";
 
-import { MessageSquare } from "lucide-react";
+import { useMemo, useState } from "react";
+import { MessageSquare, ChevronRight, Loader2, Eye } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import type { SiteFormSubmission } from "@/lib/site-forms";
 import { formatSiteFormDate } from "@/lib/site-forms";
 import {
+  formatSiteFormTime,
   getSiteFormSubmitterName,
+  getToolboxTalkAttendeeCount,
   getToolboxTalkTopic,
+  isSiteFormViewed,
 } from "@/lib/dashboard-form-utils";
-import ProjectFormFeedWidget from "./ProjectFormFeedWidget";
+import { markSiteFormViewed } from "@/lib/site-form-mutations";
+import { cn } from "@/lib/utils";
+import { cardClass } from "@/lib/ui-classes";
 
 interface ProjectToolboxTalksWidgetProps {
   forms: SiteFormSubmission[];
@@ -16,6 +22,7 @@ interface ProjectToolboxTalksWidgetProps {
   loading?: boolean;
   onOpenList: () => void;
   onSelectForm: (form: SiteFormSubmission) => void;
+  onViewed: () => void;
 }
 
 export default function ProjectToolboxTalksWidget({
@@ -24,32 +31,167 @@ export default function ProjectToolboxTalksWidget({
   loading = false,
   onOpenList,
   onSelectForm,
+  onViewed,
 }: ProjectToolboxTalksWidgetProps) {
-  const toolboxForms = forms.filter((form) => form.form_type === "toolbox_talk");
-  const recent = toolboxForms.slice(0, 5);
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [locallyViewedIds, setLocallyViewedIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const allToolboxForms = useMemo(
+    () => forms.filter((form) => form.form_type === "toolbox_talk"),
+    [forms]
+  );
+
+  const unviewedToolboxForms = useMemo(() => {
+    return allToolboxForms
+      .filter((form) => {
+        if (locallyViewedIds.has(form.id)) return false;
+        return !isSiteFormViewed(form);
+      })
+      .sort((left, right) => right.form_date.localeCompare(left.form_date))
+      .slice(0, 5);
+  }, [allToolboxForms, locallyViewedIds]);
+
+  const handleMarkViewed = async (formId: string) => {
+    setError(null);
+    setMarkingId(formId);
+
+    try {
+      const result = await markSiteFormViewed(formId);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setLocallyViewedIds((current) => new Set(current).add(formId));
+      onViewed();
+    } catch (err) {
+      console.error("Mark viewed failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to mark as viewed.");
+    } finally {
+      setMarkingId(null);
+    }
+  };
 
   return (
-    <ProjectFormFeedWidget
-      icon={MessageSquare}
-      title="Toolbox Talks"
-      description="Recent toolbox topics, conductors, and attendance."
-      countLabel={`${toolboxForms.length} talk${toolboxForms.length === 1 ? "" : "s"}`}
-      loading={loading}
-      emptyMessage="No toolbox talks submitted yet."
-      onOpenList={onOpenList}
-      onSelectRow={(id) => {
-        const form = toolboxForms.find((row) => row.id === id);
-        if (form) onSelectForm(form);
-      }}
-      rows={recent.map((form) => {
-        const attendeeCount = form.attendees.filter((attendee) => attendee.present).length;
-        return {
-          id: form.id,
-          title: getToolboxTalkTopic(form),
-          subtitle: `${getSiteFormSubmitterName(form, workers)} · ${formatSiteFormDate(form.form_date)}`,
-          meta: `${attendeeCount} attendee${attendeeCount === 1 ? "" : "s"}`,
-        };
-      })}
-    />
+    <div className={cn(cardClass, "flex h-full flex-col p-6")}>
+      <div className="mb-4 flex items-start gap-4">
+        <MessageSquare className="h-10 w-10 shrink-0 text-orange-500" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-2xl font-bold text-slate-900">Toolbox Talks</h2>
+            <button
+              type="button"
+              onClick={onOpenList}
+              className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-orange-50 hover:text-orange-600"
+              aria-label="View all toolbox talks"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {loading
+              ? "Loading toolbox talks…"
+              : unviewedToolboxForms.length > 0
+                ? `${unviewedToolboxForms.length} unviewed talk${unviewedToolboxForms.length === 1 ? "" : "s"}`
+                : "No unviewed toolbox talks"}
+          </p>
+          {allToolboxForms.length > 0 ? (
+            <button
+              type="button"
+              onClick={onOpenList}
+              className="mt-1 text-xs font-semibold text-orange-600 hover:text-orange-700"
+            >
+              View all toolbox talks ({allToolboxForms.length})
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {error ? (
+        <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      ) : null}
+
+      {loading ? (
+        <div className="flex flex-1 items-center gap-2 py-8 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+          Loading toolbox talks…
+        </div>
+      ) : unviewedToolboxForms.length === 0 ? (
+        <button
+          type="button"
+          onClick={onOpenList}
+          className={cn(
+            "flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500",
+            allToolboxForms.length > 0 &&
+              "cursor-pointer hover:border-orange-300 hover:bg-orange-50/40 hover:text-orange-700"
+          )}
+        >
+          {allToolboxForms.length > 0
+            ? "All talks viewed. View full history →"
+            : "No toolbox talks submitted yet."}
+        </button>
+      ) : (
+        <ul className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+          {unviewedToolboxForms.map((form) => {
+            const isMarking = markingId === form.id;
+            const attendeeCount = getToolboxTalkAttendeeCount(form);
+
+            return (
+              <li
+                key={form.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectForm(form)}
+                  className="mb-3 w-full text-left"
+                >
+                  <p className="font-semibold text-slate-900">{getToolboxTalkTopic(form)}</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {getSiteFormSubmitterName(form, workers)} ·{" "}
+                    {formatSiteFormDate(form.form_date)}
+                    {form.form_time ? ` · ${formatSiteFormTime(form.form_time)}` : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {attendeeCount} attendee{attendeeCount === 1 ? "" : "s"}
+                  </p>
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={isMarking}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleMarkViewed(form.id);
+                    }}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {isMarking ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                    Mark as Viewed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectForm(form)}
+                    className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+                  >
+                    Open
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

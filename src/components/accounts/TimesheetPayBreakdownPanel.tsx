@@ -8,7 +8,12 @@ import {
   type TimesheetPayBreakdown,
 } from "@/lib/calculateTimesheetPay";
 import type { PayRateRule } from "@/lib/pay-rates-and-rules";
-import { formatTimesheetHours } from "@/lib/timesheet-utils";
+import { resolveTravelPayrollCategory } from "@/lib/worker-pay-rule-assignment";
+import {
+  MEAL_ALLOWANCE_HOURS_THRESHOLD,
+  PAYROLL_MEAL_ALLOWANCE_CATEGORY,
+  resolveMealAllowanceThreshold,
+} from "@/lib/meal-allowance";
 import { cn } from "@/lib/utils";
 
 interface TimesheetPayBreakdownPanelProps {
@@ -53,8 +58,18 @@ export default function TimesheetPayBreakdownPanel({
     if (!payRule) return null;
     return calculateTimesheetPay(timesheet, payRule, {
       hsrApplicable: timesheet.worker_is_hsr ?? false,
+      isApprentice: timesheet.worker_is_apprentice ?? false,
+      hasCompanyVehicle: timesheet.worker_has_company_vehicle ?? false,
     });
   }, [payRule, timesheet]);
+
+  const travelLabel = resolveTravelPayrollCategory(
+    timesheet.worker_is_apprentice ?? false,
+    timesheet.worker_state
+  );
+  const mealThreshold = payRule
+    ? resolveMealAllowanceThreshold(payRule.meal_allowance_threshold)
+    : MEAL_ALLOWANCE_HOURS_THRESHOLD;
 
   if (!payRule) {
     return (
@@ -73,12 +88,23 @@ export default function TimesheetPayBreakdownPanel({
         <div>
           <h4 className="text-sm font-semibold text-slate-900">Gross Pay Breakdown</h4>
           <p className="text-xs text-slate-500">
-            Rule: {breakdown.rule_name} · {formatTimesheetHours(breakdown.daily_hours)} worked
+            Rule: {breakdown.rule_name} · {formatTimesheetHours(breakdown.daily_hours)} total
+            {breakdown.work_hours > 0
+              ? ` (${formatTimesheetHours(breakdown.work_hours)} work`
+              : ""}
+            {breakdown.leave_hours > 0
+              ? `${breakdown.work_hours > 0 ? ", " : " ("}${formatTimesheetHours(breakdown.leave_hours)} leave`
+              : ""}
+            {(breakdown.work_hours > 0 || breakdown.leave_hours > 0) ? ")" : ""}
           </p>
         </div>
-        {breakdown.is_leave_day ? (
+        {breakdown.is_mixed_day ? (
+          <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-800">
+            Mixed day
+          </span>
+        ) : breakdown.is_leave_day ? (
           <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
-            Leave day ({formatTimesheetHours(breakdown.base_hours)})
+            Leave day ({formatTimesheetHours(breakdown.leave_hours)})
           </span>
         ) : breakdown.is_weekend ? (
           <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800">
@@ -86,6 +112,22 @@ export default function TimesheetPayBreakdownPanel({
           </span>
         ) : null}
       </div>
+
+      {breakdown.line_items.length > 0 ? (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Line Items
+          </p>
+          {breakdown.line_items.map((item) => (
+            <BreakdownRow
+              key={`${item.category}-${item.label}`}
+              label={item.label}
+              detail={`${formatTimesheetHours(item.hours)} × ${formatPayCurrency(item.rate)}/hr`}
+              amount={item.amount}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <BreakdownRow
         label="Base pay"
@@ -103,40 +145,52 @@ export default function TimesheetPayBreakdownPanel({
       />
       <BreakdownRow
         label="Site Allowance 2026"
-        detail={`${formatTimesheetHours(breakdown.daily_hours)} × ${formatPayCurrency(payRule.site_allowance_hourly)}/hr`}
+        detail={
+          breakdown.work_hours > 0
+            ? `${formatTimesheetHours(breakdown.work_hours)} × ${formatPayCurrency(payRule.site_allowance_hourly)}/hr`
+            : "Applied to work hours only"
+        }
         amount={breakdown.site_allowance_pay}
       />
       <BreakdownRow
         label="AAC Productivity Allowance"
-        detail={`${formatTimesheetHours(breakdown.daily_hours)} × ${formatPayCurrency(payRule.productivity_allowance_hourly)}/hr`}
+        detail={
+          breakdown.work_hours > 0
+            ? `${formatTimesheetHours(breakdown.work_hours)} × ${formatPayCurrency(payRule.productivity_allowance_hourly)}/hr`
+            : "Applied to work hours only"
+        }
         amount={breakdown.productivity_allowance_pay}
       />
       <BreakdownRow
         label="HSR Allowance"
         detail={
-          timesheet.worker_is_hsr
-            ? `${formatTimesheetHours(breakdown.daily_hours)} × ${formatPayCurrency(payRule.hsr_allowance_hourly)}/hr`
+          timesheet.worker_is_hsr && breakdown.work_hours > 0
+            ? `${formatTimesheetHours(breakdown.work_hours)} × ${formatPayCurrency(payRule.hsr_allowance_hourly)}/hr`
             : "Not applicable for this worker"
         }
         amount={breakdown.hsr_allowance_pay}
       />
       <BreakdownRow
-        label="Travel NSW"
+        label={travelLabel}
         detail={
-          breakdown.travel_allowance_pay > 0
-            ? "Flat daily travel allowance"
-            : breakdown.is_leave_day
-              ? "Not applied on leave days"
-              : "Not applicable"
+          timesheet.worker_has_company_vehicle
+            ? "Excluded — worker has assigned company vehicle"
+            : breakdown.travel_allowance_pay > 0
+              ? "Flat daily travel allowance"
+              : breakdown.is_leave_day
+                ? "Not applied on leave-only days"
+                : "Not applicable"
         }
         amount={breakdown.travel_allowance_pay}
       />
       <BreakdownRow
-        label="Meal Allowance NSW"
+        label={PAYROLL_MEAL_ALLOWANCE_CATEGORY}
         detail={
           breakdown.meal_allowance_pay > 0
-            ? `Triggered at ≥ ${formatTimesheetHours(payRule.overtime_20_threshold_hours)} daily`
-            : `Requires ≥ ${formatTimesheetHours(payRule.overtime_20_threshold_hours)} daily hours`
+            ? `Applied — net work hours ≥ ${mealThreshold.toFixed(0)} (breaks excluded)`
+            : breakdown.is_leave_day
+              ? "Not applied on leave-only days"
+              : `Requires ≥ ${mealThreshold.toFixed(0)} net work hours (breaks excluded)`
         }
         amount={breakdown.meal_allowance_pay}
       />

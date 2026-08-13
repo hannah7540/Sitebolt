@@ -8,18 +8,21 @@ import {
   type SupabaseRequestError,
 } from "./supabase-errors";
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
+import { MEAL_ALLOWANCE_HOURS_THRESHOLD } from "./meal-allowance";
 
 export const PAY_RULE_TEMPLATES_TABLE = "pay_rule_templates";
 export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
 
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
 export const WA_SITE_WORKER_TEMPLATE_NAME = "WA Site Worker";
-export const NSW_APPRENTICE_SITE_WORKER_TEMPLATE_NAME = "NSW Apprentice Site Worker";
+export const ACT_SITE_WORKER_TEMPLATE_NAME = "ACT Site Worker";
+export const NZ_SITE_WORKER_TEMPLATE_NAME = "NZ Site Worker";
 
 export const PRESET_PAY_RULE_TEMPLATE_NAMES = [
   WA_SITE_WORKER_TEMPLATE_NAME,
   NSW_SITE_WORKER_TEMPLATE_NAME,
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE_NAME,
+  ACT_SITE_WORKER_TEMPLATE_NAME,
+  NZ_SITE_WORKER_TEMPLATE_NAME,
 ] as const;
 
 export type WeekdayCode = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -668,9 +671,14 @@ function allowanceToLegacyFields(condition: PayRuleConditionInput): {
 export function sanitizePayRuleTemplateInput(
   input: PayRuleTemplateInput
 ): PayRuleTemplateInput {
+  const templateName = String(input.name ?? "").trim();
+
   return {
-    name: String(input.name ?? "").trim(),
-    conditions: (input.conditions ?? []).map((condition, index) => {
+    name: templateName,
+    conditions: withMealAllowanceCondition(
+      withStandardLeaveConditions(input.conditions ?? []),
+      templateName
+    ).map((condition, index) => {
       const conditionType = normalizeConditionType(condition.condition_type);
       const legacy = allowanceToLegacyFields({ ...condition, condition_type: conditionType });
 
@@ -779,7 +787,7 @@ export function createNswMealAllowancePresetRow(): PayRuleConditionFormRow {
     conditionName: "Meal Allowance NSW",
     applicableDays: [...WEEKDAY_ORDER],
     timeCondition: "after_n_hours",
-    hoursThreshold: 10,
+    hoursThreshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
     payMultiplierType: "flat_daily",
     allowanceTrigger: "hours_gte_threshold",
     payoutUnit: "daily_flat_1x",
@@ -1159,6 +1167,171 @@ export async function batchUpdateWorkerPayRuleTemplateIds(
   return { updated, error: lastError };
 }
 
+export const ANNUAL_LEAVE_LOADING_CONDITION_NAME = "Annual Leave Loading";
+export const ANNUAL_LEAVE_PAY_CONDITION_NAME = "Annual Leave Pay";
+
+export type StandardLeaveConditionName =
+  | "Personal Leave Pay"
+  | typeof ANNUAL_LEAVE_PAY_CONDITION_NAME
+  | typeof ANNUAL_LEAVE_LOADING_CONDITION_NAME
+  | "RDO Taken"
+  | "Leave Without Pay"
+  | "Public Holiday Pay";
+
+const STANDARD_LEAVE_CONDITION_SPECS: Array<{
+  name: StandardLeaveConditionName;
+  hoursThreshold: number;
+}> = [
+  { name: "Personal Leave Pay", hoursThreshold: 8 },
+  { name: ANNUAL_LEAVE_PAY_CONDITION_NAME, hoursThreshold: 8 },
+  { name: ANNUAL_LEAVE_LOADING_CONDITION_NAME, hoursThreshold: 8 },
+  { name: "RDO Taken", hoursThreshold: 8 },
+  { name: "Leave Without Pay", hoursThreshold: 0 },
+  { name: "Public Holiday Pay", hoursThreshold: 8 },
+];
+
+/** WA-style flat leave entitlements applied when matching leave is booked. */
+export function buildStandardSiteWorkerLeaveCondition(
+  name: StandardLeaveConditionName,
+  sortOrder: number
+): PayRuleConditionInput {
+  const spec = STANDARD_LEAVE_CONDITION_SPECS.find((entry) => entry.name === name);
+  const hoursThreshold = spec?.hoursThreshold ?? 8;
+
+  return {
+    condition_type: "allowance",
+    condition_name: name,
+    applicable_days: [...WEEKDAY_ORDER],
+    time_condition: "flat_daily_allowance",
+    hours_threshold: hoursThreshold,
+    pay_multiplier_type: "flat_daily",
+    allowance_trigger: "flat_per_day_worked",
+    payout_unit: "daily_flat_1x",
+    sort_order: sortOrder,
+  };
+}
+
+export function buildStandardSiteWorkerLeaveConditions(
+  startSortOrder: number
+): PayRuleConditionInput[] {
+  return STANDARD_LEAVE_CONDITION_SPECS.map((spec, index) =>
+    buildStandardSiteWorkerLeaveCondition(spec.name, startSortOrder + index)
+  );
+}
+
+/** Ensure every pay rule template includes the standard leave set (incl. Annual Leave Loading). */
+export function withStandardLeaveConditions(
+  conditions: PayRuleConditionInput[]
+): PayRuleConditionInput[] {
+  const existing = new Set(
+    conditions.map((condition) => condition.condition_name.trim().toLowerCase())
+  );
+  const missingSpecs = STANDARD_LEAVE_CONDITION_SPECS.filter(
+    (spec) => !existing.has(spec.name.toLowerCase())
+  );
+
+  if (missingSpecs.length === 0) {
+    return conditions;
+  }
+
+  const maxSort = conditions.reduce(
+    (max, condition) => Math.max(max, condition.sort_order),
+    -1
+  );
+  let nextSort = maxSort + 1;
+
+  const appended = missingSpecs.map((spec) =>
+    buildStandardSiteWorkerLeaveCondition(spec.name, nextSort++)
+  );
+
+  return [...conditions, ...appended];
+}
+
+function isMealAllowanceConditionName(name: string): boolean {
+  return name.toLowerCase().includes("meal allowance");
+}
+
+function resolveMealAllowanceConditionName(templateName?: string): string {
+  if (!templateName) return "Meal Allowance NSW";
+  if (templateName.includes("WA")) return "Meal Allowance WA";
+  if (templateName.includes("ACT")) return "Meal Allowance ACT";
+  if (templateName.includes("NZ")) return "Meal Allowance NZ";
+  return "Meal Allowance NSW";
+}
+
+/** WA-style meal allowance — flat daily rate when net worked hours reach the threshold. */
+export function buildMealAllowanceCondition(
+  sortOrder: number,
+  conditionName = "Meal Allowance NSW"
+): PayRuleConditionInput {
+  return {
+    condition_type: "allowance",
+    condition_name: conditionName,
+    applicable_days: [...WEEKDAY_ORDER],
+    time_condition: "after_n_hours",
+    hours_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
+    pay_multiplier_type: "flat_daily",
+    allowance_trigger: "hours_gte_threshold",
+    payout_unit: "daily_flat_1x",
+    sort_order: sortOrder,
+  };
+}
+
+/** Normalize or inject meal allowance on every pay rule template. */
+export function withMealAllowanceCondition(
+  conditions: PayRuleConditionInput[],
+  templateName?: string
+): PayRuleConditionInput[] {
+  let updated = conditions.map((condition) => {
+    if (!isMealAllowanceConditionName(condition.condition_name)) {
+      return condition;
+    }
+
+    return {
+      ...condition,
+      hours_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
+      allowance_trigger: "hours_gte_threshold",
+      time_condition: "after_n_hours",
+      pay_multiplier_type: "flat_daily",
+      payout_unit: "daily_flat_1x",
+    };
+  });
+
+  if (updated.some((condition) => isMealAllowanceConditionName(condition.condition_name))) {
+    return updated;
+  }
+
+  const leaveSortOrders = updated
+    .filter((condition) => isLeavePayRuleConditionName(condition.condition_name))
+    .map((condition) => condition.sort_order);
+  const insertSort =
+    leaveSortOrders.length > 0 ? Math.min(...leaveSortOrders) : updated.length;
+
+  updated = updated.map((condition) =>
+    condition.sort_order >= insertSort
+      ? { ...condition, sort_order: condition.sort_order + 1 }
+      : condition
+  );
+
+  return [
+    ...updated,
+    buildMealAllowanceCondition(
+      insertSort,
+      resolveMealAllowanceConditionName(templateName)
+    ),
+  ];
+}
+
+function isLeavePayRuleConditionName(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized.includes("leave") ||
+    normalized.includes("rdo") ||
+    normalized.includes("holiday") ||
+    normalized.includes("without pay")
+  );
+}
+
 export const NSW_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
   name: NSW_SITE_WORKER_TEMPLATE_NAME,
   conditions: [
@@ -1225,12 +1398,13 @@ export const NSW_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
       condition_name: "Meal Allowance NSW",
       applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
       time_condition: "after_n_hours",
-      hours_threshold: 10,
+      hours_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
       pay_multiplier_type: "flat_daily",
       allowance_trigger: "hours_gte_threshold",
       payout_unit: "daily_flat_1x",
       sort_order: 6,
     },
+    ...buildStandardSiteWorkerLeaveConditions(7),
   ],
 };
 
@@ -1264,145 +1438,35 @@ export const WA_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
       pay_multiplier_type: "time_and_half_1_5x",
       sort_order: 2,
     },
-    {
-      condition_type: "allowance",
-      condition_name: "Personal Leave Pay",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 8,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 3,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Annual Leave Pay",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 8,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 4,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Annual Leave Loading",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 8,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 5,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "RDO Taken",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 8,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 6,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Leave Without Pay",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 0,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 7,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Public Holiday Pay",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 8,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 8,
-    },
+    buildMealAllowanceCondition(3, "Meal Allowance WA"),
+    ...buildStandardSiteWorkerLeaveConditions(4),
   ],
 };
 
-export const NSW_APPRENTICE_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
-  name: NSW_APPRENTICE_SITE_WORKER_TEMPLATE_NAME,
-  conditions: [
-    {
-      condition_type: "pay_rate",
-      condition_name: "Apprentice Basic Pay",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri"],
-      time_condition: "first_n_hours",
-      hours_threshold: 8,
-      pay_multiplier_type: "standard_1x",
-      sort_order: 0,
-    },
-    {
-      condition_type: "pay_rate",
-      condition_name: "Apprentice Overtime",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri"],
-      time_condition: "after_n_hours",
-      hours_threshold: 8,
-      pay_multiplier_type: "time_and_half_1_5x",
-      sort_order: 1,
-    },
-    {
-      condition_type: "pay_rate",
-      condition_name: "Weekend Pay",
-      applicable_days: ["sat", "sun"],
-      time_condition: "all_hours_worked",
-      hours_threshold: 0,
-      pay_multiplier_type: "double_2x",
-      sort_order: 2,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Site Allowance 2026",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "all_hours_worked",
-      hours_threshold: 0,
-      pay_multiplier_type: "standard_1x",
-      allowance_trigger: "all_hours_worked",
-      payout_unit: "per_hour_worked",
-      sort_order: 3,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Apprentice Travel NSW",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "flat_daily_allowance",
-      hours_threshold: 0,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "flat_per_day_worked",
-      payout_unit: "daily_flat_1x",
-      sort_order: 4,
-    },
-    {
-      condition_type: "allowance",
-      condition_name: "Meal Allowance NSW",
-      applicable_days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-      time_condition: "after_n_hours",
-      hours_threshold: 10,
-      pay_multiplier_type: "flat_daily",
-      allowance_trigger: "hours_gte_threshold",
-      payout_unit: "daily_flat_1x",
-      sort_order: 5,
-    },
-  ],
+export const ACT_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
+  name: ACT_SITE_WORKER_TEMPLATE_NAME,
+  conditions: NSW_SITE_WORKER_TEMPLATE_INPUT.conditions.map((condition) => ({
+    ...condition,
+    condition_name:
+      condition.condition_name === "Travel Allowance NSW"
+        ? "Travel Allowance ACT"
+        : condition.condition_name,
+  })),
+};
+
+export const NZ_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
+  name: NZ_SITE_WORKER_TEMPLATE_NAME,
+  conditions: WA_SITE_WORKER_TEMPLATE_INPUT.conditions.map((condition) => ({
+    ...condition,
+    condition_name: condition.condition_name.replace(/\bWA\b/g, "NZ"),
+  })),
 };
 
 const DEFAULT_PAY_RULE_TEMPLATE_INPUTS: PayRuleTemplateInput[] = [
   WA_SITE_WORKER_TEMPLATE_INPUT,
   NSW_SITE_WORKER_TEMPLATE_INPUT,
-  NSW_APPRENTICE_SITE_WORKER_TEMPLATE_INPUT,
+  ACT_SITE_WORKER_TEMPLATE_INPUT,
+  NZ_SITE_WORKER_TEMPLATE_INPUT,
 ];
 
 export async function ensureDefaultPayRuleTemplates(): Promise<{

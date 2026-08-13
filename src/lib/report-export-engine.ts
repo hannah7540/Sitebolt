@@ -32,6 +32,8 @@ import {
   fetchWorkerProfileNameMap,
 } from "./worker-profile-lookup";
 import type { ReportModuleId } from "./generated-reports-service";
+import { buildTimesheetHoursReportSection } from "./timesheet-hours-report";
+import type { WorkerStateRegion } from "./worker-state-region";
 
 export interface ReportExportInput {
   startDate: string;
@@ -39,6 +41,7 @@ export interface ReportExportInput {
   projectIds: string[];
   modules: ReportModuleId[];
   projects: DbProject[];
+  stateFilters?: WorkerStateRegion[];
 }
 
 export interface ReportExportResult {
@@ -594,6 +597,7 @@ const MODULE_BUILDERS: Record<
     buildSiteFormSection(input, "toolbox_talk", "Toolbox Talks"),
   rfis: buildRfisSection,
   swms: buildSwmsSection,
+  timesheets_hours: buildTimesheetHoursReportSection,
 };
 
 export async function generateReportExport(

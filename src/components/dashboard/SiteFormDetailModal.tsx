@@ -154,7 +154,8 @@ export default function SiteFormDetailModal({
           ))}
 
           {Object.entries(form.form_data).some(
-            ([key]) => !isInternalFormDataKey(key) &&
+            ([key]) =>
+              !isInternalFormDataKey(key) &&
               !config.sections.some((section) =>
                 section.fields.some((field) => field.id === key)
               )

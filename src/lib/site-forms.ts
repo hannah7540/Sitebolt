@@ -61,6 +61,12 @@ export interface SiteFormSubmission {
   additional_workers: SiteFormAdditionalWorker[];
   submitter_signature_url: string | null;
   created_at?: string;
+  /** Workflow status (e.g. Open, Resolved, Completed). */
+  status?: string | null;
+  title?: string | null;
+  notes?: string | null;
+  is_viewed?: boolean;
+  viewed_at?: string | null;
 }
 
 export const CLIENT_OPTIONS = ["A Plus", "CDC"] as const;
@@ -348,6 +354,58 @@ export function getSiteFormFields(formType: SiteFormType): SiteFormFieldDef[] {
   return fields;
 }
 
+function normalizedTriAnswer(value: SiteFormFieldValue | undefined): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+/** Whether the photo capture UI should render for a checklist field. */
+export function shouldShowSiteFormPhotoUpload(
+  field: SiteFormFieldDef,
+  formData: SiteFormData
+): boolean {
+  if (!field.photoFieldId) return false;
+
+  const answer = normalizedTriAnswer(formData[field.id]);
+
+  if (field.type === "tri_state_with_photo") {
+    return answer === "yes" || answer === "no";
+  }
+
+  if (field.type === "yes_no_with_photo") {
+    return answer === "yes";
+  }
+
+  return false;
+}
+
+/** Whether submit validation should require a captured photo for this field. */
+export function isSiteFormSectionPhotoRequired(
+  field: SiteFormFieldDef,
+  formData: SiteFormData
+): boolean {
+  if (!field.photoFieldId || !shouldShowSiteFormPhotoUpload(field, formData)) {
+    return false;
+  }
+
+  if (field.type === "yes_no_with_photo") {
+    return false;
+  }
+
+  if (field.type === "tri_state_with_photo") {
+    const answer = normalizedTriAnswer(formData[field.id]);
+    return answer === "yes" || answer === "no";
+  }
+
+  return false;
+}
+
+export function findSiteFormFieldByPhotoId(
+  formType: SiteFormType,
+  photoFieldId: string
+): SiteFormFieldDef | undefined {
+  return getSiteFormFields(formType).find((field) => field.photoFieldId === photoFieldId);
+}
+
 export function defaultFormData(formType: SiteFormType): SiteFormData {
   const data: SiteFormData = {};
   for (const field of getSiteFormFields(formType)) {
@@ -408,6 +466,104 @@ export function formatSiteFormDate(isoDate: string): string {
   }
 }
 
+/** Normalize UI/API time values to Postgres `time` (`HH:MM:SS`). Defaults to now when empty. */
+export function normalizeSiteFormTime(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
+  }
+  if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{2}:\d{2}$/.test(trimmed)) return `${trimmed}:00`;
+  return trimmed;
+}
+
 export function isInternalFormDataKey(key: string): boolean {
   return isPhotoFormDataKey(key) || key.endsWith("_other");
+}
+
+export type SafetyWalkStatusKind =
+  | "pass"
+  | "fail"
+  | "na"
+  | "hazard"
+  | "yes"
+  | "no"
+  | "neutral";
+
+export function getSafetyWalkFieldStatus(
+  field: SiteFormFieldDef,
+  value: SiteFormFieldValue | undefined
+): { label: string; kind: SafetyWalkStatusKind } | null {
+  if (value == null || value === "") return null;
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+
+  if (field.type === "tri_state_with_photo") {
+    if (normalized === "yes") return { label: "Pass", kind: "pass" };
+    if (normalized === "no") return { label: "Fail", kind: "fail" };
+    if (normalized === "na") return { label: "N/A", kind: "na" };
+  }
+
+  if (field.type === "yes_no_with_photo") {
+    if (normalized === "yes") return { label: "Hazard", kind: "hazard" };
+    if (normalized === "no") return { label: "No hazard", kind: "neutral" };
+  }
+
+  if (field.type === "yes_na") {
+    if (normalized === "yes") return { label: "Yes", kind: "yes" };
+    if (normalized === "na") return { label: "N/A", kind: "na" };
+  }
+
+  return null;
+}
+
+export const SAFETY_WALK_STATUS_BADGE_CLASS: Record<SafetyWalkStatusKind, string> = {
+  pass: "bg-emerald-100 text-emerald-800",
+  fail: "bg-red-100 text-red-800",
+  na: "bg-slate-200 text-slate-700",
+  hazard: "bg-amber-100 text-amber-900",
+  yes: "bg-blue-100 text-blue-800",
+  no: "bg-slate-100 text-slate-700",
+  neutral: "bg-slate-100 text-slate-700",
+};
+
+export interface SafetyWalkGalleryPhoto {
+  url: string;
+  label: string;
+  fieldId: string;
+}
+
+export function collectSafetyWalkGalleryPhotos(
+  form: SiteFormSubmission
+): SafetyWalkGalleryPhoto[] {
+  const config = SITE_FORM_CONFIGS.safety_walk;
+  const ordered: SafetyWalkGalleryPhoto[] = [];
+  const seen = new Set<string>();
+
+  for (const section of config.sections) {
+    for (const field of section.fields) {
+      if (!field.photoFieldId) continue;
+      const photoUrl = form.form_data[field.photoFieldId];
+      if (typeof photoUrl !== "string" || !photoUrl.trim()) continue;
+      if (seen.has(photoUrl)) continue;
+      seen.add(photoUrl);
+      ordered.push({
+        url: photoUrl,
+        label: `${field.label} — photo`,
+        fieldId: field.photoFieldId,
+      });
+    }
+  }
+
+  for (const url of form.photo_urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    ordered.push({
+      url,
+      label: "Site form photo",
+      fieldId: `photo_urls:${url}`,
+    });
+  }
+
+  return ordered;
 }

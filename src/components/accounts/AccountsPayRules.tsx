@@ -23,6 +23,7 @@ export const PAY_RULE_TEMPLATES = [
       "Base Hourly - First 8 hours worked Mon-Fri",
       "Overtime (1.5x) - After 8 hours worked Mon - Fri",
       "Overtime (1.5x) - All hours worked Sat & Sun",
+      "Meal Allowance - 1 unit per day when net worked hours are ≥ 10 (breaks excluded)",
       "Personal Leave Pay - 1 flat rate = to 8 hours worked (automatically applied when someone has this type of leave booked)",
       "Annual Leave Pay - 1 flat rate = to 8 hours worked (automatically applied when someone has this type of leave booked)",
       "Annual Leave Loading - 1 flat rate = to 8 hours worked (automatically applied when someone has Annual leave booked)",
@@ -39,32 +40,49 @@ export const PAY_RULE_TEMPLATES = [
       "Overtime (1.5x) - All hours worked Sat & Sun",
       "Site Allowance 2026 - 1 flat rate Mon - Sun",
       "AAC Productivity Allowance - all hours worked",
-      "Travel NSW - daily amount 1 per day all week",
-      "Meal Allowance NSW 2025 - daily amount 1 per day once 10hrs has been worked Mon-Sun",
+      "Travel NSW - daily amount 1 per day all week (exports as Travel NSW Apprentice when worker is an apprentice)",
+      "Meal Allowance NSW 2025 - 1 unit per day when net worked hours are ≥ 10 (breaks excluded)",
       "HSR allowance - all hours worked Mon-Sun",
       "RDO Taken - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Personal Leave Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Annual Leave Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
+      "Annual Leave Loading - 1 flat rate = to 8 hours worked (automatically applied when someone has Annual leave booked)",
       "Leave Without Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Public Holiday Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
     ],
   },
   {
-    name: "NSW Apprentice Site Worker",
+    name: "ACT Site Worker",
     rules: [
       "Base Hourly - First 8 hours worked Mon-Fri",
       "Overtime (1.5x) - After 8 hours worked Mon - Fri",
       "Overtime (1.5x) - All hours worked Sat & Sun",
       "Site Allowance 2026 - 1 flat rate Mon - Sun",
       "AAC Productivity Allowance - all hours worked",
-      "Travel NSW Apprentice - daily amount 1 per day all week",
-      "Meal Allowance NSW 2025 - daily amount 1 per day once 10hrs has been worked Mon-Sun",
+      "Travel ACT - daily amount 1 per day all week",
+      "Meal Allowance NSW 2025 - 1 unit per day when net worked hours are ≥ 10 (breaks excluded)",
       "HSR allowance - all hours worked Mon-Sun",
       "RDO Taken - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Personal Leave Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Annual Leave Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
+      "Annual Leave Loading - 1 flat rate = to 8 hours worked (automatically applied when someone has Annual leave booked)",
       "Leave Without Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
       "Public Holiday Pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
+    ],
+  },
+  {
+    name: "NZ Site Worker",
+    rules: [
+      "Base Hourly - First 8 hours worked Mon-Fri",
+      "Overtime (1.5x) - After 8 hours worked Mon - Fri",
+      "Overtime (1.5x) - All hours worked Sat & Sun",
+      "Meal Allowance - 1 unit per day when net worked hours are ≥ 10 (breaks excluded)",
+      "Personal Leave Pay - 1 flat rate = to 8 hours worked (automatically applied when someone has this type of leave booked)",
+      "Annual Leave Pay - 1 flat rate = to 8 hours worked (automatically applied when someone has this type of leave booked)",
+      "Annual Leave Loading - 1 flat rate = to 8 hours worked (automatically applied when Annual leave booked)",
+      "RDO Taken - 1 flat rate = to 8 hours worked (automatically applied when someone has this type of leave booked)",
+      "Leave without pay - 1 flat rate (automatically applied when someone has this type of leave booked)",
+      "Public Holiday Pay - 1 flat rate. = to 8 hours worked (automatically applied when someone has this type of leave booked)",
     ],
   },
 ] as const;
@@ -187,7 +205,7 @@ export default function AccountsPayRules() {
         <div className="border-b border-slate-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">Pay Rule Templates</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            WA Site Worker, NSW Site Worker, and NSW Apprentice Site Worker.
+            WA Site Worker, NSW Site Worker, ACT Site Worker, and NZ Site Worker.
           </p>
         </div>
 

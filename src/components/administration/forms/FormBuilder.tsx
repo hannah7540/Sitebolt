@@ -158,6 +158,9 @@ export default function FormBuilder({
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [copyTemplateId, setCopyTemplateId] = useState("");
+  const [persistedFormId, setPersistedFormId] = useState<string | undefined>(
+    initialForm?.id
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingBlockId, setUploadingBlockId] = useState<string | null>(null);
@@ -167,6 +170,12 @@ export default function FormBuilder({
     () => templates.filter((row) => row.id !== initialForm?.id),
     [templates, initialForm?.id]
   );
+
+  useEffect(() => {
+    if (initialForm?.id) {
+      setPersistedFormId(initialForm.id);
+    }
+  }, [initialForm?.id]);
 
   useEffect(() => {
     if (viewMode === "visual") {
@@ -284,15 +293,14 @@ export default function FormBuilder({
     updateBlock(blockId, { pdfUrl: url });
   };
 
-  const handleSave = async (event?: React.MouseEvent) => {
-    event?.preventDefault();
+  const persistForm = async (): Promise<InductionFormTemplate | null> => {
     if (!title.trim()) {
       setError("Form title is required.");
-      return;
+      return null;
     }
     if (scope === "project" && !projectId) {
       setError("Select a project for project-specific inductions.");
-      return;
+      return null;
     }
 
     let formBlocks = blocks;
@@ -303,7 +311,7 @@ export default function FormBuilder({
       if (resolved.error) {
         setJsonError(resolved.error);
         setError(resolved.error);
-        return;
+        return null;
       }
       formBlocks = resolved.formBlocks;
       rulesToSave = resolved.logicRules;
@@ -323,7 +331,7 @@ export default function FormBuilder({
           : null;
 
       const result = await saveInductionForm({
-        id: initialForm?.id,
+        id: persistedFormId ?? initialForm?.id,
         title,
         description,
         scope,
@@ -342,11 +350,11 @@ export default function FormBuilder({
         const message = result.error ?? "Save failed";
         setError(message);
         showError(message);
-        return;
+        return null;
       }
 
-      onSaved(result.form);
-      onClose();
+      setPersistedFormId(result.form.id);
+      return result.form;
     } catch (cause) {
       const message =
         cause instanceof Error
@@ -354,8 +362,26 @@ export default function FormBuilder({
           : "Could not save induction form. Please try again.";
       setError(message);
       showError(message);
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveDraft = async (event?: React.MouseEvent) => {
+    event?.preventDefault();
+    const saved = await persistForm();
+    if (saved) {
+      onSaved(saved);
+    }
+  };
+
+  const handleSaveAndExit = async (event?: React.MouseEvent) => {
+    event?.preventDefault();
+    const saved = await persistForm();
+    if (saved) {
+      onSaved(saved);
+      onClose();
     }
   };
 
@@ -618,7 +644,10 @@ export default function FormBuilder({
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setBlocks((current) => moveBlock(current, index, -1))}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setBlocks((current) => moveBlock(current, index, -1));
+                    }}
                     className="rounded p-1 text-slate-500 hover:bg-white"
                     aria-label="Move up"
                   >
@@ -626,7 +655,10 @@ export default function FormBuilder({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setBlocks((current) => moveBlock(current, index, 1))}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setBlocks((current) => moveBlock(current, index, 1));
+                    }}
                     className="rounded p-1 text-slate-500 hover:bg-white"
                     aria-label="Move down"
                   >
@@ -634,9 +666,10 @@ export default function FormBuilder({
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      setBlocks((current) => current.filter((row) => row.id !== block.id))
-                    }
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setBlocks((current) => current.filter((row) => row.id !== block.id));
+                    }}
                     className="rounded p-1 text-red-500 hover:bg-white"
                     aria-label="Remove block"
                   >
@@ -723,7 +756,7 @@ export default function FormBuilder({
 
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={handleClose}
@@ -734,11 +767,20 @@ export default function FormBuilder({
           <button
             type="button"
             disabled={saving}
-            onClick={(event) => void handleSave(event)}
+            onClick={(event) => void handleSaveDraft(event)}
+            className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save Draft
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={(event) => void handleSaveAndExit(event)}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save Form
+            Save &amp; Exit
           </button>
         </div>
 

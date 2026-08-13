@@ -15,6 +15,9 @@ export interface AdminConsoleContextValue {
   sessionRole: SecurityRole;
   accountsAccessRole: AccountsAccessRole;
   canAccessAccounts: boolean;
+  assignedProjectIds: readonly string[];
+  accountsReadOnly: boolean;
+  canManageAccounts: boolean;
 }
 
 const AdminConsoleContext = createContext<AdminConsoleContextValue | null>(null);

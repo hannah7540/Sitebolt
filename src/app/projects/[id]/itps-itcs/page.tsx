@@ -2,32 +2,39 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import ItcQualitySystemView from "@/components/itc/ItcQualitySystemView";
 import CompanyLogo from "@/components/ui/CompanyLogo";
+import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { redirectToLogin } from "@/lib/auth-guard";
 import { fetchWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
 import {
   fetchProjects,
   getCachedProjects,
   type DbProject,
 } from "@/lib/project-resolver";
-import {
-  getAdminWorkerId,
-  resolveAdminWorkerFromList,
-} from "@/lib/user-session";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export default function ProjectItpsItcsPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = String(params.id ?? "");
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workerId, setWorkerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      const authSession = await resolveAuthWorkerFromSession();
+      if (!authSession.hasSession) {
+        redirectToLogin(router, `/projects/${projectId}/itps-itcs`);
+        return;
+      }
+
       const [projectRows, workerRows] = await Promise.all([
         fetchProjects(),
         isSupabaseConfigured() ? fetchWorkers() : Promise.resolve([] as Worker[]),
@@ -36,6 +43,7 @@ export default function ProjectItpsItcsPage() {
       if (cancelled) return;
       setProjects(projectRows);
       setWorkers(workerRows);
+      setWorkerId(authSession.workerId);
       setLoading(false);
     }
 
@@ -43,25 +51,17 @@ export default function ProjectItpsItcsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId, router]);
 
   const project = useMemo(
     () => projects.find((row) => row.id === projectId || row.slug === projectId),
     [projects, projectId]
   );
 
-  const workerId = useMemo(() => {
-    return (
-      resolveAdminWorkerFromList(workers) ??
-      workers[0]?.id ??
-      getAdminWorkerId() ??
-      "local-worker"
-    );
-  }, [workers]);
-
   const workerName = useMemo(() => {
+    if (!workerId) return "Signed-in user";
     const worker = workers.find((row) => row.id === workerId);
-    return worker?.full_name?.trim() || "Site Admin";
+    return worker ? getWorkerDisplayName(worker) : "Signed-in user";
   }, [workers, workerId]);
 
   return (
@@ -109,7 +109,7 @@ export default function ProjectItpsItcsPage() {
               Back to Dashboard
             </Link>
           </div>
-        ) : (
+        ) : workerId ? (
           <ItcQualitySystemView
             projectId={project.id}
             projectName={project.name}
@@ -117,6 +117,10 @@ export default function ProjectItpsItcsPage() {
             workerName={workerName}
             defaultPanel="batch"
           />
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Your account is signed in but is not linked to a worker profile.
+          </div>
         )}
       </main>
     </div>

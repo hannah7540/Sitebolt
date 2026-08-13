@@ -57,6 +57,8 @@ export interface InductionFormTemplate {
   schema_fields: InductionFormBlock[];
   logic_rules: InductionFormLogicRule[];
   copied_from_id: string | null;
+  is_system_template?: boolean;
+  system_template_key?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -166,17 +168,16 @@ function pickAssignmentSaveColumns(
   );
 }
 
+import { getWorkerDisplayName } from "./worker-utils";
+
 export function resolveWorkerDisplayName(worker: {
+  first_name?: string | null;
+  last_name?: string | null;
   full_name?: string | null;
   name?: string | null;
   worker_name?: string | null;
 }): string {
-  return (
-    worker.full_name?.trim() ||
-    worker.name?.trim() ||
-    worker.worker_name?.trim() ||
-    "Worker"
-  );
+  return getWorkerDisplayName(worker, "Worker");
 }
 
 export function resolveFormTemplateTitle(template: FormAssignmentTemplateRef): string {
@@ -1081,6 +1082,8 @@ function normalizeForm(row: Record<string, unknown>): InductionFormTemplate {
     schema_fields: blocks,
     logic_rules,
     copied_from_id: row.copied_from_id ? String(row.copied_from_id) : null,
+    is_system_template: row.is_system_template === true,
+    system_template_key: row.system_template_key ? String(row.system_template_key) : null,
     created_at: String(row.created_at ?? new Date().toISOString()),
     updated_at: String(row.updated_at ?? new Date().toISOString()),
   };
@@ -1319,6 +1322,7 @@ export async function duplicateInductionForm(
       schema_fields: copiedBlocks,
       logic_rules: resolveInductionFormLogicRules(source).map((rule) => ({ ...rule })),
       copied_from_id: source.id,
+      is_active: false,
     });
   } catch (cause) {
     return { error: formatInductionFormSaveError("create", cause) };

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Printer, X } from "lucide-react";
 import type { Asset } from "@/lib/assets";
-import { ASSET_TYPE_LABELS } from "@/lib/assets";
+import { getAssetTypeLabel } from "@/lib/assets";
 import {
   drawQrToCanvas,
   downloadQrSvg,
@@ -81,7 +81,7 @@ export default function AssetQRModal({ asset, onClose }: AssetQRModalProps) {
           <h2 className="text-2xl font-bold text-slate-900">{asset.asset_number}</h2>
           <p className="text-sm text-slate-600">{asset.name}</p>
           <p className="mt-1 text-xs text-slate-500">
-            {ASSET_TYPE_LABELS[asset.asset_type]} · Scan to view asset
+            {getAssetTypeLabel(asset.asset_type)} · Scan to view asset
           </p>
 
           <div className="my-6 rounded-xl bg-white p-4">

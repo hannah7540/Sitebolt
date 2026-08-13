@@ -18,6 +18,7 @@ import {
   isWorkerRevoked,
   setWorkerRevokedState,
   updateWorker,
+  updateWorkerSecurityRole,
   updateWorkerStatusFromVocs,
 } from "@/lib/supabase";
 import { setWorkerProjectAssignments } from "@/lib/project-assignments";
@@ -29,12 +30,31 @@ import {
   type WorkerCardVocEntry,
 } from "@/lib/worker-cards-vocs";
 import { getVocDisplayTitle } from "@/lib/voc-utils";
+import { buildWorkerFullName } from "@/lib/worker-utils";
+import {
+  assignDefaultPayRuleToWorker,
+  resolvePayRuleTemplateNameForWorker,
+  resolveTravelPayrollCategory,
+} from "@/lib/worker-pay-rule-assignment";
 import WorkerAssignedProjectsPicker from "@/components/organisation/WorkerAssignedProjectsPicker";
 import WorkerCardsVocsEditor from "@/components/workers/WorkerCardsVocsEditor";
+import StateRegionSelector from "@/components/workers/StateRegionSelector";
 import WorkerInductionsTab from "@/components/workers/WorkerInductionsTab";
 import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
+import WorkerStateRegionBadge from "@/components/workers/WorkerStateRegionBadge";
+import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
+import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
+import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
+import {
+  normalizeSecurityRole,
+  type SecurityRole,
+} from "@/lib/security-roles";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
+import {
+  normalizeWorkerStateRegion,
+  type WorkerStateRegion,
+} from "@/lib/worker-state-region";
 
 type ProfileTab = "basic" | "cards" | "inductions" | "financial";
 
@@ -55,6 +75,8 @@ interface WorkerProfileViewProps {
   initialVocs?: WorkerVoc[];
   projects: DbProject[];
   initialTab?: ProfileTab;
+  canAssignPayRules?: boolean;
+  canManageWorkerRoles?: boolean;
   onBack: () => void;
   onWorkerUpdated: (worker: Worker) => void;
 }
@@ -112,6 +134,8 @@ export default function WorkerProfileView({
   initialVocs = [],
   projects,
   initialTab = "basic",
+  canAssignPayRules = false,
+  canManageWorkerRoles = false,
   onBack,
   onWorkerUpdated,
 }: WorkerProfileViewProps) {
@@ -125,6 +149,20 @@ export default function WorkerProfileView({
       (entry) => (entry.category as string) !== "site_induction"
     )
   );
+
+  const visibleTabs = useMemo(
+    () =>
+      canAssignPayRules
+        ? TAB_ITEMS
+        : TAB_ITEMS.filter((item) => item.id !== "financial"),
+    [canAssignPayRules]
+  );
+
+  useEffect(() => {
+    if (!canAssignPayRules && tab === "financial") {
+      setTab("basic");
+    }
+  }, [canAssignPayRules, tab]);
 
   useEffect(() => {
     setCurrentWorker(worker);
@@ -196,6 +234,10 @@ export default function WorkerProfileView({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold text-slate-900">{currentWorker.full_name}</h1>
+            {currentWorker.is_apprentice ? (
+              <WorkerApprenticeBadge className="px-2.5 py-1" />
+            ) : null}
+            <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
           </div>
           <p className="mt-1 text-sm text-slate-600">
@@ -218,7 +260,7 @@ export default function WorkerProfileView({
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
-        {TAB_ITEMS.map((item) => (
+        {visibleTabs.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -239,6 +281,8 @@ export default function WorkerProfileView({
         <BasicInfoTab
           worker={currentWorker}
           projects={projects}
+          canAssignPayRules={canAssignPayRules}
+          canManageWorkerRoles={canManageWorkerRoles}
           onSaved={patchWorker}
         />
       ) : tab === "cards" ? (
@@ -256,7 +300,11 @@ export default function WorkerProfileView({
           projects={projects}
         />
       ) : (
-        <FinancialInfoTab worker={currentWorker} />
+        <FinancialInfoTab
+          worker={currentWorker}
+          canAssignPayRules={canAssignPayRules}
+          onSaved={patchWorker}
+        />
       )}
 
       {showPhotoModal && (
@@ -276,10 +324,14 @@ export default function WorkerProfileView({
 function BasicInfoTab({
   worker,
   projects,
+  canAssignPayRules,
+  canManageWorkerRoles,
   onSaved,
 }: {
   worker: Worker;
   projects: DbProject[];
+  canAssignPayRules: boolean;
+  canManageWorkerRoles: boolean;
   onSaved: (worker: Worker) => void;
 }) {
   const nameParts = splitWorkerName(worker);
@@ -288,6 +340,16 @@ function BasicInfoTab({
   const [email, setEmail] = useState(worker.email);
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [trade, setTrade] = useState(worker.trade ?? "");
+  const [isApprentice, setIsApprentice] = useState(worker.is_apprentice ?? false);
+  const [hasCompanyVehicle, setHasCompanyVehicle] = useState(
+    worker.has_company_vehicle ?? false
+  );
+  const [assignedVehicleId, setAssignedVehicleId] = useState<string | null>(
+    worker.assigned_vehicle_asset_id ?? null
+  );
+  const [state, setState] = useState<WorkerStateRegion | null>(
+    normalizeWorkerStateRegion(worker.state)
+  );
   const [workerCode, setWorkerCode] = useState(worker.worker_code ?? "");
   const [employmentType, setEmploymentType] = useState(worker.employment_type ?? "");
   const [hourlyRate, setHourlyRate] = useState(
@@ -299,6 +361,9 @@ function BasicInfoTab({
   const [projectIds, setProjectIds] = useState<string[]>(() =>
     getWorkerAssignedProjectIds(worker)
   );
+  const [securityRole, setSecurityRole] = useState<SecurityRole>(
+    normalizeSecurityRole(worker.security_role)
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -309,6 +374,10 @@ function BasicInfoTab({
     setEmail(worker.email);
     setPhone(worker.phone ?? "");
     setTrade(worker.trade ?? "");
+    setIsApprentice(worker.is_apprentice ?? false);
+    setHasCompanyVehicle(worker.has_company_vehicle ?? false);
+    setAssignedVehicleId(worker.assigned_vehicle_asset_id ?? null);
+    setState(normalizeWorkerStateRegion(worker.state));
     setWorkerCode(worker.worker_code ?? "");
     setEmploymentType(worker.employment_type ?? "");
     setHourlyRate(worker.hourly_rate != null ? String(worker.hourly_rate) : "");
@@ -316,24 +385,30 @@ function BasicInfoTab({
       isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
     );
     setProjectIds(getWorkerAssignedProjectIds(worker));
+    setSecurityRole(normalizeSecurityRole(worker.security_role));
   }, [worker]);
 
   const fullName = useMemo(
-    () => [firstName.trim(), lastName.trim()].filter(Boolean).join(" "),
+    () => buildWorkerFullName(firstName, lastName),
     [firstName, lastName]
   );
 
   const handleSave = async () => {
-    if (!fullName || !email.trim()) {
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       setError("First name, last name, and email are required.");
+      return;
+    }
+    if (hasCompanyVehicle && !assignedVehicleId) {
+      setError("Please select a company vehicle.");
       return;
     }
 
     setSaving(true);
     setError(null);
 
-    const parsedRate = hourlyRate.trim() ? Number(hourlyRate) : null;
-    if (hourlyRate.trim() && Number.isNaN(parsedRate)) {
+    const parsedRate =
+      canAssignPayRules && hourlyRate.trim() ? Number(hourlyRate) : undefined;
+    if (canAssignPayRules && hourlyRate.trim() && Number.isNaN(parsedRate)) {
       setSaving(false);
       setError("Hourly rate must be a valid number.");
       return;
@@ -359,15 +434,19 @@ function BasicInfoTab({
           : "active";
 
     const { error: updateError } = await updateWorker(worker.id, {
-      first_name: firstName.trim() || null,
-      last_name: lastName.trim() || null,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
       full_name: fullName,
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      is_apprentice: isApprentice,
+      has_company_vehicle: hasCompanyVehicle,
+      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
+      state,
       worker_code: workerCode.trim() || null,
       employment_type: employmentType.trim() || null,
-      hourly_rate: parsedRate,
+      ...(canAssignPayRules ? { hourly_rate: parsedRate ?? null } : {}),
       status: nextStatus,
     });
 
@@ -375,6 +454,33 @@ function BasicInfoTab({
       setSaving(false);
       setError(updateError);
       return;
+    }
+
+    if (
+      canManageWorkerRoles &&
+      securityRole !== normalizeSecurityRole(worker.security_role)
+    ) {
+      const { error: roleError } = await updateWorkerSecurityRole(worker.id, securityRole);
+      if (roleError) {
+        setSaving(false);
+        setError(roleError);
+        return;
+      }
+    }
+
+    let assignedPayRuleId = worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
+    if (state) {
+      const payRuleResult = await assignDefaultPayRuleToWorker(
+        worker.id,
+        state,
+        isApprentice
+      );
+      if (payRuleResult.error) {
+        setSaving(false);
+        setError(payRuleResult.error);
+        return;
+      }
+      assignedPayRuleId = payRuleResult.templateId ?? assignedPayRuleId;
     }
 
     const { error: assignError } = await setWorkerProjectAssignments(
@@ -391,20 +497,27 @@ function BasicInfoTab({
 
     onSaved({
       ...worker,
-      first_name: firstName.trim() || null,
-      last_name: lastName.trim() || null,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
       full_name: fullName,
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      is_apprentice: isApprentice,
+      has_company_vehicle: hasCompanyVehicle,
+      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
+      state,
       worker_code: workerCode.trim() || null,
       employment_type: employmentType.trim() || null,
-      hourly_rate: parsedRate,
+      ...(canAssignPayRules ? { hourly_rate: parsedRate ?? null } : {}),
       status: nextStatus,
       is_revoked: wantsRevoked,
       is_archived: wantsRevoked,
       assigned_project_ids: wantsRevoked ? [] : projectIds,
       assigned_project_id: wantsRevoked ? null : projectIds[0] ?? null,
+      pay_rule_id: assignedPayRuleId,
+      pay_rule_template_id: assignedPayRuleId,
+      security_role: canManageWorkerRoles ? securityRole : worker.security_role,
     });
   };
 
@@ -416,11 +529,11 @@ function BasicInfoTab({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block space-y-1">
-          <span className={labelClass}>First name</span>
+          <span className={labelClass}>First name *</span>
           <input className={inputClass} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
         </label>
         <label className="block space-y-1">
-          <span className={labelClass}>Last name</span>
+          <span className={labelClass}>Last name *</span>
           <input className={inputClass} value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </label>
         <label className="block space-y-1">
@@ -440,6 +553,31 @@ function BasicInfoTab({
           <span className={labelClass}>Role / trade</span>
           <input className={inputClass} value={trade} onChange={(e) => setTrade(e.target.value)} />
         </label>
+        <div className="sm:col-span-2">
+          <StateRegionSelector
+            id={`worker-profile-state-${worker.id}`}
+            value={state}
+            onChange={setState}
+            disabled={saving}
+          />
+        </div>
+        <label className="flex items-center gap-2 sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={isApprentice}
+            onChange={(event) => setIsApprentice(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+          />
+          <span className={labelClass}>Apprentice? (Yes/No)</span>
+        </label>
+        <WorkerCompanyVehicleFields
+          idPrefix="profile-company-vehicle"
+          hasCompanyVehicle={hasCompanyVehicle}
+          assignedVehicleId={assignedVehicleId}
+          onHasCompanyVehicleChange={setHasCompanyVehicle}
+          onAssignedVehicleChange={setAssignedVehicleId}
+          disabled={saving}
+        />
         <label className="block space-y-1">
           <span className={labelClass}>Worker code / number</span>
           <input
@@ -464,18 +602,20 @@ function BasicInfoTab({
             ))}
           </select>
         </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Base hourly rate ($)</span>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            className={inputClass}
-            value={hourlyRate}
-            onChange={(e) => setHourlyRate(e.target.value)}
-            placeholder="0.00"
-          />
-        </label>
+        {canAssignPayRules ? (
+          <label className="block space-y-1">
+            <span className={labelClass}>Base hourly rate ($)</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className={inputClass}
+              value={hourlyRate}
+              onChange={(e) => setHourlyRate(e.target.value)}
+              placeholder="0.00"
+            />
+          </label>
+        ) : null}
         <label className="block space-y-1">
           <span className={labelClass}>Account status</span>
           <select
@@ -488,6 +628,14 @@ function BasicInfoTab({
             <option value="Revoked">Revoked</option>
           </select>
         </label>
+        {canManageWorkerRoles ? (
+          <WorkerSecurityRoleSelect
+            id={`profile-security-role-${worker.id}`}
+            value={securityRole}
+            onChange={setSecurityRole}
+            disabled={saving}
+          />
+        ) : null}
       </div>
 
       <div className="space-y-2">
@@ -616,9 +764,46 @@ function CardsVocsTab({
   );
 }
 
-function FinancialInfoTab({ worker }: { worker: Worker }) {
+function FinancialInfoTab({
+  worker,
+  canAssignPayRules,
+}: {
+  worker: Worker;
+  canAssignPayRules: boolean;
+  onSaved: (worker: Worker) => void;
+}) {
+  const assignedRuleName = resolvePayRuleTemplateNameForWorker(worker.state);
+  const travelCategory =
+    worker.state === "NSW"
+      ? resolveTravelPayrollCategory(worker.is_apprentice ?? false, worker.state)
+      : null;
+
   return (
     <div className="space-y-4">
+      {canAssignPayRules ? (
+        <div className={cn(sectionClass, "space-y-3")}>
+          <p className="text-sm font-semibold text-slate-900">Payroll rule assignment</p>
+          <p className="text-xs text-slate-500">
+            Pay rules are assigned automatically from the worker&apos;s state/region and apprentice
+            status on the Basic Info tab.
+          </p>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-slate-500">Assigned pay rule</dt>
+              <dd className="font-semibold text-slate-900">
+                {assignedRuleName ?? "Not assigned — set state/region on Basic Info"}
+              </dd>
+            </div>
+            {travelCategory ? (
+              <div>
+                <dt className="text-slate-500">NSW travel export category</dt>
+                <dd className="font-semibold text-slate-900">{travelCategory}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
+
       <div className={cn(cardClass, "border-amber-200 bg-amber-50/60 p-4")}>
         <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
           <Lock className="h-4 w-4" />

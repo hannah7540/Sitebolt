@@ -1,7 +1,8 @@
-import { getWorkerDisplayName, type WorkerNameFields } from "./worker-utils";
+import { MASTER_ADMIN_EMAIL, MASTER_ADMIN_FULL_NAME } from "./master-admin-config";
 
-/** Placeholder admin display name until auth is wired. */
-export const DEFAULT_ADMIN_PROFILE_NAME = "J. Miller";
+/** Placeholder admin display name until auth profile resolves. */
+export const DEFAULT_ADMIN_PROFILE_NAME = MASTER_ADMIN_FULL_NAME;
+export const DEFAULT_ADMIN_EMAIL = MASTER_ADMIN_EMAIL;
 
 export const WORKER_ID_KEY = "sitebolt_worker_id";
 export const ADMIN_WORKER_ID_KEY = "sitebolt_admin_worker_id";
@@ -27,21 +28,6 @@ export function setAdminWorkerId(id: string): void {
   localStorage.setItem(ADMIN_WORKER_ID_KEY, id);
 }
 
-/** Resolve the admin user's linked worker profile from storage or the worker list. */
-export function resolveAdminWorkerFromList(
-  workers: ({ id: string } & WorkerNameFields)[]
-): string | null {
-  const stored = getAdminWorkerId();
-  if (stored && workers.some((w) => w.id === stored)) return stored;
-
-  const target = DEFAULT_ADMIN_PROFILE_NAME.toLowerCase();
-  const match = workers.find((w) => {
-    const displayName = getWorkerDisplayName(w).toLowerCase();
-    return displayName === target || displayName.includes("miller");
-  });
-  return match?.id ?? null;
-}
-
 export function workerDashboardUrl(
   workerId: string,
   options?: { fromAdmin?: boolean }
@@ -52,16 +38,15 @@ export function workerDashboardUrl(
 }
 
 /**
- * Resolve the worker profile for the dashboard:
- * props → URL query → admin/localStorage → first worker in Supabase.
+ * Resolve the worker profile for the dashboard from explicit props, URL query,
+ * or storage tied to an authenticated session. Never falls back to arbitrary DB rows.
  */
 export async function resolveDashboardWorkerId(options?: {
   propWorkerId?: string | null;
   queryWorkerId?: string | null;
   preferAdmin?: boolean;
+  sessionWorkerId?: string | null;
 }): Promise<string | null> {
-  const { fetchFirstWorkerId } = await import("./supabase");
-
   const fromProp = options?.propWorkerId?.trim();
   if (fromProp) {
     setStoredWorkerId(fromProp);
@@ -76,6 +61,13 @@ export async function resolveDashboardWorkerId(options?: {
     return fromQuery;
   }
 
+  const sessionWorkerId = options?.sessionWorkerId?.trim();
+  if (sessionWorkerId) {
+    setStoredWorkerId(sessionWorkerId);
+    if (options?.preferAdmin) setAdminWorkerId(sessionWorkerId);
+    return sessionWorkerId;
+  }
+
   if (options?.preferAdmin) {
     const adminId = getAdminWorkerId()?.trim();
     if (adminId) return adminId;
@@ -87,10 +79,5 @@ export async function resolveDashboardWorkerId(options?: {
   const adminId = getAdminWorkerId()?.trim();
   if (adminId) return adminId;
 
-  const first = await fetchFirstWorkerId();
-  if (first) {
-    setStoredWorkerId(first);
-    if (options?.preferAdmin) setAdminWorkerId(first);
-  }
-  return first;
+  return null;
 }

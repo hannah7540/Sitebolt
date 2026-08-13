@@ -1,15 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { FileSpreadsheet, FileText, Loader2, X } from "lucide-react";
 import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
 import {
   REPORT_MODULE_OPTIONS,
   saveGeneratedReport,
+  type ReportExportFormat,
   type ReportModuleId,
 } from "@/lib/generated-reports-service";
+import { generateReportPdfFromCsv, downloadReportBlob } from "@/lib/pdf/report-pdf";
 import { generateReportExport } from "@/lib/report-export-engine";
 import type { DbProject } from "@/lib/project-resolver";
+import { ACCOUNTS_TIMESHEET_STATE_OPTIONS } from "@/lib/accounts-timesheets";
+import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +25,27 @@ interface ExportNewReportModalProps {
   onGenerated: () => void;
   onError: (message: string) => void;
 }
+
+const EXPORT_FORMAT_OPTIONS: {
+  id: ReportExportFormat;
+  label: string;
+  description: string;
+  icon: typeof FileText;
+}[] = [
+  {
+    id: "pdf",
+    label: "PDF Document",
+    description:
+      "Formatted PDF summary with site headers, module tables, and export metadata.",
+    icon: FileText,
+  },
+  {
+    id: "excel",
+    label: "Excel Spreadsheet (.csv)",
+    description: "Full raw data export for spreadsheets and further analysis.",
+    icon: FileSpreadsheet,
+  },
+];
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -45,6 +70,8 @@ export default function ExportNewReportModal({
   const [startDate, setStartDate] = useState(monthAgoIso());
   const [endDate, setEndDate] = useState(todayIso());
   const [selectedModules, setSelectedModules] = useState<ReportModuleId[]>([]);
+  const [selectedStates, setSelectedStates] = useState<WorkerStateRegion[]>([]);
+  const [exportFormat, setExportFormat] = useState<ReportExportFormat>("excel");
   const [generating, setGenerating] = useState(false);
 
   const effectiveProjectIds = useMemo(() => {
@@ -59,6 +86,16 @@ export default function ExportNewReportModal({
       .map((project) => project.project_name)
       .filter((name): name is string => Boolean(name));
   }, [allProjects, projects, selectedProjectIds]);
+
+  const includesTimesheetHours = selectedModules.includes("timesheets_hours");
+
+  const toggleState = (state: WorkerStateRegion) => {
+    setSelectedStates((current) =>
+      current.includes(state)
+        ? current.filter((value) => value !== state)
+        : [...current, state]
+    );
+  };
 
   const toggleModule = (moduleId: ReportModuleId) => {
     setSelectedModules((current) =>
@@ -88,23 +125,40 @@ export default function ExportNewReportModal({
 
     setGenerating(true);
     try {
-      const result = await generateReportExport({
+      const exportResult = await generateReportExport({
         startDate,
         endDate,
         projectIds: effectiveProjectIds,
         modules: selectedModules,
         projects,
+        stateFilters: includesTimesheetHours ? selectedStates : undefined,
       });
 
-      const blob = new Blob([result.csvContent], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.fileName;
-      link.click();
-      URL.revokeObjectURL(url);
+      const resolvedProjectNames = allProjects
+        ? ["All Projects"]
+        : projectNames.length > 0
+          ? projectNames
+          : ["All Projects"];
+
+      let fileName = exportResult.fileName;
+
+      if (exportFormat === "pdf") {
+        const pdfResult = await generateReportPdfFromCsv({
+          csvContent: exportResult.csvContent,
+          startDate,
+          endDate,
+          projectNames: resolvedProjectNames,
+          modules: selectedModules,
+          actionedByName,
+        });
+        downloadReportBlob(pdfResult.fileName, pdfResult.blob);
+        fileName = pdfResult.fileName;
+      } else {
+        const blob = new Blob([exportResult.csvContent], {
+          type: "text/csv;charset=utf-8;",
+        });
+        downloadReportBlob(exportResult.fileName, blob);
+      }
 
       const { error } = await saveGeneratedReport({
         actioned_by_id: actionedById,
@@ -113,13 +167,10 @@ export default function ExportNewReportModal({
         end_date: endDate,
         selected_modules: selectedModules,
         project_ids: effectiveProjectIds,
-        project_names: allProjects
-          ? ["All Projects"]
-          : projectNames.length > 0
-            ? projectNames
-            : ["All Projects"],
-        file_name: result.fileName,
-        csv_content: result.csvContent,
+        project_names: resolvedProjectNames,
+        file_name: fileName,
+        csv_content: exportResult.csvContent,
+        export_format: exportFormat,
       });
 
       if (error) onError(error);
@@ -141,7 +192,7 @@ export default function ExportNewReportModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">Export New Report</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Configure project filters, date range, and modules for your export.
+              Configure project filters, date range, modules, and export format.
             </p>
           </div>
           <button
@@ -227,6 +278,86 @@ export default function ExportNewReportModal({
               ))}
             </div>
           </section>
+
+          {includesTimesheetHours ? (
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-900">
+                4. State Filter (Timesheets & Daily Hours)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Optional. Filter attendance and hours by worker state or project location.
+                No pay rates are included in this module.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedStates([])}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
+                    selectedStates.length === 0
+                      ? "bg-orange-100 text-orange-800 ring-orange-200"
+                      : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                  )}
+                >
+                  All States
+                </button>
+                {ACCOUNTS_TIMESHEET_STATE_OPTIONS.map((state) => (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => toggleState(state)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
+                      selectedStates.includes(state)
+                        ? "bg-orange-100 text-orange-800 ring-orange-200"
+                        : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                    )}
+                  >
+                    {state}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-900">
+              {includesTimesheetHours ? "5. Export Format" : "4. Export Format"}
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {EXPORT_FORMAT_OPTIONS.map((option) => {
+                const Icon = option.icon;
+                const active = exportFormat === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setExportFormat(option.id)}
+                    className={cn(
+                      "rounded-xl border px-4 py-3 text-left transition",
+                      active
+                        ? "border-orange-500 bg-orange-50 shadow-sm ring-1 ring-orange-200"
+                        : "border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50/40"
+                    )}
+                    aria-pressed={active}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Icon
+                        className={cn(
+                          "h-4 w-4",
+                          active ? "text-orange-600" : "text-slate-400"
+                        )}
+                      />
+                      {option.label}
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                      {option.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         </div>
 
         <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -249,8 +380,16 @@ export default function ExportNewReportModal({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Generating…
               </>
+            ) : exportFormat === "pdf" ? (
+              <>
+                <FileText className="h-4 w-4" />
+                Generate PDF Report
+              </>
             ) : (
-              "Generate & Export Report"
+              <>
+                <FileSpreadsheet className="h-4 w-4" />
+                Generate Spreadsheet Export
+              </>
             )}
           </button>
         </div>

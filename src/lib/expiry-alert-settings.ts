@@ -4,6 +4,7 @@ export interface ExpiryAlertSettings {
   id: string;
   automated_emails_enabled: boolean;
   secondary_recipient_emails: string[];
+  notification_recipient_worker_ids: string[];
   updated_at?: string;
 }
 
@@ -11,6 +12,7 @@ const DEFAULT_SETTINGS: ExpiryAlertSettings = {
   id: "",
   automated_emails_enabled: true,
   secondary_recipient_emails: [],
+  notification_recipient_worker_ids: [],
 };
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -25,11 +27,15 @@ function isMissingTableError(message: string, table: string): boolean {
 
 function normalizeSettings(row: Record<string, unknown>): ExpiryAlertSettings {
   const secondary = row.secondary_recipient_emails;
+  const recipientIds = row.notification_recipient_worker_ids;
   return {
     id: String(row.id ?? ""),
     automated_emails_enabled: row.automated_emails_enabled !== false,
     secondary_recipient_emails: Array.isArray(secondary)
       ? secondary.map((email) => String(email).trim()).filter(Boolean)
+      : [],
+    notification_recipient_worker_ids: Array.isArray(recipientIds)
+      ? recipientIds.map((id) => String(id).trim()).filter(Boolean)
       : [],
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };
@@ -58,6 +64,7 @@ export async function fetchExpiryAlertSettings(): Promise<ExpiryAlertSettings> {
 export async function saveExpiryAlertSettings(input: {
   automated_emails_enabled: boolean;
   secondary_recipient_emails: string[];
+  notification_recipient_worker_ids?: string[];
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured." };
@@ -67,6 +74,9 @@ export async function saveExpiryAlertSettings(input: {
     automated_emails_enabled: input.automated_emails_enabled,
     secondary_recipient_emails: input.secondary_recipient_emails
       .map((email) => email.trim())
+      .filter(Boolean),
+    notification_recipient_worker_ids: (input.notification_recipient_worker_ids ?? [])
+      .map((id) => id.trim())
       .filter(Boolean),
     updated_at: new Date().toISOString(),
   };

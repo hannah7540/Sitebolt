@@ -14,21 +14,32 @@ import {
   ReceiptText,
   Clock,
   Scale,
+  LogOut,
   type LucideIcon,
 } from "lucide-react";
 import {
   filterActiveProjects,
   type DbProject,
 } from "@/lib/project-resolver";
-import { resolveProjectNavHref } from "@/lib/project-nav-routes";
+import {
+  extractProjectIdFromPathname,
+  parseProjectRoute,
+  resolveProjectNavHref,
+} from "@/lib/project-nav-routes";
+import { DEFAULT_ADMIN_PROFILE_NAME } from "@/lib/user-session";
+import { signOutAndRedirect } from "@/lib/auth-guard";
+import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
   canAccessAccountsArea,
+  canAccessPayRules,
   canManageAdministration,
   canManageOrganisation,
   canManageSecuritySettings,
+  canViewAccountsTimesheets,
   type SecurityRole,
   type AccountsAccessRole,
 } from "@/lib/security-roles";
+import { filterProjectsForRole } from "@/lib/rbac-guards";
 import { cn } from "@/lib/utils";
 
 export type ActiveView =
@@ -45,7 +56,6 @@ export type ActiveView =
   | "admin-worker-calendar"
   | "admin-swms"
   | "admin-document-pack"
-  | "admin-compliance"
   | "admin-reporting"
   | "my-profile"
   | "org-company"
@@ -67,6 +77,7 @@ interface SidebarProps {
   projects: DbProject[];
   selectedProjectId?: string | null;
   sessionRole: SecurityRole;
+  assignedProjectIds?: readonly string[];
   accountsAccessRole?: AccountsAccessRole;
   canAccessAccounts?: boolean;
   permissionsLoading?: boolean;
@@ -102,24 +113,35 @@ interface SidebarMenuGroup {
   children: SidebarMenuChild[];
 }
 
-const ACCOUNTS_MENU: SidebarMenuGroup = {
-  title: "ACCOUNTS",
-  icon: ReceiptText,
-  isCollapsible: true,
-  defaultExpanded: true,
-  children: [
-    {
+function buildAccountsMenu(sessionRole: SecurityRole): SidebarMenuGroup | null {
+  const children: SidebarMenuChild[] = [];
+
+  if (canViewAccountsTimesheets(sessionRole)) {
+    children.push({
       title: "Timesheets",
       href: "/accounts/timesheets",
       icon: Clock,
-    },
-    {
+    });
+  }
+
+  if (canAccessPayRules(sessionRole)) {
+    children.push({
       title: "Pay Rules",
       href: "/accounts/pay-rules",
       icon: Scale,
-    },
-  ],
-};
+    });
+  }
+
+  if (children.length === 0) return null;
+
+  return {
+    title: "ACCOUNTS",
+    icon: ReceiptText,
+    isCollapsible: true,
+    defaultExpanded: true,
+    children,
+  };
+}
 
 function isNestedGroup(item: SubItem | NestedGroup): item is NestedGroup {
   return "items" in item && Array.isArray(item.items);
@@ -295,7 +317,11 @@ function NestedAccordion({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const pathname = usePathname();
-  const isSelectedProject = projectId === selectedProjectId;
+  const routeProjectId = extractProjectIdFromPathname(pathname);
+  const resolvedProjectId = projectId ?? routeProjectId ?? undefined;
+  const isSelectedProject =
+    resolvedProjectId != null &&
+    (resolvedProjectId === selectedProjectId || resolvedProjectId === routeProjectId);
   const hasActiveChild = group.items.some(
     (sub) =>
       !isNestedGroup(sub) && sub.view === activeView && isSelectedProject
@@ -325,7 +351,7 @@ function NestedAccordion({
         <div className="ml-4 space-y-0.5">
           {group.items.map((sub) => {
             if (isNestedGroup(sub)) return null;
-            const href = resolveProjectNavHref(sub, projectId);
+            const href = resolveProjectNavHref(sub, resolvedProjectId);
             if (href) {
               return (
                 <RouteNavLink
@@ -348,7 +374,7 @@ function NestedAccordion({
                     ? () =>
                         onNavigate(sub.view!, {
                           openAdd: sub.openAdd,
-                          projectId,
+                          projectId: resolvedProjectId,
                         })
                     : undefined
                 }
@@ -408,29 +434,50 @@ export default function Sidebar({
   projects,
   selectedProjectId,
   sessionRole,
+  assignedProjectIds = [],
   accountsAccessRole = "disabled",
   canAccessAccounts = false,
   permissionsLoading = false,
   onNavigate,
-  profileName = "J. Miller",
+  profileName: profileNameOverride,
   onOpenProfile,
 }: SidebarProps) {
+  const { profileName: sessionProfileName, loading: profileLoading } =
+    useAuthProfileDisplay();
+  const profileName = profileNameOverride ?? sessionProfileName;
+  const handleSignOut = () => {
+    void signOutAndRedirect();
+  };
   const pathname = usePathname();
-  const profileActive = activeView === "my-profile";
+  const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
+  const effectiveSelectedProjectId =
+    selectedProjectId ?? routeContext?.projectId ?? null;
+  const effectiveActiveView = routeContext?.view ?? activeView;
+  const profileActive =
+    effectiveActiveView === "my-profile" || pathname.startsWith("/settings/account");
   const showOrganisation = canManageOrganisation(sessionRole);
   const showAdministration = canManageAdministration(sessionRole);
   const showSecurity = canManageSecuritySettings(sessionRole);
+  const accountsMenu = useMemo(
+    () => buildAccountsMenu(sessionRole),
+    [sessionRole]
+  );
   const showAccounts =
     permissionsLoading ||
-    canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    });
+    (accountsMenu !== null &&
+      canAccessAccountsArea({
+        securityRole: sessionRole,
+        accountsAccessRole,
+        canAccessAccounts,
+      }));
 
+  const roleFilteredProjects = useMemo(
+    () => filterProjectsForRole(sessionRole, projects, assignedProjectIds),
+    [sessionRole, projects, assignedProjectIds]
+  );
   const activeProjects = useMemo(
-    () => filterActiveProjects(projects),
-    [projects]
+    () => filterActiveProjects(roleFilteredProjects),
+    [roleFilteredProjects]
   );
   const projectItems = useMemo(
     () => buildProjectNav(activeProjects),
@@ -445,6 +492,7 @@ export default function Sidebar({
     { label: "Workers", view: "org-workers" },
     { label: "Plant", view: "org-plant" },
     { label: "Fleet", href: "/organisation/fleet" },
+    { label: "Alerts", href: "/organisation/alerts" },
     { label: "Assets", view: "org-assets" },
     ...(showSecurity
       ? [{ label: "Security Settings", view: "org-security" as const }]
@@ -481,7 +529,7 @@ export default function Sidebar({
                 profileActive ? "text-white" : "text-slate-900"
               )}
             >
-              {profileName}
+              {profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
             </p>
             <span
               className={cn(
@@ -509,8 +557,8 @@ export default function Sidebar({
       <nav className="flex-1 overflow-y-auto py-2">
         <ProjectsSection
           projects={projectItems}
-          activeView={activeView}
-          selectedProjectId={selectedProjectId}
+          activeView={effectiveActiveView}
+          selectedProjectId={effectiveSelectedProjectId}
           onNavigate={onNavigate}
         />
 
@@ -524,9 +572,9 @@ export default function Sidebar({
 
         <SubcontractorsSection activeView={activeView} onNavigate={onNavigate} />
 
-        {showAccounts && (
-          <AccountsSection menu={ACCOUNTS_MENU} pathname={pathname} />
-        )}
+        {showAccounts && accountsMenu ? (
+          <AccountsSection menu={accountsMenu} pathname={pathname} />
+        ) : null}
 
         {showOrganisation && (
           <OrganisationSection
@@ -538,7 +586,15 @@ export default function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-slate-200 p-4">
+      <div className="mt-auto border-t border-slate-200 p-4">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </button>
         <p className="text-xs text-slate-400">Construction Safety Platform</p>
       </div>
     </aside>
@@ -714,7 +770,6 @@ function AdministrationSection({
     { label: "Full Worker Calendar", view: "admin-worker-calendar" },
     { label: "SWMS", view: "admin-swms" },
     { label: "1-Click Document Pack", view: "admin-document-pack" },
-    { label: "Compliance / Notifications", view: "admin-compliance" },
     { label: "Reporting", view: "admin-reporting" },
   ];
 

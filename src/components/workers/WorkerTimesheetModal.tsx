@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Loader2, Plus, Trash2 } from "lucide-react";
 import type { Worker, WorkerTimesheet } from "@/lib/supabase";
-import { getProjectDisplayName } from "@/lib/project-resolver";
 import {
-  createDefaultActivitySlot,
+  fetchTimesheetFormOptions,
+  formatTimesheetProjectDisplayName,
+  groupTimesheetProjectsByClient,
+  type TimesheetProject,
+  type TimesheetTask,
+} from "@/lib/timesheet-options";
+import {
   createDefaultBreakSlot,
   calculateDailyTotalsFromSlots,
-  calculateSlotMinutes,
-  minutesToHours,
   formatTimesheetHours,
   formatTimesheetHoursLabel,
   formatTimeDisplay,
@@ -22,6 +25,26 @@ import {
   type TimesheetActivitySlot,
   type TimesheetBreakSlot,
 } from "@/lib/timesheet-utils";
+import {
+  DEFAULT_TIMESHEET_END_TIME,
+  DEFAULT_TIMESHEET_START_TIME,
+  TIMESHEET_LINE_CATEGORY_OPTIONS,
+  createChainedLineItem,
+  createDefaultLineItem,
+  hasWorkLineItems,
+  isLeaveLineCategory,
+  migrateActivityToLineItem,
+  resolveLineItemNetWorkHours,
+  resolveLineItemSegmentHours,
+  syncLineItemFields,
+  validateLineItemSlot,
+  type TimesheetDurationMode,
+  type TimesheetLineCategory,
+} from "@/lib/timesheet-line-items";
+import {
+  isActWorkerState,
+  validateActBreakRequirement,
+} from "@/lib/timesheet-act-break-validation";
 import {
   getPayWeekRange,
   formatPayWeekRange,
@@ -80,6 +103,12 @@ export default function WorkerTimesheetModal({
   );
 
   const [workDate, setWorkDate] = useState(todayIso);
+  const [projects, setProjects] = useState<TimesheetProject[]>([]);
+  const [tasks, setTasks] = useState<TimesheetTask[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const entryForSelectedDate = useMemo(
     () => getTodayTimesheetEntry(timesheets, workDate),
     [timesheets, workDate]
@@ -89,8 +118,8 @@ export default function WorkerTimesheetModal({
   );
   const [activities, setActivities] = useState<TimesheetActivitySlot[]>(
     initialEntry?.activities?.length
-      ? initialEntry.activities
-      : [createDefaultActivitySlot()]
+      ? initialEntry.activities.map(migrateActivityToLineItem)
+      : [createDefaultLineItem("work")]
   );
   const [breaks, setBreaks] = useState<TimesheetBreakSlot[]>(
     initialEntry?.breaks ?? []
@@ -99,15 +128,83 @@ export default function WorkerTimesheetModal({
   const [signature, setSignature] = useState("");
   const [saving, setSaving] = useState<"draft" | "submit" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [breakSectionError, setBreakSectionError] = useState<string | null>(null);
+
+  const loadTimesheetOptions = useCallback(async () => {
+    setOptionsLoading(true);
+    setOptionsError(null);
+
+    const result = await fetchTimesheetFormOptions();
+
+    setProjects(result.projects);
+    setTasks(result.tasks);
+
+    if (result.error) {
+      setOptionsError(result.error);
+    } else if (result.projects.length === 0 || result.tasks.length === 0) {
+      setOptionsError(
+        result.projects.length === 0 && result.tasks.length === 0
+          ? "No active projects or tasks were returned from Supabase. Check row data and public SELECT policies, then click Retry."
+          : result.projects.length === 0
+            ? "No active projects were returned from Supabase. Ensure timesheet_projects rows have client and project set, then click Retry."
+            : "No active tasks were returned from Supabase. Ensure timesheet_tasks rows have a name and is_active = true, then click Retry."
+      );
+    } else {
+      setOptionsError(null);
+    }
+
+    setOptionsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadTimesheetOptions();
+  }, [loadTimesheetOptions]);
 
   useEffect(() => {
     const entry = getTodayTimesheetEntry(timesheets, workDate);
     if (!entry) return;
     setProjectId(entry.project_id);
-    setActivities(entry.activities?.length ? entry.activities : [createDefaultActivitySlot()]);
+    setSelectedProjectId(entry.project_id ?? "");
+    setActivities(
+      entry.activities?.length
+        ? entry.activities.map(migrateActivityToLineItem)
+        : [createDefaultLineItem("work")]
+    );
     setBreaks(entry.breaks ?? []);
     setNotes(entry.notes ?? "");
-  }, [workDate, timesheets]);
+
+    const matchedTask = tasks.find(
+      (task) => task.name.toLowerCase() === String(entry.worker_trade ?? "").toLowerCase()
+    );
+    if (matchedTask) {
+      setSelectedTaskId(matchedTask.id);
+    }
+  }, [workDate, timesheets, tasks]);
+
+  useEffect(() => {
+    if (selectedProjectId || projects.length === 0) return;
+
+    const savedProjectId = entryForSelectedDate?.project_id;
+    if (savedProjectId && projects.some((project) => project.id === savedProjectId)) {
+      setSelectedProjectId(savedProjectId);
+      setProjectId(savedProjectId);
+    }
+  }, [selectedProjectId, projects, entryForSelectedDate?.project_id]);
+
+  const projectGroups = useMemo(
+    () => groupTimesheetProjectsByClient(projects),
+    [projects]
+  );
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId]
+  );
+
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId]
+  );
 
   const totals = useMemo(
     () => calculateDailyTotalsFromSlots(activities, breaks),
@@ -127,8 +224,10 @@ export default function WorkerTimesheetModal({
     return Number(entry?.daily_total_hours ?? entry?.total_hours ?? 0);
   }, [timesheets, todayIso, workDate, totals.dailyTotalHours]);
 
-  const projectName = projectId ? getProjectDisplayName(projectId) : "—";
-  const workerTrade = resolveWorkerTrade(worker);
+  const workerTrade = selectedTask?.name ?? resolveWorkerTrade(worker);
+  const isNewEntry = !entryForSelectedDate;
+  const isActWorker = isActWorkerState(worker.state);
+  const showBreakSection = hasWorkLineItems(activities);
 
   const breakErrors = useMemo(
     () =>
@@ -136,14 +235,77 @@ export default function WorkerTimesheetModal({
     [breaks]
   );
 
-  const updateActivity = (
+  const lineItemErrors = useMemo(
+    () => activities.map((row) => validateLineItemSlot(row)),
+    [activities]
+  );
+
+  const updateLineItem = (
     id: string,
-    field: keyof TimesheetActivitySlot,
-    value: string
+    updates: Partial<TimesheetActivitySlot>
   ) => {
     setActivities((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+      rows.map((row) => {
+        if (row.id !== id) return row;
+        return syncLineItemFields({ ...row, ...updates });
+      })
     );
+  };
+
+  const handleCategoryChange = (id: string, category: TimesheetLineCategory) => {
+    const current = activities.find((row) => row.id === id);
+    if (!current) return;
+
+    if (isLeaveLineCategory(category) && activities.length === 1) {
+      updateLineItem(id, {
+        category,
+        durationMode: "full_day",
+        startTime: DEFAULT_TIMESHEET_START_TIME,
+        endTime: DEFAULT_TIMESHEET_END_TIME,
+      });
+      return;
+    }
+
+    updateLineItem(id, {
+      category,
+      durationMode: "partial",
+      startTime: current.startTime,
+      endTime: current.endTime,
+    });
+  };
+
+  const handleDurationModeChange = (
+    id: string,
+    durationMode: TimesheetDurationMode
+  ) => {
+    if (durationMode === "full_day") {
+      updateLineItem(id, {
+        durationMode,
+        startTime: DEFAULT_TIMESHEET_START_TIME,
+        endTime: DEFAULT_TIMESHEET_END_TIME,
+      });
+      return;
+    }
+
+    updateLineItem(id, { durationMode });
+  };
+
+  const handleLineItemTimeChange = (
+    id: string,
+    field: "startTime" | "endTime",
+    value: string
+  ) => {
+    updateLineItem(id, {
+      [field]: value,
+      durationMode: "partial",
+    });
+  };
+
+  const handleAddEntry = () => {
+    setActivities((rows) => {
+      const last = rows[rows.length - 1];
+      return [...rows, createChainedLineItem(last, "work")];
+    });
   };
 
   const updateBreak = (id: string, field: keyof TimesheetBreakSlot, value: string) => {
@@ -154,9 +316,15 @@ export default function WorkerTimesheetModal({
 
   const handleSave = async (submit: boolean) => {
     setError(null);
+    setBreakSectionError(null);
 
-    if (!projectId) {
-      setError("Please select a project.");
+    if (!selectedProject) {
+      setError("Please select a client project.");
+      return;
+    }
+
+    if (!selectedTask) {
+      setError("Please select a work task.");
       return;
     }
 
@@ -166,9 +334,31 @@ export default function WorkerTimesheetModal({
       return;
     }
 
+    if (lineItemErrors.some(Boolean)) {
+      setError("Fix entry start/finish times before saving.");
+      return;
+    }
+
     if (breaks.some((_, index) => breakErrors[index])) {
       setError("Fix break durations before saving.");
       return;
+    }
+
+    if (submit) {
+      const actBreakError = validateActBreakRequirement({
+        workerState: worker.state,
+        submit: true,
+        breaks,
+        breakMinutes: Math.round(totals.breakHours * 60),
+        breakHours: totals.breakHours,
+        notes,
+        activities,
+      });
+      if (actBreakError) {
+        setBreakSectionError(actBreakError);
+        setError(actBreakError);
+        return;
+      }
     }
 
     setSaving(submit ? "submit" : "draft");
@@ -176,11 +366,14 @@ export default function WorkerTimesheetModal({
       const result = await saveWorkerTimesheetEntry({
         workerId: worker.id,
         workDate,
-        projectId,
+        projectId: selectedProject.id,
+        timesheetProject: selectedProject,
+        timesheetTaskName: selectedTask.name,
         workerTrade,
-        activities,
+        activities: activities.map(syncLineItemFields),
         breaks,
         notes,
+        workerState: worker.state ?? null,
         signatureDataUrl: submit ? signature : null,
         submit,
         existingId: entryForSelectedDate?.id ?? null,
@@ -210,7 +403,9 @@ export default function WorkerTimesheetModal({
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Timesheet</h2>
+              <h2 className="text-lg font-bold text-slate-900">
+                {isNewEntry ? "Add New Timesheet" : "Timesheet"}
+              </h2>
               <p className="text-xs text-slate-500">
                 Pay week: {formatPayWeekRange(payWeek.start, payWeek.end)}
               </p>
@@ -239,15 +434,75 @@ export default function WorkerTimesheetModal({
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
-            <div>
-              <p className={labelClass}>Project</p>
-              <p className="text-sm font-semibold text-slate-900">{projectName}</p>
+          <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="timesheet-project" className={labelClass}>
+                Client / Project
+              </label>
+              {optionsLoading ? (
+                <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                  Loading projects…
+                </div>
+              ) : (
+                <select
+                  id="timesheet-project"
+                  value={selectedProjectId}
+                  onChange={(event) => {
+                    const nextId = event.target.value;
+                    setSelectedProjectId(nextId);
+                    setProjectId(nextId || null);
+                  }}
+                  className={inputClass}
+                  disabled={projects.length === 0}
+                >
+                  <option value="">Select a project…</option>
+                  {projectGroups.map((group) => (
+                    <optgroup key={group.client} label={group.client}>
+                      {group.projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.project}
+                          {project.address ? ` — ${project.address}` : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              )}
+              {selectedProject ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  {formatTimesheetProjectDisplayName(selectedProject)}
+                </p>
+              ) : null}
             </div>
+
             <div>
-              <p className={labelClass}>Trade</p>
-              <p className="text-sm font-semibold text-slate-900">{workerTrade}</p>
+              <label htmlFor="timesheet-task" className={labelClass}>
+                Work Task
+              </label>
+              {optionsLoading ? (
+                <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                  Loading tasks…
+                </div>
+              ) : (
+                <select
+                  id="timesheet-task"
+                  value={selectedTaskId}
+                  onChange={(event) => setSelectedTaskId(event.target.value)}
+                  className={inputClass}
+                  disabled={tasks.length === 0}
+                >
+                  <option value="">Select a task…</option>
+                  {tasks.map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
+
             <div>
               <label htmlFor="timesheet-date" className={labelClass}>
                 Date
@@ -270,28 +525,52 @@ export default function WorkerTimesheetModal({
               </p>
             </div>
           </div>
+
+          {optionsError ? (
+            <div className="mx-6 -mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span>{optionsError}</span>
+              <button
+                type="button"
+                onClick={() => void loadTimesheetOptions()}
+                disabled={optionsLoading}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {optionsLoading ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-5 px-6 py-5">
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">
-                Activities
+                Daily Entries
               </h3>
               <button
                 type="button"
-                onClick={() => setActivities((rows) => [...rows, createDefaultActivitySlot()])}
+                onClick={handleAddEntry}
                 className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-orange-700 hover:bg-orange-100"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Activity
+                Add Entry
               </button>
             </div>
 
             {activities.map((row, index) => {
-              const activityHours = minutesToHours(
-                calculateSlotMinutes(row.startTime, row.endTime)
+              const synced = syncLineItemFields(row);
+              const category = synced.category ?? "work";
+              const isLeave = isLeaveLineCategory(category);
+              const durationMode = synced.durationMode ?? "partial";
+              const segmentHours = resolveLineItemSegmentHours(synced);
+              const paidWorkHours = resolveLineItemNetWorkHours(
+                synced,
+                activities.map(syncLineItemFields),
+                totals.breakHours
               );
+              const timeLocked = isLeave && durationMode === "full_day";
+              const lineError = lineItemErrors[index];
+
               return (
                 <div
                   key={row.id}
@@ -299,7 +578,7 @@ export default function WorkerTimesheetModal({
                 >
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase text-slate-500">
-                      Activity {index + 1}
+                      Entry {index + 1}
                     </p>
                     <button
                       type="button"
@@ -316,55 +595,109 @@ export default function WorkerTimesheetModal({
                     </button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className={labelClass}>Category</label>
+                      <select
+                        value={category}
+                        onChange={(event) =>
+                          handleCategoryChange(
+                            row.id,
+                            event.target.value as TimesheetLineCategory
+                          )
+                        }
+                        className={inputClass}
+                      >
+                        {TIMESHEET_LINE_CATEGORY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {isLeave ? (
+                      <div className="sm:col-span-2">
+                        <label className={labelClass}>Duration</label>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleDurationModeChange(row.id, "full_day")}
+                            className={cn(
+                              "rounded-lg px-3 py-2 text-xs font-semibold ring-1 ring-inset",
+                              durationMode === "full_day"
+                                ? "bg-blue-600 text-white ring-blue-600"
+                                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            Full Day (06:30–14:30)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDurationModeChange(row.id, "partial")}
+                            className={cn(
+                              "rounded-lg px-3 py-2 text-xs font-semibold ring-1 ring-inset",
+                              durationMode === "partial"
+                                ? "bg-blue-600 text-white ring-blue-600"
+                                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            Partial Day
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div>
                       <label className={labelClass}>Start</label>
                       <input
                         type="time"
-                        value={row.startTime}
+                        value={synced.startTime}
+                        disabled={timeLocked}
                         onChange={(event) =>
-                          updateActivity(row.id, "startTime", event.target.value)
+                          handleLineItemTimeChange(row.id, "startTime", event.target.value)
                         }
-                        className={inputClass}
+                        className={cn(inputClass, timeLocked && "bg-slate-100")}
                       />
                       <p className="mt-1 text-xs text-slate-400">
-                        {formatTimeDisplay(row.startTime)}
+                        {formatTimeDisplay(synced.startTime)}
                       </p>
                     </div>
                     <div>
                       <label className={labelClass}>Finish</label>
                       <input
                         type="time"
-                        value={row.endTime}
+                        value={synced.endTime}
+                        disabled={timeLocked}
                         onChange={(event) =>
-                          updateActivity(row.id, "endTime", event.target.value)
+                          handleLineItemTimeChange(row.id, "endTime", event.target.value)
                         }
-                        className={inputClass}
+                        className={cn(inputClass, timeLocked && "bg-slate-100")}
                       />
                       <p className="mt-1 text-xs text-slate-400">
-                        {formatTimeDisplay(row.endTime)}
+                        {formatTimeDisplay(synced.endTime)}
                       </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className={labelClass}>Description</label>
-                      <input
-                        type="text"
-                        value={row.label}
-                        onChange={(event) =>
-                          updateActivity(row.id, "label", event.target.value.toUpperCase())
-                        }
-                        className={inputClass}
-                        placeholder="WORKING ON SITE"
-                      />
                     </div>
                   </div>
                   <p className="mt-2 text-xs font-semibold text-slate-600">
-                    {formatTimesheetHours(activityHours)} total
+                    {formatTimesheetHours(segmentHours)} calculated
+                    {category === "work" &&
+                    paidWorkHours !== segmentHours &&
+                    totals.breakHours > 0 ? (
+                      <span className="font-normal text-slate-500">
+                        {" "}
+                        · {formatTimesheetHours(paidWorkHours)} after breaks
+                      </span>
+                    ) : null}
                   </p>
+                  {lineError ? (
+                    <p className="mt-1 text-sm text-red-600">{lineError}</p>
+                  ) : null}
                 </div>
               );
             })}
           </section>
 
+          {showBreakSection ? (
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">
@@ -372,13 +705,28 @@ export default function WorkerTimesheetModal({
               </h3>
               <button
                 type="button"
-                onClick={() => setBreaks((rows) => [...rows, createDefaultBreakSlot()])}
+                onClick={() => {
+                  setBreaks((rows) => [...rows, createDefaultBreakSlot()]);
+                  setBreakSectionError(null);
+                }}
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-700 hover:bg-slate-100"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Break
               </button>
             </div>
+
+            {isActWorker ? (
+              <p className="text-xs text-slate-500">
+                ACT workers must record at least one break for work shifts.
+              </p>
+            ) : null}
+
+            {breakSectionError ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {breakSectionError}
+              </p>
+            ) : null}
 
             {breaks.length === 0 ? (
               <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
@@ -436,12 +784,26 @@ export default function WorkerTimesheetModal({
               ))
             )}
           </section>
+          ) : null}
 
-          <div className="grid grid-cols-3 gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <div className="grid grid-cols-2 gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 sm:grid-cols-4">
             <div>
               <p className="text-xs text-slate-500">Work Total</p>
               <p className="text-lg font-bold text-slate-900">
-                {formatTimesheetHoursLabel(totals.workHours)}
+                {formatTimesheetHoursLabel(
+                  Math.max(0, totals.workHours - totals.breakHours)
+                )}
+              </p>
+              {totals.breakHours > 0 ? (
+                <p className="text-[11px] text-slate-500">
+                  {formatTimesheetHoursLabel(totals.workHours)} before breaks
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Leave Total</p>
+              <p className="text-lg font-bold text-slate-900">
+                {formatTimesheetHoursLabel(totals.leaveHours)}
               </p>
             </div>
             <div>

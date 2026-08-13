@@ -10,7 +10,7 @@ import {
 } from "@/lib/organization-fleet";
 import {
   fleetStatusMeta,
-  formatFleetAssignment,
+  formatFleetAssignedWorker,
   getFleetRegoExpiryStatus,
   matchesFleetSearch,
 } from "@/lib/fleet-utils";
@@ -113,7 +113,7 @@ export default function FleetAdminPanel() {
                 <th className="px-4 py-3">Registration</th>
                 <th className="px-4 py-3">Rego Expiry</th>
                 <th className="px-4 py-3">Current Hours</th>
-                <th className="px-4 py-3">Assigned Worker / Project</th>
+                <th className="px-4 py-3">Assigned Worker</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -157,7 +157,7 @@ export default function FleetAdminPanel() {
                         {Number(vehicle.current_hours).toLocaleString()} hrs
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {formatFleetAssignment(vehicle)}
+                        {formatFleetAssignedWorker(vehicle)}
                       </td>
                       <td className="px-4 py-3">
                         <span

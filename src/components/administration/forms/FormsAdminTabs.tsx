@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
-import FormTester, { FormTesterLaunchButton } from "@/components/administration/FormTester";
 
 export type FormsAdminTab = "inductions" | "rfi" | "competencies" | "requests";
 
@@ -19,8 +17,6 @@ const TABS: { id: FormsAdminTab; label: string; href: string }[] = [
 ];
 
 export default function FormsAdminTabs({ active }: FormsAdminTabsProps) {
-  const [showFormTester, setShowFormTester] = useState(false);
-
   return (
     <div className="space-y-4">
       <div>
@@ -46,22 +42,6 @@ export default function FormsAdminTabs({ active }: FormsAdminTabsProps) {
           </Link>
         ))}
       </nav>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 px-4 py-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-            Admin Form Testing Utility
-          </p>
-          <p className="text-xs text-violet-600">
-            Temporary tool to validate Supabase insert paths for all worker/admin forms.
-          </p>
-        </div>
-        <FormTesterLaunchButton onClick={() => setShowFormTester((open) => !open)} />
-      </div>
-
-      {showFormTester ? (
-        <FormTester embedded onClose={() => setShowFormTester(false)} />
-      ) : null}
     </div>
   );
 }

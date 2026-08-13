@@ -90,6 +90,12 @@ export function formatFleetAssignment(vehicle: OrganizationFleetVehicle): string
   return parts.length > 0 ? parts.join(" · ") : "Unassigned";
 }
 
+export function formatFleetAssignedWorker(
+  vehicle: OrganizationFleetVehicle
+): string {
+  return vehicle.assigned_worker_name?.trim() || "Unassigned / Company Pool";
+}
+
 export function fleetDocumentTypeLabel(type: FleetDocumentType): string {
   return type === "rego" ? "Registration Expiry" : "Insurance Expiry";
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   fetchWorkers,
   fetchPlant,
@@ -13,11 +13,15 @@ import {
 } from "@/lib/supabase";
 import { fetchAssets, type Asset } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
-import { getProjectItpsItcsPath } from "@/lib/project-nav-routes";
+import {
+  getProjectItcPath,
+  getProjectViewPath,
+  parseProjectRoute,
+} from "@/lib/project-nav-routes";
+import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { redirectToLogin } from "@/lib/auth-guard";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
-  getAdminWorkerId,
-  resolveAdminWorkerFromList,
   setAdminWorkerId,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -44,14 +48,23 @@ import AdminPlantCalendarPanel from "@/components/administration/FullPlantCalend
 import AdminWorkerCalendarPanel from "@/components/administration/AdminWorkerCalendarPanel";
 import SwmsManagementPanel from "@/components/administration/SwmsManagementPanel";
 import DocumentPackView from "@/components/administration/DocumentPackView";
-import ComplianceNotificationsPanel from "@/components/administration/ComplianceNotificationsPanel";
 import AdminReportingTab from "@/components/administration/AdminReportingTab";
 import {
   canViewFinancialFields,
+  canAssignPayRules,
   normalizeSecurityRole,
   normalizeAccountsAccessRole,
   canAccessAdminConsole,
+  canManageOrganisation,
+  canManageSecuritySettings,
 } from "@/lib/security-roles";
+import {
+  canNavigateToView,
+  filterProjectsForRole,
+  isOrganisationView,
+  PROJECT_VIEWS,
+} from "@/lib/rbac-guards";
+import { getWorkerAssignedProjectIds } from "@/lib/supabase";
 import {
   Menu,
   X,
@@ -63,6 +76,7 @@ import CompanyLogo from "@/components/ui/CompanyLogo";
 
 export default function Home() {
   const router = useRouter();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveView>("dashboard");
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -78,6 +92,8 @@ export default function Home() {
   const [adminWorkerId, setAdminWorkerIdState] = useState<string | null>(null);
   const [dashboardProject, setDashboardProject] = useState<DbProject | null>(null);
   const [sidebarProjects, setSidebarProjects] = useState<DbProject[]>([]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [hasAuthSession, setHasAuthSession] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -119,19 +135,36 @@ export default function Home() {
   }, [fetchData]);
 
   useEffect(() => {
-    if (workers.length === 0) {
-      setAdminWorkerIdState(getAdminWorkerId());
-      return;
+    if (workers.length === 0 && loading) return;
+
+    let cancelled = false;
+
+    async function resolveAdminSession() {
+      const authSession = await resolveAuthWorkerFromSession();
+      if (cancelled) return;
+
+      setHasAuthSession(authSession.hasSession);
+      setSessionReady(true);
+
+      if (!authSession.hasSession) {
+        redirectToLogin(router, pathname);
+        return;
+      }
+
+      if (authSession.workerId) {
+        setAdminWorkerId(authSession.workerId);
+        setAdminWorkerIdState(authSession.workerId);
+        return;
+      }
+
+      setAdminWorkerIdState(null);
     }
-    const resolved =
-      resolveAdminWorkerFromList(workers) ?? workers[0]?.id ?? null;
-    if (resolved) {
-      setAdminWorkerId(resolved);
-      setAdminWorkerIdState(resolved);
-    } else {
-      setAdminWorkerIdState(getAdminWorkerId());
-    }
-  }, [workers]);
+
+    void resolveAdminSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [workers.length, loading, router, pathname]);
 
   const adminProfileName = useMemo(() => {
     if (adminWorkerId) {
@@ -143,8 +176,18 @@ export default function Home() {
 
   const sessionRole = useMemo(() => {
     const linked = workers.find((w) => w.id === adminWorkerId);
-    return normalizeSecurityRole(linked?.security_role ?? "full_access");
+    return normalizeSecurityRole(linked?.security_role);
   }, [workers, adminWorkerId]);
+
+  const assignedProjectIds = useMemo(() => {
+    const linked = workers.find((w) => w.id === adminWorkerId);
+    return linked ? getWorkerAssignedProjectIds(linked) : [];
+  }, [workers, adminWorkerId]);
+
+  const visibleProjects = useMemo(
+    () => filterProjectsForRole(sessionRole, sidebarProjects, assignedProjectIds),
+    [sessionRole, sidebarProjects, assignedProjectIds]
+  );
 
   const accountsAccessRole = useMemo(() => {
     const linked = workers.find((w) => w.id === adminWorkerId);
@@ -157,47 +200,103 @@ export default function Home() {
   }, [workers, adminWorkerId]);
 
   const hideFinancialFields = !canViewFinancialFields(sessionRole);
+  const assignPayRules = canAssignPayRules(sessionRole);
+  const manageWorkerRoles = canManageSecuritySettings(sessionRole);
+
+  const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
 
   useEffect(() => {
-    if (!adminWorkerId || workers.length === 0) return;
+    if (!sessionReady || !hasAuthSession || !adminWorkerId || workers.length === 0) return;
     const linked = workers.find((w) => w.id === adminWorkerId);
-    const role = normalizeSecurityRole(linked?.security_role ?? "full_access");
+    const role = normalizeSecurityRole(linked?.security_role);
     if (!canAccessAdminConsole(role)) {
       router.replace(`/worker-dashboard?worker_id=${adminWorkerId}`);
     }
-  }, [adminWorkerId, workers, router]);
+  }, [sessionReady, hasAuthSession, adminWorkerId, workers, router]);
+
+  useEffect(() => {
+    if (!sessionReady || !hasAuthSession) return;
+    const parsed = parseProjectRoute(pathname);
+    if (!parsed || sidebarProjects.length === 0) return;
+
+    const project =
+      sidebarProjects.find(
+        (row) => row.id === parsed.projectId || row.slug === parsed.projectId
+      ) ?? null;
+    if (project) {
+      setDashboardProject((prev) => (prev?.id === project.id ? prev : project));
+    }
+    setActiveTab((prev) => (prev === parsed.view ? prev : parsed.view));
+  }, [sessionReady, hasAuthSession, pathname, sidebarProjects]);
+
+  useEffect(() => {
+    if (!sessionReady || !hasAuthSession || visibleProjects.length === 0) return;
+    if (
+      dashboardProject &&
+      !visibleProjects.some((project) => project.id === dashboardProject.id)
+    ) {
+      setDashboardProject(visibleProjects[0] ?? null);
+    }
+  }, [sessionReady, hasAuthSession, visibleProjects, dashboardProject]);
 
   const handleOpenProfile = () => {
-    setActiveTab("my-profile");
     setShowAddWorker(false);
     setShowAddPlant(false);
     setShowAddAsset(false);
     setShowAddSubcontractor(false);
     setSidebarOpen(false);
+    router.push("/settings/account");
   };
 
   const handleNavigate = (
     view: ActiveView,
     options?: { openAdd?: boolean; projectId?: string }
   ) => {
+    const targetProjectId = options?.projectId ?? dashboardProject?.id ?? null;
+    if (
+      !canNavigateToView(sessionRole, view, assignedProjectIds, targetProjectId)
+    ) {
+      return;
+    }
+
     if (view === "itps") {
       const projectId =
-        options?.projectId ?? dashboardProject?.id ?? sidebarProjects[0]?.id;
-      if (projectId) {
+        options?.projectId ?? dashboardProject?.id ?? visibleProjects[0]?.id;
+      if (
+        projectId &&
+        canNavigateToView(sessionRole, view, assignedProjectIds, projectId)
+      ) {
         if (options?.projectId) {
-          const project = sidebarProjects.find((p) => p.id === options.projectId);
+          const project = visibleProjects.find((p) => p.id === options.projectId);
           if (project) setDashboardProject(project);
         }
-        router.push(getProjectItpsItcsPath(projectId));
+        router.push(getProjectItcPath(projectId));
         setSidebarOpen(false);
         return;
       }
     }
 
     if (options?.projectId) {
-      const project = sidebarProjects.find((p) => p.id === options.projectId);
+      const project = visibleProjects.find((p) => p.id === options.projectId);
       if (project) setDashboardProject(project);
     }
+
+    const projectId =
+      options?.projectId ?? dashboardProject?.id ?? visibleProjects[0]?.id ?? null;
+
+    if (projectId && PROJECT_VIEWS.includes(view)) {
+      setActiveTab(view);
+      setShowAddWorker(view === "org-workers" && (options?.openAdd ?? false));
+      setShowAddPlant(view === "org-plant" && (options?.openAdd ?? false));
+      setShowAddAsset(view === "org-assets" && (options?.openAdd ?? false));
+      setShowAddSubcontractor(
+        view === "subcontractors" && (options?.openAdd ?? false)
+      );
+      setSidebarOpen(false);
+      router.push(getProjectViewPath(projectId, view));
+      return;
+    }
+
     setActiveTab(view);
     setShowAddWorker(view === "org-workers" && (options?.openAdd ?? false));
     setShowAddPlant(view === "org-plant" && (options?.openAdd ?? false));
@@ -210,6 +309,13 @@ export default function Home() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent">
+      {!sessionReady && (
+        <div className="flex min-h-screen w-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        </div>
+      )}
+      {sessionReady && (
+        <>
       {sidebarOpen && (
         <button
           type="button"
@@ -226,9 +332,10 @@ export default function Home() {
         )}
       >
         <Sidebar
-          activeView={activeTab}
+          activeView={routeContext?.view ?? activeTab}
           projects={sidebarProjects}
-          selectedProjectId={dashboardProject?.id}
+          assignedProjectIds={assignedProjectIds}
+          selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
           sessionRole={sessionRole}
           accountsAccessRole={accountsAccessRole}
           canAccessAccounts={canAccessAccounts}
@@ -327,9 +434,14 @@ export default function Home() {
                   if (tab.id === "itps") {
                     const projectId = dashboardProject?.id ?? sidebarProjects[0]?.id;
                     if (projectId) {
-                      router.push(getProjectItpsItcsPath(projectId));
+                      router.push(getProjectItcPath(projectId));
                       return;
                     }
+                  }
+                  const projectId = dashboardProject?.id ?? visibleProjects[0]?.id ?? null;
+                  if (projectId && PROJECT_VIEWS.includes(tab.id)) {
+                    router.push(getProjectViewPath(projectId, tab.id));
+                    return;
                   }
                   handleNavigate(tab.id);
                 }}
@@ -349,11 +461,16 @@ export default function Home() {
           {activeTab === "dashboard" && (
             <ProjectDashboard
               projectId={dashboardProject?.id ?? null}
+              project={dashboardProject}
               projectName={dashboardProject?.name ?? "Project"}
               workers={workers}
               plant={plant}
               loading={loading}
               onRefresh={fetchData}
+              onProjectUpdated={(saved) => {
+                setDashboardProject(saved);
+                setSidebarProjects(getCachedProjects());
+              }}
               userId={adminWorkerId}
               sessionRole={sessionRole}
             />
@@ -404,11 +521,11 @@ export default function Home() {
             />
           )}
 
-          {activeTab === "itps" && dashboardProject?.id && (
+          {activeTab === "itps" && dashboardProject?.id && adminWorkerId && (
             <ItcQualitySystemView
               projectId={dashboardProject.id}
               projectName={dashboardProject.name}
-              workerId={adminWorkerId ?? "local-worker"}
+              workerId={adminWorkerId}
               workerName={adminProfileName}
               defaultPanel="batch"
             />
@@ -461,31 +578,27 @@ export default function Home() {
           )}
 
           {activeTab === "admin-swms" && (
-            <SwmsManagementPanel workers={workers} projects={sidebarProjects} />
+            <SwmsManagementPanel workers={workers} projects={visibleProjects} />
           )}
 
           {activeTab === "admin-document-pack" && (
             <DocumentPackView
-              projects={sidebarProjects}
+              projects={visibleProjects}
               workers={workers}
               plant={plant}
               exportedBy={adminProfileName}
             />
           )}
 
-          {activeTab === "admin-compliance" && (
-            <ComplianceNotificationsPanel onNavigate={handleNavigate} />
-          )}
-
           {activeTab === "admin-reporting" && (
             <AdminReportingTab
-              projects={sidebarProjects}
+              projects={visibleProjects}
               actionedById={adminWorkerId}
               actionedByName={adminProfileName}
             />
           )}
 
-          {activeTab === "org-dashboard" && (
+          {activeTab === "org-dashboard" && canManageOrganisation(sessionRole) && (
             <OrganisationProfileDashboard
               workers={workers}
               plant={plant}
@@ -495,15 +608,19 @@ export default function Home() {
               sessionRole={sessionRole}
             />
           )}
-          {activeTab === "org-company" && <CompanyInformationPanel />}
-          {activeTab === "org-insurances" && <InsurancesPanel />}
-          {activeTab === "org-projects" && (
+          {activeTab === "org-company" && canManageOrganisation(sessionRole) && (
+            <CompanyInformationPanel />
+          )}
+          {activeTab === "org-insurances" && canManageOrganisation(sessionRole) && (
+            <InsurancesPanel />
+          )}
+          {activeTab === "org-projects" && canManageOrganisation(sessionRole) && (
             <ProjectsManagementPanel
               workers={workers}
               onProjectsChanged={fetchData}
             />
           )}
-          {activeTab === "org-workers" && (
+          {activeTab === "org-workers" && canManageOrganisation(sessionRole) && (
             <WorkerDirectoryPanel
               workers={workers}
               workerVocs={workerVocs}
@@ -516,9 +633,11 @@ export default function Home() {
               }}
               initialShowAdd={showAddWorker}
               hideFinancialFields={hideFinancialFields}
+              canAssignPayRules={assignPayRules}
+              canManageWorkerRoles={manageWorkerRoles}
             />
           )}
-          {activeTab === "org-plant" && (
+          {activeTab === "org-plant" && canManageOrganisation(sessionRole) && (
             <PlantAdminPanel
               plant={plant}
               loading={loading}
@@ -526,7 +645,7 @@ export default function Home() {
               initialShowAdd={showAddPlant}
             />
           )}
-          {activeTab === "org-assets" && (
+          {activeTab === "org-assets" && canManageOrganisation(sessionRole) && (
             <AssetAdminPanel
               assets={assets}
               loading={loading}
@@ -534,13 +653,28 @@ export default function Home() {
               initialShowAdd={showAddAsset}
             />
           )}
-          {activeTab === "org-security" && (
+          {activeTab === "org-security" && canManageSecuritySettings(sessionRole) && (
             <SecuritySettingsPanel onUpdated={fetchData} />
           )}
+          {isOrganisationView(activeTab) &&
+            !canManageOrganisation(sessionRole) && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                You do not have access to Organisation settings.
+              </div>
+            )}
+          {activeTab === "org-security" &&
+            canManageOrganisation(sessionRole) &&
+            !canManageSecuritySettings(sessionRole) && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Security settings are restricted to Owner and Full Access roles.
+              </div>
+            )}
             </div>
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

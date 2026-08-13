@@ -25,6 +25,8 @@ import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
+import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
+import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
 
@@ -39,6 +41,8 @@ interface WorkerDirectoryPanelProps {
   onWorkerUpdated?: (worker: Worker) => void;
   initialShowAdd?: boolean;
   hideFinancialFields?: boolean;
+  canAssignPayRules?: boolean;
+  canManageWorkerRoles?: boolean;
 }
 
 function TicketBadge({
@@ -105,6 +109,8 @@ export default function WorkerDirectoryPanel({
   onWorkerUpdated,
   initialShowAdd = false,
   hideFinancialFields = false,
+  canAssignPayRules = false,
+  canManageWorkerRoles = false,
 }: WorkerDirectoryPanelProps) {
   const [workerList, setWorkerList] = useState<Worker[]>(workers);
   const [workerTab, setWorkerTab] = useState<WorkerTabFilter>("Current");
@@ -259,6 +265,8 @@ export default function WorkerDirectoryPanel({
         initialVocs={vocsByWorker[selectedWorker.id] ?? []}
         projects={projects}
         initialTab={profileInitialTab}
+        canAssignPayRules={canAssignPayRules}
+        canManageWorkerRoles={canManageWorkerRoles}
         onBack={() => setSelectedWorker(null)}
         onWorkerUpdated={(updated) => {
           patchWorker(updated);
@@ -370,7 +378,11 @@ export default function WorkerDirectoryPanel({
                   onClick={() => openWorkerProfile(w)}
                 >
                   <td className="p-4">
-                    <p className="font-semibold text-slate-900">{w.full_name}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-900">{w.full_name}</p>
+                      {w.is_apprentice ? <WorkerApprenticeBadge /> : null}
+                      <WorkerStateRegionBadge state={w.state} />
+                    </div>
                     {warning && (
                       <p
                         className={cn(
@@ -497,6 +509,7 @@ export default function WorkerDirectoryPanel({
           onClose={() => setShowModal(false)}
           onSaved={onRefresh}
           hideFinancialFields={hideFinancialFields}
+          canAssignPayRules={canAssignPayRules}
         />
       )}
 

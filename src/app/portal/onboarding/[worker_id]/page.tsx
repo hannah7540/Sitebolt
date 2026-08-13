@@ -25,7 +25,12 @@ import { computeWorkerStatusFromExpiries } from "@/lib/worker-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import VocListEditor from "@/components/workers/VocListEditor";
+import StateRegionSelector from "@/components/workers/StateRegionSelector";
 import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
+import {
+  normalizeWorkerStateRegion,
+  type WorkerStateRegion,
+} from "@/lib/worker-state-region";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +82,7 @@ export default function WorkerInductionPortalPage() {
 
   const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
+  const [stateRegion, setStateRegion] = useState<WorkerStateRegion | null>(null);
   const [emergencyName, setEmergencyName] = useState("");
   const [emergencyPhone, setEmergencyPhone] = useState("");
   const [emergencyRelationship, setEmergencyRelationship] = useState("");
@@ -119,6 +125,7 @@ export default function WorkerInductionPortalPage() {
         setWorker(w);
         setPhone(w.phone ?? "");
         setDob(w.dob ?? "");
+        setStateRegion(normalizeWorkerStateRegion(w.state));
         setEmergencyName(w.emergency_contact_name ?? "");
         setEmergencyPhone(w.emergency_contact_phone ?? "");
         setEmergencyRelationship(w.emergency_contact_relationship ?? "");
@@ -148,6 +155,7 @@ export default function WorkerInductionPortalPage() {
     switch (step) {
       case 0:
         if (!phone.trim()) return "Phone number is required.";
+        if (!stateRegion) return "State / Region is required.";
         return null;
       case 1:
         if (!emergencyName.trim()) return "Emergency contact name is required.";
@@ -237,6 +245,7 @@ export default function WorkerInductionPortalPage() {
       const { error: updateError } = await updateWorker(workerId, {
         phone: phone.trim() || null,
         dob: dob || null,
+        state: stateRegion,
         emergency_contact_name: emergencyName.trim(),
         emergency_contact_phone: emergencyPhone.trim(),
         emergency_contact_relationship: emergencyRelationship.trim(),
@@ -386,6 +395,12 @@ export default function WorkerInductionPortalPage() {
                 onChange={(e) => setDob(e.target.value)}
               />
             </Field>
+            <StateRegionSelector
+              id="portal-onboarding-state"
+              value={stateRegion}
+              onChange={setStateRegion}
+              disabled={submitting}
+            />
           </div>
         )}
 

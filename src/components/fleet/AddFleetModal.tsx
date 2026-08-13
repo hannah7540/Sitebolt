@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import {
   FLEET_STATUSES,
+  fetchActiveWorkersForFleetAssignment,
   insertOrganizationFleetVehicle,
+  resolveFleetWorkerOptionLabel,
+  syncFleetVehicleWorkerAssignment,
   updateOrganizationFleetVehicle,
   type FleetStatus,
   type OrganizationFleetVehicle,
 } from "@/lib/organization-fleet";
+import type { Worker } from "@/lib/supabase";
+import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import { uploadFleetDocument } from "@/lib/fleet-upload";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
@@ -49,19 +54,69 @@ export default function AddFleetModal({
   );
   const [regoFile, setRegoFile] = useState<File | null>(null);
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+  const [assignedWorkerId, setAssignedWorkerId] = useState<string | null>(
+    vehicle?.assigned_worker_id ?? null
+  );
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loadingWorkers, setLoadingWorkers] = useState(true);
+  const initialAssignedWorkerId = vehicle?.assigned_worker_id ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      setLoadingWorkers(true);
+      const rows = await fetchActiveWorkersForFleetAssignment();
+      if (!cancelled) {
+        setWorkers(rows);
+        setLoadingWorkers(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const workerOptions = useMemo(() => {
+    const active = [...workers];
+    if (
+      assignedWorkerId &&
+      !active.some((worker) => worker.id === assignedWorkerId)
+    ) {
+      active.unshift({
+        id: assignedWorkerId,
+        first_name: vehicle?.assigned_worker_name?.split(" ")[0] ?? "",
+        last_name:
+          vehicle?.assigned_worker_name?.split(" ").slice(1).join(" ") ?? "",
+        full_name: vehicle?.assigned_worker_name ?? "",
+        email: "",
+        is_revoked: false,
+        is_archived: false,
+      });
+    }
+    return active.sort((left, right) =>
+      resolveFleetWorkerOptionLabel(left).localeCompare(
+        resolveFleetWorkerOptionLabel(right)
+      )
+    );
+  }, [assignedWorkerId, vehicle?.assigned_worker_name, workers]);
 
   useEffect(() => {
     if (!vehicle) return;
-    setUnitNumber(vehicle.unit_number);
+    setUnitNumber(vehicle.unit_number ?? "");
     setMake(vehicle.make ?? "");
     setModel(vehicle.model ?? "");
     setRegistration(vehicle.registration ?? "");
-    setCurrentHours(String(vehicle.current_hours ?? ""));
-    setStatus(vehicle.status);
+    setCurrentHours(
+      vehicle.current_hours != null ? String(vehicle.current_hours) : ""
+    );
+    setStatus(vehicle.status ?? "Active");
     setRegoExpiryDate(vehicle.rego_expiry_date ?? "");
     setInsuranceExpiryDate(vehicle.insurance_expiry_date ?? "");
     setRegoDocumentUrl(vehicle.rego_document_url ?? "");
     setInsuranceDocumentUrl(vehicle.insurance_document_url ?? "");
+    setAssignedWorkerId(vehicle.assigned_worker_id ?? null);
   }, [vehicle]);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -134,6 +189,23 @@ export default function AddFleetModal({
         }
       }
 
+      if (vehicleId) {
+        const nextWorkerId = assignedWorkerId;
+        const selectedWorker = workerOptions.find((row) => row.id === nextWorkerId);
+        const syncResult = await syncFleetVehicleWorkerAssignment({
+          vehicleId,
+          previousWorkerId: initialAssignedWorkerId,
+          nextWorkerId,
+          nextWorkerName: selectedWorker
+            ? resolveFleetWorkerOptionLabel(selectedWorker)
+            : null,
+        });
+        if (syncResult.error) {
+          setError(syncResult.error);
+          return;
+        }
+      }
+
       onSaved();
       onClose();
     } catch (err) {
@@ -194,7 +266,7 @@ export default function AddFleetModal({
               <span className={labelClass}>Unit Number</span>
               <input
                 className={inputClass}
-                value={unitNumber}
+                value={unitNumber ?? ""}
                 onChange={(e) => setUnitNumber(e.target.value)}
                 placeholder="Ute 04"
                 required
@@ -204,7 +276,7 @@ export default function AddFleetModal({
               <span className={labelClass}>Make</span>
               <input
                 className={inputClass}
-                value={make}
+                value={make ?? ""}
                 onChange={(e) => setMake(e.target.value)}
                 placeholder="Toyota"
               />
@@ -213,7 +285,7 @@ export default function AddFleetModal({
               <span className={labelClass}>Model</span>
               <input
                 className={inputClass}
-                value={model}
+                value={model ?? ""}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="Hilux 4x4"
               />
@@ -222,7 +294,7 @@ export default function AddFleetModal({
               <span className={labelClass}>Registration</span>
               <input
                 className={inputClass}
-                value={registration}
+                value={registration ?? ""}
                 onChange={(e) => setRegistration(e.target.value)}
                 placeholder="YLH60R"
               />
@@ -234,16 +306,33 @@ export default function AddFleetModal({
                 min="0"
                 step="0.1"
                 className={inputClass}
-                value={currentHours}
+                value={currentHours ?? ""}
                 onChange={(e) => setCurrentHours(e.target.value)}
                 placeholder="12450"
               />
             </label>
+            <div className="sm:col-span-2">
+              <WorkerSearchSelect
+                mode="single"
+                id="fleet-assign-worker"
+                label="Assign to Worker"
+                workers={workerOptions}
+                selected={assignedWorkerId}
+                onChange={setAssignedWorkerId}
+                disabled={loadingWorkers || saving}
+                placeholder={
+                  loadingWorkers ? "Loading workers…" : "Unassigned / Company Pool"
+                }
+                unassignedOptionLabel="Unassigned / Company Pool"
+                getWorkerLabel={resolveFleetWorkerOptionLabel}
+                searchPlaceholder="Search by first or last name…"
+              />
+            </div>
             <label className="block sm:col-span-2">
               <span className={labelClass}>Initial Status</span>
               <select
                 className={inputClass}
-                value={status}
+                value={status ?? "Active"}
                 onChange={(e) => setStatus(e.target.value as FleetStatus)}
               >
                 {FLEET_STATUSES.map((option) => (
@@ -261,7 +350,7 @@ export default function AddFleetModal({
               <input
                 type="date"
                 className={inputClass}
-                value={regoExpiryDate}
+                value={regoExpiryDate ?? ""}
                 onChange={(e) => setRegoExpiryDate(e.target.value)}
               />
             </label>
@@ -279,7 +368,7 @@ export default function AddFleetModal({
               <input
                 type="date"
                 className={inputClass}
-                value={insuranceExpiryDate}
+                value={insuranceExpiryDate ?? ""}
                 onChange={(e) => setInsuranceExpiryDate(e.target.value)}
               />
             </label>

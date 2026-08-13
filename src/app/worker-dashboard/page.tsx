@@ -3,10 +3,20 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import {
+  fetchWorkers,
+  isSupabaseConfigured,
+  type Worker,
+} from "@/lib/supabase";
 import { DATABASE_CONNECTION_ERROR_MESSAGE } from "@/lib/project-resolver";
 import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
 import { cardClass } from "@/lib/ui-classes";
+import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { redirectToLogin } from "@/lib/auth-guard";
+import {
+  canAccessAdminConsole,
+  normalizeSecurityRole,
+} from "@/lib/security-roles";
 import {
   DASHBOARD_LOADING_TIMEOUT_MS,
   getAdminWorkerId,
@@ -23,6 +33,7 @@ function WorkerDashboardContent() {
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [pickerLoading, setPickerLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [sessionWorkers, setSessionWorkers] = useState<Worker[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,10 +47,47 @@ function WorkerDashboardContent() {
           return;
         }
 
-        const resolved = await resolveDashboardWorkerId({
+        const authSession = await resolveAuthWorkerFromSession();
+        if (!authSession.hasSession) {
+          redirectToLogin(router, `/worker-dashboard${queryWorkerId ? `?worker_id=${queryWorkerId}` : ""}`);
+          return;
+        }
+
+        const workerData = await fetchWorkers();
+        if (!cancelled) setSessionWorkers(workerData);
+
+        const sessionWorker =
+          authSession.workerId != null
+            ? workerData.find((worker) => worker.id === authSession.workerId) ??
+              null
+            : null;
+        const sessionRole = normalizeSecurityRole(sessionWorker?.security_role);
+
+        if (
+          sessionWorker &&
+          canAccessAdminConsole(sessionRole) &&
+          !fromAdmin &&
+          !queryWorkerId
+        ) {
+          router.replace("/");
+          return;
+        }
+
+        let resolved = await resolveDashboardWorkerId({
           queryWorkerId,
           preferAdmin: fromAdmin,
+          sessionWorkerId: authSession.workerId,
         });
+
+        if (
+          sessionWorker &&
+          sessionRole === "general_worker" &&
+          resolved &&
+          resolved !== sessionWorker.id
+        ) {
+          resolved = sessionWorker.id;
+          router.replace(workerDashboardUrl(sessionWorker.id));
+        }
 
         if (cancelled) return;
 
@@ -50,7 +98,7 @@ function WorkerDashboardContent() {
           }
         } else {
           setFetchError(
-            "No worker profiles are available yet. Add a worker in the admin console first."
+            "No worker profile is linked to your account. Contact your administrator."
           );
         }
       } catch (error) {
@@ -103,11 +151,15 @@ function WorkerDashboardContent() {
     );
   }
 
+  const linkedWorker = sessionWorkers.find((worker) => worker.id === workerId);
+  const sessionRole = normalizeSecurityRole(linkedWorker?.security_role);
+
   return (
     <WorkerDashboardView
       workerId={workerId}
       showAdminSwitch={showAdminSwitch}
       preferAdminProfile={fromAdmin}
+      sessionRole={sessionRole}
     />
   );
 }

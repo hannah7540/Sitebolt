@@ -8,6 +8,8 @@ import {
   type SupabaseRequestError,
 } from "./supabase-errors";
 
+import { MEAL_ALLOWANCE_HOURS_THRESHOLD } from "./meal-allowance";
+
 export const PAY_RATES_AND_RULES_TABLE = "pay_rates_and_rules";
 
 export const NSW_SITE_WORKER_PRESET_KEY = "nsw_site_worker";
@@ -119,9 +121,9 @@ export const NSW_SITE_WORKER_PRESET_INPUT: PayRateRuleInput = {
   productivity_allowance_hourly: 1.2,
   hsr_allowance_hourly: 0.65,
   travel_allowance_daily: 45,
-  travel_apprentice_daily: 0,
+  travel_apprentice_daily: 45,
   meal_allowance_daily: 18.5,
-  meal_allowance_threshold: 10,
+  meal_allowance_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
   overtime_multiplier: 2,
   leave_flat_hours: 8,
 };
@@ -150,7 +152,7 @@ export function sanitizePayRateRuleInput(input: PayRateRuleInput): PayRateRuleIn
     travel_allowance_daily: toNumber(input.travel_allowance_daily),
     travel_apprentice_daily: toNumber(input.travel_apprentice_daily),
     meal_allowance_daily: toNumber(input.meal_allowance_daily),
-    meal_allowance_threshold: toNumber(input.meal_allowance_threshold, 10),
+    meal_allowance_threshold: toNumber(input.meal_allowance_threshold, MEAL_ALLOWANCE_HOURS_THRESHOLD),
     overtime_multiplier: toNumber(input.overtime_multiplier, 2),
     leave_flat_hours: toNumber(input.leave_flat_hours, 8),
   };
@@ -158,7 +160,7 @@ export function sanitizePayRateRuleInput(input: PayRateRuleInput): PayRateRuleIn
 
 /** Map UI form fields to pay_rates_and_rules column names (snake_case). */
 export function mapPayRateFormToInput(form: PayRateRuleFormValues): PayRateRuleInput {
-  const mealThreshold = parsePayRateFormNumber(form.mealAllowanceThreshold, 10);
+  const mealThreshold = parsePayRateFormNumber(form.mealAllowanceThreshold, MEAL_ALLOWANCE_HOURS_THRESHOLD);
 
   return sanitizePayRateRuleInput({
     rule_name: String(form.ruleName ?? "").trim(),
@@ -221,7 +223,7 @@ export function createEmptyPayRateRuleFormValues(): PayRateRuleFormValues {
     travel_allowance_daily: 0,
     travel_apprentice_daily: 0,
     meal_allowance_daily: 0,
-    meal_allowance_threshold: 10,
+    meal_allowance_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
     overtime_multiplier: 2,
     leave_flat_hours: 8,
   });
@@ -260,7 +262,7 @@ function mapPayRateRule(row: Record<string, unknown>): PayRateRule {
   );
   const mealThreshold = toNumber(
     row.meal_allowance_threshold ?? row.overtime_20_threshold_hours,
-    10
+    MEAL_ALLOWANCE_HOURS_THRESHOLD
   );
 
   const presetKey = row.preset_key
@@ -349,7 +351,7 @@ export function createEmptyPayRateRuleInput(): PayRateRuleInput {
     travel_allowance_daily: 0,
     travel_apprentice_daily: 0,
     meal_allowance_daily: 0,
-    meal_allowance_threshold: 10,
+    meal_allowance_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
     overtime_multiplier: 2,
     leave_flat_hours: 8,
   };

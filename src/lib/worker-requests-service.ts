@@ -1,6 +1,10 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { fetchProjects, getProjectDisplayName, type DbProject } from "./project-resolver";
 import {
+  consolidatePayloadForTable,
+  insertWithFormMetadataFallback,
+} from "./form-metadata-consolidation";
+import {
   isSupabaseSchemaOrConstraintError,
   toSupabaseRequestError,
   type SupabaseRequestError,
@@ -512,17 +516,30 @@ function validateSubmitInput(input: SubmitWorkerRequestInput): string | null {
 async function insertWorkerRequestRow(
   payload: Record<string, unknown>
 ): Promise<{ data: WorkerRequestRecord | null; error: SupabaseRequestError | null }> {
-  const { data, error } = await supabase
-    .from(WORKER_REQUESTS_TABLE)
-    .insert({ ...payload, updated_at: new Date().toISOString() })
-    .select("*")
-    .single();
+  const consolidated = consolidatePayloadForTable(WORKER_REQUESTS_TABLE, {
+    ...payload,
+    updated_at: new Date().toISOString(),
+  });
 
-  if (error) {
-    return { data: null, error: toSupabaseRequestError(error) };
+  const result = await insertWithFormMetadataFallback<Record<string, unknown>>(
+    supabase,
+    WORKER_REQUESTS_TABLE,
+    consolidated,
+    "*"
+  );
+
+  if (result.error) {
+    return { data: null, error: toSupabaseRequestError({ message: result.error }) };
   }
 
-  return { data: mapWorkerRequestRow(data as Record<string, unknown>), error: null };
+  if (!result.data) {
+    return { data: null, error: toSupabaseRequestError({ message: "Insert returned no row." }) };
+  }
+
+  return {
+    data: mapWorkerRequestRow(result.data as Record<string, unknown>),
+    error: null,
+  };
 }
 
 export async function submitWorkerRequest(

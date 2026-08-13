@@ -580,6 +580,8 @@ function buildCompletedDocument(
       itc_id: itcId,
       activity_number: activity.activity_number,
       title: activity.title,
+      inspection_criteria: activity.inspection_criteria,
+      check_result: null,
       requires_photo: activity.requires_photo,
       check_by: null,
       checked_date: null,

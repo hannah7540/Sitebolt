@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, QrCode, Phone, AlertOctagon, Wrench, Link2, Pencil, Search, X } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
-import { addPlant } from "@/lib/supabase";
 import {
   getPlantAssignedProjectIds,
   loadAssignmentMaps,
@@ -13,24 +12,23 @@ import {
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import AssignToProjectsModal from "@/components/organisation/AssignToProjectsModal";
 import {
-  PRESTART_TEMPLATE_LABELS,
-  type PrestartTemplate,
-} from "@/lib/prestart-templates";
-import {
   getServiceMetrics,
   getServiceWarning,
+  getServiceWarningLabel,
+  getHeavyVehicleInspectionWarning,
+  getHeavyVehicleInspectionWarningLabel,
+  isHeavyVehicleChecksRequired,
   isTaggedOut,
   formatReading,
 } from "@/lib/plant-utils";
+import AddPlantModal from "./AddPlantModal";
 import PlantQRModal from "./PlantQRModal";
 import PlantDefectModal from "./PlantDefectModal";
 import PlantProfileView from "./PlantProfileView";
 import { cn } from "@/lib/utils";
-import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { cardClass, inputClass } from "@/lib/ui-classes";
 
-const TEMPLATES = Object.keys(PRESTART_TEMPLATE_LABELS) as PrestartTemplate[];
-
-type PlantProfileTab = "basic" | "prestarts" | "documentation";
+type PlantProfileTab = "basic" | "prestarts" | "documentation" | "service-history";
 
 interface PlantAdminPanelProps {
   plant: PlantAsset[];
@@ -50,7 +48,8 @@ function TagOutBadge() {
 
 function ServiceWarningBadge({ plant }: { plant: PlantAsset }) {
   const warning = getServiceWarning(plant);
-  if (warning === "none") return null;
+  const label = getServiceWarningLabel(warning);
+  if (!label) return null;
 
   return (
     <span
@@ -61,7 +60,34 @@ function ServiceWarningBadge({ plant }: { plant: PlantAsset }) {
           : "bg-amber-100 text-amber-800"
       )}
     >
-      {warning === "overdue" ? "Service Overdue" : "Service Due Soon"}
+      {label}
+    </span>
+  );
+}
+
+function HeavyVehicleBadge() {
+  return (
+    <span className="rounded bg-indigo-100 px-2 py-1 text-xs font-bold uppercase tracking-wide text-indigo-800">
+      Heavy Vehicle
+    </span>
+  );
+}
+
+function HeavyVehicleInspectionBadge({ plant }: { plant: PlantAsset }) {
+  const warning = getHeavyVehicleInspectionWarning(plant);
+  const label = getHeavyVehicleInspectionWarningLabel(warning);
+  if (!label) return null;
+
+  return (
+    <span
+      className={cn(
+        "rounded px-2 py-1 text-xs font-bold uppercase tracking-wide",
+        warning === "overdue"
+          ? "bg-red-100 text-red-800"
+          : "bg-amber-100 text-amber-800"
+      )}
+    >
+      {label}
     </span>
   );
 }
@@ -81,13 +107,6 @@ export default function PlantAdminPanel({
   initialShowAdd = false,
 }: PlantAdminPanelProps) {
   const [showAddPlant, setShowAddPlant] = useState(initialShowAdd);
-  const [unitNumber, setUnitNumber] = useState("");
-  const [category, setCategory] = useState("");
-  const [make, setMake] = useState("");
-  const [model, setModel] = useState("");
-  const [serviceName, setServiceName] = useState("");
-  const [servicePhone, setServicePhone] = useState("");
-  const [newTemplate, setNewTemplate] = useState<PrestartTemplate>("excavator");
   const [qrPlant, setQrPlant] = useState<PlantAsset | null>(null);
   const [defectPlant, setDefectPlant] = useState<PlantAsset | null>(null);
   const [assignPlant, setAssignPlant] = useState<PlantAsset | null>(null);
@@ -156,31 +175,6 @@ export default function PlantAdminPanel({
     if (initialShowAdd) setShowAddPlant(true);
   }, [initialShowAdd]);
 
-  const handleAddPlant = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { error } = await addPlant({
-      unit_number: unitNumber,
-      category,
-      make: make || undefined,
-      model: model || undefined,
-      prestart_template: newTemplate,
-      service_contact_name: serviceName || undefined,
-      service_contact_phone: servicePhone || undefined,
-    });
-    if (!error) {
-      setUnitNumber("");
-      setCategory("");
-      setMake("");
-      setModel("");
-      setServiceName("");
-      setServicePhone("");
-      setShowAddPlant(false);
-      onRefresh();
-    } else {
-      alert(error);
-    }
-  };
-
   if (selectedPlant) {
     return (
       <PlantProfileView
@@ -240,91 +234,15 @@ export default function PlantAdminPanel({
         ) : null}
       </div>
 
-      {showAddPlant && (
-        <form
-          onSubmit={handleAddPlant}
-          className={cn("mb-6 max-w-lg space-y-4 p-6", cardClass)}
-        >
-          <h3 className="text-lg font-bold text-slate-900">Register Plant Asset</h3>
-          <input
-            type="text"
-            placeholder="Unit Number (e.g. EX-01)"
-            value={unitNumber}
-            onChange={(e) => setUnitNumber(e.target.value)}
-            required
-            className={inputClass}
-          />
-          <input
-            type="text"
-            placeholder="Category (e.g. 8t Excavator)"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            required
-            className={inputClass}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              type="text"
-              placeholder="Make (e.g. Volvo)"
-              value={make}
-              onChange={(e) => setMake(e.target.value)}
-              className={inputClass}
-            />
-            <input
-              type="text"
-              placeholder="Model (e.g. EC220E)"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              type="text"
-              placeholder="Service Contact Name"
-              value={serviceName}
-              onChange={(e) => setServiceName(e.target.value)}
-              className={inputClass}
-            />
-            <input
-              type="tel"
-              placeholder="Service Contact Phone"
-              value={servicePhone}
-              onChange={(e) => setServicePhone(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-          <label className="block space-y-1">
-            <span className={labelClass}>Pre-Start Template</span>
-            <select
-              value={newTemplate}
-              onChange={(e) => setNewTemplate(e.target.value as PrestartTemplate)}
-              className={inputClass}
-            >
-              {TEMPLATES.map((t) => (
-                <option key={t} value={t}>
-                  {PRESTART_TEMPLATE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="rounded bg-orange-600 px-4 py-2 font-bold text-white"
-            >
-              Save Asset
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAddPlant(false)}
-              className="rounded bg-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-300"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+      {showAddPlant ? (
+        <AddPlantModal
+          onClose={() => setShowAddPlant(false)}
+          onSaved={() => {
+            setShowAddPlant(false);
+            onRefresh();
+          }}
+        />
+      ) : null}
 
       <div className="space-y-4">
         {filteredPlantList.map((p) => {
@@ -369,6 +287,11 @@ export default function PlantAdminPanel({
                       {p.service_contact_name} · {p.service_contact_phone}
                     </a>
                   )}
+                  {p.assigned_worker_name ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Assigned worker: {p.assigned_worker_name}
+                    </p>
+                  ) : null}
                   {assignedProjects.length > 0 ? (
                     <p className="mt-2 text-xs text-slate-500">
                       Assigned:{" "}
@@ -382,6 +305,8 @@ export default function PlantAdminPanel({
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   {taggedOut ? <TagOutBadge /> : <AvailableBadge />}
+                  {isHeavyVehicleChecksRequired(p) ? <HeavyVehicleBadge /> : null}
+                  <HeavyVehicleInspectionBadge plant={p} />
                   <ServiceWarningBadge plant={p} />
                 </div>
               </div>

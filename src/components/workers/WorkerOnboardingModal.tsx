@@ -10,6 +10,8 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { addWorker, insertWorkerVocs, type WorkerOnboardingInput } from "@/lib/supabase";
+import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
+import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import ProjectSelect from "@/components/ui/ProjectSelect";
@@ -23,7 +25,12 @@ import {
 } from "@/lib/ui-classes";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import VocListEditor from "./VocListEditor";
+import StateRegionSelector from "./StateRegionSelector";
+import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
 import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
+import type { WorkerStateRegion } from "@/lib/worker-state-region";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
 
 type OnboardingMode = "quick" | "full";
 
@@ -47,7 +54,8 @@ interface DocUrls {
 }
 
 const emptyForm = (): Partial<WorkerOnboardingInput> => ({
-  full_name: "",
+  first_name: "",
+  last_name: "",
   email: "",
   phone: "",
   emergency_contact_name: "",
@@ -71,6 +79,10 @@ const emptyForm = (): Partial<WorkerOnboardingInput> => ({
   redundancy_fund_name: "",
   redundancy_member_number: "",
   assigned_project_id: null,
+  state: null,
+  is_apprentice: false,
+  has_company_vehicle: false,
+  assigned_vehicle_asset_id: null,
   status: "pending_induction",
 });
 
@@ -78,6 +90,7 @@ interface WorkerOnboardingModalProps {
   onClose: () => void;
   onSaved: () => void;
   hideFinancialFields?: boolean;
+  canAssignPayRules?: boolean;
 }
 
 function Field({
@@ -114,7 +127,9 @@ export default function WorkerOnboardingModal({
   onClose,
   onSaved,
   hideFinancialFields = false,
+  canAssignPayRules = false,
 }: WorkerOnboardingModalProps) {
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const fullSteps = hideFinancialFields
     ? FULL_STEPS.filter((s) => s !== "Financial & Redundancy")
     : FULL_STEPS;
@@ -157,9 +172,69 @@ export default function WorkerOnboardingModal({
     setError(null);
   };
 
+  const validateCurrentStep = (): string | null => {
+    if (mode === "quick") {
+      if (!form.first_name?.trim() || !form.last_name?.trim() || !form.email?.trim()) {
+        return "First name, last name, and email are required.";
+      }
+      if (!form.state) return "State / Region is required.";
+      if (form.has_company_vehicle && !form.assigned_vehicle_asset_id) {
+        return "Please select a company vehicle.";
+      }
+      return null;
+    }
+
+    if (step === 0) {
+      if (!form.first_name?.trim() || !form.last_name?.trim() || !form.email?.trim()) {
+        return "First name, last name, and email are required.";
+      }
+      if (!form.state) return "State / Region is required.";
+      if (form.has_company_vehicle && !form.assigned_vehicle_asset_id) {
+        return "Please select a company vehicle.";
+      }
+    }
+
+    return null;
+  };
+
+  const handleNextStep = () => {
+    const stepError = validateCurrentStep();
+    if (stepError) {
+      setError(stepError);
+      return;
+    }
+    setError(null);
+    setStep((s) => s + 1);
+  };
+
+  const sendWorkerInviteEmail = async (email: string, workerId?: string) => {
+    const response = await fetch("/api/workers/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, workerId }),
+    });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      throw new Error(data.error ?? "Failed to send worker invite.");
+    }
+  };
+
+  const sendWorkerPasswordResetEmail = async (email: string) => {
+    const response = await fetch("/api/workers/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      throw new Error(data.error ?? "Failed to send password setup email.");
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!form.full_name?.trim() || !form.email?.trim()) {
-      setError("Full name and email are required.");
+    const stepError = validateCurrentStep();
+    if (stepError) {
+      setError(stepError);
       return;
     }
 
@@ -203,21 +278,31 @@ export default function WorkerOnboardingModal({
           ]);
       }
 
-      const payload: Partial<WorkerOnboardingInput> & {
-        full_name: string;
+      const payload: Partial<Omit<WorkerOnboardingInput, "first_name" | "last_name" | "email">> & {
+        first_name: string;
+        last_name: string;
         email: string;
       } = {
-        full_name: form.full_name.trim(),
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
         email: form.email.trim(),
         phone: form.phone || null,
         assigned_project_id: resolvedProjectId,
+        state: form.state,
+        is_apprentice: form.is_apprentice ?? false,
+        has_company_vehicle: form.has_company_vehicle ?? false,
+        assigned_vehicle_asset_id: form.has_company_vehicle
+          ? form.assigned_vehicle_asset_id ?? null
+          : null,
         status: "pending_induction",
+        security_role: DEFAULT_WORKER_SECURITY_ROLE,
       };
 
       if (mode === "full") {
         Object.assign(payload, {
           ...form,
-          full_name: form.full_name.trim(),
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
           email: form.email.trim(),
           assigned_project_id: resolvedProjectId,
           white_card_photo_url,
@@ -236,6 +321,18 @@ export default function WorkerOnboardingModal({
       if (insertError) {
         setError(insertError);
         return;
+      }
+
+      if (workerId && form.state) {
+        const { error: payRuleError } = await assignDefaultPayRuleToWorker(
+          workerId,
+          form.state,
+          form.is_apprentice ?? false
+        );
+        if (payRuleError) {
+          setError(payRuleError);
+          return;
+        }
       }
 
       if (mode === "full" && workerId) {
@@ -264,8 +361,41 @@ export default function WorkerOnboardingModal({
           }
         }
       }
+
       onSaved();
-      onClose();
+
+      const workerEmail = form.email.trim();
+
+      if (mode === "quick") {
+        try {
+          await sendWorkerInviteEmail(workerEmail, workerId ?? undefined);
+          showSuccess(
+            "Invite sent! Worker will receive an email to set their password."
+          );
+          window.setTimeout(onClose, 1500);
+        } catch (inviteError) {
+          const message =
+            inviteError instanceof Error
+              ? inviteError.message
+              : "Worker saved, but the invite email could not be sent.";
+          setError(message);
+          showError(message);
+        }
+        return;
+      }
+
+      try {
+        await sendWorkerPasswordResetEmail(workerEmail);
+        showSuccess("Onboarding saved! Password setup email sent to worker.");
+        window.setTimeout(onClose, 1500);
+      } catch (resetError) {
+        const message =
+          resetError instanceof Error
+            ? resetError.message
+            : "Onboarding saved, but the password setup email could not be sent.";
+        setError(message);
+        showError(message);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save worker.");
     } finally {
@@ -276,6 +406,7 @@ export default function WorkerOnboardingModal({
   const maxStep = mode === "full" ? fullSteps.length - 1 : 0;
 
   return (
+    <>
     <div className={modalOverlayClass}>
       <div className={cn(modalClass, "max-w-xl")}>
         <button
@@ -310,7 +441,7 @@ export default function WorkerOnboardingModal({
             />
             <span className="text-sm font-semibold text-slate-900">Quick Invite</span>
             <span className="text-xs text-slate-500">
-              Name, email, phone & project only
+              Name, email, phone, state/region & project
             </span>
           </button>
           <button
@@ -367,11 +498,19 @@ export default function WorkerOnboardingModal({
           {/* Quick Invite */}
           {mode === "quick" && (
             <>
-              <Field label="Full Name *">
+              <Field label="First Name *">
                 <input
                   className={inputClass}
-                  value={form.full_name ?? ""}
-                  onChange={(e) => set("full_name", e.target.value)}
+                  value={form.first_name ?? ""}
+                  onChange={(e) => set("first_name", e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Last Name *">
+                <input
+                  className={inputClass}
+                  value={form.last_name ?? ""}
+                  onChange={(e) => set("last_name", e.target.value)}
                   required
                 />
               </Field>
@@ -392,6 +531,45 @@ export default function WorkerOnboardingModal({
                   onChange={(e) => set("phone", e.target.value)}
                 />
               </Field>
+              <StateRegionSelector
+                id="onboarding-quick-state"
+                value={(form.state as WorkerStateRegion | null) ?? null}
+                onChange={(value) => set("state", value)}
+                disabled={submitting}
+              />
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.is_apprentice ?? false}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, is_apprentice: event.target.checked }))
+                  }
+                  disabled={submitting}
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span className={labelClass}>Apprentice? (Yes/No)</span>
+              </label>
+              <WorkerCompanyVehicleFields
+                idPrefix="onboarding-quick-company-vehicle"
+                hasCompanyVehicle={form.has_company_vehicle ?? false}
+                assignedVehicleId={form.assigned_vehicle_asset_id ?? null}
+                onHasCompanyVehicleChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    has_company_vehicle: value,
+                    assigned_vehicle_asset_id: value
+                      ? prev.assigned_vehicle_asset_id ?? null
+                      : null,
+                  }))
+                }
+                onAssignedVehicleChange={(vehicleId) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    assigned_vehicle_asset_id: vehicleId,
+                  }))
+                }
+                disabled={submitting}
+              />
               <ProjectSelect
                 label="Project Allocation (optional)"
                 value={form.assigned_project_id}
@@ -403,11 +581,20 @@ export default function WorkerOnboardingModal({
           {/* Full — Step 1: Personal & Emergency */}
           {mode === "full" && step === 0 && (
             <>
-              <Field label="Full Name *">
+              <Field label="First Name *">
                 <input
                   className={inputClass}
-                  value={form.full_name ?? ""}
-                  onChange={(e) => set("full_name", e.target.value)}
+                  value={form.first_name ?? ""}
+                  onChange={(e) => set("first_name", e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Last Name *">
+                <input
+                  className={inputClass}
+                  value={form.last_name ?? ""}
+                  onChange={(e) => set("last_name", e.target.value)}
+                  required
                 />
               </Field>
               <Field label="Email *">
@@ -426,6 +613,45 @@ export default function WorkerOnboardingModal({
                   onChange={(e) => set("phone", e.target.value)}
                 />
               </Field>
+              <StateRegionSelector
+                id="onboarding-full-state"
+                value={(form.state as WorkerStateRegion | null) ?? null}
+                onChange={(value) => set("state", value)}
+                disabled={submitting}
+              />
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.is_apprentice ?? false}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, is_apprentice: event.target.checked }))
+                  }
+                  disabled={submitting}
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span className={labelClass}>Apprentice? (Yes/No)</span>
+              </label>
+              <WorkerCompanyVehicleFields
+                idPrefix="onboarding-full-company-vehicle"
+                hasCompanyVehicle={form.has_company_vehicle ?? false}
+                assignedVehicleId={form.assigned_vehicle_asset_id ?? null}
+                onHasCompanyVehicleChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    has_company_vehicle: value,
+                    assigned_vehicle_asset_id: value
+                      ? prev.assigned_vehicle_asset_id ?? null
+                      : null,
+                  }))
+                }
+                onAssignedVehicleChange={(vehicleId) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    assigned_vehicle_asset_id: vehicleId,
+                  }))
+                }
+                disabled={submitting}
+              />
               <Field label="Date of Birth">
                 <input
                   type="date"
@@ -677,7 +903,7 @@ export default function WorkerOnboardingModal({
               {step < maxStep ? (
                 <button
                   type="button"
-                  onClick={() => setStep((s) => s + 1)}
+                  onClick={handleNextStep}
                   className="flex items-center gap-1 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
                 >
                   Next <ChevronRight className="h-4 w-4" />
@@ -727,5 +953,13 @@ export default function WorkerOnboardingModal({
         </div>
       </div>
     </div>
+    {toast ? (
+      <Toast
+        message={toast.message}
+        variant={toast.variant}
+        onDismiss={dismissToast}
+      />
+    ) : null}
+    </>
   );
 }

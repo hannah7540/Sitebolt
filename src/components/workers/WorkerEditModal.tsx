@@ -3,8 +3,15 @@
 import { useRef, useState } from "react";
 import { Camera, Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
-import { updateWorker, updateWorkerPhotoUrl } from "@/lib/supabase";
+import { updateWorker, updateWorkerPhotoUrl, updateWorkerSecurityRole } from "@/lib/supabase";
+import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
+import {
+  normalizeSecurityRole,
+  type SecurityRole,
+} from "@/lib/security-roles";
 import { uploadImageAndGetUrl } from "@/lib/worker-image-upload";
+import { splitWorkerName } from "@/lib/worker-cards-vocs";
+import { buildWorkerFullName } from "@/lib/worker-utils";
 import {
   modalOverlayClass,
   modalClass,
@@ -13,23 +20,36 @@ import {
   sectionClass,
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
+import WorkerSecurityRoleSelect from "./WorkerSecurityRoleSelect";
 
 interface WorkerEditModalProps {
   worker: Worker;
   onClose: () => void;
   onSaved: (worker: Worker) => void;
+  canManageWorkerRoles?: boolean;
 }
 
 export default function WorkerEditModal({
   worker,
   onClose,
   onSaved,
+  canManageWorkerRoles = false,
 }: WorkerEditModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [fullName, setFullName] = useState(worker.full_name);
+  const initialNames = splitWorkerName(worker);
+  const [firstName, setFirstName] = useState(initialNames.firstName);
+  const [lastName, setLastName] = useState(initialNames.lastName);
   const [email, setEmail] = useState(worker.email);
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [trade, setTrade] = useState(worker.trade ?? "");
+  const [isApprentice, setIsApprentice] = useState(worker.is_apprentice ?? false);
+  const [hasCompanyVehicle, setHasCompanyVehicle] = useState(
+    worker.has_company_vehicle ?? false
+  );
+  const [assignedVehicleId, setAssignedVehicleId] = useState<string | null>(
+    worker.assigned_vehicle_asset_id ?? null
+  );
   const [whiteCardNumber, setWhiteCardNumber] = useState(worker.white_card_number ?? "");
   const [driversLicenceNumber, setDriversLicenceNumber] = useState(
     worker.drivers_licence_number ?? ""
@@ -38,6 +58,9 @@ export default function WorkerEditModal({
     worker.drivers_licence_expiry ?? ""
   );
   const [silicaCertNumber, setSilicaCertNumber] = useState(worker.silica_cert_number ?? "");
+  const [securityRole, setSecurityRole] = useState<SecurityRole>(
+    normalizeSecurityRole(worker.security_role)
+  );
   const [photoUrl, setPhotoUrl] = useState(worker.photo_url);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -72,8 +95,12 @@ export default function WorkerEditModal({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!fullName.trim() || !email.trim()) {
-      setError("Name and email are required.");
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+      setError("First name, last name, and email are required.");
+      return;
+    }
+    if (hasCompanyVehicle && !assignedVehicleId) {
+      setError("Please select a company vehicle.");
       return;
     }
 
@@ -81,34 +108,70 @@ export default function WorkerEditModal({
     setError(null);
 
     const { error: updateError } = await updateWorker(worker.id, {
-      full_name: fullName.trim(),
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      is_apprentice: isApprentice,
+      has_company_vehicle: hasCompanyVehicle,
+      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
       white_card_number: whiteCardNumber.trim() || null,
       drivers_licence_number: driversLicenceNumber.trim() || null,
       drivers_licence_expiry: driversLicenceExpiry.trim() || null,
       silica_cert_number: silicaCertNumber.trim() || null,
     });
 
-    setSaving(false);
-
     if (updateError) {
+      setSaving(false);
       setError(updateError);
       return;
     }
 
+    if (
+      canManageWorkerRoles &&
+      securityRole !== normalizeSecurityRole(worker.security_role)
+    ) {
+      const { error: roleError } = await updateWorkerSecurityRole(worker.id, securityRole);
+      if (roleError) {
+        setSaving(false);
+        setError(roleError);
+        return;
+      }
+    }
+
+    if (worker.state) {
+      const { error: payRuleError } = await assignDefaultPayRuleToWorker(
+        worker.id,
+        worker.state,
+        isApprentice
+      );
+      if (payRuleError) {
+        setSaving(false);
+        setError(payRuleError);
+        return;
+      }
+    }
+
+    setSaving(false);
+
     onSaved({
       ...worker,
-      full_name: fullName.trim(),
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      full_name: buildWorkerFullName(firstName, lastName),
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      is_apprentice: isApprentice,
+      has_company_vehicle: hasCompanyVehicle,
+      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
       white_card_number: whiteCardNumber.trim() || null,
       drivers_licence_number: driversLicenceNumber.trim() || null,
       drivers_licence_expiry: driversLicenceExpiry.trim() || null,
       silica_cert_number: silicaCertNumber.trim() || null,
       photo_url: photoUrl,
+      security_role: canManageWorkerRoles ? securityRole : worker.security_role,
     });
     onClose();
   };
@@ -178,15 +241,26 @@ export default function WorkerEditModal({
             </div>
           </div>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>Full name</span>
-            <input
-              className={inputClass}
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              required
-            />
-          </label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className={labelClass}>First name</span>
+              <input
+                className={inputClass}
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                required
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>Last name</span>
+              <input
+                className={inputClass}
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                required
+              />
+            </label>
+          </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block space-y-1">
@@ -218,6 +292,34 @@ export default function WorkerEditModal({
               placeholder="e.g. Electrician, Leading Hand"
             />
           </label>
+
+          {canManageWorkerRoles ? (
+            <WorkerSecurityRoleSelect
+              id={`edit-worker-security-role-${worker.id}`}
+              value={securityRole}
+              onChange={setSecurityRole}
+              disabled={saving || uploadingPhoto}
+            />
+          ) : null}
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={isApprentice}
+              onChange={(event) => setIsApprentice(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+            />
+            <span className={labelClass}>Apprentice? (Yes/No)</span>
+          </label>
+
+          <WorkerCompanyVehicleFields
+            idPrefix="edit-worker-company-vehicle"
+            hasCompanyVehicle={hasCompanyVehicle}
+            assignedVehicleId={assignedVehicleId}
+            onHasCompanyVehicleChange={setHasCompanyVehicle}
+            onAssignedVehicleChange={setAssignedVehicleId}
+            disabled={saving}
+          />
 
           <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">Certifications</p>

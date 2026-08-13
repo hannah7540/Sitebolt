@@ -109,6 +109,7 @@ export default function ItcQualitySystemView({
         bundle={detailBundle}
         workerId={workerId}
         workerName={workerName}
+        isAdmin
         onBack={() => setActiveItcId(null)}
         onUpdated={() => {
           void load();

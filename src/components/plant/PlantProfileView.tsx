@@ -31,26 +31,37 @@ import {
 } from "@/lib/plant-documents";
 import { getProjectName } from "@/lib/projects";
 import {
-  PRESTART_TEMPLATE_LABELS,
   PRESTART_TEMPLATES,
   type PrestartTemplate,
 } from "@/lib/prestart-templates";
 import { isTaggedOut } from "@/lib/plant-utils";
 import WorkerAssignedProjectsPicker from "@/components/organisation/WorkerAssignedProjectsPicker";
 import PlantDocumentsEditor from "@/components/plant/PlantDocumentsEditor";
+import PlantEquipmentFields, {
+  plantFormValuesFromAsset,
+  parsePlantFormNumbers,
+  resolveHeavyVehicleFormPayload,
+  type PlantFormValues,
+} from "@/components/plant/PlantEquipmentFields";
 import PlantPhotoEditModal from "@/components/plant/PlantPhotoEditModal";
+import PlantServiceHistoryTab from "@/components/plant/PlantServiceHistoryTab";
+import {
+  fetchActiveWorkersForPlantAssignment,
+  resolvePlantWorkerOptionLabel,
+  syncPlantWorkerAssignment,
+} from "@/lib/plant-worker-assignment";
+import type { Worker } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 
-type ProfileTab = "basic" | "prestarts" | "documentation";
+type ProfileTab = "basic" | "prestarts" | "documentation" | "service-history";
 
 const TAB_ITEMS: Array<{ id: ProfileTab; label: string }> = [
   { id: "basic", label: "Basic Information" },
   { id: "prestarts", label: "Pre-Starts" },
+  { id: "service-history", label: "Service History" },
   { id: "documentation", label: "Documentation" },
 ];
-
-const TEMPLATES = Object.keys(PRESTART_TEMPLATE_LABELS) as PrestartTemplate[];
 
 interface PlantProfileViewProps {
   plant: PlantAsset;
@@ -210,6 +221,8 @@ export default function PlantProfileView({
         />
       ) : tab === "prestarts" ? (
         <PrestartsTab plant={currentPlant} />
+      ) : tab === "service-history" ? (
+        <PlantServiceHistoryTab plantId={currentPlant.id} />
       ) : (
         <DocumentationTab plant={currentPlant} onSaved={patchPlant} />
       )}
@@ -241,41 +254,83 @@ function BasicInfoTab({
   onProjectIdsChange: (ids: string[]) => void;
   onSaved: (plant: PlantAsset) => void;
 }) {
-  const [unitNumber, setUnitNumber] = useState(plant.unit_number);
+  const initialAssignedWorkerId = plant.assigned_worker_id ?? null;
+  const [values, setValues] = useState<PlantFormValues>(() =>
+    plantFormValuesFromAsset(plant)
+  );
   const [name, setName] = useState(plant.name ?? "");
-  const [category, setCategory] = useState(plant.category);
-  const [make, setMake] = useState(plant.make ?? "");
-  const [model, setModel] = useState(plant.model ?? "");
-  const [serialNumber, setSerialNumber] = useState(plant.serial_number ?? "");
   const [registrationCode, setRegistrationCode] = useState(plant.registration_code ?? "");
   const [hourlyCostRate, setHourlyCostRate] = useState(
     plant.hourly_cost_rate != null ? String(plant.hourly_cost_rate) : ""
   );
   const [ownershipType, setOwnershipType] = useState(plant.ownership_type ?? "company");
   const [status, setStatus] = useState(normalizePlantStatus(plant.status));
-  const [prestartTemplate, setPrestartTemplate] = useState<PrestartTemplate>(
-    plant.prestart_template ?? "excavator"
-  );
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loadingWorkers, setLoadingWorkers] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setUnitNumber(plant.unit_number);
+    let cancelled = false;
+
+    void (async () => {
+      setLoadingWorkers(true);
+      const rows = await fetchActiveWorkersForPlantAssignment();
+      if (!cancelled) {
+        setWorkers(rows);
+        setLoadingWorkers(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setValues(plantFormValuesFromAsset(plant));
     setName(plant.name ?? "");
-    setCategory(plant.category);
-    setMake(plant.make ?? "");
-    setModel(plant.model ?? "");
-    setSerialNumber(plant.serial_number ?? "");
     setRegistrationCode(plant.registration_code ?? "");
     setHourlyCostRate(plant.hourly_cost_rate != null ? String(plant.hourly_cost_rate) : "");
     setOwnershipType(plant.ownership_type ?? "company");
     setStatus(normalizePlantStatus(plant.status));
-    setPrestartTemplate(plant.prestart_template ?? "excavator");
   }, [plant]);
 
+  const setField = <K extends keyof PlantFormValues>(
+    key: K,
+    value: PlantFormValues[K]
+  ) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const workerOptions = useMemo(() => {
+    const active = [...workers];
+    if (
+      values.assignedWorkerId &&
+      !active.some((worker) => worker.id === values.assignedWorkerId)
+    ) {
+      active.unshift({
+        id: values.assignedWorkerId,
+        first_name: plant.assigned_worker_name?.split(" ")[0] ?? "",
+        last_name: plant.assigned_worker_name?.split(" ").slice(1).join(" ") ?? "",
+        full_name: plant.assigned_worker_name ?? "",
+        email: "",
+        is_revoked: false,
+        is_archived: false,
+      });
+    }
+    return active;
+  }, [plant.assigned_worker_name, values.assignedWorkerId, workers]);
+
   const handleSave = async () => {
-    if (!unitNumber.trim() || !category.trim()) {
+    if (!values.unitNumber.trim() || !values.category.trim()) {
       setError("Unit number and category are required.");
+      return;
+    }
+
+    const parsedNumbers = parsePlantFormNumbers(values);
+    if (parsedNumbers.error) {
+      setError(parsedNumbers.error);
       return;
     }
 
@@ -289,22 +344,47 @@ function BasicInfoTab({
     setError(null);
 
     const { error: updateError } = await updatePlant(plant.id, {
-      unit_number: unitNumber.trim(),
+      unit_number: values.unitNumber.trim(),
       name: name.trim() || null,
-      category: category.trim(),
-      make: make.trim() || null,
-      model: model.trim() || null,
-      serial_number: serialNumber.trim() || null,
+      category: values.category.trim(),
+      make: values.make.trim() || null,
+      model: values.model.trim() || null,
+      serial_number: values.serialNumber.trim() || null,
       registration_code: registrationCode.trim() || null,
       hourly_cost_rate: parsedRate,
       ownership_type: ownershipType,
       status,
-      prestart_template: prestartTemplate,
+      prestart_template: values.prestartTemplate,
+      current_hours: parsedNumbers.currentHours,
+      next_service_hours: parsedNumbers.nextServiceDueHours,
+      service_contact_name: values.serviceContactName.trim() || null,
+      service_contact_phone: values.serviceContactPhone.trim() || null,
+      service_contact_company: values.serviceContactCompany.trim() || null,
+      service_contact_email: values.serviceContactEmail.trim() || null,
+      ...resolveHeavyVehicleFormPayload(values),
     });
 
     if (updateError) {
       setSaving(false);
       setError(updateError);
+      return;
+    }
+
+    const selectedWorker = workerOptions.find(
+      (worker) => worker.id === values.assignedWorkerId
+    );
+    const syncResult = await syncPlantWorkerAssignment({
+      plantId: plant.id,
+      previousWorkerId: initialAssignedWorkerId,
+      nextWorkerId: values.assignedWorkerId,
+      nextWorkerName: selectedWorker
+        ? resolvePlantWorkerOptionLabel(selectedWorker)
+        : null,
+    });
+
+    if (syncResult.error) {
+      setSaving(false);
+      setError(syncResult.error);
       return;
     }
 
@@ -318,17 +398,28 @@ function BasicInfoTab({
 
     onSaved({
       ...plant,
-      unit_number: unitNumber.trim(),
+      unit_number: values.unitNumber.trim(),
       name: name.trim() || null,
-      category: category.trim(),
-      make: make.trim() || null,
-      model: model.trim() || null,
-      serial_number: serialNumber.trim() || null,
+      category: values.category.trim(),
+      make: values.make.trim() || null,
+      model: values.model.trim() || null,
+      serial_number: values.serialNumber.trim() || null,
       registration_code: registrationCode.trim() || null,
       hourly_cost_rate: parsedRate,
       ownership_type: ownershipType,
       status,
-      prestart_template: prestartTemplate,
+      prestart_template: values.prestartTemplate,
+      current_hours: parsedNumbers.currentHours,
+      next_service_hours: parsedNumbers.nextServiceDueHours,
+      service_contact_name: values.serviceContactName.trim() || null,
+      service_contact_phone: values.serviceContactPhone.trim() || null,
+      service_contact_company: values.serviceContactCompany.trim() || null,
+      service_contact_email: values.serviceContactEmail.trim() || null,
+      ...resolveHeavyVehicleFormPayload(values),
+      assigned_worker_id: values.assignedWorkerId,
+      assigned_worker_name: selectedWorker
+        ? resolvePlantWorkerOptionLabel(selectedWorker)
+        : null,
     });
   };
 
@@ -338,37 +429,31 @@ function BasicInfoTab({
         Update registry details, ownership, operational status, and project assignment.
       </p>
 
+      <PlantEquipmentFields
+        values={values}
+        onChange={setField}
+        workers={workerOptions}
+        loadingWorkers={loadingWorkers}
+        disabled={saving}
+      />
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block space-y-1">
-          <span className={labelClass}>Plant / unit number</span>
-          <input className={inputClass} value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} />
-        </label>
-        <label className="block space-y-1">
+        <label className="block space-y-1 sm:col-span-2">
           <span className={labelClass}>Machinery name</span>
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Category</span>
-          <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Make</span>
-          <input className={inputClass} value={make} onChange={(e) => setMake(e.target.value)} />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Model</span>
-          <input className={inputClass} value={model} onChange={(e) => setModel(e.target.value)} />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Serial / VIN number</span>
-          <input className={inputClass} value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+          <input
+            className={inputClass}
+            value={name ?? ""}
+            onChange={(e) => setName(e.target.value)}
+            disabled={saving}
+          />
         </label>
         <label className="block space-y-1">
           <span className={labelClass}>Registration / plant code</span>
           <input
             className={inputClass}
-            value={registrationCode}
+            value={registrationCode ?? ""}
             onChange={(e) => setRegistrationCode(e.target.value)}
+            disabled={saving}
           />
         </label>
         <label className="block space-y-1">
@@ -378,16 +463,18 @@ function BasicInfoTab({
             min="0"
             step="0.01"
             className={inputClass}
-            value={hourlyCostRate}
+            value={hourlyCostRate ?? ""}
             onChange={(e) => setHourlyCostRate(e.target.value)}
+            disabled={saving}
           />
         </label>
         <label className="block space-y-1">
           <span className={labelClass}>Ownership type</span>
           <select
             className={inputClass}
-            value={ownershipType}
+            value={ownershipType ?? "company"}
             onChange={(e) => setOwnershipType(e.target.value)}
+            disabled={saving}
           >
             {PLANT_OWNERSHIP_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -402,24 +489,11 @@ function BasicInfoTab({
             className={inputClass}
             value={status}
             onChange={(e) => setStatus(e.target.value as typeof status)}
+            disabled={saving}
           >
             {PLANT_STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block space-y-1 sm:col-span-2">
-          <span className={labelClass}>Pre-start template</span>
-          <select
-            className={inputClass}
-            value={prestartTemplate}
-            onChange={(e) => setPrestartTemplate(e.target.value as PrestartTemplate)}
-          >
-            {TEMPLATES.map((template) => (
-              <option key={template} value={template}>
-                {PRESTART_TEMPLATE_LABELS[template]}
               </option>
             ))}
           </select>

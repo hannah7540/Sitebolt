@@ -1,20 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, FileDown, Loader2 } from "lucide-react";
-import SignatureCanvas from "@/components/prestart/SignatureCanvas";
-import ItcPhotoRecordBlock from "@/components/itc/ItcPhotoRecordBlock";
+import ItcFieldPhotoGallery from "@/components/itc/ItcFieldPhotoGallery";
+import ItcRedlineViewer from "@/components/itc/ItcRedlineViewer";
+import ItcStepSignoffCard from "@/components/itc/ItcStepSignoffCard";
 import {
   createItcChangeRequest,
-  submitItcSignoff,
-  upsertItcSignoffDraft,
+  updateItcGpsLocation,
   type ItcDetailBundle,
   type ItcSignoff,
 } from "@/lib/itc-service";
+import { fetchItcMasterSpecs } from "@/lib/itc-master-spec-service";
+import { readBrowserGeolocation } from "@/lib/itc-compaction-service";
 import { downloadItcPdf, generateItcCertificatePdf } from "@/lib/itc-pdf";
-import { uploadItcSignature } from "@/lib/itc-upload";
-import { cardClass, inputClass } from "@/lib/ui-classes";
-import { cn } from "@/lib/utils";
+import { cardClass } from "@/lib/ui-classes";
 
 interface ItcDetailViewProps {
   projectId: string;
@@ -22,6 +22,7 @@ interface ItcDetailViewProps {
   bundle: ItcDetailBundle;
   workerId: string;
   workerName: string;
+  isAdmin?: boolean;
   onBack: () => void;
   onUpdated: () => void;
 }
@@ -42,110 +43,68 @@ export default function ItcDetailView({
   bundle,
   workerId,
   workerName,
+  isAdmin = false,
   onBack,
   onUpdated,
 }: ItcDetailViewProps) {
-  const { itc, photos, signoffs, changeRequests, steps } = bundle;
-  const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [comments, setComments] = useState("");
-  const [fieldData, setFieldData] = useState<Record<string, string>>({});
-  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const { itc, stepPhotos, signoffs, changeRequests, steps } = bundle;
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [roverOptions, setRoverOptions] = useState<string[]>([]);
+  const [operatorOptions, setOperatorOptions] = useState<string[]>([]);
+  const [gpsMessage, setGpsMessage] = useState<string | null>(null);
+  const [masterRedlineUrl, setMasterRedlineUrl] = useState<string | null>(null);
 
-  const activeStep = steps[activeStepIndex];
-  const activeSignoff = useMemo(
-    () => getSignoffForStep(signoffs, activeStep?.step_index ?? 0, workerId),
-    [signoffs, activeStep?.step_index, workerId]
-  );
-
-  const isLocked = activeSignoff?.status === "submitted";
-
-  const handleSaveDraft = async () => {
-    if (!activeStep) return;
-    setLoading(true);
-    setMessage(null);
-
-    let signatureUrl = activeSignoff?.signature_url ?? null;
-    if (signatureDataUrl) {
-      const blob = await fetch(signatureDataUrl).then((response) => response.blob());
-      const upload = await uploadItcSignature({
-        projectId,
-        itcId: itc.id,
-        stepKey: activeStep.step_key,
-        blob,
-      });
-      signatureUrl = upload.url;
-    }
-
-    const result = await upsertItcSignoffDraft({
-      itcId: itc.id,
-      stepKey: activeStep.step_key,
-      stepIndex: activeStep.step_index,
-      authorId: workerId,
-      authorName: workerName,
-      comments,
-      fieldData,
-      signatureUrl,
+  useEffect(() => {
+    void fetchItcMasterSpecs(projectId).then((specs) => {
+      const discipline =
+        (itc.trade_discipline as "Electrical" | "Drainage" | "Hydraulics" | null) ??
+        (itc.service_discipline as "Electrical" | "Drainage" | "Hydraulics");
+      const spec = specs.find((row) => row.discipline === discipline) ?? specs[0];
+      setRoverOptions(spec?.rover_serial_numbers ?? []);
+      setOperatorOptions(spec?.rover_operators ?? []);
+      setMasterRedlineUrl(spec?.redline_markup_url ?? null);
     });
+  }, [projectId, itc.trade_discipline, itc.service_discipline]);
 
-    setLoading(false);
-    setMessage(result.error ?? "Draft saved.");
-    if (!result.error) onUpdated();
+  const redlineUrl = itc.redline_markup_url ?? masterRedlineUrl;
+
+  const handleCaptureGps = () => {
+    setGpsLoading(true);
+    void readBrowserGeolocation().then(async (position) => {
+      if (!position) {
+        setGpsMessage("Could not read GPS.");
+        setGpsLoading(false);
+        return;
+      }
+      const result = await updateItcGpsLocation({
+        itcId: itc.id,
+        projectId,
+        gpsLat: position.lat,
+        gpsLng: position.lng,
+      });
+      setGpsMessage(
+        result.error ??
+          (result.linkedTests?.length
+            ? `GPS saved. Auto-linked compaction test(s): ${result.linkedTests.join(", ")}`
+            : `GPS saved: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`)
+      );
+      setGpsLoading(false);
+      if (!result.error) onUpdated();
+    });
   };
 
-  const handleSubmit = async () => {
-    if (!activeStep) return;
-    setLoading(true);
-    setMessage(null);
-
-    let signatureUrl = activeSignoff?.signature_url ?? null;
-    if (signatureDataUrl) {
-      const blob = await fetch(signatureDataUrl).then((response) => response.blob());
-      const upload = await uploadItcSignature({
-        projectId,
-        itcId: itc.id,
-        stepKey: activeStep.step_key,
-        blob,
-      });
-      signatureUrl = upload.url;
-    }
-
-    const draft = await upsertItcSignoffDraft({
-      itcId: itc.id,
-      stepKey: activeStep.step_key,
-      stepIndex: activeStep.step_index,
-      authorId: workerId,
-      authorName: workerName,
-      comments,
-      fieldData,
-      signatureUrl,
-    });
-
-    if (draft.error || !draft.signoff) {
-      setLoading(false);
-      setMessage(draft.error ?? "Save draft before submitting.");
-      return;
-    }
-
-    const result = await submitItcSignoff({
-      signoffId: draft.signoff.id,
-      itcId: itc.id,
-    });
-    setLoading(false);
-    setMessage(result.error ?? "Sign-off submitted and locked.");
-    if (!result.error) onUpdated();
-  };
-
-  const handleChangeRequest = async () => {
+  const handleChangeRequest = async (stepIndex: number) => {
     const reason = window.prompt("Describe the required change:");
     if (!reason?.trim()) return;
 
+    const signoff = getSignoffForStep(signoffs, stepIndex, workerId);
     setLoading(true);
     const result = await createItcChangeRequest({
       itcId: itc.id,
-      signoffId: activeSignoff?.id ?? null,
+      signoffId: signoff?.id ?? null,
       requestedBy: workerId,
       requestedByName: workerName,
       reason: reason.trim(),
@@ -158,131 +117,17 @@ export default function ItcDetailView({
   const handleGeneratePdf = async () => {
     setPdfLoading(true);
     try {
-      const blob = await generateItcCertificatePdf(bundle, projectName);
+      const blob = await generateItcCertificatePdf(bundle, {
+        projectName,
+        projectNo: projectId,
+        packageName: itc.package_name ?? projectName,
+        clientName: itc.client_name ?? undefined,
+        subcontractorName: itc.subcontractor_name ?? itc.assigned_name ?? undefined,
+      });
       downloadItcPdf(blob, `${itc.itc_number}-certificate.pdf`);
     } finally {
       setPdfLoading(false);
     }
-  };
-
-  const renderConditionalFields = () => {
-    const spec = activeStep?.field_spec ?? {};
-    const type = String(spec.type ?? "checklist");
-
-    if (type === "survey") {
-      return (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Rover</span>
-            <select
-              value={fieldData.rover_id ?? ""}
-              disabled={isLocked}
-              onChange={(e) => setFieldData((current) => ({ ...current, rover_id: e.target.value }))}
-              className={inputClass}
-            >
-              <option value="">Select rover</option>
-              <option value="rover-1">Rover 01</option>
-              <option value="rover-2">Rover 02</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Operator</span>
-            <input
-              value={fieldData.operator_name ?? ""}
-              disabled={isLocked}
-              onChange={(e) =>
-                setFieldData((current) => ({ ...current, operator_name: e.target.value }))
-              }
-              className={inputClass}
-            />
-          </label>
-        </div>
-      );
-    }
-
-    if (type === "compaction") {
-      return (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-              Compaction Test #
-            </span>
-            <input
-              value={fieldData.test_number ?? ""}
-              disabled={isLocked}
-              onChange={(e) =>
-                setFieldData((current) => ({ ...current, test_number: e.target.value }))
-              }
-              className={inputClass}
-              placeholder="CT-2026-014"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Company</span>
-            <input
-              value={fieldData.company_name ?? ""}
-              disabled={isLocked}
-              onChange={(e) =>
-                setFieldData((current) => ({ ...current, company_name: e.target.value }))
-              }
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Technician</span>
-            <input
-              value={fieldData.technician_name ?? ""}
-              disabled={isLocked}
-              onChange={(e) =>
-                setFieldData((current) => ({ ...current, technician_name: e.target.value }))
-              }
-              className={inputClass}
-            />
-          </label>
-        </div>
-      );
-    }
-
-    if (type === "cctv") {
-      return (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Outcome</span>
-            <select
-              value={fieldData.outcome ?? ""}
-              disabled={isLocked}
-              onChange={(e) => setFieldData((current) => ({ ...current, outcome: e.target.value }))}
-              className={inputClass}
-            >
-              <option value="">Select</option>
-              <option value="Pass">Pass</option>
-              <option value="Fail">Fail</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Return</span>
-            <select
-              value={fieldData.return_required ?? ""}
-              disabled={isLocked}
-              onChange={(e) =>
-                setFieldData((current) => ({ ...current, return_required: e.target.value }))
-              }
-              className={inputClass}
-            >
-              <option value="">Select</option>
-              <option value="Return Required">Return Required</option>
-              <option value="Not Required">Not Required</option>
-            </select>
-          </label>
-        </div>
-      );
-    }
-
-    return (
-      <p className="text-sm text-slate-600">
-        Confirm checklist requirements for this step before signing.
-      </p>
-    );
   };
 
   return (
@@ -314,130 +159,76 @@ export default function ItcDetailView({
             {itc.zone_code} · {itc.building ?? "General"} · {itc.start_location} →{" "}
             {itc.end_location}
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {itc.service_discipline}
+            {itc.trade_discipline ? ` · ${itc.trade_discipline}` : ""} · Progress{" "}
+            {itc.progress_percent}%
+          </p>
         </div>
       </div>
 
-      <ItcPhotoRecordBlock
+      <ItcRedlineViewer
+        markupUrl={redlineUrl}
+        gpsLat={itc.gps_lat}
+        gpsLng={itc.gps_lng}
+        onCaptureGps={handleCaptureGps}
+        gpsLoading={gpsLoading}
+        gpsMessage={gpsMessage}
+      />
+
+      <ItcFieldPhotoGallery
         projectId={projectId}
         itcId={itc.id}
-        photos={photos}
-        uploadedBy={workerName}
+        photos={stepPhotos}
+        uploadedBy={workerId}
+        uploadedByName={workerName}
+        isAdmin={isAdmin}
+        adminId={workerId}
+        adminName={workerName}
         onUpdated={onUpdated}
       />
 
-      <div className={cardClass}>
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h3 className="font-semibold text-slate-900">Step Sign-Offs (Append-Only)</h3>
-          <p className="text-xs text-slate-500">
-            Draft entries are editable by the author until submission locks the record.
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">Inspection Steps</h3>
+          <p className="text-sm text-slate-500">
+            Complete each step in order. Earlier steps lock after submission and unlock the next
+            step automatically.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-b border-slate-200 px-4 py-3">
-          {steps.map((step, index) => {
-            const signoff = getSignoffForStep(signoffs, step.step_index, workerId);
-            return (
-              <button
-                key={step.step_key}
-                type="button"
-                onClick={() => {
-                  setActiveStepIndex(index);
-                  setComments(signoff?.comments ?? "");
-                  setFieldData(
-                    Object.fromEntries(
-                      Object.entries(signoff?.field_data ?? {}).map(([key, value]) => [
-                        key,
-                        String(value),
-                      ])
-                    )
-                  );
-                  setSignatureDataUrl(null);
-                }}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs font-semibold",
-                  activeStepIndex === index
-                    ? "bg-orange-600 text-white"
-                    : "bg-slate-100 text-slate-700",
-                  signoff?.status === "submitted" && "ring-2 ring-emerald-300"
-                )}
-              >
-                {index + 1}. {step.title}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="space-y-4 p-4">
-          <div>
-            <h4 className="font-semibold text-slate-900">{activeStep?.title}</h4>
-            <p className="text-sm text-slate-500">{activeStep?.description}</p>
-          </div>
-
-          {renderConditionalFields()}
-
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Comments</span>
-            <textarea
-              value={comments}
-              disabled={isLocked}
-              onChange={(e) => setComments(e.target.value)}
-              rows={3}
-              className={inputClass}
-            />
-          </label>
-
-          {!isLocked ? (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase text-slate-500">Signature</p>
-              <SignatureCanvas onChange={setSignatureDataUrl} />
-            </div>
-          ) : (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Submitted {activeSignoff?.submitted_at ? new Date(activeSignoff.submitted_at).toLocaleString() : ""}
-            </p>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {!isLocked ? (
-              <>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void handleSaveDraft()}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-                >
-                  Save Draft
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void handleSubmit()}
-                  className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
-                >
-                  Submit & Lock
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void handleChangeRequest()}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Request Change
-              </button>
-            )}
-          </div>
-
-          {changeRequests.length > 0 ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              {changeRequests.length} open change request(s) on this ITC.
-            </div>
-          ) : null}
-
-          {message ? <p className="text-sm text-slate-600">{message}</p> : null}
-        </div>
+        {steps.map((step, index) => (
+          <ItcStepSignoffCard
+            key={step.step_key}
+            projectId={projectId}
+            itcId={itc.id}
+            step={step}
+            stepNumber={index + 1}
+            signoff={getSignoffForStep(signoffs, step.step_index, workerId)}
+            allSignoffs={signoffs}
+            workerId={workerId}
+            workerName={workerName}
+            roverOptions={roverOptions}
+            operatorOptions={operatorOptions}
+            onUpdated={onUpdated}
+            onChangeRequest={() => void handleChangeRequest(step.step_index)}
+          />
+        ))}
       </div>
+
+      {changeRequests.length > 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {changeRequests.length} open change request(s) on this ITC.
+        </div>
+      ) : null}
+
+      {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+      {loading ? (
+        <p className="inline-flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Processing…
+        </p>
+      ) : null}
     </div>
   );
 }

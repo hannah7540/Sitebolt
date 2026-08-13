@@ -1,0 +1,1691 @@
+{
+  "version": 1,
+  "exported_at": "2026-08-12T23:38:40.875Z",
+  "templates": [
+    {
+      "id": "7127bf7a-e851-4efa-bf31-57ba6978f435",
+      "system_template_key": "test-project-induction",
+      "title": "Test Project Induction",
+      "description": "Induction for test project workers.",
+      "form_type": "Induction",
+      "scope": "project",
+      "scope_type": "project",
+      "project_id": "9f6c811f-a0f2-4689-adfb-a9f217af7794",
+      "project_name": "TEST PROJECT",
+      "company_logo_url": null,
+      "status": "draft",
+      "is_active": false,
+      "blocks": [
+        {
+          "id": "block-1785799704587-p8liu",
+          "type": "multi_checkbox",
+          "label": "Have you completed the company induction?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785799934698-vhsgz",
+          "type": "multi_checkbox",
+          "label": "Have you uploaded your relevant VOC's?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785800006421-izmec",
+          "type": "signature",
+          "label": "I confirm that the information I have provided at the time of this induction is true and correct.",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "schema_fields": [
+        {
+          "id": "block-1785799704587-p8liu",
+          "type": "multi_checkbox",
+          "label": "Have you completed the company induction?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785799934698-vhsgz",
+          "type": "multi_checkbox",
+          "label": "Have you uploaded your relevant VOC's?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785800006421-izmec",
+          "type": "signature",
+          "label": "I confirm that the information I have provided at the time of this induction is true and correct.",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "logic_rules": [
+        {
+          "when": {
+            "field": "block-1785799704587-p8liu",
+            "equals": "No"
+          },
+          "action": "block_submission",
+          "message": "⚠️ You must complete the company induction first."
+        },
+        {
+          "when": {
+            "field": "block-1785799934698-vhsgz",
+            "equals": "No"
+          },
+          "action": "block_submission",
+          "message": "⚠️ You must upload relevant VOC's before completing the induction."
+        }
+      ],
+      "copied_from_id": null,
+      "category": "General"
+    },
+    {
+      "id": "ebcded83-3bfe-4da5-a7be-53741c34b106",
+      "system_template_key": "nsw-company-induction",
+      "title": "NSW Company Induction",
+      "description": "Company Induction for NSW Workers",
+      "form_type": "Induction",
+      "scope": "company",
+      "scope_type": "company",
+      "project_id": null,
+      "project_name": null,
+      "company_logo_url": null,
+      "status": "active",
+      "is_active": true,
+      "blocks": [
+        {
+          "id": "block-1785813690144-1e0f7",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785813882225-je2q6",
+          "type": "pdf_viewer",
+          "label": "NSW EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577292485-eba-nsw.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785813982939-odigx",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814100865-71edi",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126142-n9nln",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126603-sv6jh",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126955-c3eed",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814127229-ia1te",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814289023-81jc6",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814441449-o1gg7",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577302511-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814442254-g9jlt",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814446301-dnejd",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577308632-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814446948-hqonm",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814447603-mr05u",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577318210-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814448278-20uri",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814448947-snxzx",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577323147-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814449644-dh1z2",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814450327-ehcqj",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577329800-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814450946-kl7kc",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814451528-n0m2c",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577335303-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814452096-28o3y",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814713296-09g2l",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577342508-heat-nsw.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814714835-asm9n",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814751807-umsiy",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "schema_fields": [
+        {
+          "id": "block-1785813690144-1e0f7",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785813882225-je2q6",
+          "type": "pdf_viewer",
+          "label": "NSW EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577292485-eba-nsw.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785813982939-odigx",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814100865-71edi",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126142-n9nln",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126603-sv6jh",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814126955-c3eed",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814127229-ia1te",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814289023-81jc6",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814441449-o1gg7",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577302511-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814442254-g9jlt",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814446301-dnejd",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577308632-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814446948-hqonm",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814447603-mr05u",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577318210-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814448278-20uri",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814448947-snxzx",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577323147-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814449644-dh1z2",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814450327-ehcqj",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577329800-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814450946-kl7kc",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814451528-n0m2c",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577335303-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814452096-28o3y",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814713296-09g2l",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577342508-heat-nsw.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1785814714835-asm9n",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1785814751807-umsiy",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "logic_rules": [],
+      "copied_from_id": null,
+      "category": "General"
+    },
+    {
+      "id": "8bb78673-0f31-4fc1-8e86-14f10a1b8142",
+      "system_template_key": "act-company-induction",
+      "title": "ACT Company Induction",
+      "description": "Company Induction for ACT Workers",
+      "form_type": "Induction",
+      "scope": "company",
+      "scope_type": "company",
+      "project_id": null,
+      "project_name": null,
+      "company_logo_url": null,
+      "status": "active",
+      "is_active": true,
+      "blocks": [
+        {
+          "id": "block-1786576723723-3uoi9",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-76ywg",
+          "type": "pdf_viewer",
+          "label": "ACT EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577176144-eba-act.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-r8mkn",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-zt05f",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-2c0a9",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-s24ah",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-1632i",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-e0njp",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-j4uf3",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-wfzef",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577195596-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-osmcf",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-l8gol",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577202327-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-lzh41",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-aipod",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577209284-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-fufvc",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-60ftg",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577215493-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-bpall",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-lm9xs",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577221292-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-6qal4",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-qbu4t",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577229694-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-9aao1",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-9kn0m",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577253223-heat-act.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-ym7x8",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-iwhg9",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "schema_fields": [
+        {
+          "id": "block-1786576723723-3uoi9",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-76ywg",
+          "type": "pdf_viewer",
+          "label": "ACT EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577176144-eba-act.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-r8mkn",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-zt05f",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-2c0a9",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-s24ah",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-1632i",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-e0njp",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-j4uf3",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-wfzef",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577195596-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-osmcf",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-l8gol",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577202327-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-lzh41",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-aipod",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577209284-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-fufvc",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-60ftg",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577215493-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-bpall",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-lm9xs",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577221292-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-6qal4",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-qbu4t",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577229694-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-9aao1",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-9kn0m",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577253223-heat-act.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-ym7x8",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786576723723-iwhg9",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "logic_rules": [],
+      "copied_from_id": "ebcded83-3bfe-4da5-a7be-53741c34b106",
+      "category": "General"
+    },
+    {
+      "id": "390ad4c8-90b5-4b50-8125-007185487ea7",
+      "system_template_key": "wa-company-induction",
+      "title": "WA Company Induction",
+      "description": "Company Induction for WA Workers",
+      "form_type": "Induction",
+      "scope": "company",
+      "scope_type": "company",
+      "project_id": null,
+      "project_name": null,
+      "company_logo_url": null,
+      "status": "active",
+      "is_active": true,
+      "blocks": [
+        {
+          "id": "block-1786577381861-b2fbj",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-gxopg",
+          "type": "pdf_viewer",
+          "label": "ACT EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577411571-eba-wa.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-fip7o",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-r5fsc",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-910vt",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ka8i2",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-pbuhj",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ybhht",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-kw24q",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ezk4a",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577195596-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-0kzzq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ssswe",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577202327-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-lm4o3",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-d7a15",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577209284-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-bkqwq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-q864q",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577215493-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-47gtp",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-imhdl",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577221292-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-tpt2g",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-zlqve",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577229694-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-nem2m",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-u5wbb",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577434163-heat-wa.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-4dcjq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ep2hg",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "schema_fields": [
+        {
+          "id": "block-1786577381861-b2fbj",
+          "type": "multi_checkbox",
+          "label": "What is your trade?",
+          "content": "",
+          "options": [
+            "Plumber",
+            "Labourer",
+            "Operator",
+            "Administrator / Office Worker",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-gxopg",
+          "type": "pdf_viewer",
+          "label": "ACT EBA Agreement",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577411571-eba-wa.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-fip7o",
+          "type": "multi_checkbox",
+          "label": "I acknowledge that the conditions of my employment are set out as per the certified EBA Agreement if applicable to your working jurisdiction and/or your letter of offer.",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-r5fsc",
+          "type": "multi_checkbox",
+          "label": "Are you currently receiving any medical treatment for any ongoing injury or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-910vt",
+          "type": "multi_checkbox",
+          "label": "Are you currently in receipt of a workers compensation claim?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ka8i2",
+          "type": "multi_checkbox",
+          "label": "Have you had a workers compensation claim in the last 2 years?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-pbuhj",
+          "type": "multi_checkbox",
+          "label": "Have you been off work for more than 1 month due to an injury, accident or illness?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ybhht",
+          "type": "multi_checkbox",
+          "label": "Do you currently have a medical condition or injury that will impact on your ability to carry out the required tasks of your job?",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-kw24q",
+          "type": "multi_checkbox",
+          "label": "Have you ever, or do you currently have any of the following. Tick all that apply. ",
+          "content": "",
+          "options": [
+            "Heart Attack",
+            "High or low blood pressure",
+            "Asthma or another respiratory illness",
+            "Fits or epilepsy",
+            "Depression, anxiety or other mental health condition",
+            "Prone to dizziness or fainting",
+            "Neck/Back pain, including slipped discs or surgery",
+            "None of the above"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ezk4a",
+          "type": "pdf_viewer",
+          "label": "Work Health and Safety Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577195596-Work-Health-and-Safety-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-0kzzq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the work health and safety policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ssswe",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577202327-Bullying-and-Harassment-Policy---(NSWACT).pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-lm4o3",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-d7a15",
+          "type": "pdf_viewer",
+          "label": "Bullying and Harassment Procedure",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577209284-Workplace-Bullying-and-Harassment-Procedure.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-bkqwq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Bullying and Harassment Procedure",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-q864q",
+          "type": "pdf_viewer",
+          "label": "Incident Reporting Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577215493-Incident-Reporting-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-47gtp",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Incident Reporting Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-imhdl",
+          "type": "pdf_viewer",
+          "label": "Drug and Alcohol Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577221292-Drug-and-Alcohol-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-tpt2g",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Drug and Alcohol Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-zlqve",
+          "type": "pdf_viewer",
+          "label": "Rehabilitation and Return to Work Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577229694-Rehabilitation-and-Return-to-Work-Policy.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-nem2m",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Rehabilitation and Return to Work Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-u5wbb",
+          "type": "pdf_viewer",
+          "label": "Heat Policy",
+          "pdfUrl": "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/site-form-uploads/induction-forms/1786577434163-heat-wa.pdf",
+          "content": "",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-4dcjq",
+          "type": "multi_checkbox",
+          "label": "I have read and I understand the Heat Policy",
+          "content": "",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "required": true
+        },
+        {
+          "id": "block-1786577381861-ep2hg",
+          "type": "signature",
+          "label": "I certify that all information provided by me at the time of completing this form is true and correct. Should there be any changes to my health and well being at any time I agree to notify my employer. ",
+          "content": "",
+          "options": [],
+          "required": true
+        }
+      ],
+      "logic_rules": [],
+      "copied_from_id": "8bb78673-0f31-4fc1-8e86-14f10a1b8142",
+      "category": "General"
+    }
+  ]
+}

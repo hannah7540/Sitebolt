@@ -20,12 +20,7 @@ export function optionalWorkerDate(
   return trimmed ? trimmed : null;
 }
 
-export function buildSubcontractorFullName(
-  firstName: string,
-  lastName: string
-): string {
-  return `${firstName.trim()} ${lastName.trim()}`.trim();
-}
+import { buildWorkerFullName } from "./worker-utils";
 
 export function serializeVocDetails(
   vocs: SubcontractorVocDetail[]
@@ -122,7 +117,8 @@ export function buildSubcontractorWorkerPayload(
   return {
     first_name,
     last_name,
-    full_name: buildSubcontractorFullName(first_name, last_name),
+    full_name: buildWorkerFullName(first_name, last_name),
+    worker_name: buildWorkerFullName(first_name, last_name),
     email: input.email.trim(),
     phone: optionalWorkerText(input.phone),
     dob: optionalWorkerDate(input.dob),

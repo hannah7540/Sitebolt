@@ -1,4 +1,6 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { getWorkerDisplayName } from "./worker-utils";
+import type { Worker } from "./supabase";
 
 export const FLEET_STATUSES = ["Active", "Maintenance", "Out of Service"] as const;
 
@@ -76,7 +78,7 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
 }
 
 function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     unit_number: input.unitNumber.trim(),
     make: input.make?.trim() || null,
     model: input.model?.trim() || null,
@@ -86,13 +88,18 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     insurance_expiry_date: input.insuranceExpiryDate || null,
     insurance_document_url: input.insuranceDocumentUrl ?? null,
     current_hours: input.currentHours ?? 0,
-    assigned_worker_id: input.assignedWorkerId ?? null,
-    assigned_worker_name: input.assignedWorkerName ?? null,
     assigned_project_id: input.assignedProjectId ?? null,
     assigned_project_name: input.assignedProjectName ?? null,
     status: input.status ?? "Active",
     updated_at: new Date().toISOString(),
   };
+
+  if (input.assignedWorkerId !== undefined) {
+    payload.assigned_worker_id = input.assignedWorkerId;
+    payload.assigned_worker_name = input.assignedWorkerName ?? null;
+  }
+
+  return payload;
 }
 
 export async function fetchOrganizationFleet(): Promise<OrganizationFleetVehicle[]> {
@@ -160,6 +167,118 @@ export async function updateOrganizationFleetVehicle(
   }
 
   return { error: null, data: normalizeFleetRow(data as Record<string, unknown>) };
+}
+
+function isActiveWorkerForFleetAssignment(worker: Worker): boolean {
+  if (worker.is_revoked || worker.is_archived) return false;
+  const status = String(worker.status ?? "active").toLowerCase();
+  return status !== "revoked";
+}
+
+/** Active workers for fleet assignment dropdowns. */
+export async function fetchActiveWorkersForFleetAssignment(): Promise<Worker[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await supabase
+    .from("workers")
+    .select("id, first_name, last_name, full_name, worker_name, status, is_revoked, is_archived")
+    .order("first_name", { ascending: true })
+    .order("last_name", { ascending: true });
+
+  if (error) {
+    console.warn("Failed to fetch workers for fleet assignment:", error.message);
+    return [];
+  }
+
+  return ((data ?? []) as Worker[]).filter(isActiveWorkerForFleetAssignment);
+}
+
+async function clearWorkerCompanyVehicleAssignment(
+  workerId: string
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("workers")
+    .update({
+      has_company_vehicle: false,
+      assigned_vehicle_asset_id: null,
+    })
+    .eq("id", workerId);
+
+  return error?.message ?? null;
+}
+
+async function setWorkerCompanyVehicleAssignment(
+  workerId: string,
+  vehicleId: string
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("workers")
+    .update({
+      has_company_vehicle: true,
+      assigned_vehicle_asset_id: vehicleId,
+    })
+    .eq("id", workerId);
+
+  return error?.message ?? null;
+}
+
+/** Keep fleet vehicle assignment and worker company-vehicle fields in sync. */
+export async function syncFleetVehicleWorkerAssignment(input: {
+  vehicleId: string;
+  previousWorkerId: string | null;
+  nextWorkerId: string | null;
+  nextWorkerName: string | null;
+}): Promise<{ error: string | null }> {
+  const previousId = input.previousWorkerId?.trim() || null;
+  const nextId = input.nextWorkerId?.trim() || null;
+
+  const { error: vehicleError } = await supabase
+    .from("organization_fleet")
+    .update({
+      assigned_worker_id: nextId,
+      assigned_worker_name: nextId ? input.nextWorkerName?.trim() || null : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.vehicleId);
+
+  if (vehicleError) {
+    return { error: vehicleError.message };
+  }
+
+  if (nextId) {
+    const { error: detachError } = await supabase
+      .from("organization_fleet")
+      .update({
+        assigned_worker_id: null,
+        assigned_worker_name: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("assigned_worker_id", nextId)
+      .neq("id", input.vehicleId);
+
+    if (detachError) {
+      return { error: detachError.message };
+    }
+  }
+
+  if (previousId && previousId !== nextId) {
+    const clearError = await clearWorkerCompanyVehicleAssignment(previousId);
+    if (clearError) return { error: clearError };
+  }
+
+  if (nextId) {
+    const setError = await setWorkerCompanyVehicleAssignment(nextId, input.vehicleId);
+    if (setError) return { error: setError };
+  }
+
+  return { error: null };
+}
+
+export function resolveFleetWorkerOptionLabel(worker: Worker): string {
+  const first = worker.first_name?.trim() ?? "";
+  const last = worker.last_name?.trim() ?? "";
+  const combined = `${first} ${last}`.trim();
+  return combined || getWorkerDisplayName(worker);
 }
 
 export async function updateFleetDocumentCompliance(input: {

@@ -3,12 +3,25 @@
 import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import {
+  ASSET_TYPES,
   ASSET_TYPE_LABELS,
+  LASER_TYPE_OPTIONS,
+  LASER_TYPE_LABELS,
+  assetTypeRequiresCalibration,
+  assetTypeRequiresService,
+  buildAssetInputFromForm,
+  isAssignedAccountsAssetType,
+  isMobileDeviceAssetType,
   validateAssetInput,
   type Asset,
   type AssetInput,
   type AssetType,
+  type LaserType,
 } from "@/lib/assets";
+import { fetchWorkers, type Worker } from "@/lib/supabase";
+import ProjectSelect from "@/components/ui/ProjectSelect";
+import WorkerSearchSelect from "./WorkerSearchSelect";
+import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 interface AssetFormModalProps {
@@ -21,10 +34,22 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const isEdit = Boolean(asset);
   const [assetNumber, setAssetNumber] = useState(asset?.asset_number ?? "");
   const [name, setName] = useState(asset?.name ?? "");
-  const [assetType, setAssetType] = useState<AssetType>(asset?.asset_type ?? "site_laser");
+  const [assetType, setAssetType] = useState<AssetType>(asset?.asset_type ?? "laptop");
   const [make, setMake] = useState(asset?.make ?? "");
   const [model, setModel] = useState(asset?.model ?? "");
   const [serialNumber, setSerialNumber] = useState(asset?.serial_number ?? "");
+  const [assignedWorkerId, setAssignedWorkerId] = useState<string | null>(
+    asset?.assigned_worker_id ?? null
+  );
+  const [assignedProjectId, setAssignedProjectId] = useState<string | null>(
+    asset?.project_id ?? asset?.assigned_project_id ?? null
+  );
+  const [assignedWorkerIds, setAssignedWorkerIds] = useState<string[]>(
+    asset?.assigned_worker_ids ?? []
+  );
+  const [laserType, setLaserType] = useState<LaserType | null>(asset?.laser_type ?? null);
+  const [accountName, setAccountName] = useState(asset?.account_name ?? "");
+  const [accountReference, setAccountReference] = useState(asset?.account_reference ?? "");
   const [nextServiceDue, setNextServiceDue] = useState(asset?.next_service_due_date ?? "");
   const [nextCalibrationDue, setNextCalibrationDue] = useState(
     asset?.next_calibration_due_date ?? ""
@@ -41,6 +66,8 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const [serviceContactEmail, setServiceContactEmail] = useState(
     asset?.service_contact_email ?? ""
   );
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workersLoading, setWorkersLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,22 +78,42 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
     };
   }, []);
 
+  useEffect(() => {
+    void fetchWorkers().then((rows) => {
+      setWorkers(rows);
+      setWorkersLoading(false);
+    });
+  }, []);
+
+  const showMobileFields = isMobileDeviceAssetType(assetType);
+  const showLaserFields = assetType === "laser";
+  const showGaugeFields = assetType === "pressure_gauge";
+  const showAccountFields = isAssignedAccountsAssetType(assetType);
+  const showStandardIdentityFields = showLaserFields || showGaugeFields;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const input: AssetInput = {
-      asset_number: assetNumber,
+
+    const input = buildAssetInputFromForm({
+      assetType,
+      assetNumber,
       name,
-      asset_type: assetType,
-      make: make || undefined,
-      model: model || undefined,
-      serial_number: serialNumber || undefined,
-      next_service_due_date: assetType === "site_laser" ? nextServiceDue || null : null,
-      next_calibration_due_date: nextCalibrationDue || null,
-      service_contact_name: serviceContactName || undefined,
-      service_contact_company: serviceContactCompany || undefined,
-      service_contact_phone: serviceContactPhone || undefined,
-      service_contact_email: serviceContactEmail || undefined,
-    };
+      make,
+      model,
+      serialNumber,
+      assignedWorkerId,
+      assignedProjectId,
+      assignedWorkerIds,
+      laserType,
+      accountName,
+      accountReference,
+      nextServiceDue,
+      nextCalibrationDue,
+      serviceContactName,
+      serviceContactCompany,
+      serviceContactPhone,
+      serviceContactEmail,
+    });
 
     const validationError = validateAssetInput(input);
     if (validationError) {
@@ -102,19 +149,23 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
           {isEdit ? "Edit Asset" : "Add Asset"}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Register a Site Laser or Pressure Gauge with service and calibration dates.
+          Fields update automatically based on the selected asset type.
         </p>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="mt-5 space-y-4">
           <div>
-            <label className={labelClass}>Asset Type *</label>
+            <label className={labelClass} htmlFor="asset-type">
+              Asset Type *
+            </label>
             <select
+              id="asset-type"
               value={assetType}
               onChange={(e) => setAssetType(e.target.value as AssetType)}
               className={inputClass}
+              required
               disabled={saving}
             >
-              {(Object.keys(ASSET_TYPE_LABELS) as AssetType[]).map((type) => (
+              {ASSET_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {ASSET_TYPE_LABELS[type]}
                 </option>
@@ -122,60 +173,190 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
             </select>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Asset # *</label>
-              <input
-                value={assetNumber}
-                onChange={(e) => setAssetNumber(e.target.value)}
-                className={inputClass}
-                required
-                disabled={saving}
-              />
+          {showStandardIdentityFields ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Asset # *</label>
+                <input
+                  value={assetNumber}
+                  onChange={(e) => setAssetNumber(e.target.value)}
+                  className={inputClass}
+                  required
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Name *</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={inputClass}
+                  required
+                  disabled={saving}
+                />
+              </div>
             </div>
-            <div>
-              <label className={labelClass}>Name *</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={inputClass}
-                required
-                disabled={saving}
-              />
-            </div>
-          </div>
+          ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className={labelClass}>Make</label>
-              <input
-                value={make}
-                onChange={(e) => setMake(e.target.value)}
-                className={inputClass}
-                disabled={saving}
+          {showMobileFields ? (
+            <div className="space-y-4">
+              <WorkerSearchSelect
+                mode="single"
+                id="assigned-worker"
+                label="Assigned Worker"
+                workers={workers}
+                selected={assignedWorkerId}
+                onChange={setAssignedWorkerId}
+                disabled={saving || workersLoading}
               />
-            </div>
-            <div>
-              <label className={labelClass}>Model</label>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className={inputClass}
-                disabled={saving}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Serial #</label>
-              <input
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value)}
-                className={inputClass}
-                disabled={saving}
-              />
-            </div>
-          </div>
 
-          {assetType === "site_laser" ? (
+              <ProjectSelect
+                label="Assigned Project"
+                value={assignedProjectId}
+                onChange={setAssignedProjectId}
+              />
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className={labelClass}>Make</label>
+                  <input
+                    value={make}
+                    onChange={(e) => setMake(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Model</label>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Serial Number</label>
+                  <input
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {showAccountFields ? (
+            <div className="space-y-4">
+              <div>
+                <label className={labelClass}>Account Name *</label>
+                <input
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                  className={inputClass}
+                  required
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Account Reference *</label>
+                <input
+                  value={accountReference}
+                  onChange={(e) => setAccountReference(e.target.value)}
+                  className={inputClass}
+                  required
+                  disabled={saving}
+                />
+              </div>
+              <WorkerSearchSelect
+                mode="multiple"
+                label="Assigned To"
+                workers={workers}
+                selected={assignedWorkerIds}
+                onChange={setAssignedWorkerIds}
+                disabled={saving || workersLoading}
+                required
+              />
+            </div>
+          ) : null}
+
+          {(showLaserFields || showGaugeFields) && (
+            <div className="space-y-4">
+              <WorkerSearchSelect
+                mode="single"
+                id="laser-gauge-assigned-worker"
+                label="Assigned Worker"
+                workers={workers}
+                selected={assignedWorkerId}
+                onChange={setAssignedWorkerId}
+                disabled={saving || workersLoading}
+              />
+
+              <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className={labelClass}>Make</label>
+                <input
+                  value={make}
+                  onChange={(e) => setMake(e.target.value)}
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Model</label>
+                <input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Serial #</label>
+                <input
+                  value={serialNumber}
+                  onChange={(e) => setSerialNumber(e.target.value)}
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </div>
+              </div>
+            </div>
+          )}
+
+          {showLaserFields ? (
+            <fieldset>
+              <legend className={labelClass}>Laser Type *</legend>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {LASER_TYPE_OPTIONS.map((option) => (
+                  <label
+                    key={option}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold",
+                      laserType === option
+                        ? "border-orange-500 bg-orange-500 text-white"
+                        : "border-slate-200 bg-white text-slate-700"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="laser-type"
+                      value={option}
+                      checked={laserType === option}
+                      onChange={() => setLaserType(option)}
+                      disabled={saving}
+                      className="sr-only"
+                    />
+                    {LASER_TYPE_LABELS[option]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
+
+          {assetTypeRequiresService(assetType) ? (
             <div>
               <label className={labelClass}>Next Service Due Date *</label>
               <input
@@ -189,68 +370,69 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
             </div>
           ) : null}
 
-          <div>
-            <label className={labelClass}>Next Calibration Due Date *</label>
-            <input
-              type="date"
-              value={nextCalibrationDue}
-              onChange={(e) => setNextCalibrationDue(e.target.value)}
-              className={inputClass}
-              required
-              disabled={saving}
-            />
-          </div>
+          {assetTypeRequiresCalibration(assetType) ? (
+            <div>
+              <label className={labelClass}>Next Calibration Due Date *</label>
+              <input
+                type="date"
+                value={nextCalibrationDue}
+                onChange={(e) => setNextCalibrationDue(e.target.value)}
+                className={inputClass}
+                required
+                disabled={saving}
+              />
+            </div>
+          ) : null}
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-800">
-              Service & Calibration Contact Details
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Saved directly on this asset for quick reference on site.
-            </p>
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className={labelClass}>Company Name</label>
-                <input
-                  value={serviceContactCompany}
-                  onChange={(e) => setServiceContactCompany(e.target.value)}
-                  className={inputClass}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Contact Person</label>
-                <input
-                  value={serviceContactName}
-                  onChange={(e) => setServiceContactName(e.target.value)}
-                  className={inputClass}
-                  disabled={saving}
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+          {(showLaserFields || showGaugeFields) && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-800">
+                Service & Calibration Contact Details
+              </p>
+              <div className="mt-4 space-y-3">
                 <div>
-                  <label className={labelClass}>Phone</label>
+                  <label className={labelClass}>Company Name</label>
                   <input
-                    type="tel"
-                    value={serviceContactPhone}
-                    onChange={(e) => setServiceContactPhone(e.target.value)}
+                    value={serviceContactCompany}
+                    onChange={(e) => setServiceContactCompany(e.target.value)}
                     className={inputClass}
                     disabled={saving}
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Email</label>
+                  <label className={labelClass}>Contact Person</label>
                   <input
-                    type="email"
-                    value={serviceContactEmail}
-                    onChange={(e) => setServiceContactEmail(e.target.value)}
+                    value={serviceContactName}
+                    onChange={(e) => setServiceContactName(e.target.value)}
                     className={inputClass}
                     disabled={saving}
                   />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className={labelClass}>Phone</label>
+                    <input
+                      type="tel"
+                      value={serviceContactPhone}
+                      onChange={(e) => setServiceContactPhone(e.target.value)}
+                      className={inputClass}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Email</label>
+                    <input
+                      type="email"
+                      value={serviceContactEmail}
+                      onChange={(e) => setServiceContactEmail(e.target.value)}
+                      className={inputClass}
+                      disabled={saving}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

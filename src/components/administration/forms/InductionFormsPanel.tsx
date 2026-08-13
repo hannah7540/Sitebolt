@@ -22,7 +22,6 @@ import {
   formatInductionFormUpdatedAt,
   type InductionFormTemplate,
 } from "@/lib/induction-form-builder";
-import FormBuilderModal from "@/components/administration/forms/FormBuilderModal";
 import AssignFormModal from "@/components/administration/forms/AssignFormModal";
 import InductionTrackerModal from "@/components/administration/forms/InductionTrackerModal";
 import FormsAdminTabs from "@/components/administration/forms/FormsAdminTabs";
@@ -53,8 +52,6 @@ export default function InductionFormsPanel({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [projectFilterId, setProjectFilterId] = useState("");
-  const [showBuilder, setShowBuilder] = useState(false);
-  const [editTarget, setEditTarget] = useState<InductionFormTemplate | null>(null);
   const [assignTarget, setAssignTarget] = useState<InductionFormTemplate | null>(null);
   const [trackerTarget, setTrackerTarget] = useState<InductionFormTemplate | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -117,8 +114,7 @@ export default function InductionFormsPanel({
 
   const openEdit = (form: InductionFormTemplate, event?: MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
-    setEditTarget(form);
-    setShowBuilder(true);
+    router.push(`/admin/forms/inductions/${form.id}/edit`);
   };
 
   const handleDuplicate = async (form: InductionFormTemplate) => {
@@ -173,12 +169,6 @@ export default function InductionFormsPanel({
     } finally {
       setActionId(null);
     }
-  };
-
-  const handleSaved = (form: InductionFormTemplate) => {
-    setSuccessMessage(`"${form.title}" saved.`);
-    showSuccess(`"${form.title}" saved.`);
-    void loadForms({ silent: true });
   };
 
   const handleAssigned = () => {
@@ -283,7 +273,14 @@ export default function InductionFormsPanel({
                       onClick={() => setTrackerTarget(form)}
                     >
                       <td className="px-3 py-3">
-                        <p className="font-medium text-slate-900">{form.title}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-900">{form.title}</p>
+                          {form.is_system_template ? (
+                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                              System
+                            </span>
+                          ) : null}
+                        </div>
                         {form.description ? (
                           <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">
                             {form.description}
@@ -390,19 +387,6 @@ export default function InductionFormsPanel({
           </div>
         )}
       </div>
-
-      {showBuilder && editTarget ? (
-        <FormBuilderModal
-          projects={projects}
-          templates={forms}
-          initialForm={editTarget}
-          onClose={() => {
-            setShowBuilder(false);
-            setEditTarget(null);
-          }}
-          onSaved={handleSaved}
-        />
-      ) : null}
 
       {trackerTarget ? (
         <InductionTrackerModal
