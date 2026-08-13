@@ -34,7 +34,9 @@ export function isSupabaseAdminConfigured(): boolean {
 
 /** Public site origin for Supabase auth redirect URLs. */
 export function getSiteUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const configured =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");
 
   const vercel = process.env.VERCEL_URL?.trim();

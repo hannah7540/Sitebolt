@@ -5,9 +5,9 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import { getSiteUrl } from "@/lib/supabase/env";
 
 export async function POST(req: Request) {
-  // Retrieve keys explicitly inside handler execution context
   const apiKey =
     process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
 
@@ -32,9 +32,12 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    const redirectTo = `${getSiteUrl()}/auth/callback?next=${encodeURIComponent("/auth/confirm-invite")}`;
+
     const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "magiclink",
       email: email,
+      options: { redirectTo },
     });
 
     if (linkError || !data?.properties?.action_link) {
