@@ -229,7 +229,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   ) {
     return redirectWithCookies(
       request,
-      "/update-password",
+      "/reset-password",
       sessionResponse
     );
   }

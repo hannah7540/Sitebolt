@@ -1,16 +1,7 @@
-import { redirect } from "next/navigation";
+import ResetPasswordOtpPage from "./ResetPasswordOtpPage";
 
-export default async function ResetPasswordRedirectPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const error = typeof params.error === "string" ? params.error : null;
+export const dynamic = "force-dynamic";
 
-  if (error) {
-    redirect(`/update-password?error=${encodeURIComponent(error)}`);
-  }
-
-  redirect("/update-password");
+export default function ResetPasswordPage() {
+  return <ResetPasswordOtpPage />;
 }

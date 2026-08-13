@@ -87,9 +87,9 @@ export default function ForgotPasswordForm({
         </div>
 
         <p className="text-sm text-slate-600">
-          If an account exists for <strong>{email.trim()}</strong>, we sent a password reset
-          link. Open the link to set a new password on{" "}
-          <span className="font-medium text-slate-800">/update-password</span>.
+          If an account exists for <strong>{email.trim()}</strong>, we sent a 6-digit password
+          reset code. Enter your code at{" "}
+          <span className="font-medium text-slate-800">/reset-password</span>.
         </p>
 
         <button

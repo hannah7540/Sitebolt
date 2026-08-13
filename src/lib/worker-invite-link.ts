@@ -3,6 +3,11 @@ export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
+export const PASSWORD_RESET_OTP_PATH = "/reset-password";
+
+export function buildPasswordResetOtpPageUrl(email: string): string {
+  return `${PRODUCTION_SITE_URL}${PASSWORD_RESET_OTP_PATH}?email=${encodeURIComponent(email.trim())}`;
+}
 
 /** @deprecated Use AUTH_CALLBACK_PATH */
 export const WORKER_INVITE_CALLBACK_PATH = AUTH_CALLBACK_PATH;
