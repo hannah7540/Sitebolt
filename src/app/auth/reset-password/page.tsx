@@ -9,8 +9,8 @@ export default async function AuthResetPasswordRedirectPage({
   const error = typeof params.error === "string" ? params.error : null;
 
   if (error) {
-    redirect(`/reset-password?error=${encodeURIComponent(error)}`);
+    redirect(`/update-password?error=${encodeURIComponent(error)}`);
   }
 
-  redirect("/reset-password");
+  redirect("/update-password");
 }

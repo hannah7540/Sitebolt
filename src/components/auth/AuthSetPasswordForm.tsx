@@ -18,6 +18,8 @@ interface AuthSetPasswordFormProps {
   submitLabel: string;
   successMessage: string;
   initialHasSession?: boolean;
+  /** When true, never exchange token_hash/code client-side (callback already did). */
+  trustServerSession?: boolean;
 }
 
 const VALID_OTP_TYPES = new Set<EmailOtpType>([
@@ -57,6 +59,7 @@ export default function AuthSetPasswordForm({
   submitLabel,
   successMessage,
   initialHasSession = false,
+  trustServerSession = false,
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -84,6 +87,15 @@ export default function AuthSetPasswordForm({
     const supabase = createSupabaseBrowserClient();
 
     async function establishSession() {
+      if (trustServerSession) {
+        const sessionReady = await resolveClientSession(supabase);
+        if (!cancelled) {
+          setHasSession(sessionReady);
+          setCheckingSession(false);
+        }
+        return;
+      }
+
       if (
         tokenHash &&
         otpType &&
@@ -162,7 +174,7 @@ export default function AuthSetPasswordForm({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [authCode, initialHasSession, otpType, router, tokenHash]);
+  }, [authCode, initialHasSession, otpType, router, tokenHash, trustServerSession]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
+import { PASSWORD_RESET_NEXT_PATH, WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +22,16 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
-function resolveSafeNext(next: string | null): string {
-  if (!next || !next.startsWith("/")) {
-    return WORKER_INVITE_NEXT_PATH;
+function resolveSafeNext(next: string | null, otpType: string | null): string {
+  if (next && next.startsWith("/")) {
+    return next;
   }
-  return next;
+
+  if (otpType === "recovery") {
+    return PASSWORD_RESET_NEXT_PATH;
+  }
+
+  return WORKER_INVITE_NEXT_PATH;
 }
 
 function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {
@@ -52,12 +57,35 @@ function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof c
   return { supabase, getSessionResponse: () => sessionResponse };
 }
 
+function redirectWithSession(
+  origin: string,
+  nextPath: string,
+  sessionResponse: NextResponse
+): NextResponse {
+  const redirectResponse = NextResponse.redirect(`${origin}${nextPath}`);
+  copyCookies(sessionResponse, redirectResponse);
+  return redirectResponse;
+}
+
+function redirectWithError(
+  origin: string,
+  nextPath: string,
+  message: string,
+  sessionResponse: NextResponse
+): NextResponse {
+  const redirectUrl = new URL(nextPath, origin);
+  redirectUrl.searchParams.set("error", message);
+  const errorResponse = NextResponse.redirect(redirectUrl);
+  copyCookies(sessionResponse, errorResponse);
+  return errorResponse;
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
   const tokenHash = requestUrl.searchParams.get("token_hash");
   const otpTypeParam = requestUrl.searchParams.get("type");
-  const safeNext = resolveSafeNext(requestUrl.searchParams.get("next"));
+  const safeNext = resolveSafeNext(requestUrl.searchParams.get("next"), otpTypeParam);
   const origin = requestUrl.origin;
 
   const cookieStore = await cookies();
@@ -70,33 +98,60 @@ export async function GET(request: Request) {
     });
 
     if (error) {
-      const redirectUrl = new URL(safeNext, origin);
-      redirectUrl.searchParams.set("error", error.message);
-      const errorResponse = NextResponse.redirect(redirectUrl);
-      copyCookies(getSessionResponse(), errorResponse);
-      return errorResponse;
+      return redirectWithError(origin, safeNext, error.message, getSessionResponse());
     }
 
-    const redirectResponse = NextResponse.redirect(`${origin}${safeNext}`);
-    copyCookies(getSessionResponse(), redirectResponse);
-    return redirectResponse;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return redirectWithError(
+        origin,
+        safeNext,
+        "Unable to establish password reset session.",
+        getSessionResponse()
+      );
+    }
+
+    return redirectWithSession(origin, safeNext, getSessionResponse());
   }
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
-      const redirectUrl = new URL(safeNext, origin);
-      redirectUrl.searchParams.set("error", error.message);
-      const errorResponse = NextResponse.redirect(redirectUrl);
-      copyCookies(getSessionResponse(), errorResponse);
-      return errorResponse;
+      return redirectWithError(origin, safeNext, error.message, getSessionResponse());
     }
 
-    const redirectResponse = NextResponse.redirect(`${origin}${safeNext}`);
-    copyCookies(getSessionResponse(), redirectResponse);
-    return redirectResponse;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return redirectWithError(
+        origin,
+        safeNext,
+        "Unable to establish password reset session.",
+        getSessionResponse()
+      );
+    }
+
+    return redirectWithSession(origin, safeNext, getSessionResponse());
   }
 
-  return NextResponse.redirect(`${origin}${safeNext}`);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    return redirectWithSession(origin, safeNext, getSessionResponse());
+  }
+
+  return redirectWithError(
+    origin,
+    safeNext,
+    "Auth link is invalid or has expired.",
+    getSessionResponse()
+  );
 }

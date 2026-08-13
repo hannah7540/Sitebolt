@@ -33,7 +33,7 @@ function UpdatePasswordContent() {
       }
 
       if (session && isPasswordRecoverySession(session)) {
-        router.replace("/reset-password");
+        router.replace("/update-password");
         return;
       }
 

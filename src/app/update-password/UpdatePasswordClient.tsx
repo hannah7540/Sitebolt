@@ -2,15 +2,18 @@
 
 import AuthSetPasswordForm from "@/components/auth/AuthSetPasswordForm";
 
-interface ResetPasswordClientProps {
+interface UpdatePasswordClientProps {
   initialHasSession: boolean;
 }
 
-export default function ResetPasswordClient({ initialHasSession }: ResetPasswordClientProps) {
+export default function UpdatePasswordClient({
+  initialHasSession,
+}: UpdatePasswordClientProps) {
   return (
     <AuthSetPasswordForm
       initialHasSession={initialHasSession}
-      title="Reset your password"
+      trustServerSession
+      title="Set new password"
       description="Choose a new password for your SiteBolt account."
       submitLabel="Update password"
       successMessage="Password updated. Redirecting you to SiteBolt…"

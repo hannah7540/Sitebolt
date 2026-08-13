@@ -1,7 +1,7 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
-export const PASSWORD_RESET_NEXT_PATH = "/reset-password";
+export const PASSWORD_RESET_NEXT_PATH = "/update-password";
 
 /** @deprecated Use AUTH_CALLBACK_PATH */
 export const WORKER_INVITE_CALLBACK_PATH = AUTH_CALLBACK_PATH;
