@@ -1464,7 +1464,24 @@ function prepareWorkerWritePayload(
     );
   }
 
-  return sanitizeWorkerDateFields(payload);
+  return sanitizeWorkerDateFields(stripLegacyPayRateFields(payload));
+}
+
+const LEGACY_PAY_RATE_FIELD_KEYS = [
+  "hourly_rate",
+  "daily_rate",
+  "overtime_rate",
+  "base_hourly_rate",
+] as const;
+
+function stripLegacyPayRateFields(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next = { ...payload };
+  for (const key of LEGACY_PAY_RATE_FIELD_KEYS) {
+    delete next[key];
+  }
+  return next;
 }
 
 export async function addWorker(

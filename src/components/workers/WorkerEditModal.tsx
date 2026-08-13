@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Camera, Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import { updateWorker, updateWorkerPhotoUrl, updateWorkerSecurityRole } from "@/lib/supabase";
-import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
+import { assignDefaultPayRuleToWorker, assignPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import {
   normalizeSecurityRole,
   type SecurityRole,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
+import AssignPayRuleSelect from "./AssignPayRuleSelect";
 import WorkerSecurityRoleSelect from "./WorkerSecurityRoleSelect";
 
 interface WorkerEditModalProps {
@@ -28,6 +29,7 @@ interface WorkerEditModalProps {
   onClose: () => void;
   onSaved: (worker: Worker) => void;
   canManageWorkerRoles?: boolean;
+  canAssignPayRules?: boolean;
 }
 
 export default function WorkerEditModal({
@@ -35,6 +37,7 @@ export default function WorkerEditModal({
   onClose,
   onSaved,
   canManageWorkerRoles = false,
+  canAssignPayRules = false,
 }: WorkerEditModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialNames = splitWorkerName(worker);
@@ -60,6 +63,9 @@ export default function WorkerEditModal({
   const [silicaCertNumber, setSilicaCertNumber] = useState(worker.silica_cert_number ?? "");
   const [securityRole, setSecurityRole] = useState<SecurityRole>(
     normalizeSecurityRole(worker.security_role)
+  );
+  const [assignedPayRuleId, setAssignedPayRuleId] = useState<string | null>(
+    worker.pay_rule_id ?? worker.pay_rule_template_id ?? null
   );
   const [photoUrl, setPhotoUrl] = useState(worker.photo_url);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -140,16 +146,33 @@ export default function WorkerEditModal({
       }
     }
 
+    let resolvedPayRuleId =
+      worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
+
     if (worker.state) {
-      const { error: payRuleError } = await assignDefaultPayRuleToWorker(
-        worker.id,
-        worker.state,
-        isApprentice
-      );
-      if (payRuleError) {
-        setSaving(false);
-        setError(payRuleError);
-        return;
+      if (canAssignPayRules && assignedPayRuleId) {
+        const { error: payRuleError } = await assignPayRuleToWorker(
+          worker.id,
+          assignedPayRuleId
+        );
+        if (payRuleError) {
+          setSaving(false);
+          setError(payRuleError);
+          return;
+        }
+        resolvedPayRuleId = assignedPayRuleId;
+      } else {
+        const { error: payRuleError, templateId } = await assignDefaultPayRuleToWorker(
+          worker.id,
+          worker.state,
+          isApprentice
+        );
+        if (payRuleError) {
+          setSaving(false);
+          setError(payRuleError);
+          return;
+        }
+        resolvedPayRuleId = templateId ?? resolvedPayRuleId;
       }
     }
 
@@ -172,6 +195,8 @@ export default function WorkerEditModal({
       silica_cert_number: silicaCertNumber.trim() || null,
       photo_url: photoUrl,
       security_role: canManageWorkerRoles ? securityRole : worker.security_role,
+      pay_rule_id: resolvedPayRuleId,
+      pay_rule_template_id: resolvedPayRuleId,
     });
     onClose();
   };
@@ -298,6 +323,15 @@ export default function WorkerEditModal({
               id={`edit-worker-security-role-${worker.id}`}
               value={securityRole}
               onChange={setSecurityRole}
+              disabled={saving || uploadingPhoto}
+            />
+          ) : null}
+
+          {canAssignPayRules ? (
+            <AssignPayRuleSelect
+              id={`edit-worker-pay-rule-${worker.id}`}
+              value={assignedPayRuleId}
+              onChange={setAssignedPayRuleId}
               disabled={saving || uploadingPhoto}
             />
           ) : null}

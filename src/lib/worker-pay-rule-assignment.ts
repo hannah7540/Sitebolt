@@ -90,3 +90,24 @@ export async function assignDefaultPayRuleToWorker(
 
   return { templateId: id, templateName, error: null };
 }
+
+/** Assign an explicit pay rule/template selection to a worker. */
+export async function assignPayRuleToWorker(
+  workerId: string,
+  payRuleId: string | null
+): Promise<{ error: string | null }> {
+  const normalizedId = payRuleId?.trim() || null;
+  if (!normalizedId) {
+    return { error: null };
+  }
+
+  const { error: templateError } = await updateWorkerPayRuleTemplateId(
+    workerId,
+    normalizedId
+  );
+  if (templateError) {
+    return { error: templateError };
+  }
+
+  return updateWorkerPayRuleId(workerId, normalizedId);
+}

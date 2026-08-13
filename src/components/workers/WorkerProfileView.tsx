@@ -33,6 +33,7 @@ import { getVocDisplayTitle } from "@/lib/voc-utils";
 import { buildWorkerFullName } from "@/lib/worker-utils";
 import {
   assignDefaultPayRuleToWorker,
+  assignPayRuleToWorker,
   resolvePayRuleTemplateNameForWorker,
   resolveTravelPayrollCategory,
 } from "@/lib/worker-pay-rule-assignment";
@@ -44,6 +45,7 @@ import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
 import WorkerStateRegionBadge from "@/components/workers/WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
 import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
+import AssignPayRuleSelect from "@/components/workers/AssignPayRuleSelect";
 import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
 import {
   normalizeSecurityRole,
@@ -352,8 +354,8 @@ function BasicInfoTab({
   );
   const [workerCode, setWorkerCode] = useState(worker.worker_code ?? "");
   const [employmentType, setEmploymentType] = useState(worker.employment_type ?? "");
-  const [hourlyRate, setHourlyRate] = useState(
-    worker.hourly_rate != null ? String(worker.hourly_rate) : ""
+  const [assignedPayRuleId, setAssignedPayRuleId] = useState<string | null>(
+    worker.pay_rule_id ?? worker.pay_rule_template_id ?? null
   );
   const [accountStatus, setAccountStatus] = useState<AccountStatusOption>(() =>
     isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
@@ -380,7 +382,7 @@ function BasicInfoTab({
     setState(normalizeWorkerStateRegion(worker.state));
     setWorkerCode(worker.worker_code ?? "");
     setEmploymentType(worker.employment_type ?? "");
-    setHourlyRate(worker.hourly_rate != null ? String(worker.hourly_rate) : "");
+    setAssignedPayRuleId(worker.pay_rule_id ?? worker.pay_rule_template_id ?? null);
     setAccountStatus(
       isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
     );
@@ -405,14 +407,6 @@ function BasicInfoTab({
 
     setSaving(true);
     setError(null);
-
-    const parsedRate =
-      canAssignPayRules && hourlyRate.trim() ? Number(hourlyRate) : undefined;
-    if (canAssignPayRules && hourlyRate.trim() && Number.isNaN(parsedRate)) {
-      setSaving(false);
-      setError("Hourly rate must be a valid number.");
-      return;
-    }
 
     const wasRevoked = isWorkerRevoked(worker);
     const wantsRevoked = accountStatus === "Revoked";
@@ -446,7 +440,6 @@ function BasicInfoTab({
       state,
       worker_code: workerCode.trim() || null,
       employment_type: employmentType.trim() || null,
-      ...(canAssignPayRules ? { hourly_rate: parsedRate ?? null } : {}),
       status: nextStatus,
     });
 
@@ -468,8 +461,21 @@ function BasicInfoTab({
       }
     }
 
-    let assignedPayRuleId = worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
-    if (state) {
+    let resolvedPayRuleId =
+      worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
+
+    if (canAssignPayRules && assignedPayRuleId) {
+      const { error: payRuleError } = await assignPayRuleToWorker(
+        worker.id,
+        assignedPayRuleId
+      );
+      if (payRuleError) {
+        setSaving(false);
+        setError(payRuleError);
+        return;
+      }
+      resolvedPayRuleId = assignedPayRuleId;
+    } else if (state) {
       const payRuleResult = await assignDefaultPayRuleToWorker(
         worker.id,
         state,
@@ -480,7 +486,7 @@ function BasicInfoTab({
         setError(payRuleResult.error);
         return;
       }
-      assignedPayRuleId = payRuleResult.templateId ?? assignedPayRuleId;
+      resolvedPayRuleId = payRuleResult.templateId ?? resolvedPayRuleId;
     }
 
     const { error: assignError } = await setWorkerProjectAssignments(
@@ -509,14 +515,13 @@ function BasicInfoTab({
       state,
       worker_code: workerCode.trim() || null,
       employment_type: employmentType.trim() || null,
-      ...(canAssignPayRules ? { hourly_rate: parsedRate ?? null } : {}),
       status: nextStatus,
       is_revoked: wantsRevoked,
       is_archived: wantsRevoked,
       assigned_project_ids: wantsRevoked ? [] : projectIds,
       assigned_project_id: wantsRevoked ? null : projectIds[0] ?? null,
-      pay_rule_id: assignedPayRuleId,
-      pay_rule_template_id: assignedPayRuleId,
+      pay_rule_id: resolvedPayRuleId,
+      pay_rule_template_id: resolvedPayRuleId,
       security_role: canManageWorkerRoles ? securityRole : worker.security_role,
     });
   };
@@ -603,18 +608,12 @@ function BasicInfoTab({
           </select>
         </label>
         {canAssignPayRules ? (
-          <label className="block space-y-1">
-            <span className={labelClass}>Base hourly rate ($)</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className={inputClass}
-              value={hourlyRate}
-              onChange={(e) => setHourlyRate(e.target.value)}
-              placeholder="0.00"
-            />
-          </label>
+          <AssignPayRuleSelect
+            id={`profile-pay-rule-${worker.id}`}
+            value={assignedPayRuleId}
+            onChange={setAssignedPayRuleId}
+            disabled={saving}
+          />
         ) : null}
         <label className="block space-y-1">
           <span className={labelClass}>Account status</span>
