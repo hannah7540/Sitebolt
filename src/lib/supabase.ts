@@ -117,6 +117,7 @@ export interface Worker {
   worker_type?: string | null;
   worker_code?: string | null;
   employment_type?: string | null;
+  /** Legacy read-only field; pay rules are assigned via pay_rule_id / pay_rule_template_id. */
   hourly_rate?: number | null;
   pay_rate_id?: string | null;
   pay_rule_id?: string | null;
@@ -185,7 +186,6 @@ const WORKER_SELECT_COLUMNS = [
   "worker_type",
   "worker_code",
   "employment_type",
-  "hourly_rate",
   "pay_rate_id",
   "pay_rule_id",
   "pay_rule_template_id",
@@ -633,7 +633,10 @@ export interface LeaveRequest {
   updated_at?: string;
 }
 
-export type WorkerOnboardingInput = Omit<Worker, "id" | "created_at"> & {
+export type WorkerOnboardingInput = Omit<
+  Worker,
+  "id" | "created_at" | "hourly_rate"
+> & {
   first_name: string;
   last_name: string;
   email: string;
@@ -1600,14 +1603,18 @@ export async function addSubcontractorWorker(
   );
 
   const attempts: Record<string, unknown>[] = [
-    payload,
-    omitWorkerPayloadKeys(payload, ["white_card_doc_url", "silica_cert_doc_url"]),
-    omitWorkerPayloadKeys(payload, [
-      "is_subcontractor",
-      "subcontractor_id",
-      "white_card_doc_url",
-      "silica_cert_doc_url",
-    ]),
+    prepareWorkerWritePayload(payload),
+    prepareWorkerWritePayload(
+      omitWorkerPayloadKeys(payload, ["white_card_doc_url", "silica_cert_doc_url"])
+    ),
+    prepareWorkerWritePayload(
+      omitWorkerPayloadKeys(payload, [
+        "is_subcontractor",
+        "subcontractor_id",
+        "white_card_doc_url",
+        "silica_cert_doc_url",
+      ])
+    ),
   ];
 
   let lastError: string | null = null;
@@ -1817,7 +1824,6 @@ export async function updateWorker(
     cards_vocs?: unknown;
     worker_code?: string | null;
     employment_type?: string | null;
-    hourly_rate?: number | null;
   }
 ): Promise<{ error: string | null }> {
   let payload = { ...updates };
