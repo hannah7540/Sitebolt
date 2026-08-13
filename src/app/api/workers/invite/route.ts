@@ -1,28 +1,37 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { sendEmail } from "@/lib/email-service";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getConfirmInviteRedirectUrl,
+  getResetPasswordRedirectUrl,
   linkWorkerAuthAccount,
-  sendExistingUserOnboardingEmail,
-  sendWorkerPasswordResetEmail,
 } from "@/lib/worker-auth-email";
+import {
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured,
+  supabaseAnonKey,
+  supabaseUrl,
+} from "@/lib/supabase/env";
 
-function parseInviteRequestBody(body: unknown): {
-  email: string;
+export const dynamic = "force-dynamic";
+
+const SUCCESS_MESSAGE = "Invite email sent successfully";
+const INVITE_REDIRECT = "https://www.site-bolt.com.au";
+
+type InviteRequestBody = {
+  email?: string;
   workerId?: string;
   fullName?: string;
   securityRole?: string;
-} {
-  if (!body || typeof body !== "object") {
-    return { email: "" };
-  }
+};
 
+function parseBody(body: unknown): InviteRequestBody {
+  if (!body || typeof body !== "object") return {};
   const record = body as Record<string, unknown>;
-
   return {
-    email: typeof record.email === "string" ? record.email.trim() : "",
+    email: typeof record.email === "string" ? record.email.trim() : undefined,
     workerId: typeof record.workerId === "string" ? record.workerId.trim() : undefined,
     fullName: typeof record.fullName === "string" ? record.fullName.trim() : undefined,
     securityRole:
@@ -30,95 +39,161 @@ function parseInviteRequestBody(body: unknown): {
   };
 }
 
-function successResponse(extra?: Record<string, unknown>) {
+function okResponse(extra?: Record<string, unknown>) {
   return NextResponse.json(
-    {
-      success: true,
-      message: "Invite sent successfully",
-      ...extra,
-    },
+    { success: true, message: SUCCESS_MESSAGE, ...extra },
     { status: 200 }
   );
 }
 
-async function forceExistingUserInviteFallback(options: {
-  email: string;
-  workerId?: string;
-  fullName?: string;
-  securityRole?: string;
-}): Promise<{ ok: boolean; authUserId: string | null }> {
-  const email = options.email.trim();
-  const fullName = options.fullName?.trim() || email;
-  const securityRole = options.securityRole ?? DEFAULT_WORKER_SECURITY_ROLE;
+function failResponse(message: string, status = 400) {
+  return NextResponse.json({ error: message }, { status });
+}
 
-  if (!isSupabaseAdminConfigured()) {
-    const resetOnly = await sendWorkerPasswordResetEmail(email);
-    return { ok: !resetOnly.error, authUserId: null };
+async function sendLinkViaResend(
+  email: string,
+  actionLink: string,
+  fullName: string
+): Promise<boolean> {
+  try {
+    const result = await sendEmail({
+      to: [email],
+      subject: "Set up your Site Bolt account",
+      html: `
+        <p>Hi ${fullName},</p>
+        <p>You have been invited to join Site Bolt. Use the link below to continue:</p>
+        <p><a href="${actionLink}">Open Site Bolt</a></p>
+      `,
+      text: `Hi ${fullName},\n\nOpen Site Bolt: ${actionLink}`,
+    });
+    return result.sent;
+  } catch (error) {
+    console.error("[/api/workers/invite] Resend send failed:", error);
+    return false;
   }
+}
 
-  const admin = createSupabaseAdminClient();
+async function sendPasswordResetEmail(email: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
 
-  const fallback = await sendExistingUserOnboardingEmail(admin, email, fullName);
-  if (!fallback.error) {
-    if (options.workerId && fallback.authUserId) {
-      await linkWorkerAuthAccount(admin, {
-        workerId: options.workerId,
-        authUserId: fallback.authUserId,
-        email,
-        fullName,
-        securityRole,
-      });
+  try {
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: getResetPasswordRedirectUrl(),
+    });
+
+    if (error) {
+      console.warn("[/api/workers/invite] resetPasswordForEmail failed:", error.message);
+      return false;
     }
-    return { ok: true, authUserId: fallback.authUserId };
+
+    return true;
+  } catch (error) {
+    console.error("[/api/workers/invite] resetPasswordForEmail threw:", error);
+    return false;
+  }
+}
+
+async function tryMagicLinkFallback(
+  email: string,
+  fullName: string
+): Promise<{ sent: boolean; authUserId: string | null }> {
+  if (!isSupabaseAdminConfigured()) {
+    return { sent: false, authUserId: null };
   }
 
-  console.warn("[/api/workers/invite] generateLink/Resend fallback failed:", fallback.error);
+  try {
+    const admin = createSupabaseAdminClient();
+    const redirectTo = getConfirmInviteRedirectUrl() || INVITE_REDIRECT;
 
-  const resetResult = await sendWorkerPasswordResetEmail(email);
-  if (!resetResult.error) {
-    return { ok: true, authUserId: fallback.authUserId };
+    for (const type of ["magiclink", "recovery"] as const) {
+      const { data, error } = await admin.auth.admin.generateLink({
+        type,
+        email,
+        options: {
+          redirectTo: type === "recovery" ? getResetPasswordRedirectUrl() : redirectTo,
+        },
+      });
+
+      if (error) {
+        console.warn(`[/api/workers/invite] generateLink (${type}) failed:`, error.message);
+        continue;
+      }
+
+      const actionLink = data.properties?.action_link;
+      if (!actionLink) continue;
+
+      const sent = await sendLinkViaResend(email, actionLink, fullName);
+      if (sent) {
+        return { sent: true, authUserId: data.user?.id ?? null };
+      }
+    }
+  } catch (error) {
+    console.error("[/api/workers/invite] Magic link fallback threw:", error);
   }
 
-  console.error("[/api/workers/invite] resetPasswordForEmail fallback failed:", resetResult.error);
-  return { ok: false, authUserId: fallback.authUserId };
+  return { sent: false, authUserId: null };
+}
+
+async function linkWorkerSafely(options: {
+  workerId?: string;
+  authUserId?: string | null;
+  email: string;
+  fullName: string;
+  securityRole: string;
+}): Promise<void> {
+  if (!options.workerId || !options.authUserId || !isSupabaseAdminConfigured()) return;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    await linkWorkerAuthAccount(admin, {
+      workerId: options.workerId,
+      authUserId: options.authUserId,
+      email: options.email,
+      fullName: options.fullName,
+      securityRole: options.securityRole,
+    });
+  } catch (error) {
+    console.warn("[/api/workers/invite] Worker auth link skipped:", error);
+  }
 }
 
 export async function POST(request: Request) {
-  let parsedEmail = "";
-
   try {
-    let body: unknown;
+    let body: unknown = {};
     try {
       body = await request.json();
     } catch {
-      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+      return failResponse("Invalid JSON body.");
     }
 
-    const { email, workerId, fullName, securityRole } = parseInviteRequestBody(body);
-    parsedEmail = email;
+    const { email, workerId, fullName, securityRole } = parseBody(body);
 
     if (!email) {
-      return NextResponse.json({ error: "email is required." }, { status: 400 });
+      return failResponse("email is required.");
     }
 
+    const resolvedFullName = fullName || email;
+    const resolvedSecurityRole = securityRole || DEFAULT_WORKER_SECURITY_ROLE;
+    const redirectTo = getConfirmInviteRedirectUrl() || INVITE_REDIRECT;
+
     if (!isSupabaseAdminConfigured()) {
-      console.error("[/api/workers/invite] SUPABASE_SERVICE_ROLE_KEY is not configured.");
-      const resetOnly = await sendWorkerPasswordResetEmail(email);
-      if (!resetOnly.error) {
-        return successResponse({ workerId: workerId ?? null, inviteSent: true });
+      const resetSent = await sendPasswordResetEmail(email);
+      if (resetSent) {
+        return okResponse({ workerId: workerId ?? null, fallback: "resetPasswordForEmail" });
       }
-      return NextResponse.json(
-        { error: "Supabase admin credentials are not configured." },
-        { status: 503 }
+      return failResponse(
+        "Supabase service role is not configured and password reset fallback failed."
       );
     }
 
     const admin = createSupabaseAdminClient();
-    const resolvedFullName = fullName || email;
-    const resolvedSecurityRole = securityRole ?? DEFAULT_WORKER_SECURITY_ROLE;
 
     const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: getConfirmInviteRedirectUrl(),
+      redirectTo,
       data: {
         role: resolvedSecurityRole,
         security_role: resolvedSecurityRole,
@@ -126,83 +201,52 @@ export async function POST(request: Request) {
       },
     });
 
-    if (!inviteResult.error && inviteResult.data.user) {
-      if (workerId) {
-        await linkWorkerAuthAccount(admin, {
-          workerId,
-          authUserId: inviteResult.data.user.id,
-          email,
-          fullName: resolvedFullName,
-          securityRole: resolvedSecurityRole,
-        });
-      }
-
-      return successResponse({
-        workerId: workerId ?? null,
-        authUserId: inviteResult.data.user.id,
-        inviteSent: true,
-      });
-    }
-
-    if (inviteResult.error) {
-      console.warn("[/api/workers/invite] inviteUserByEmail failed, using fallback:", {
+    if (!inviteResult.error) {
+      const authUserId = inviteResult.data.user?.id ?? null;
+      await linkWorkerSafely({
+        workerId,
+        authUserId,
         email,
+        fullName: resolvedFullName,
+        securityRole: resolvedSecurityRole,
+      });
+      return okResponse({ workerId: workerId ?? null, authUserId, method: "inviteUserByEmail" });
+    }
+
+    console.warn("[/api/workers/invite] inviteUserByEmail failed, using fallback:", {
+      email,
+      message: inviteResult.error.message,
+      status: inviteResult.error.status,
+    });
+
+    const magicLink = await tryMagicLinkFallback(email, resolvedFullName);
+    if (magicLink.sent) {
+      await linkWorkerSafely({
+        workerId,
+        authUserId: magicLink.authUserId,
+        email,
+        fullName: resolvedFullName,
+        securityRole: resolvedSecurityRole,
+      });
+      return okResponse({
         workerId: workerId ?? null,
-        status: inviteResult.error.status,
-        message: inviteResult.error.message,
+        authUserId: magicLink.authUserId,
+        fallback: "generateLink",
       });
     }
 
-    const forcedFallback = await forceExistingUserInviteFallback({
-      email,
-      workerId,
-      fullName: resolvedFullName,
-      securityRole: resolvedSecurityRole,
-    });
-
-    if (forcedFallback.ok) {
-      return successResponse({
-        workerId: workerId ?? null,
-        authUserId: forcedFallback.authUserId,
-        inviteSent: true,
-        fallback: true,
-      });
+    const resetSent = await sendPasswordResetEmail(email);
+    if (resetSent) {
+      return okResponse({ workerId: workerId ?? null, fallback: "resetPasswordForEmail" });
     }
 
-    console.error("[/api/workers/invite] All invite paths failed:", {
-      email,
-      workerId: workerId ?? null,
-      inviteError: inviteResult.error?.message ?? null,
-    });
-
-    return NextResponse.json(
-      {
-        error:
-          inviteResult.error?.message ?? "Unable to send worker invite email.",
-      },
-      { status: 500 }
+    return failResponse(
+      inviteResult.error.message || "Unable to send worker invite email."
     );
   } catch (error) {
     console.error("[/api/workers/invite] Unexpected error:", error);
-
-    if (parsedEmail) {
-      try {
-        const resetResult = await sendWorkerPasswordResetEmail(parsedEmail);
-        if (!resetResult.error) {
-          return successResponse({ inviteSent: true, fallback: true });
-        }
-      } catch (fallbackError) {
-        console.error("[/api/workers/invite] Emergency fallback failed:", fallbackError);
-      }
-    }
-
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to send worker invite.",
-      },
-      { status: 500 }
+    return failResponse(
+      error instanceof Error ? error.message : "Failed to send worker invite."
     );
   }
 }
-
-export const dynamic = "force-dynamic";
