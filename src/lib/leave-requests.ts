@@ -9,6 +9,7 @@ import {
   type SupabaseRequestError,
 } from "./supabase-errors";
 import { fetchWorkerProfileDisplayName } from "./worker-profile-lookup";
+import { nullIfBlank, sanitizeWritePayload } from "./form-payload-utils";
 import { syncPendingLeaveCalendarEvent } from "./worker-calendar-events";
 import { broadcastLeaveRequestsUpdated } from "./leave-events";
 import type { WorkerCalendarEvent } from "./worker-calendar-events";
@@ -232,22 +233,25 @@ function buildDualDateLeavePayload(
   const projectId = sanitizeOptionalText(input.projectId);
   const projectName = sanitizeOptionalText(getProjectDisplayName(input.projectId));
 
-  return stripNullishFields({
-    worker_id: input.workerId,
-    worker_name: input.workerName,
-    project_id: projectId,
-    project_name: projectName,
-    leave_type: leaveType,
-    start_date: startDateStr,
-    first_date: startDateStr,
-    end_date: endDateStr,
-    last_date: endDateStr,
-    ...buildDayCountFields(calculatedDays),
-    reason: reasonText,
-    notes: reasonText,
-    signature_url: input.signatureUrl,
-    status: "pending",
-  });
+  return sanitizeWritePayload(
+    stripNullishFields({
+      worker_id: input.workerId,
+      worker_name: input.workerName,
+      project_id: projectId,
+      project_name: projectName,
+      leave_type: leaveType,
+      start_date: startDateStr,
+      first_date: startDateStr,
+      end_date: endDateStr,
+      last_date: endDateStr,
+      ...buildDayCountFields(calculatedDays),
+      reason: reasonText,
+      notes: reasonText,
+      signature_url: nullIfBlank(input.signatureUrl),
+      status: "pending",
+    }),
+    { requiredTextKeys: ["worker_id", "worker_name"] }
+  );
 }
 
 function buildMinimalSafeLeavePayload(payload: Record<string, unknown>) {

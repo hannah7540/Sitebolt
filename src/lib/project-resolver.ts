@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { sanitizeWritePayload } from "./form-payload-utils";
 
 /** Normalized project row used by the app. */
 export interface DbProject {
@@ -391,20 +392,23 @@ function buildProjectWritePayload(input: ProjectSaveInput): ProjectWritePayload 
     input.project_administrators ?? input.project_admins
   );
   const managers = normalizeWorkerUuidArray(input.project_managers);
-  return {
-    project_name: input.project_name.trim(),
-    slug: slugifyTitle(input.project_name),
-    location: input.location?.trim() || null,
-    project_code: input.project_code?.trim() || null,
-    client: input.client?.trim() || null,
-    project_managers: managers,
-    project_administrators: administrators,
-    project_admins: administrators,
-    assigned_workers: normalizeWorkerUuidArray(input.assigned_workers),
-    is_active: archived ? false : input.is_active ?? true,
-    is_archived: archived,
-    status: input.status?.trim() || (archived ? "Archived" : "Active"),
-  };
+  return sanitizeWritePayload(
+    {
+      project_name: input.project_name.trim(),
+      slug: slugifyTitle(input.project_name),
+      location: input.location?.trim() || null,
+      project_code: input.project_code?.trim() || null,
+      client: input.client?.trim() || null,
+      project_managers: managers,
+      project_administrators: administrators,
+      project_admins: administrators,
+      assigned_workers: normalizeWorkerUuidArray(input.assigned_workers),
+      is_active: archived ? false : input.is_active ?? true,
+      is_archived: archived,
+      status: input.status?.trim() || (archived ? "Archived" : "Active"),
+    },
+    { requiredTextKeys: ["project_name", "slug"] }
+  ) as ProjectWritePayload;
 }
 
 async function persistProjectWrite(

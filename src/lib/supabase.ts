@@ -39,7 +39,12 @@ import {
   type SubcontractorWorkerFormInput,
   buildSubcontractorWorkerPayload,
 } from "./subcontractor-worker-payload";
-import { nullIfBlank, parseMissingColumnFromError } from "./form-payload-utils";
+import {
+  nullIfBlank,
+  nullIfBlankDate,
+  parseMissingColumnFromError,
+  sanitizeWritePayload,
+} from "./form-payload-utils";
 import {
   insertSiteFormRecord,
   isMissingSiteFormColumnError,

@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { nullIfBlankDate } from "./form-payload-utils";
 import { getWorkerDisplayName } from "./worker-utils";
 import type { Worker } from "./supabase";
 
@@ -83,13 +84,13 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     make: input.make?.trim() || null,
     model: input.model?.trim() || null,
     registration: input.registration?.trim() || null,
-    rego_expiry_date: input.regoExpiryDate || null,
+    rego_expiry_date: nullIfBlankDate(input.regoExpiryDate),
     rego_document_url: input.regoDocumentUrl ?? null,
-    insurance_expiry_date: input.insuranceExpiryDate || null,
+    insurance_expiry_date: nullIfBlankDate(input.insuranceExpiryDate),
     insurance_document_url: input.insuranceDocumentUrl ?? null,
     current_hours: input.currentHours ?? 0,
     assigned_project_id: input.assignedProjectId ?? null,
-    assigned_project_name: input.assignedProjectName ?? null,
+    assigned_project_name: input.assignedProjectName?.trim() || null,
     status: input.status ?? "Active",
     updated_at: new Date().toISOString(),
   };

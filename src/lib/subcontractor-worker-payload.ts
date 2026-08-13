@@ -1,4 +1,9 @@
-import { buildWorkerFullName, nullIfBlankWorkerDate, nullIfBlankWorkerText } from "./worker-utils";
+import {
+  nullIfBlank,
+  nullIfBlankDate,
+  sanitizeWritePayload,
+} from "./form-payload-utils";
+import { buildWorkerFullName } from "./worker-utils";
 
 export interface SubcontractorVocDetail {
   title: string;
@@ -11,13 +16,13 @@ export interface SubcontractorVocDetail {
 export function optionalWorkerText(
   value: string | null | undefined
 ): string | null {
-  return nullIfBlankWorkerText(value);
+  return nullIfBlank(value);
 }
 
 export function optionalWorkerDate(
   value: string | null | undefined
 ): string | null {
-  return nullIfBlankWorkerDate(value);
+  return nullIfBlankDate(value);
 }
 
 export function serializeVocDetails(
@@ -104,6 +109,14 @@ export interface SubcontractorWorkerFormInput {
 
 /** Safe workers-table payload for subcontractor onboarding inserts. */
 export function buildSubcontractorWorkerPayload(
+  input: SubcontractorWorkerFormInput
+): Record<string, unknown> {
+  return sanitizeWritePayload(buildSubcontractorWorkerPayloadRaw(input), {
+    requiredTextKeys: ["first_name", "last_name", "email"],
+  });
+}
+
+function buildSubcontractorWorkerPayloadRaw(
   input: SubcontractorWorkerFormInput
 ): Record<string, unknown> {
   const first_name = input.firstName.trim();

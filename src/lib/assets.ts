@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { resolveProjectId, isProjectUuid } from "./project-resolver";
+import { nullIfBlankDate } from "./form-payload-utils";
 
 export type LaserType = "pipe" | "rotating";
 
@@ -363,8 +364,8 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       model: input.model?.trim() || null,
       serial_number: input.serial_number?.trim() || null,
       laser_type: input.laser_type ?? null,
-      next_service_due_date: input.next_service_due_date || null,
-      next_calibration_due_date: input.next_calibration_due_date || null,
+      next_service_due_date: nullIfBlankDate(input.next_service_due_date),
+      next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
       service_contact_name: input.service_contact_name?.trim() || null,
       service_contact_company: input.service_contact_company?.trim() || null,
       service_contact_phone: input.service_contact_phone?.trim() || null,
@@ -383,7 +384,7 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     serial_number: input.serial_number?.trim() || null,
     laser_type: null,
     next_service_due_date: null,
-    next_calibration_due_date: input.next_calibration_due_date || null,
+    next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
     service_contact_name: input.service_contact_name?.trim() || null,
     service_contact_company: input.service_contact_company?.trim() || null,
     service_contact_phone: input.service_contact_phone?.trim() || null,

@@ -4,6 +4,63 @@ export function nullIfBlank(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+/** Alias for date/timestamp inputs stored as Postgres date columns. */
+export function nullIfBlankDate(value: string | null | undefined): string | null {
+  return nullIfBlank(value);
+}
+
+const DEFAULT_WRITE_DATE_FIELD_PATTERN = /(^dob$|_date$|_expiry$)/;
+
+export interface SanitizeWritePayloadOptions {
+  omitKeys?: readonly string[];
+  requiredTextKeys?: readonly string[];
+  dateFieldPattern?: RegExp;
+}
+
+/** Normalize optional write payloads: strip omitted keys, blank strings → null, trim text. */
+export function sanitizeWritePayload(
+  payload: Record<string, unknown>,
+  options: SanitizeWritePayloadOptions = {}
+): Record<string, unknown> {
+  const omitKeys = new Set(options.omitKeys ?? []);
+  const requiredTextKeys = new Set(options.requiredTextKeys ?? []);
+  const datePattern = options.dateFieldPattern ?? DEFAULT_WRITE_DATE_FIELD_PATTERN;
+
+  const next = { ...payload };
+  for (const key of omitKeys) {
+    delete next[key];
+  }
+
+  for (const [key, value] of Object.entries(next)) {
+    if (Array.isArray(value)) continue;
+    if (typeof value === "boolean" || typeof value === "number") continue;
+
+    if (value === "") {
+      next[key] = null;
+      continue;
+    }
+
+    if (value == null) continue;
+
+    if (typeof value !== "string") continue;
+
+    const trimmed = value.trim();
+    if (datePattern.test(key)) {
+      next[key] = trimmed || null;
+      continue;
+    }
+
+    if (requiredTextKeys.has(key)) {
+      next[key] = trimmed;
+      continue;
+    }
+
+    next[key] = trimmed || null;
+  }
+
+  return next;
+}
+
 /** Returns empty string when value is undefined, null, or whitespace-only. */
 export function emptyStringIfBlank(value: string | null | undefined): string {
   return value?.trim() ?? "";

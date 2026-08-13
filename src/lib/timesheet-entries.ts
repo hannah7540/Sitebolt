@@ -17,6 +17,7 @@ import {
   type TimesheetActivitySlot,
   type TimesheetBreakSlot,
 } from "./timesheet-utils";
+import { nullIfBlank, nullIfBlankDate, sanitizeWritePayload } from "./form-payload-utils";
 import {
   validateActBreakRequirement,
 } from "./timesheet-act-break-validation";
@@ -158,43 +159,46 @@ function buildPayload(
   const isDraft = !input.submit;
   const status = input.submit ? "pending" : "draft";
 
-  return stripUndefined({
-    worker_id: input.workerId,
-    work_date: input.workDate,
-    project_id: projectId,
-    project_name: projectName,
-    worker_trade: input.workerTrade?.trim() || null,
-    start_time: firstActivity?.startTime ?? "06:30",
-    finish_time: lastActivity?.endTime ?? "14:30",
-    break_minutes: Math.round(totals.breakHours * 60),
-    total_hours: totals.dailyTotalHours,
-    work_hours: totals.workHours,
-    break_hours: totals.breakHours,
-    daily_total_hours: totals.dailyTotalHours,
-    activities: input.activities.map((row) => {
-      const synced = syncLineItemFields(row);
-      return {
-        id: synced.id,
-        start_time: synced.startTime,
-        end_time: synced.endTime,
-        label: synced.label,
-        category: synced.category,
-        duration_mode: synced.durationMode,
-        hours: synced.hours,
-      };
+  return sanitizeWritePayload(
+    stripUndefined({
+      worker_id: input.workerId,
+      work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
+      project_id: projectId,
+      project_name: projectName,
+      worker_trade: input.workerTrade?.trim() || null,
+      start_time: firstActivity?.startTime ?? "06:30",
+      finish_time: lastActivity?.endTime ?? "14:30",
+      break_minutes: Math.round(totals.breakHours * 60),
+      total_hours: totals.dailyTotalHours,
+      work_hours: totals.workHours,
+      break_hours: totals.breakHours,
+      daily_total_hours: totals.dailyTotalHours,
+      activities: input.activities.map((row) => {
+        const synced = syncLineItemFields(row);
+        return {
+          id: synced.id,
+          start_time: synced.startTime,
+          end_time: synced.endTime,
+          label: synced.label,
+          category: synced.category,
+          duration_mode: synced.durationMode,
+          hours: synced.hours,
+        };
+      }),
+      breaks: input.breaks.map((row) => ({
+        id: row.id,
+        start_time: row.startTime,
+        end_time: row.endTime,
+      })),
+      notes: nullIfBlank(input.notes),
+      signature_url: input.submit ? signatureUrl : signatureUrl || null,
+      is_draft: isDraft,
+      status,
+      submitted_at: input.submit ? now : null,
+      updated_at: now,
     }),
-    breaks: input.breaks.map((row) => ({
-      id: row.id,
-      start_time: row.startTime,
-      end_time: row.endTime,
-    })),
-    notes: input.notes?.trim() || null,
-    signature_url: input.submit ? signatureUrl : signatureUrl || null,
-    is_draft: isDraft,
-    status,
-    submitted_at: input.submit ? now : null,
-    updated_at: now,
-  });
+    { requiredTextKeys: ["worker_id", "work_date"] }
+  );
 }
 
 function buildLegacyPayload(full: Record<string, unknown>): Record<string, unknown> {

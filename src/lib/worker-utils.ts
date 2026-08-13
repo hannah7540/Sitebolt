@@ -1,3 +1,5 @@
+import { sanitizeWritePayload } from "./form-payload-utils";
+
 export type TicketStatus = "valid" | "expires_soon" | "expired" | "unknown";
 
 export const WARNING_DAYS = 30;
@@ -173,50 +175,6 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   "created_at",
 ] as const;
 
-const WORKER_REQUIRED_TRIM_KEYS = new Set(["first_name", "last_name", "email"]);
-
-function omitWorkerWriteFields(
-  payload: Record<string, unknown>
-): Record<string, unknown> {
-  const next = { ...payload };
-  for (const key of WORKER_WRITE_OMIT_FIELD_KEYS) {
-    delete next[key];
-  }
-  return next;
-}
-
-function sanitizeWorkerWriteScalar(key: string, value: unknown): unknown {
-  if (value === "") return null;
-  if (value == null) return null;
-  if (isWorkerDateFieldKey(key)) return value;
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (WORKER_REQUIRED_TRIM_KEYS.has(key)) {
-      return trimmed;
-    }
-    return trimmed || null;
-  }
-
-  return value;
-}
-
-/** Normalize worker create/update payloads before Supabase insert or update. */
-export function sanitizeWorkerWritePayload(
-  payload: Record<string, unknown>
-): Record<string, unknown> {
-  const next = omitWorkerWriteFields(payload);
-
-  for (const [key, value] of Object.entries(next)) {
-    if (key === "cards_vocs") continue;
-    if (Array.isArray(value)) continue;
-    if (typeof value === "boolean" || typeof value === "number") continue;
-    next[key] = sanitizeWorkerWriteScalar(key, value);
-  }
-
-  return sanitizeWorkerDateFields(next);
-}
-
 export const WORKER_DATE_FIELD_KEYS = [
   "dob",
   "white_card_issue_date",
@@ -226,6 +184,19 @@ export const WORKER_DATE_FIELD_KEYS = [
 ] as const;
 
 const WORKER_DATE_FIELD_PATTERN = /(^dob$|_date$|_expiry$)/;
+
+/** Normalize worker create/update payloads before Supabase insert or update. */
+export function sanitizeWorkerWritePayload(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return sanitizeWorkerDateFields(
+    sanitizeWritePayload(payload, {
+      omitKeys: WORKER_WRITE_OMIT_FIELD_KEYS,
+      requiredTextKeys: ["first_name", "last_name", "email"],
+      dateFieldPattern: WORKER_DATE_FIELD_PATTERN,
+    })
+  );
+}
 
 function isWorkerDateFieldKey(key: string): boolean {
   return (

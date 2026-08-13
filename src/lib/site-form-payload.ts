@@ -2,6 +2,7 @@ import {
   isSchemaCacheColumnError,
   nullIfBlank,
   parseMissingColumnFromError,
+  sanitizeWritePayload,
 } from "./form-payload-utils";
 import {
   consolidatePayloadForTable,
@@ -49,29 +50,32 @@ export function buildSiteFormInsertPayload(
   const submittedAt = input.submittedAt ?? new Date().toISOString();
   const checklistData = input.formData ?? {};
 
-  return consolidatePayloadForTable("site_forms", {
-    form_type: input.formType,
-    project_id: input.projectId,
-    site_id: input.projectId,
-    worker_id: input.workerId,
-    submitted_by_worker_id: input.submittedByWorkerId ?? input.workerId,
-    submitted_at: submittedAt,
-    form_date: input.formDate,
-    form_time: normalizeSiteFormTime(input.formTime),
-    location_scope: nullIfBlank(input.locationScope),
-    weather_conditions: nullIfBlank(input.weatherConditions),
-    title: nullIfBlank(input.title),
-    status: nullIfBlank(input.status) ?? "Completed",
-    project_name: nullIfBlank(input.projectName),
-    notes: nullIfBlank(input.notes),
-    form_data: checklistData,
-    checklist_data: checklistData,
-    photo_urls: input.photoUrls ?? [],
-    attendees: input.attendees ?? [],
-    additional_workers: input.additionalWorkers ?? [],
-    submitter_signature_url: nullIfBlank(input.submitterSignatureUrl),
-    created_at: submittedAt,
-  });
+  return sanitizeWritePayload(
+    consolidatePayloadForTable("site_forms", {
+      form_type: input.formType,
+      project_id: input.projectId,
+      site_id: input.projectId,
+      worker_id: input.workerId,
+      submitted_by_worker_id: input.submittedByWorkerId ?? input.workerId,
+      submitted_at: submittedAt,
+      form_date: input.formDate,
+      form_time: normalizeSiteFormTime(input.formTime),
+      location_scope: nullIfBlank(input.locationScope),
+      weather_conditions: nullIfBlank(input.weatherConditions),
+      title: nullIfBlank(input.title),
+      status: nullIfBlank(input.status) ?? "Completed",
+      project_name: nullIfBlank(input.projectName),
+      notes: nullIfBlank(input.notes),
+      form_data: checklistData,
+      checklist_data: checklistData,
+      photo_urls: input.photoUrls ?? [],
+      attendees: input.attendees ?? [],
+      additional_workers: input.additionalWorkers ?? [],
+      submitter_signature_url: nullIfBlank(input.submitterSignatureUrl),
+      created_at: submittedAt,
+    }),
+    { requiredTextKeys: ["form_type", "project_id", "worker_id", "form_date"] }
+  );
 }
 
 export function isMissingSiteFormColumnError(

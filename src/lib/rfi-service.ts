@@ -7,6 +7,7 @@ import {
   type SupabaseRequestError,
 } from "./supabase-errors";
 import { SITE_PROJECTS } from "./projects";
+import { nullIfBlank, nullIfBlankDate, sanitizeWritePayload } from "./form-payload-utils";
 
 export const RFIS_TABLE = "rfis";
 const FORM_WORKER_ASSIGNMENTS_TABLE = "form_worker_assignments";
@@ -668,36 +669,39 @@ function buildRfiInsertPayload(input: {
   const rfiFormattedCode = normalizeRfiFormattedCode(input.rfiNumber);
   const raisedBy = input.requestedByName.trim() || "Worker";
 
-  return stripUndefinedFields({
-    rfi_number: rfiFormattedCode,
-    rfi_code: rfiFormattedCode,
-    title: titleValue,
-    subject: titleValue,
-    description: detailsValue,
-    request_details: detailsValue,
-    details: detailsValue,
-    project_id: input.projectId || null,
-    project_name: projectName,
-    zone_area: input.zoneArea?.trim() || null,
-    category: input.category?.trim() || null,
-    discipline: input.discipline?.trim() || null,
-    priority: input.priority ?? "Medium",
-    due_date: input.dueDate || null,
-    attachments: input.attachments ?? [],
-    document_url: input.documentUrl?.trim() || null,
-    comments: input.comments?.trim() || null,
-    requested_by_id: input.requestedById || null,
-    requested_by_name: raisedBy,
-    raised_by: raisedBy,
-    requested_by_email: input.requestedByEmail || "",
-    signature_url: signatureValue,
-    request_signature_url: signatureValue,
-    requester_signature_url: signatureValue,
-    status: "Open",
-    date_raised: input.now.slice(0, 10),
-    created_at: input.now,
-    updated_at: input.now,
-  });
+  return sanitizeWritePayload(
+    stripUndefinedFields({
+      rfi_number: rfiFormattedCode,
+      rfi_code: rfiFormattedCode,
+      title: titleValue,
+      subject: titleValue,
+      description: detailsValue,
+      request_details: detailsValue,
+      details: detailsValue,
+      project_id: input.projectId || null,
+      project_name: projectName,
+      zone_area: nullIfBlank(input.zoneArea),
+      category: nullIfBlank(input.category),
+      discipline: nullIfBlank(input.discipline),
+      priority: input.priority ?? "Medium",
+      due_date: nullIfBlankDate(input.dueDate),
+      attachments: input.attachments ?? [],
+      document_url: nullIfBlank(input.documentUrl),
+      comments: nullIfBlank(input.comments),
+      requested_by_id: input.requestedById || null,
+      requested_by_name: raisedBy,
+      raised_by: raisedBy,
+      requested_by_email: nullIfBlank(input.requestedByEmail),
+      signature_url: signatureValue,
+      request_signature_url: signatureValue,
+      requester_signature_url: signatureValue,
+      status: "Open",
+      date_raised: input.now.slice(0, 10),
+      created_at: input.now,
+      updated_at: input.now,
+    }),
+    { requiredTextKeys: ["title", "rfi_number"] }
+  );
 }
 
 function buildRfiMigrationPayload(
