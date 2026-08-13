@@ -6,8 +6,11 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
-const PASSWORD_RESET_REDIRECT_URL =
-  "https://www.site-bolt.com.au/auth/callback?next=/reset-password";
+const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
+
+function buildPasswordResetRedirectUrl(email: string): string {
+  return `${PRODUCTION_SITE_URL}/reset-password?email=${encodeURIComponent(email.trim())}`;
+}
 
 export async function POST(req: Request) {
   const apiKey =
@@ -37,7 +40,7 @@ export async function POST(req: Request) {
       type: "recovery",
       email,
       options: {
-        redirectTo: PASSWORD_RESET_REDIRECT_URL,
+        redirectTo: buildPasswordResetRedirectUrl(email),
       },
     });
 
