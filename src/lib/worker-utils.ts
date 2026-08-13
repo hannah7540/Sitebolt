@@ -150,6 +150,73 @@ export function nullIfBlankWorkerDate(
   return trimmed ? trimmed : null;
 }
 
+/** Convert blank optional text inputs to null for Postgres text columns. */
+export function nullIfBlankWorkerText(
+  value: string | null | undefined
+): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export const WORKER_LEGACY_PAY_RATE_FIELD_KEYS = [
+  "hourly_rate",
+  "daily_rate",
+  "overtime_rate",
+  "base_hourly_rate",
+] as const;
+
+/** Fields excluded from generic worker insert/update payloads. */
+export const WORKER_WRITE_OMIT_FIELD_KEYS = [
+  ...WORKER_LEGACY_PAY_RATE_FIELD_KEYS,
+  "id",
+  "created_at",
+] as const;
+
+const WORKER_REQUIRED_TRIM_KEYS = new Set(["first_name", "last_name", "email"]);
+
+function omitWorkerWriteFields(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next = { ...payload };
+  for (const key of WORKER_WRITE_OMIT_FIELD_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
+
+function sanitizeWorkerWriteScalar(key: string, value: unknown): unknown {
+  if (value === "") return null;
+  if (value == null) return null;
+  if (isWorkerDateFieldKey(key)) return value;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (WORKER_REQUIRED_TRIM_KEYS.has(key)) {
+      return trimmed;
+    }
+    return trimmed || null;
+  }
+
+  return value;
+}
+
+/** Normalize worker create/update payloads before Supabase insert or update. */
+export function sanitizeWorkerWritePayload(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next = omitWorkerWriteFields(payload);
+
+  for (const [key, value] of Object.entries(next)) {
+    if (key === "cards_vocs") continue;
+    if (Array.isArray(value)) continue;
+    if (typeof value === "boolean" || typeof value === "number") continue;
+    next[key] = sanitizeWorkerWriteScalar(key, value);
+  }
+
+  return sanitizeWorkerDateFields(next);
+}
+
 export const WORKER_DATE_FIELD_KEYS = [
   "dob",
   "white_card_issue_date",

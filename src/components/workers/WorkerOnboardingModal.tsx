@@ -14,7 +14,7 @@ import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { assignDefaultPayRuleToWorker, assignPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
-import { nullIfBlankWorkerDate } from "@/lib/worker-utils";
+import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import { cn } from "@/lib/utils";
 import {
@@ -161,7 +161,10 @@ export default function WorkerOnboardingModal({
   const set = (key: keyof WorkerOnboardingInput, value: string | null) => {
     setForm((prev) => ({
       ...prev,
-      [key]: typeof value === "string" ? value || null : value,
+      [key]:
+        typeof value === "string"
+          ? value.trim() || null
+          : value,
     }));
   };
 
@@ -289,7 +292,7 @@ export default function WorkerOnboardingModal({
         first_name: (form.first_name ?? "").trim(),
         last_name: (form.last_name ?? "").trim(),
         email: (form.email ?? "").trim(),
-        phone: form.phone || null,
+        phone: nullIfBlankWorkerText(form.phone),
         assigned_project_id: resolvedProjectId,
         state: form.state,
         is_apprentice: form.is_apprentice ?? false,

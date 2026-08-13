@@ -1,3 +1,5 @@
+import { buildWorkerFullName, nullIfBlankWorkerDate, nullIfBlankWorkerText } from "./worker-utils";
+
 export interface SubcontractorVocDetail {
   title: string;
   issuing_org: string | null;
@@ -9,8 +11,7 @@ export interface SubcontractorVocDetail {
 export function optionalWorkerText(
   value: string | null | undefined
 ): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  return nullIfBlankWorkerText(value);
 }
 
 export function optionalWorkerDate(
@@ -18,8 +19,6 @@ export function optionalWorkerDate(
 ): string | null {
   return nullIfBlankWorkerDate(value);
 }
-
-import { buildWorkerFullName, nullIfBlankWorkerDate } from "./worker-utils";
 
 export function serializeVocDetails(
   vocs: SubcontractorVocDetail[]
