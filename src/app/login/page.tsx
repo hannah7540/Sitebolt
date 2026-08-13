@@ -13,6 +13,7 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next");
+  const resetSuccess = searchParams.get("reset") === "success";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -118,6 +119,12 @@ function LoginPageContent() {
         <p className="mb-6 text-sm text-slate-600">
           Sign in with your administrator account to open the project dashboard.
         </p>
+
+        {resetSuccess ? (
+          <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Password successfully updated! Please log in.
+          </p>
+        ) : null}
 
         <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
           <div className="space-y-1">

@@ -58,7 +58,8 @@ export async function POST(req: Request) {
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
           <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Password Reset Code</h1>
           <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            Use this 6-digit code to reset your Site Bolt password:
+            Your password reset code is: <strong style="font-size: 28px; letter-spacing: 0.2em; color: #ea580c;">${otpCode}</strong>.
+            Click the button below to enter your code and set a new password.
           </p>
           <p style="font-size: 36px; font-weight: 700; letter-spacing: 0.3em; margin: 0 0 32px; text-align: center; color: #ea580c;">
             ${otpCode}
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
           </p>
         </div>
       `.trim(),
-      text: `Your Site Bolt password reset code is: ${otpCode}\n\nEnter it at: ${enterCodeUrl}`,
+      text: `Your password reset code is: ${otpCode}. Click the link below to enter your code and set a new password.\n\n${enterCodeUrl}`,
     });
 
     if (resendResult.error) {
