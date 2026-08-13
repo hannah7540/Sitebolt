@@ -1,3 +1,5 @@
+import { resolveSystemFromEmail } from "./email-config";
+
 export interface SendEmailInput {
   to: string[];
   subject: string;
@@ -11,14 +13,6 @@ export interface SendEmailResult {
   error?: string;
   messageId?: string;
   simulated?: boolean;
-}
-
-function resolveFromAddress(): string {
-  return (
-    process.env.EXPIRY_ALERT_FROM_EMAIL?.trim() ||
-    process.env.RESEND_FROM_EMAIL?.trim() ||
-    "SiteBolt Alerts <alerts@sitebolt.app>"
-  );
 }
 
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
@@ -49,7 +43,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: resolveFromAddress(),
+        from: resolveSystemFromEmail(),
         to: recipients,
         subject: input.subject,
         html: input.html,
