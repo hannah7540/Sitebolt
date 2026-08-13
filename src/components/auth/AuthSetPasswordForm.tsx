@@ -20,6 +20,8 @@ interface AuthSetPasswordFormProps {
   initialHasSession?: boolean;
   /** When true, never exchange token_hash/code client-side (callback already did). */
   trustServerSession?: boolean;
+  passwordLabel?: string;
+  confirmPasswordLabel?: string;
 }
 
 const VALID_OTP_TYPES = new Set<EmailOtpType>([
@@ -60,6 +62,8 @@ export default function AuthSetPasswordForm({
   successMessage,
   initialHasSession = false,
   trustServerSession = false,
+  passwordLabel = "New password",
+  confirmPasswordLabel = "Confirm password",
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -277,7 +281,7 @@ export default function AuthSetPasswordForm({
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
             <label className="block space-y-1">
-              <span className={labelClass}>New password</span>
+              <span className={labelClass}>{passwordLabel}</span>
               <input
                 type="password"
                 className={inputClass}
@@ -290,7 +294,7 @@ export default function AuthSetPasswordForm({
             </label>
 
             <label className="block space-y-1">
-              <span className={labelClass}>Confirm password</span>
+              <span className={labelClass}>{confirmPasswordLabel}</span>
               <input
                 type="password"
                 className={inputClass}

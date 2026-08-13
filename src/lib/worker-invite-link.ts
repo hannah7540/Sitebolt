@@ -1,5 +1,6 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
+export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
 
@@ -33,10 +34,21 @@ export function buildWorkerInviteCallbackUrl(
   return buildAuthCallbackUrl(hashedToken, type, nextPath);
 }
 
+export function buildPasswordResetConfirmUrl(hashedToken: string): string {
+  const params = new URLSearchParams({
+    token_hash: hashedToken,
+    type: "recovery",
+    next: PASSWORD_RESET_NEXT_PATH,
+  });
+
+  return `${PRODUCTION_SITE_URL}${AUTH_CONFIRM_PATH}?${params.toString()}`;
+}
+
+/** @deprecated Prefer buildPasswordResetConfirmUrl for recovery emails. */
 export function buildPasswordResetCallbackUrl(hashedToken: string): string {
   return buildAuthCallbackUrl(hashedToken, "recovery", PASSWORD_RESET_NEXT_PATH);
 }
 
 export function getPasswordResetRedirectTo(): string {
-  return `${PRODUCTION_SITE_URL}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(PASSWORD_RESET_NEXT_PATH)}`;
+  return `${PRODUCTION_SITE_URL}${AUTH_CONFIRM_PATH}?next=${encodeURIComponent(PASSWORD_RESET_NEXT_PATH)}`;
 }

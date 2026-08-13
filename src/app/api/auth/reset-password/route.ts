@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import {
-  buildPasswordResetCallbackUrl,
+  buildPasswordResetConfirmUrl,
   getPasswordResetRedirectTo,
 } from "@/lib/worker-invite-link";
 
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    const resetLink = buildPasswordResetCallbackUrl(hashedToken);
+    const resetLink = buildPasswordResetConfirmUrl(hashedToken);
 
     const resend = new Resend(apiKey);
     const resendResult = await resend.emails.send({

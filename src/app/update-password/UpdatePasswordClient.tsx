@@ -17,6 +17,8 @@ export default function UpdatePasswordClient({
       description="Choose a new password for your SiteBolt account."
       submitLabel="Update password"
       successMessage="Password updated. Redirecting you to SiteBolt…"
+      passwordLabel="New Password"
+      confirmPasswordLabel="Confirm New Password"
     />
   );
 }
