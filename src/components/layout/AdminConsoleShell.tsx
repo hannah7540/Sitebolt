@@ -22,6 +22,7 @@ import { redirectToLogin } from "@/lib/auth-guard";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
   setAdminWorkerId,
+  workerProfileDashboardPath,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
@@ -238,7 +239,7 @@ export default function AdminConsoleShell({
 
   const handleOpenProfile = () => {
     setSidebarOpen(false);
-    router.push("/settings/account");
+    router.push(workerProfileDashboardPath(adminWorkerId, { fromAdmin: true }));
   };
 
   const contextValue = useMemo<AdminConsoleContextValue>(
@@ -326,6 +327,7 @@ export default function AdminConsoleShell({
             permissionsLoading={loading}
             onNavigate={handleNavigate}
             profileName={adminProfileName}
+            profileWorkerId={adminWorkerId}
             onOpenProfile={handleOpenProfile}
           />
         </div>

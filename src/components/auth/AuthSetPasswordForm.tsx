@@ -52,7 +52,12 @@ export default function AuthSetPasswordForm({
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (cancelled) return;
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || session) {
+      if (
+        event === "PASSWORD_RECOVERY" ||
+        event === "SIGNED_IN" ||
+        event === "INITIAL_SESSION" ||
+        event === "TOKEN_REFRESHED"
+      ) {
         setHasSession(Boolean(session));
         setCheckingSession(false);
       }

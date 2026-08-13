@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ClipboardList,
@@ -15,6 +16,7 @@ import {
   Clock,
   Scale,
   LogOut,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -26,7 +28,7 @@ import {
   parseProjectRoute,
   resolveProjectNavHref,
 } from "@/lib/project-nav-routes";
-import { DEFAULT_ADMIN_PROFILE_NAME } from "@/lib/user-session";
+import { DEFAULT_ADMIN_PROFILE_NAME, workerProfileDashboardPath } from "@/lib/user-session";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
@@ -83,6 +85,7 @@ interface SidebarProps {
   permissionsLoading?: boolean;
   onNavigate: (view: ActiveView, options?: NavigateOptions) => void;
   profileName?: string;
+  profileWorkerId?: string | null;
   onOpenProfile?: () => void;
 }
 
@@ -440,21 +443,34 @@ export default function Sidebar({
   permissionsLoading = false,
   onNavigate,
   profileName: profileNameOverride,
+  profileWorkerId,
   onOpenProfile,
 }: SidebarProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const { profileName: sessionProfileName, loading: profileLoading } =
     useAuthProfileDisplay();
   const profileName = profileNameOverride ?? sessionProfileName;
   const handleSignOut = () => {
     void signOutAndRedirect();
   };
-  const pathname = usePathname();
+  const handleProfileClick = () => {
+    if (onOpenProfile && pathname === "/") {
+      onOpenProfile();
+      return;
+    }
+
+    router.push(
+      workerProfileDashboardPath(profileWorkerId, { fromAdmin: pathname !== "/" })
+    );
+  };
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
   const effectiveSelectedProjectId =
     selectedProjectId ?? routeContext?.projectId ?? null;
   const effectiveActiveView = routeContext?.view ?? activeView;
   const profileActive =
-    effectiveActiveView === "my-profile" || pathname.startsWith("/settings/account");
+    effectiveActiveView === "my-profile" ||
+    pathname.startsWith("/worker-dashboard");
   const showOrganisation = canManageOrganisation(sessionRole);
   const showAdministration = canManageAdministration(sessionRole);
   const showSecurity = canManageSecuritySettings(sessionRole);
@@ -503,7 +519,7 @@ export default function Sidebar({
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-80">
       <button
         type="button"
-        onClick={onOpenProfile}
+        onClick={handleProfileClick}
         className={cn(
           "w-full border-b border-slate-200 p-4 text-left transition-colors",
           profileActive
@@ -587,14 +603,23 @@ export default function Sidebar({
       </nav>
 
       <div className="mt-auto border-t border-slate-200 p-4">
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-        >
-          <LogOut className="h-4 w-4" />
-          Sign Out
-        </button>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <Link
+            href="/account/update-password"
+            className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+          >
+            <KeyRound className="h-4 w-4 shrink-0" />
+            <span className="truncate">Change Password</span>
+          </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span className="truncate">Sign Out</span>
+          </button>
+        </div>
         <p className="text-xs text-slate-400">Construction Safety Platform</p>
       </div>
     </aside>

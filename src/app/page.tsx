@@ -245,7 +245,7 @@ export default function Home() {
     setShowAddAsset(false);
     setShowAddSubcontractor(false);
     setSidebarOpen(false);
-    router.push("/settings/account");
+    setActiveTab("my-profile");
   };
 
   const handleNavigate = (
@@ -342,6 +342,7 @@ export default function Home() {
           permissionsLoading={loading}
           onNavigate={handleNavigate}
           profileName={adminProfileName}
+          profileWorkerId={adminWorkerId}
           onOpenProfile={handleOpenProfile}
         />
       </div>

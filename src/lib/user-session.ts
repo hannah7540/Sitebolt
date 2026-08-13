@@ -37,6 +37,16 @@ export function workerDashboardUrl(
   return `/worker-dashboard?${params.toString()}`;
 }
 
+/** Worker self-service dashboard for the signed-in profile card. */
+export function workerProfileDashboardPath(
+  workerId: string | null | undefined,
+  options?: { fromAdmin?: boolean }
+): string {
+  const trimmed = workerId?.trim();
+  if (!trimmed) return "/worker-dashboard";
+  return workerDashboardUrl(trimmed, options);
+}
+
 /**
  * Resolve the worker profile for the dashboard from explicit props, URL query,
  * or storage tied to an authenticated session. Never falls back to arbitrary DB rows.

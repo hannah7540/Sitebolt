@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
+import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import {
   canAccessAdminConsole,
   canManageOrganisation,
@@ -26,6 +27,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/accounts",
   "/admin",
   "/settings",
+  "/account",
 ] as const;
 
 /** Project-scoped admin roles land on the main project console. */
@@ -56,6 +58,8 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
   return (
     pathname === GENERAL_WORKER_HOME_PATH ||
     pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`) ||
+    pathname.startsWith("/account/") ||
+    pathname.startsWith("/settings/account") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/portal/")
   );
@@ -202,8 +206,25 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     data: { user },
   } = await supabase.auth.getUser();
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
   const pathname = request.nextUrl.pathname;
   const context = await resolveAuthContext(supabase, user);
+
+  if (
+    session &&
+    isPasswordRecoverySession(session) &&
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/account/update-password")
+  ) {
+    return redirectWithCookies(
+      request,
+      "/auth/reset-password",
+      sessionResponse
+    );
+  }
 
   if (pathname.startsWith("/login")) {
     if (context.user) {

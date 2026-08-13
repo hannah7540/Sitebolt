@@ -11,7 +11,8 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
-      const redirectUrl = new URL("/auth/reset-password", origin);
+      const fallbackPath = next.startsWith("/auth/") ? next : "/auth/reset-password";
+      const redirectUrl = new URL(fallbackPath, origin);
       redirectUrl.searchParams.set("error", error.message);
       return NextResponse.redirect(redirectUrl);
     }
