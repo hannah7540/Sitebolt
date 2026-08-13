@@ -14,10 +14,24 @@ export async function requestPasswordResetEmail(
       body: JSON.stringify({ email: trimmed }),
     });
 
-    const payload = (await response.json()) as { error?: string; success?: boolean };
+    const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      return { error: payload.error ?? "Failed to send reset email." };
+      if (payload && typeof payload === "object") {
+        const apiError = (payload as { error?: unknown }).error;
+        if (typeof apiError === "string" && apiError.trim()) {
+          return { error: apiError.trim() };
+        }
+        if (
+          apiError &&
+          typeof apiError === "object" &&
+          "message" in apiError &&
+          typeof (apiError as { message?: unknown }).message === "string"
+        ) {
+          return { error: (apiError as { message: string }).message };
+        }
+      }
+      return { error: "Failed to send reset email." };
     }
 
     return { error: null };

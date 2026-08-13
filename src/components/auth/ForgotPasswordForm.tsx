@@ -3,12 +3,29 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HardHat, Loader2 } from "lucide-react";
-import { requestPasswordResetEmail } from "@/lib/auth-password-reset";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface ForgotPasswordFormProps {
   initialEmail?: string;
   onBackToSignIn: () => void;
+}
+
+function parseApiError(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.trim();
+    }
+  }
+
+  return null;
 }
 
 export default function ForgotPasswordForm({
@@ -23,17 +40,35 @@ export default function ForgotPasswordForm({
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-    setSubmitting(true);
 
-    const result = await requestPasswordResetEmail(email);
-    setSubmitting(false);
-
-    if (result.error) {
-      setError(result.error);
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError("Enter your email address.");
       return;
     }
 
-    setSent(true);
+    setSubmitting(true);
+
+    try {
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmedEmail }),
+      });
+
+      const payload: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setError(parseApiError(payload) ?? "Failed to send reset email.");
+        return;
+      }
+
+      setSent(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to send reset email.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (sent) {
@@ -105,10 +140,8 @@ export default function ForgotPasswordForm({
           />
         </div>
 
-        {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {error}
-          </p>
+        {typeof error === "string" && error ? (
+          <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
         ) : null}
 
         <button

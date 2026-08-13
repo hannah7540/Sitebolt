@@ -42,19 +42,13 @@ export async function POST(req: Request) {
 
     if (linkError) {
       console.error("[/api/auth/reset-password] generateLink failed:", linkError.message);
-      return NextResponse.json(
-        { success: true, message: "If an account exists, a reset email has been sent." },
-        { status: 200 }
-      );
+      return NextResponse.json({ success: true }, { status: 200 });
     }
 
     const hashedToken = data?.properties?.hashed_token;
     if (!hashedToken) {
       console.error("[/api/auth/reset-password] generateLink missing hashed_token");
-      return NextResponse.json(
-        { success: true, message: "If an account exists, a reset email has been sent." },
-        { status: 200 }
-      );
+      return NextResponse.json({ success: true }, { status: 200 });
     }
 
     const resetLink = buildPasswordResetCallbackUrl(hashedToken);
@@ -86,13 +80,14 @@ export async function POST(req: Request) {
 
     if (resendResult.error) {
       console.error("[/api/auth/reset-password] Resend error:", resendResult.error);
-      return NextResponse.json({ error: resendResult.error.message }, { status: 500 });
+      const message =
+        typeof resendResult.error.message === "string"
+          ? resendResult.error.message
+          : "Failed to send reset email.";
+      return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    return NextResponse.json(
-      { success: true, message: "If an account exists, a reset email has been sent." },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
