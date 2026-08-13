@@ -24,11 +24,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
 
-    const apiKey = process.env.RESEND_API_KEY;
+    const apiKey =
+      process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
     if (!apiKey) {
-      console.error("[/api/workers/invite] Missing RESEND_API_KEY in environment");
+      console.error("No API key found in process.env");
       return NextResponse.json(
-        { error: "Missing RESEND_API_KEY in environment" },
+        { error: "No API key found in process.env" },
         { status: 500 }
       );
     }
