@@ -152,7 +152,7 @@ export async function resolveE2ETestContext(): Promise<E2ETestContext> {
     subcontractorWorkerId:
       envOverride.subcontractorWorkerId ?? subcontractorWorker?.id ?? null,
     projectId,
-    projectName,
+    projectName: projectName ?? null,
     plantId,
     supabaseConfigured: true,
   };

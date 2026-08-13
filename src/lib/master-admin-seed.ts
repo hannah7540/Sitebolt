@@ -111,7 +111,8 @@ async function insertWithVariants(
 
   for (const variant of variants) {
     const { data, error } = await supabase.from(table).insert([variant]).select(select).single();
-    if (!error) return { id: data?.id ? String(data.id) : null, error: null };
+    const row = data as { id?: unknown } | null;
+    if (!error) return { id: row?.id ? String(row.id) : null, error: null };
     lastError = error.message;
     if (!error.message.toLowerCase().includes("schema cache")) {
       return { id: null, error: error.message };

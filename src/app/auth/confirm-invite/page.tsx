@@ -1,9 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import AuthSetPasswordForm from "@/components/auth/AuthSetPasswordForm";
 
-export default function ConfirmInvitePage() {
+function ConfirmInvitePageContent() {
   const searchParams = useSearchParams();
   const callbackError = searchParams.get("error");
 
@@ -25,5 +27,19 @@ export default function ConfirmInvitePage() {
       submitLabel="Activate account"
       successMessage="Your account is ready. You can sign in with your new password."
     />
+  );
+}
+
+export default function ConfirmInvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        </div>
+      }
+    >
+      <ConfirmInvitePageContent />
+    </Suspense>
   );
 }

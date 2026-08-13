@@ -283,9 +283,9 @@ export default function WorkerOnboardingModal({
         last_name: string;
         email: string;
       } = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        email: form.email.trim(),
+        first_name: (form.first_name ?? "").trim(),
+        last_name: (form.last_name ?? "").trim(),
+        email: (form.email ?? "").trim(),
         phone: form.phone || null,
         assigned_project_id: resolvedProjectId,
         state: form.state,
@@ -301,9 +301,9 @@ export default function WorkerOnboardingModal({
       if (mode === "full") {
         Object.assign(payload, {
           ...form,
-          first_name: form.first_name.trim(),
-          last_name: form.last_name.trim(),
-          email: form.email.trim(),
+          first_name: (form.first_name ?? "").trim(),
+          last_name: (form.last_name ?? "").trim(),
+          email: (form.email ?? "").trim(),
           assigned_project_id: resolvedProjectId,
           white_card_photo_url,
           silica_cert_photo_url,
@@ -364,7 +364,7 @@ export default function WorkerOnboardingModal({
 
       onSaved();
 
-      const workerEmail = form.email.trim();
+      const workerEmail = (form.email ?? "").trim();
 
       if (mode === "quick") {
         try {

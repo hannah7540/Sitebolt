@@ -14,6 +14,7 @@ import {
   formatTimeDisplay,
   formatTimesheetHours,
 } from "@/lib/timesheet-utils";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
   getLineCategoryLabel,
   isLeaveLineCategory,
@@ -241,7 +242,7 @@ export async function fetchTimesheetHoursReportRows(input: {
       .map((timesheet) => {
         const worker = workerById.get(timesheet.worker_id);
         return {
-          workerName: getWorkerDisplayName(worker, "Unknown worker"),
+          workerName: getWorkerDisplayName(worker ?? {}, "Unknown worker"),
           employmentStatus: resolveEmploymentStatus(worker, subcontractorNames),
           projectSite: resolveProjectSiteLabel(timesheet, input.projects),
           workDate: timesheet.work_date.slice(0, 10),

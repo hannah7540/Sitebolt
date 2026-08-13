@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { buildSiteFormInsertPayload } from "./site-form-payload";
+import type { SiteFormData } from "./site-forms";
 import { buildSubcontractorPlantPayload } from "./subcontractor-plant-payload";
 import { insertWithFormMetadataFallback } from "./form-metadata-consolidation";
 import { parseMissingColumnFromError } from "./form-payload-utils";
@@ -318,8 +319,9 @@ async function insertWithVariants(
 
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const { data, error } = await supabase.from(table).insert([payload]).select(select).single();
+      const row = data as { id?: unknown } | null;
       if (!error) {
-        return { id: data?.id ? String(data.id) : null, error: null };
+        return { id: row?.id ? String(row.id) : null, error: null };
       }
 
       lastError = error.message;
@@ -888,7 +890,7 @@ async function seedSafetyAndMeetings(
       status: walk.status,
       projectName: walk.project.name,
       notes: `${SEED_TAG} · ${walk.title}`,
-      formData: walk.formData,
+      formData: walk.formData as SiteFormData,
       photoUrls: ["https://example.com/seed/test-data/safety-walk.jpg"],
       attendees: generalWorkers.slice(0, 3).map((worker) => ({
         worker_id: worker.id,

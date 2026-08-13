@@ -3,14 +3,17 @@ import type { PostgrestError } from "@supabase/supabase-js";
 export type SupabaseRequestError = Pick<PostgrestError, "code" | "message" | "details" | "hint">;
 
 export function toSupabaseRequestError(
-  error: PostgrestError | null | undefined
+  error: PostgrestError | { message: string } | string | null | undefined
 ): SupabaseRequestError | null {
   if (!error) return null;
+  if (typeof error === "string") {
+    return { code: "", message: error, details: "", hint: "" };
+  }
   return {
-    code: error.code,
+    code: "code" in error && error.code != null ? error.code : "",
     message: error.message,
-    details: error.details,
-    hint: error.hint,
+    details: "details" in error && error.details != null ? error.details : "",
+    hint: "hint" in error && error.hint != null ? error.hint : "",
   };
 }
 

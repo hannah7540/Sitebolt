@@ -93,7 +93,7 @@ export default function AddFleetModal({
         email: "",
         is_revoked: false,
         is_archived: false,
-      });
+      } as Worker);
     }
     return active.sort((left, right) =>
       resolveFleetWorkerOptionLabel(left).localeCompare(

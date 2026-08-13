@@ -15,6 +15,7 @@ import {
   resolveMealAllowanceThreshold,
 } from "@/lib/meal-allowance";
 import { cn } from "@/lib/utils";
+import { formatTimesheetHours } from "@/lib/timesheet-utils";
 
 interface TimesheetPayBreakdownPanelProps {
   timesheet: AccountsTimesheetRow;

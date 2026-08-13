@@ -2167,7 +2167,7 @@ export async function submitPlantPrestart(input: {
   }
 
   if (insertError) {
-    return { error: insertError.message };
+    return { error: insertError };
   }
 
   const plantUpdate: Record<string, unknown> = {

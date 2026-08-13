@@ -28,7 +28,10 @@ export async function markSiteFormViewed(
   }
 
   if (!isSupabaseMissingColumnError(columnError)) {
-    return { error: toSupabaseRequestError(columnError).message };
+    return {
+      error:
+        toSupabaseRequestError(columnError)?.message ?? columnError.message,
+    };
   }
 
   const { data: existing, error: fetchError } = await supabase
@@ -38,7 +41,9 @@ export async function markSiteFormViewed(
     .maybeSingle();
 
   if (fetchError) {
-    return { error: toSupabaseRequestError(fetchError).message };
+    return {
+      error: toSupabaseRequestError(fetchError)?.message ?? fetchError.message,
+    };
   }
 
   const currentMeta =
@@ -58,7 +63,10 @@ export async function markSiteFormViewed(
     .eq("id", formId);
 
   if (metadataError) {
-    return { error: toSupabaseRequestError(metadataError).message };
+    return {
+      error:
+        toSupabaseRequestError(metadataError)?.message ?? metadataError.message,
+    };
   }
 
   return { error: null };

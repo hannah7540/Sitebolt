@@ -317,7 +317,7 @@ function BasicInfoTab({
         email: "",
         is_revoked: false,
         is_archived: false,
-      });
+      } as Worker);
     }
     return active;
   }, [plant.assigned_worker_name, values.assignedWorkerId, workers]);

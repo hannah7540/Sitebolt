@@ -1290,10 +1290,10 @@ export function withMealAllowanceCondition(
     return {
       ...condition,
       hours_threshold: MEAL_ALLOWANCE_HOURS_THRESHOLD,
-      allowance_trigger: "hours_gte_threshold",
-      time_condition: "after_n_hours",
-      pay_multiplier_type: "flat_daily",
-      payout_unit: "daily_flat_1x",
+      allowance_trigger: "hours_gte_threshold" as AllowanceTrigger,
+      time_condition: "after_n_hours" as PayRuleTimeCondition,
+      pay_multiplier_type: "flat_daily" as PayRuleMultiplierType,
+      payout_unit: "daily_flat_1x" as AllowancePayoutUnit,
     };
   });
 

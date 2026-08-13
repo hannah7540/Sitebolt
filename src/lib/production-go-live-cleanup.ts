@@ -82,15 +82,21 @@ async function findOwnerWorker(
       throw new Error(`Failed to resolve owner worker: ${error.message}`);
     }
 
-    if (!data?.id) return null;
+    const row = data as {
+      id?: unknown;
+      email?: unknown;
+      auth_user_id?: unknown;
+    } | null;
+
+    if (!row?.id) return null;
 
     return {
-      id: String(data.id),
+      id: String(row.id),
       authUserId:
-        "auth_user_id" in data && data.auth_user_id
-          ? String(data.auth_user_id)
+        "auth_user_id" in row && row.auth_user_id
+          ? String(row.auth_user_id)
           : null,
-      email: String(data.email ?? target),
+      email: String(row.email ?? target),
     };
   }
 

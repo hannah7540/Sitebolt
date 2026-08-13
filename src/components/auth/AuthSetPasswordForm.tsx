@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { resolvePostAuthPathForUser } from "@/lib/auth-profile";
 import {
@@ -49,7 +50,7 @@ export default function AuthSetPasswordForm({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (cancelled) return;
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || session) {
         setHasSession(Boolean(session));
