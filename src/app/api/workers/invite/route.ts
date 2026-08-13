@@ -1,30 +1,21 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { sendEmail } from "@/lib/email-service";
+import { Resend } from "resend";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getConfirmInviteRedirectUrl,
   getResetPasswordRedirectUrl,
 } from "@/lib/worker-auth-email";
-import {
-  getServiceRoleKey,
-  isSupabaseAdminConfigured,
-  isSupabaseConfigured,
-  readSupabaseUrl,
-  supabaseAnonKey,
-  supabaseUrl,
-} from "@/lib/supabase/env";
+import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
-const SUCCESS_BODY = {
-  success: true,
-  message: "Invite sent successfully",
-} as const;
+type GenerateLinkType = "magiclink" | "recovery" | "invite";
 
-function successResponse(extra?: Record<string, unknown>) {
-  return NextResponse.json({ ...SUCCESS_BODY, ...extra }, { status: 200 });
+function getResendClient(): Resend | null {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new Resend(apiKey);
 }
 
 function parseEmail(body: unknown): string {
@@ -33,135 +24,133 @@ function parseEmail(body: unknown): string {
   return typeof email === "string" ? email.trim() : "";
 }
 
-async function sendLinkWithResend(
-  email: string,
-  actionLink: string
-): Promise<boolean> {
-  try {
-    const result = await sendEmail({
-      to: [email],
-      subject: "Your Site Bolt login link",
-      html: `
-        <p>Hello,</p>
-        <p>Use the link below to access Site Bolt:</p>
-        <p><a href="${actionLink}">Open Site Bolt</a></p>
-      `,
-      text: `Open Site Bolt: ${actionLink}`,
-    });
-    return result.sent;
-  } catch (error) {
-    console.error("[/api/workers/invite] Resend error:", error);
-    return false;
+async function generateAuthActionLink(email: string): Promise<{
+  actionLink: string | null;
+  error: string | null;
+}> {
+  if (!isSupabaseAdminConfigured()) {
+    return {
+      actionLink: null,
+      error: "Supabase service role is not configured.",
+    };
   }
-}
 
-async function tryAdminGenerateLink(email: string): Promise<boolean> {
-  try {
-    if (!isSupabaseAdminConfigured()) return false;
+  const admin = createSupabaseAdminClient();
+  const attempts: Array<{ type: GenerateLinkType; redirectTo: string }> = [
+    { type: "magiclink", redirectTo: getConfirmInviteRedirectUrl() },
+    { type: "recovery", redirectTo: getResetPasswordRedirectUrl() },
+    { type: "invite", redirectTo: getConfirmInviteRedirectUrl() },
+  ];
 
-    const admin = createSupabaseAdminClient();
-    const attempts = [
-      { type: "magiclink" as const, redirectTo: getConfirmInviteRedirectUrl() },
-      { type: "recovery" as const, redirectTo: getResetPasswordRedirectUrl() },
-      { type: "invite" as const, redirectTo: getConfirmInviteRedirectUrl() },
-    ];
-
-    for (const attempt of attempts) {
-      const { data, error } = await admin.auth.admin.generateLink({
-        type: attempt.type,
-        email,
-        options: { redirectTo: attempt.redirectTo },
-      });
-
-      if (error) {
-        console.warn(
-          `[/api/workers/invite] generateLink(${attempt.type}) failed:`,
-          error.message
-        );
-        continue;
-      }
-
-      const actionLink = data.properties?.action_link;
-      if (!actionLink) continue;
-
-      const sent = await sendLinkWithResend(email, actionLink);
-      if (sent) return true;
-    }
-
-    return false;
-  } catch (error) {
-    console.error("[/api/workers/invite] Admin generateLink error:", error);
-    return false;
-  }
-}
-
-async function tryPasswordResetEmail(email: string): Promise<boolean> {
-  try {
-    if (!isSupabaseConfigured()) return false;
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: getResetPasswordRedirectUrl(),
+  for (const attempt of attempts) {
+    const { data, error } = await admin.auth.admin.generateLink({
+      type: attempt.type,
+      email,
+      options: { redirectTo: attempt.redirectTo },
     });
 
     if (error) {
-      console.warn("[/api/workers/invite] resetPasswordForEmail failed:", error.message);
-      return false;
+      console.warn(
+        `[/api/workers/invite] generateLink(${attempt.type}) failed:`,
+        error.message
+      );
+      continue;
     }
 
-    return true;
-  } catch (error) {
-    console.error("[/api/workers/invite] resetPasswordForEmail error:", error);
-    return false;
+    const actionLink = data.properties?.action_link ?? null;
+    if (actionLink) {
+      return { actionLink, error: null };
+    }
   }
-}
 
-async function tryResendOnlyFallback(email: string): Promise<boolean> {
-  try {
-    const loginUrl = getConfirmInviteRedirectUrl() || "https://www.site-bolt.com.au/login";
-    return await sendLinkWithResend(
-      email,
-      loginUrl
-    );
-  } catch (error) {
-    console.error("[/api/workers/invite] Resend-only fallback error:", error);
-    return false;
-  }
+  return {
+    actionLink: null,
+    error: "Unable to generate Supabase auth link for this worker.",
+  };
 }
 
 export async function POST(request: Request) {
   try {
-    let body: unknown = {};
+    const apiKey = process.env.RESEND_API_KEY?.trim();
+    if (!apiKey) {
+      console.error("[/api/workers/invite] RESEND_API_KEY is not configured.");
+      return NextResponse.json(
+        { error: "RESEND_API_KEY is not configured." },
+        { status: 400 }
+      );
+    }
+
+    const resend = getResendClient();
+    if (!resend) {
+      return NextResponse.json(
+        { error: "RESEND_API_KEY is not configured." },
+        { status: 400 }
+      );
+    }
+
+    let body: unknown;
     try {
       body = await request.json();
     } catch (error) {
-      console.error("[/api/workers/invite] JSON parse error:", error);
-      return successResponse();
+      console.error("[/api/workers/invite] Invalid JSON body:", error);
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
     const email = parseEmail(body);
     if (!email) {
-      console.error("[/api/workers/invite] Missing email in request body.");
-      return successResponse();
+      return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
 
-    console.info("[/api/workers/invite] Processing invite for:", email, {
+    const { actionLink, error: linkError } = await generateAuthActionLink(email);
+    if (!actionLink) {
+      console.error("[/api/workers/invite] Auth link generation failed:", linkError);
+      return NextResponse.json(
+        { error: linkError ?? "Unable to generate auth link." },
+        { status: 400 }
+      );
+    }
+
+    const resendResult = await resend.emails.send({
       from: DEFAULT_SYSTEM_FROM_EMAIL,
-      adminConfigured: isSupabaseAdminConfigured(),
-      supabaseUrl: isSupabaseConfigured() ? readSupabaseUrl() : null,
-      hasServiceRole: getServiceRoleKey().length > 0,
+      to: [email],
+      subject: "Your Site Bolt login link",
+      html: `
+        <p>Hello,</p>
+        <p>You have been invited to access Site Bolt. Use the link below to continue:</p>
+        <p><a href="${actionLink}">Open Site Bolt</a></p>
+        <p>If you did not expect this email, you can ignore it.</p>
+      `,
+      text: `Open Site Bolt: ${actionLink}`,
     });
 
-    await tryAdminGenerateLink(email);
-    await tryPasswordResetEmail(email);
-    await tryResendOnlyFallback(email);
+    console.log("Resend response:", resendResult.data);
+    console.log("[/api/workers/invite] Sent invite email:", {
+      email,
+      from: DEFAULT_SYSTEM_FROM_EMAIL,
+      messageId: resendResult.data?.id ?? null,
+    });
 
-    return successResponse({ email });
+    if (resendResult.error) {
+      console.error("[/api/workers/invite] Resend error:", resendResult.error);
+      return NextResponse.json({ error: resendResult.error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Invite sent successfully",
+        email,
+        messageId: resendResult.data?.id ?? null,
+      },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error("[/api/workers/invite] Unhandled error:", error);
-    return successResponse();
+    console.error("[/api/workers/invite] Unexpected error:", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to send worker invite.",
+      },
+      { status: 400 }
+    );
   }
 }
