@@ -11,7 +11,6 @@ import {
   Search,
   X,
   Mail,
-  UserPlus,
 } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
@@ -32,7 +31,7 @@ import {
   getWorkerTicketStatus,
   isNonCompliant,
 } from "@/lib/worker-compliance";
-import { isCompanyEmployeeWorker, workerNeedsAuthAccount } from "@/lib/worker-utils";
+import { canResendWorkerInvite, isCompanyEmployeeWorker } from "@/lib/worker-utils";
 import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
@@ -41,7 +40,6 @@ import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
-import { DEFAULT_SYSTEM_FROM_ADDRESS } from "@/lib/email-config";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
 
@@ -116,19 +114,32 @@ const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
   { id: "All", label: "All" },
 ];
 
-function canResendWorkerInvite(worker: Worker): boolean {
-  if (isWorkerRevoked(worker)) return false;
-  if ((worker.status ?? "active") !== "pending_induction") return false;
-  if (!worker.email?.trim()) return false;
-  return Boolean(worker.auth_user_id);
-}
+async function loadWorkerAuthSignInStatus(
+  workers: Worker[]
+): Promise<Record<string, string | null>> {
+  const entries = workers.map((worker) => ({
+    workerId: worker.id,
+    authUserId: worker.auth_user_id ?? null,
+  }));
 
-async function sendWorkerAuthInvite(
-  email: string,
-  workerId?: string
-): Promise<{ authUserId: string | null }> {
-  const data = await requestWorkerAuthInvite(email, workerId);
-  return { authUserId: data.authUserId ?? null };
+  if (entries.length === 0) return {};
+
+  const response = await fetch("/api/workers/auth-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries }),
+  });
+
+  const data = (await response.json()) as {
+    lastSignInByWorkerId?: Record<string, string | null>;
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(data.error ?? "Failed to load worker auth status.");
+  }
+
+  return data.lastSignInByWorkerId ?? {};
 }
 
 export default function WorkerDirectoryPanel({
@@ -152,12 +163,30 @@ export default function WorkerDirectoryPanel({
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [actionId, setActionId] = useState<string | null>(null);
   const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
-  const [creatingAuthId, setCreatingAuthId] = useState<string | null>(null);
+  const [lastSignInByWorkerId, setLastSignInByWorkerId] = useState<
+    Record<string, string | null>
+  >({});
   const [searchQuery, setSearchQuery] = useState("");
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   useEffect(() => {
     setWorkerList(workers);
+  }, [workers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadWorkerAuthSignInStatus(workers)
+      .then((statuses) => {
+        if (!cancelled) setLastSignInByWorkerId(statuses);
+      })
+      .catch(() => {
+        if (!cancelled) setLastSignInByWorkerId({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [workers]);
 
   const loadAssignments = useCallback(async () => {
@@ -290,22 +319,6 @@ export default function WorkerDirectoryPanel({
     setSelectedWorker(worker);
   };
 
-  const workersMissingAuthCount = useMemo(
-    () => tabFilteredWorkers.filter((worker) => workerNeedsAuthAccount(worker)).length,
-    [tabFilteredWorkers]
-  );
-
-  const patchWorkerAuthUserId = (workerId: string, authUserId: string) => {
-    setWorkerList((prev) => {
-      const next = prev.map((row) =>
-        row.id === workerId ? { ...row, auth_user_id: authUserId } : row
-      );
-      const updated = next.find((row) => row.id === workerId);
-      if (updated) onWorkerUpdated?.(updated);
-      return next;
-    });
-  };
-
   const handleResendInvite = async (worker: Worker) => {
     const email = worker.email?.trim();
     if (!email) return;
@@ -313,47 +326,26 @@ export default function WorkerDirectoryPanel({
     setResendingInviteId(worker.id);
 
     try {
-      const { authUserId } = await sendWorkerAuthInvite(email, worker.id);
-      if (authUserId) {
-        patchWorkerAuthUserId(worker.id, authUserId);
+      const data = await requestWorkerAuthInvite(email, worker.id);
+
+      if (data.authUserId) {
+        setWorkerList((prev) => {
+          const next = prev.map((row) =>
+            row.id === worker.id ? { ...row, auth_user_id: data.authUserId } : row
+          );
+          const updated = next.find((row) => row.id === worker.id);
+          if (updated) onWorkerUpdated?.(updated);
+          return next;
+        });
       }
 
-      showSuccess(
-        `Invitation email resent to ${email} from ${DEFAULT_SYSTEM_FROM_ADDRESS}`
-      );
+      showSuccess(`Invite resent to ${email}`);
     } catch (error) {
       showError(
         error instanceof Error ? error.message : "Failed to resend invitation email."
       );
     } finally {
       setResendingInviteId(null);
-    }
-  };
-
-  const handleCreateAuthAccount = async (worker: Worker) => {
-    const email = worker.email?.trim();
-    if (!email) return;
-
-    setCreatingAuthId(worker.id);
-
-    try {
-      const { authUserId } = await sendWorkerAuthInvite(email, worker.id);
-      if (authUserId) {
-        patchWorkerAuthUserId(worker.id, authUserId);
-      }
-
-      showSuccess(
-        `Auth account created and invitation sent to ${email} from ${DEFAULT_SYSTEM_FROM_ADDRESS}`
-      );
-      onRefresh();
-    } catch (error) {
-      showError(
-        error instanceof Error
-          ? error.message
-          : "Failed to create auth account and send invite."
-      );
-    } finally {
-      setCreatingAuthId(null);
     }
   };
 
@@ -437,19 +429,6 @@ export default function WorkerDirectoryPanel({
         ) : null}
       </div>
 
-      {workersMissingAuthCount > 0 ? (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-semibold">
-            {workersMissingAuthCount} worker{workersMissingAuthCount === 1 ? "" : "s"} missing
-            a login account
-          </p>
-          <p className="mt-1 text-amber-800">
-            Use &quot;Create Auth Account &amp; Send Invite&quot; in the Actions column to
-            create their Supabase Auth user and send the onboarding email.
-          </p>
-        </div>
-      ) : null}
-
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
@@ -480,15 +459,17 @@ export default function WorkerDirectoryPanel({
               const assignedProjects = projects.filter((project) =>
                 assignedProjectIds.includes(project.id)
               );
-              const missingAuthAccount = workerNeedsAuthAccount(w);
+              const showResendInvite = canResendWorkerInvite(
+                w,
+                lastSignInByWorkerId[w.id] ?? null
+              );
 
               return (
                 <tr
                   key={w.id}
                   className={cn(
                     "border-t border-slate-200 cursor-pointer hover:bg-orange-50",
-                    nonCompliant && "bg-red-50",
-                    missingAuthAccount && !nonCompliant && "bg-amber-50/70"
+                    nonCompliant && "bg-red-50"
                   )}
                   onClick={() => openWorkerProfile(w)}
                 >
@@ -497,11 +478,6 @@ export default function WorkerDirectoryPanel({
                       <p className="font-semibold text-slate-900">{w.full_name}</p>
                       {w.is_apprentice ? <WorkerApprenticeBadge /> : null}
                       <WorkerStateRegionBadge state={w.state} />
-                      {missingAuthAccount ? (
-                        <span className="rounded bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-900">
-                          No login
-                        </span>
-                      ) : null}
                     </div>
                     {warning && (
                       <p
@@ -566,25 +542,12 @@ export default function WorkerDirectoryPanel({
                           Assign
                         </button>
                       )}
-                      {missingAuthAccount && (
-                        <button
-                          type="button"
-                          disabled={creatingAuthId === w.id}
-                          onClick={() => void handleCreateAuthAccount(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border-2 border-amber-400 bg-amber-100 px-2.5 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-200 disabled:opacity-50"
-                        >
-                          <UserPlus className="h-3.5 w-3.5" />
-                          {creatingAuthId === w.id
-                            ? "Creating…"
-                            : "Create Auth Account & Send Invite"}
-                        </button>
-                      )}
-                      {canResendWorkerInvite(w) && (
+                      {showResendInvite && (
                         <button
                           type="button"
                           disabled={resendingInviteId === w.id}
                           onClick={() => void handleResendInvite(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50"
                         >
                           <Mail className="h-3.5 w-3.5" />
                           {resendingInviteId === w.id ? "Sending…" : "Resend Invite"}

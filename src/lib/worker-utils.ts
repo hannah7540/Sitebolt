@@ -176,20 +176,35 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   "auth_user_id",
 ] as const;
 
-export function workerNeedsAuthAccount(worker: {
-  auth_user_id?: string | null;
-  email?: string | null;
-  is_revoked?: boolean;
-  status?: string | null;
-  is_archived?: boolean;
-}): boolean {
+const PENDING_ONBOARDING_STATUSES = new Set([
+  "pending_induction",
+  "pending",
+  "invited",
+]);
+
+/** Whether a worker can still receive an onboarding invite email. */
+export function canResendWorkerInvite(
+  worker: {
+    email?: string | null;
+    status?: string | null;
+    is_revoked?: boolean;
+    is_archived?: boolean;
+    induction_completed_at?: string | null;
+  },
+  lastSignInAt?: string | null
+): boolean {
   const revoked = Boolean(
     worker.is_revoked === true ||
       worker.status === "Revoked" ||
       worker.is_archived === true
   );
   if (revoked) return false;
-  return Boolean(worker.email?.trim()) && !worker.auth_user_id;
+  if (!worker.email?.trim()) return false;
+  if (worker.induction_completed_at) return false;
+  if (lastSignInAt) return false;
+
+  const status = (worker.status ?? "active").toLowerCase();
+  return PENDING_ONBOARDING_STATUSES.has(status);
 }
 
 export const WORKER_DATE_FIELD_KEYS = [
