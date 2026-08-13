@@ -7,7 +7,9 @@ import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-const INVITE_REDIRECT_TO = `${PRODUCTION_SITE_URL}/auth/callback?next=${encodeURIComponent("/auth/confirm-invite")}`;
+const INVITE_REDIRECT_TO = `${PRODUCTION_SITE_URL}/auth/callback?next=/auth/confirm-invite`;
+
+const INVITE_LINK_TYPES = ["invite", "recovery"] as const;
 
 export async function POST(req: Request) {
   const apiKey =
@@ -34,20 +36,34 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "magiclink",
-      email: email,
-      options: { redirectTo: INVITE_REDIRECT_TO },
-    });
+    let actionLink: string | null = null;
+    let lastLinkError: string | null = null;
 
-    if (linkError || !data?.properties?.action_link) {
+    for (const linkType of INVITE_LINK_TYPES) {
+      const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: linkType,
+        email: email,
+        options: { redirectTo: INVITE_REDIRECT_TO },
+      });
+
+      if (linkError) {
+        lastLinkError = linkError.message;
+        console.warn(`[/api/workers/invite] generateLink(${linkType}) failed:`, linkError.message);
+        continue;
+      }
+
+      if (data?.properties?.action_link) {
+        actionLink = data.properties.action_link;
+        break;
+      }
+    }
+
+    if (!actionLink) {
       return NextResponse.json(
-        { error: linkError?.message || "Failed to generate link" },
+        { error: lastLinkError || "Failed to generate link" },
         { status: 500 }
       );
     }
-
-    const actionLink = data.properties.action_link;
 
     const resend = new Resend(apiKey);
     await resend.emails.send({

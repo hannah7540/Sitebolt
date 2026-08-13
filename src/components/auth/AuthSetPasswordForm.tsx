@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -19,6 +19,20 @@ interface AuthSetPasswordFormProps {
   successMessage: string;
 }
 
+function hasAuthTokensInUrl(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const search = window.location.search;
+  const hash = window.location.hash;
+
+  return (
+    search.includes("code=") ||
+    hash.includes("access_token=") ||
+    hash.includes("type=invite") ||
+    hash.includes("type=recovery")
+  );
+}
+
 export default function AuthSetPasswordForm({
   title,
   description,
@@ -26,6 +40,10 @@ export default function AuthSetPasswordForm({
   successMessage,
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackError = searchParams.get("error");
+  const authCode = searchParams.get("code");
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [checkingSession, setCheckingSession] = useState(true);
@@ -38,25 +56,59 @@ export default function AuthSetPasswordForm({
     let cancelled = false;
     const supabase = createSupabaseBrowserClient();
 
-    async function loadSession() {
-      const { data } = await supabase.auth.getSession();
+    async function establishSession() {
+      if (authCode) {
+        const { data, error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(authCode);
+
+        if (!cancelled) {
+          if (exchangeError) {
+            setError(exchangeError.message);
+            setHasSession(false);
+            setCheckingSession(false);
+            return;
+          }
+
+          if (data.session) {
+            setHasSession(true);
+            setCheckingSession(false);
+            router.replace(window.location.pathname);
+            return;
+          }
+        }
+      }
+
+      if (hasAuthTokensInUrl()) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+
+      const { data: userData } = await supabase.auth.getUser();
+      if (!cancelled && userData.user) {
+        setHasSession(true);
+        setCheckingSession(false);
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
       if (!cancelled) {
-        setHasSession(Boolean(data.session));
+        setHasSession(Boolean(sessionData.session));
         setCheckingSession(false);
       }
     }
 
-    void loadSession();
+    void establishSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (cancelled) return;
+
       if (
         event === "PASSWORD_RECOVERY" ||
         event === "SIGNED_IN" ||
         event === "INITIAL_SESSION" ||
-        event === "TOKEN_REFRESHED"
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
       ) {
         setHasSession(Boolean(session));
         setCheckingSession(false);
@@ -67,7 +119,7 @@ export default function AuthSetPasswordForm({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [authCode, router]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -88,7 +140,14 @@ export default function AuthSetPasswordForm({
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data: sessionData, error: updateError } = await supabase.auth.updateUser({
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      if (!sessionData.session) {
+        setError("Your invitation session expired. Please open the link from your email again.");
+        return;
+      }
+
+      const { data: sessionUserData, error: updateError } = await supabase.auth.updateUser({
         password,
       });
 
@@ -97,7 +156,8 @@ export default function AuthSetPasswordForm({
         return;
       }
 
-      const user = sessionData.user ?? (await supabase.auth.getSession()).data.session?.user;
+      const user =
+        sessionUserData.user ?? (await supabase.auth.getSession()).data.session?.user;
       const nextPath = user ? await resolvePostAuthPathForUser(user) : "/worker-dashboard";
 
       setSuccess(true);
@@ -150,7 +210,11 @@ export default function AuthSetPasswordForm({
           </span>
         </p>
 
-        {!hasSession ? (
+        {callbackError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {callbackError}
+          </p>
+        ) : !hasSession ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Open the link from your invitation or password reset email to continue. If
             your link expired, ask your administrator to send a new invite.
