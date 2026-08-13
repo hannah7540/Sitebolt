@@ -21,7 +21,7 @@ import {
   uploadWorkerDocumentSafe,
   uploadWorkerSignature,
 } from "@/lib/worker-doc-upload";
-import { computeWorkerStatusFromExpiries } from "@/lib/worker-utils";
+import { computeWorkerStatusFromExpiries, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import VocListEditor from "@/components/workers/VocListEditor";
@@ -224,8 +224,8 @@ export default function WorkerInductionPortalPage() {
         vocItems.map(async (voc, i) => ({
           title: voc.title.trim(),
           issuing_org: voc.issuing_org || null,
-          issue_date: voc.issue_date || null,
-          expiry_date: voc.expiry_date || null,
+          issue_date: nullIfBlankWorkerDate(voc.issue_date),
+          expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
           document_url:
             voc.document_url ??
             (voc.file
@@ -238,26 +238,26 @@ export default function WorkerInductionPortalPage() {
       );
 
       const status = computeWorkerStatusFromExpiries([
-        licenceExpiry || null,
+        nullIfBlankWorkerDate(licenceExpiry),
         ...preparedVocs.map((v) => v.expiry_date),
       ]);
 
       const { error: updateError } = await updateWorker(workerId, {
         phone: phone.trim() || null,
-        dob: dob || null,
+        dob: nullIfBlankWorkerDate(dob),
         state: stateRegion,
         emergency_contact_name: emergencyName.trim(),
         emergency_contact_phone: emergencyPhone.trim(),
         emergency_contact_relationship: emergencyRelationship.trim(),
         white_card_number: whiteCardNumber || null,
-        white_card_issue_date: whiteCardIssueDate || null,
+        white_card_issue_date: nullIfBlankWorkerDate(whiteCardIssueDate),
         white_card_photo_url: whiteCardUrl,
         drivers_licence_number: licenceNumber || null,
         drivers_licence_class: licenceClass || null,
-        drivers_licence_expiry: licenceExpiry || null,
+        drivers_licence_expiry: nullIfBlankWorkerDate(licenceExpiry),
         drivers_licence_photo_url: licenceUrl,
         silica_cert_number: silicaNumber || null,
-        silica_cert_issue_date: silicaIssueDate || null,
+        silica_cert_issue_date: nullIfBlankWorkerDate(silicaIssueDate),
         silica_cert_photo_url: silicaUrl,
         induction_signature_url: signatureUrl,
         induction_completed_at: new Date().toISOString(),
@@ -279,7 +279,7 @@ export default function WorkerInductionPortalPage() {
 
       await updateWorkerStatusFromVocs(
         workerId,
-        licenceExpiry || null,
+        nullIfBlankWorkerDate(licenceExpiry),
         preparedVocs.map((v) => v.expiry_date)
       );
 

@@ -15,7 +15,7 @@ import {
   getWorkerTicketStatus,
   getAllExpiryWarnings,
 } from "@/lib/worker-compliance";
-import { getTicketStatus, buildWorkerFullName } from "@/lib/worker-utils";
+import { getTicketStatus, buildWorkerFullName, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import { splitWorkerName } from "@/lib/worker-cards-vocs";
 import type { VocDraft } from "@/lib/voc-utils";
 import { getVocDisplayTitle } from "@/lib/voc-utils";
@@ -209,15 +209,15 @@ export default function WorkerMyDetailsPanel({
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim() || null,
-        dob: dob || null,
+        dob: nullIfBlankWorkerDate(dob),
         emergency_contact_name: emergencyName.trim() || null,
         emergency_contact_phone: emergencyPhone.trim() || null,
         emergency_contact_relationship: emergencyRelationship.trim() || null,
         white_card_number: whiteCardNumber.trim() || null,
-        white_card_issue_date: whiteCardIssueDate || null,
+        white_card_issue_date: nullIfBlankWorkerDate(whiteCardIssueDate),
         white_card_photo_url: whiteCardUrl,
         silica_cert_number: silicaNumber.trim() || null,
-        silica_cert_issue_date: silicaIssueDate || null,
+        silica_cert_issue_date: nullIfBlankWorkerDate(silicaIssueDate),
         silica_cert_photo_url: silicaUrl,
       });
 
@@ -244,8 +244,8 @@ export default function WorkerMyDetailsPanel({
               title: vocType,
               voc_type: vocType,
               issuing_org: voc.issuing_org || null,
-              issue_date: voc.issue_date || null,
-              expiry_date: voc.expiry_date || null,
+              issue_date: nullIfBlankWorkerDate(voc.issue_date),
+              expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
               document_url:
                 voc.document_url ??
                 (voc.file

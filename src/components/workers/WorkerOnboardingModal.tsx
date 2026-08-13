@@ -14,6 +14,7 @@ import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
+import { nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import { cn } from "@/lib/utils";
 import {
@@ -305,10 +306,10 @@ export default function WorkerOnboardingModal({
           last_name: (form.last_name ?? "").trim(),
           email: (form.email ?? "").trim(),
           assigned_project_id: resolvedProjectId,
-          dob: form.dob?.trim() || null,
-          white_card_issue_date: form.white_card_issue_date?.trim() || null,
-          drivers_licence_expiry: form.drivers_licence_expiry?.trim() || null,
-          silica_cert_issue_date: form.silica_cert_issue_date?.trim() || null,
+          dob: nullIfBlankWorkerDate(form.dob),
+          white_card_issue_date: nullIfBlankWorkerDate(form.white_card_issue_date),
+          drivers_licence_expiry: nullIfBlankWorkerDate(form.drivers_licence_expiry),
+          silica_cert_issue_date: nullIfBlankWorkerDate(form.silica_cert_issue_date),
           white_card_photo_url,
           silica_cert_photo_url,
           drivers_licence_photo_url,
@@ -317,7 +318,7 @@ export default function WorkerOnboardingModal({
 
       const vocExpiries =
         mode === "full"
-          ? vocs.filter((v) => v.title.trim()).map((v) => v.expiry_date || null)
+          ? vocs.filter((v) => v.title.trim()).map((v) => nullIfBlankWorkerDate(v.expiry_date))
           : [];
 
       const { error: insertError, workerId } = await addWorker(payload, vocExpiries);
@@ -346,8 +347,8 @@ export default function WorkerOnboardingModal({
             vocItems.map(async (voc, i) => ({
               title: voc.title.trim(),
               issuing_org: voc.issuing_org || null,
-              issue_date: voc.issue_date?.trim() || null,
-              expiry_date: voc.expiry_date?.trim() || null,
+              issue_date: nullIfBlankWorkerDate(voc.issue_date),
+              expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
               document_url: voc.document_url
                 ?? (voc.file
                   ? await uploadWorkerDocumentSafe(

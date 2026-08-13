@@ -1475,7 +1475,10 @@ export async function addWorker(
   },
   vocExpiries: (string | null | undefined)[] = []
 ): Promise<{ error: string | null; workerId: string | null }> {
-  const expiries = [worker.drivers_licence_expiry, ...vocExpiries];
+  const expiries = [
+    nullIfBlankWorkerDate(worker.drivers_licence_expiry),
+    ...vocExpiries.map((expiry) => nullIfBlankWorkerDate(expiry)),
+  ];
   let status = computeWorkerStatusFromExpiries(expiries);
 
   let resolvedProjectId: string | null = null;

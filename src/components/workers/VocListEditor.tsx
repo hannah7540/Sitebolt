@@ -116,7 +116,7 @@ export default function VocListEditor({
                 <input
                   type="date"
                   className={inputClass}
-                  value={voc.issue_date}
+                  value={voc.issue_date ?? ""}
                   onChange={(e) =>
                     updateVoc(voc.clientId, { issue_date: e.target.value })
                   }
@@ -126,7 +126,7 @@ export default function VocListEditor({
                 <input
                   type="date"
                   className={inputClass}
-                  value={voc.expiry_date}
+                  value={voc.expiry_date ?? ""}
                   onChange={(e) =>
                     updateVoc(voc.clientId, { expiry_date: e.target.value })
                   }

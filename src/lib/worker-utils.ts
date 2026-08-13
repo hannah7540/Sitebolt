@@ -158,17 +158,44 @@ export const WORKER_DATE_FIELD_KEYS = [
   "induction_completed_at",
 ] as const;
 
+const WORKER_DATE_FIELD_PATTERN = /(^dob$|_date$|_expiry$)/;
+
+function isWorkerDateFieldKey(key: string): boolean {
+  return (
+    WORKER_DATE_FIELD_KEYS.includes(key as (typeof WORKER_DATE_FIELD_KEYS)[number]) ||
+    WORKER_DATE_FIELD_PATTERN.test(key)
+  );
+}
+
+function sanitizeWorkerDateValue(value: unknown): unknown {
+  if (typeof value === "string" || value == null) {
+    return nullIfBlankWorkerDate(value);
+  }
+  return value;
+}
+
 export function sanitizeWorkerDateFields(
   payload: Record<string, unknown>
 ): Record<string, unknown> {
   const next = { ...payload };
 
-  for (const key of WORKER_DATE_FIELD_KEYS) {
-    if (!(key in next)) continue;
-    const value = next[key];
-    if (typeof value === "string" || value == null) {
-      next[key] = nullIfBlankWorkerDate(value);
-    }
+  for (const [key, value] of Object.entries(next)) {
+    if (!isWorkerDateFieldKey(key)) continue;
+    next[key] = sanitizeWorkerDateValue(value);
+  }
+
+  if (Array.isArray(next.cards_vocs)) {
+    next.cards_vocs = next.cards_vocs.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const row = { ...(item as Record<string, unknown>) };
+      if ("issue_date" in row) {
+        row.issue_date = sanitizeWorkerDateValue(row.issue_date);
+      }
+      if ("expiry_date" in row) {
+        row.expiry_date = sanitizeWorkerDateValue(row.expiry_date);
+      }
+      return row;
+    });
   }
 
   return next;

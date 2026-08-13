@@ -16,11 +16,10 @@ export function optionalWorkerText(
 export function optionalWorkerDate(
   value: string | null | undefined
 ): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  return nullIfBlankWorkerDate(value);
 }
 
-import { buildWorkerFullName } from "./worker-utils";
+import { buildWorkerFullName, nullIfBlankWorkerDate } from "./worker-utils";
 
 export function serializeVocDetails(
   vocs: SubcontractorVocDetail[]

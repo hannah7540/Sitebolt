@@ -11,7 +11,7 @@ import {
 } from "@/lib/security-roles";
 import { uploadImageAndGetUrl } from "@/lib/worker-image-upload";
 import { splitWorkerName } from "@/lib/worker-cards-vocs";
-import { buildWorkerFullName } from "@/lib/worker-utils";
+import { buildWorkerFullName, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import {
   modalOverlayClass,
   modalClass,
@@ -118,7 +118,7 @@ export default function WorkerEditModal({
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
       white_card_number: whiteCardNumber.trim() || null,
       drivers_licence_number: driversLicenceNumber.trim() || null,
-      drivers_licence_expiry: driversLicenceExpiry.trim() || null,
+      drivers_licence_expiry: nullIfBlankWorkerDate(driversLicenceExpiry),
       silica_cert_number: silicaCertNumber.trim() || null,
     });
 
@@ -168,7 +168,7 @@ export default function WorkerEditModal({
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
       white_card_number: whiteCardNumber.trim() || null,
       drivers_licence_number: driversLicenceNumber.trim() || null,
-      drivers_licence_expiry: driversLicenceExpiry.trim() || null,
+      drivers_licence_expiry: nullIfBlankWorkerDate(driversLicenceExpiry),
       silica_cert_number: silicaCertNumber.trim() || null,
       photo_url: photoUrl,
       security_role: canManageWorkerRoles ? securityRole : worker.security_role,

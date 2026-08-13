@@ -15,7 +15,7 @@ import {
   getWorkerTicketStatus,
   getAllExpiryWarnings,
 } from "@/lib/worker-compliance";
-import { getTicketStatus } from "@/lib/worker-utils";
+import { getTicketStatus, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import type { VocDraft } from "@/lib/voc-utils";
 import VocListEditor from "./VocListEditor";
 import { cn } from "@/lib/utils";
@@ -125,8 +125,8 @@ export default function WorkerProfileModal({
         toSave.map(async (voc, i) => ({
           title: voc.title.trim(),
           issuing_org: voc.issuing_org || null,
-          issue_date: voc.issue_date || null,
-          expiry_date: voc.expiry_date || null,
+          issue_date: nullIfBlankWorkerDate(voc.issue_date),
+          expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
           document_url: voc.file
             ? await uploadWorkerDocumentSafe(
                 voc.file,
