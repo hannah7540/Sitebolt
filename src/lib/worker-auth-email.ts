@@ -1,4 +1,4 @@
-import { createClient, type AuthError, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getSiteUrl,
@@ -30,22 +30,6 @@ export interface WorkerAuthInviteResult {
   linkedWorkerId: string | null;
 }
 
-function isExistingAuthUserError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("already") ||
-    normalized.includes("registered") ||
-    normalized.includes("exists") ||
-    normalized.includes("invited")
-  );
-}
-
-function shouldFallbackFromInviteError(error: AuthError | null): boolean {
-  if (!error) return false;
-  if (error.status === 400 || error.status === 422) return true;
-  return isExistingAuthUserError(error.message);
-}
-
 async function sendWorkerOnboardingLinkViaResend(
   email: string,
   actionLink: string,
@@ -72,7 +56,7 @@ async function sendWorkerOnboardingLinkViaResend(
   return { error: null };
 }
 
-async function sendExistingUserOnboardingEmail(
+export async function sendExistingUserOnboardingEmail(
   admin: SupabaseClient,
   email: string,
   fullName: string
@@ -198,7 +182,7 @@ async function loadWorkerLinkContext(
   return null;
 }
 
-async function linkWorkerAuthAccount(
+export async function linkWorkerAuthAccount(
   admin: SupabaseClient,
   options: {
     workerId: string;
@@ -309,7 +293,12 @@ export async function ensureWorkerAuthUserAndInvite(
     if (!inviteResult.error && inviteResult.data.user) {
       authUser = inviteResult.data.user;
       inviteSent = true;
-    } else if (inviteResult.error && shouldFallbackFromInviteError(inviteResult.error)) {
+    } else if (inviteResult.error) {
+      console.warn(
+        `[worker-auth-email] inviteUserByEmail failed for ${trimmedEmail}, using fallback:`,
+        inviteResult.error.message
+      );
+
       const fallback = await sendExistingUserOnboardingEmail(
         admin,
         trimmedEmail,
@@ -334,17 +323,6 @@ export async function ensureWorkerAuthUserAndInvite(
         ? ({ id: fallback.authUserId } as User)
         : await findAuthUserByEmail(admin, trimmedEmail);
       inviteSent = true;
-    } else if (inviteResult.error) {
-      console.error(
-        `[worker-auth-email] inviteUserByEmail failed for ${trimmedEmail}:`,
-        inviteResult.error.message
-      );
-      return {
-        error: inviteResult.error.message,
-        authUserId: null,
-        inviteSent: false,
-        linkedWorkerId: null,
-      };
     } else {
       return {
         error: "Failed to send worker invite.",
@@ -364,12 +342,10 @@ export async function ensureWorkerAuthUserAndInvite(
       });
 
       if (linkResult.error) {
-        return {
-          error: linkResult.error,
-          authUserId: authUser.id,
-          inviteSent,
-          linkedWorkerId: null,
-        };
+        console.warn(
+          `[worker-auth-email] Worker auth link failed for ${workerId}:`,
+          linkResult.error
+        );
       }
     }
 
