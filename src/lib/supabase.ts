@@ -16,7 +16,7 @@ import {
   getServiceFieldKey,
   usesKilometres,
 } from "./prestart-templates";
-import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields } from "./worker-utils";
+import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields, nullIfBlankWorkerDate, sanitizeWorkerDateFields } from "./worker-utils";
 import {
   resolveProjectId,
   isProjectUuid,
@@ -1464,7 +1464,7 @@ function prepareWorkerWritePayload(
     );
   }
 
-  return payload;
+  return sanitizeWorkerDateFields(payload);
 }
 
 export async function addWorker(
@@ -1733,8 +1733,8 @@ export async function insertWorkerVocs(
         voc_type: vocType,
         name: vocType,
         issuing_org: v.issuing_org ?? null,
-        issue_date: v.issue_date || null,
-        expiry_date: v.expiry_date || null,
+        issue_date: nullIfBlankWorkerDate(v.issue_date),
+        expiry_date: nullIfBlankWorkerDate(v.expiry_date),
         document_url: v.document_url ?? null,
       };
     })

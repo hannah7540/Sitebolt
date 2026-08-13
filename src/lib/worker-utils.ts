@@ -140,3 +140,36 @@ export function isSubcontractorWorker(worker: WorkerEmploymentSource): boolean {
 export function isCompanyEmployeeWorker(worker: WorkerEmploymentSource): boolean {
   return !isSubcontractorWorker(worker);
 }
+
+/** Convert blank date inputs to null for Postgres date columns. */
+export function nullIfBlankWorkerDate(
+  value: string | null | undefined
+): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export const WORKER_DATE_FIELD_KEYS = [
+  "dob",
+  "white_card_issue_date",
+  "drivers_licence_expiry",
+  "silica_cert_issue_date",
+  "induction_completed_at",
+] as const;
+
+export function sanitizeWorkerDateFields(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next = { ...payload };
+
+  for (const key of WORKER_DATE_FIELD_KEYS) {
+    if (!(key in next)) continue;
+    const value = next[key];
+    if (typeof value === "string" || value == null) {
+      next[key] = nullIfBlankWorkerDate(value);
+    }
+  }
+
+  return next;
+}

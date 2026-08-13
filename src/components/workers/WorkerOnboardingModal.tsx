@@ -305,6 +305,10 @@ export default function WorkerOnboardingModal({
           last_name: (form.last_name ?? "").trim(),
           email: (form.email ?? "").trim(),
           assigned_project_id: resolvedProjectId,
+          dob: form.dob?.trim() || null,
+          white_card_issue_date: form.white_card_issue_date?.trim() || null,
+          drivers_licence_expiry: form.drivers_licence_expiry?.trim() || null,
+          silica_cert_issue_date: form.silica_cert_issue_date?.trim() || null,
           white_card_photo_url,
           silica_cert_photo_url,
           drivers_licence_photo_url,
@@ -342,8 +346,8 @@ export default function WorkerOnboardingModal({
             vocItems.map(async (voc, i) => ({
               title: voc.title.trim(),
               issuing_org: voc.issuing_org || null,
-              issue_date: voc.issue_date || null,
-              expiry_date: voc.expiry_date || null,
+              issue_date: voc.issue_date?.trim() || null,
+              expiry_date: voc.expiry_date?.trim() || null,
               document_url: voc.document_url
                 ?? (voc.file
                   ? await uploadWorkerDocumentSafe(
