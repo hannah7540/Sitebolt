@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { getSiteUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
@@ -20,16 +20,21 @@ function getInviteRedirectUrl(): string {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.RESEND_API_KEY?.trim();
-    if (!apiKey) {
-      console.error("[/api/workers/invite] RESEND_API_KEY is not configured.");
+    if (!process.env.RESEND_API_KEY) {
       return NextResponse.json(
-        { error: "RESEND_API_KEY is not configured." },
-        { status: 400 }
+        { error: "RESEND_API_KEY is missing in environment variables" },
+        { status: 500 }
       );
     }
 
-    const resend = new Resend(apiKey);
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { error: "SUPABASE_SERVICE_ROLE_KEY is missing in environment variables" },
+        { status: 500 }
+      );
+    }
+
+    const resend = new Resend(process.env.RESEND_API_KEY || "dummy_key_for_build");
 
     let body: unknown;
     try {
@@ -44,18 +49,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
 
-    if (!isSupabaseAdminConfigured()) {
-      console.error("[/api/workers/invite] SUPABASE_SERVICE_ROLE_KEY is not configured.");
-      return NextResponse.json(
-        { error: "Supabase service role is not configured." },
-        { status: 400 }
-      );
-    }
-
     const supabaseAdmin = createSupabaseAdminClient();
     const redirectTo = getInviteRedirectUrl();
 
     let actionLink: string | null = null;
+    let linkData: { properties?: { action_link?: string } } | null = null;
 
     const linkAttempts = [
       { type: "magiclink" as const },
@@ -79,12 +77,13 @@ export async function POST(request: Request) {
       }
 
       if (data?.properties?.action_link) {
+        linkData = data;
         actionLink = data.properties.action_link;
         break;
       }
     }
 
-    if (!actionLink) {
+    if (!actionLink || !linkData?.properties?.action_link) {
       console.error("[/api/workers/invite] Unable to generate auth link for:", email);
       return NextResponse.json(
         { error: "Unable to generate auth link for this worker." },
@@ -96,8 +95,8 @@ export async function POST(request: Request) {
       from: FROM_ADDRESS,
       to: [email],
       subject: "Set up your Site Bolt account",
-      html: `<p>Click here to complete setup: <a href="${actionLink}">Set Up Account</a></p>`,
-      text: `Set up your Site Bolt account: ${actionLink}`,
+      html: `<p>Click here to complete setup: <a href="${linkData.properties.action_link}">Set Up Account</a></p>`,
+      text: `Set up your Site Bolt account: ${linkData.properties.action_link}`,
     });
 
     console.log("Resend response:", resendResult.data);
@@ -107,14 +106,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resendResult.error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    return NextResponse.json(
+      { success: true, message: "Email sent" },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("[/api/workers/invite] Unexpected error:", error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Failed to send worker invite.",
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }
