@@ -5,7 +5,8 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
-import { buildPasswordResetOtpPageUrl } from "@/lib/worker-invite-link";
+
+const PASSWORD_RESET_REDIRECT_URL = "https://www.site-bolt.com.au/reset-password";
 
 export async function POST(req: Request) {
   const apiKey =
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
     const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",
       email,
+      options: {
+        redirectTo: PASSWORD_RESET_REDIRECT_URL,
+      },
     });
 
     if (linkError) {
@@ -41,40 +45,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    const otpCode = data?.properties?.email_otp;
-    if (!otpCode) {
-      console.error("[/api/auth/reset-password] generateLink missing email_otp");
+    const actionLink = data?.properties?.action_link;
+    if (!actionLink) {
+      console.error("[/api/auth/reset-password] generateLink missing action_link");
       return NextResponse.json({ success: true }, { status: 200 });
     }
-
-    const enterCodeUrl = buildPasswordResetOtpPageUrl(email);
 
     const resend = new Resend(apiKey);
     const resendResult = await resend.emails.send({
       from: "Site Bolt <hannah@site-bolt.com.au>",
       to: [email],
-      subject: "Your Site Bolt Password Reset Code",
+      subject: "Reset your Site Bolt password",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Password Reset Code</h1>
-          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            Your password reset code is: <strong style="font-size: 28px; letter-spacing: 0.2em; color: #ea580c;">${otpCode}</strong>.
-            Click the button below to enter your code and set a new password.
-          </p>
-          <p style="font-size: 36px; font-weight: 700; letter-spacing: 0.3em; margin: 0 0 32px; text-align: center; color: #ea580c;">
-            ${otpCode}
+          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Password Reset Request</h1>
+          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 32px;">
+            Click the button below to reset your password for your Site Bolt account.
           </p>
           <p style="margin: 0 0 32px; text-align: center;">
-            <a href="${enterCodeUrl}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
-              Enter Reset Code
+            <a href="${actionLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+              Reset Your Password
             </a>
           </p>
           <p style="font-size: 14px; color: #64748b; margin: 0;">
-            This code expires in 1 hour. If you did not request a password reset, you can ignore this email.
+            If you did not request a password reset, you can ignore this email.
           </p>
         </div>
       `.trim(),
-      text: `Your password reset code is: ${otpCode}. Click the link below to enter your code and set a new password.\n\n${enterCodeUrl}`,
+      text: `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`,
     });
 
     if (resendResult.error) {

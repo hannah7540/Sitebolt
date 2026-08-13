@@ -22,6 +22,11 @@ interface AuthSetPasswordFormProps {
   trustServerSession?: boolean;
   passwordLabel?: string;
   confirmPasswordLabel?: string;
+  /** When set, redirects here after a successful password update instead of post-auth routing. */
+  successRedirectPath?: string;
+  /** Sign out before redirecting on success (e.g. password reset should return to login). */
+  signOutOnSuccess?: boolean;
+  noSessionMessage?: string;
 }
 
 const VALID_OTP_TYPES = new Set<EmailOtpType>([
@@ -64,6 +69,9 @@ export default function AuthSetPasswordForm({
   trustServerSession = false,
   passwordLabel = "New password",
   confirmPasswordLabel = "Confirm password",
+  successRedirectPath,
+  signOutOnSuccess = false,
+  noSessionMessage = "Open the link from your invitation or password reset email to continue. If your link expired, ask your administrator to send a new invite.",
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -202,7 +210,7 @@ export default function AuthSetPasswordForm({
       const { data: sessionData } = await supabase.auth.getSession();
 
       if (!sessionData.session) {
-        setError("Your invitation session expired. Please open the link from your email again.");
+        setError("Your session expired. Please open the link from your email again.");
         return;
       }
 
@@ -215,9 +223,15 @@ export default function AuthSetPasswordForm({
         return;
       }
 
+      if (signOutOnSuccess) {
+        await supabase.auth.signOut();
+      }
+
       const user =
         sessionUserData.user ?? (await supabase.auth.getSession()).data.session?.user;
-      const nextPath = user ? await resolvePostAuthPathForUser(user) : "/worker-dashboard";
+      const nextPath =
+        successRedirectPath ??
+        (user ? await resolvePostAuthPathForUser(user) : "/worker-dashboard");
 
       setSuccess(true);
       window.setTimeout(() => router.replace(nextPath), 2000);
@@ -275,8 +289,7 @@ export default function AuthSetPasswordForm({
           </p>
         ) : !hasSession ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Open the link from your invitation or password reset email to continue. If
-            your link expired, ask your administrator to send a new invite.
+            {noSessionMessage}
           </p>
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
