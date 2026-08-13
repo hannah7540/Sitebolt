@@ -1,77 +1,63 @@
-import { NextResponse } from "next/server";
-import { Resend } from "resend";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function POST(request: Request) {
+import { NextResponse } from "next/server";
+import { Resend } from "resend";
+import { createClient } from "@supabase/supabase-js";
+
+export async function POST(req: Request) {
+  // Retrieve keys explicitly inside handler execution context
+  const apiKey =
+    process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
+
+  if (!apiKey) {
+    console.error("DEBUG: Environment variables available:", Object.keys(process.env));
+    return NextResponse.json(
+      { error: "Server error: RESEND_API_KEY is not loaded in Node runtime." },
+      { status: 500 }
+    );
+  }
+
   try {
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch (error) {
-      console.error("[/api/workers/invite] Invalid JSON body:", error);
-      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-    }
-
-    const email =
-      body && typeof body === "object" && typeof (body as { email?: unknown }).email === "string"
-        ? (body as { email: string }).email.trim()
-        : "";
+    const body = await req.json();
+    const { email } = body;
 
     if (!email) {
-      return NextResponse.json({ error: "email is required." }, { status: 400 });
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-      console.error("[/api/workers/invite] Missing RESEND_API_KEY in environment");
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: "magiclink",
+      email: email,
+    });
+
+    if (linkError || !data?.properties?.action_link) {
       return NextResponse.json(
-        { error: "Missing RESEND_API_KEY in environment" },
+        { error: linkError?.message || "Failed to generate link" },
         { status: 500 }
       );
     }
 
     const resend = new Resend(apiKey);
-
-    const supabaseAdmin = createSupabaseAdminClient();
-    const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-      type: "magiclink",
-      email,
-    });
-
-    if (error || !data?.properties?.action_link) {
-      console.error("[/api/workers/invite] generateLink failed:", error?.message);
-      return NextResponse.json(
-        { error: error?.message ?? "Unable to generate auth link for this worker." },
-        { status: 400 }
-      );
-    }
-
-    const resendResult = await resend.emails.send({
+    await resend.emails.send({
       from: "Site Bolt <hannah@site-bolt.com.au>",
       to: [email],
       subject: "Set up your Site Bolt account",
-      html: `<p>Click here to complete setup: <a href="${data.properties.action_link}">Set Up Account</a></p>`,
+      html: `<p>Click the link to set up your account: <a href="${data.properties.action_link}">Set Up Account</a></p>`,
     });
 
-    if (resendResult.error) {
-      console.error("[/api/workers/invite] Resend error:", resendResult.error);
-      return NextResponse.json({ error: resendResult.error.message }, { status: 400 });
-    }
-
     return NextResponse.json(
-      { success: true, message: "Invite email sent" },
+      { success: true, message: "Invite sent successfully" },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("[/api/workers/invite] Unexpected error:", error);
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to send worker invite.",
-      },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
