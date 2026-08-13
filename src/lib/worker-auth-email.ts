@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { createClient, type AuthError, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getSiteUrl,
@@ -8,6 +8,7 @@ import {
   supabaseUrl,
 } from "@/lib/supabase/env";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
+import { sendEmail } from "@/lib/email-service";
 
 export function getAuthCallbackUrl(nextPath: string): string {
   const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
@@ -34,8 +35,98 @@ function isExistingAuthUserError(message: string): boolean {
   return (
     normalized.includes("already") ||
     normalized.includes("registered") ||
-    normalized.includes("exists")
+    normalized.includes("exists") ||
+    normalized.includes("invited")
   );
+}
+
+function shouldFallbackFromInviteError(error: AuthError | null): boolean {
+  if (!error) return false;
+  if (error.status === 400 || error.status === 422) return true;
+  return isExistingAuthUserError(error.message);
+}
+
+async function sendWorkerOnboardingLinkViaResend(
+  email: string,
+  actionLink: string,
+  fullName: string
+): Promise<{ error: string | null }> {
+  const safeName = fullName.trim() || email;
+
+  const result = await sendEmail({
+    to: [email],
+    subject: "Set up your Site Bolt account",
+    html: `
+      <p>Hi ${safeName},</p>
+      <p>You have been invited to join Site Bolt. Use the link below to set up your account:</p>
+      <p><a href="${actionLink}">Set up my account</a></p>
+      <p>If you did not expect this email, you can ignore it.</p>
+    `,
+    text: `Hi ${safeName},\n\nSet up your Site Bolt account: ${actionLink}`,
+  });
+
+  if (!result.sent) {
+    return { error: result.error ?? "Failed to send invite email via Resend." };
+  }
+
+  return { error: null };
+}
+
+async function sendExistingUserOnboardingEmail(
+  admin: SupabaseClient,
+  email: string,
+  fullName: string
+): Promise<{ authUserId: string | null; error: string | null }> {
+  const trimmedEmail = email.trim();
+  const linkAttempts: Array<{
+    type: "recovery" | "magiclink";
+    redirectTo: string;
+  }> = [
+    { type: "recovery", redirectTo: getResetPasswordRedirectUrl() },
+    { type: "magiclink", redirectTo: getConfirmInviteRedirectUrl() },
+  ];
+
+  for (const attempt of linkAttempts) {
+    const { data, error } = await admin.auth.admin.generateLink({
+      type: attempt.type,
+      email: trimmedEmail,
+      options: { redirectTo: attempt.redirectTo },
+    });
+
+    if (error) {
+      console.warn(
+        `[worker-auth-email] generateLink (${attempt.type}) failed for ${trimmedEmail}:`,
+        error.message
+      );
+      continue;
+    }
+
+    const actionLink = data.properties?.action_link;
+    if (!actionLink) continue;
+
+    const sendResult = await sendWorkerOnboardingLinkViaResend(
+      trimmedEmail,
+      actionLink,
+      fullName
+    );
+
+    if (!sendResult.error) {
+      return { authUserId: data.user?.id ?? null, error: null };
+    }
+
+    console.warn(
+      `[worker-auth-email] Resend failed for ${trimmedEmail}:`,
+      sendResult.error
+    );
+  }
+
+  const resetResult = await sendWorkerPasswordResetEmail(trimmedEmail);
+  if (resetResult.error) {
+    return { authUserId: null, error: resetResult.error };
+  }
+
+  const authUser = await findAuthUserByEmail(admin, trimmedEmail);
+  return { authUserId: authUser?.id ?? null, error: null };
 }
 
 async function findAuthUserByEmail(
@@ -218,30 +309,45 @@ export async function ensureWorkerAuthUserAndInvite(
     if (!inviteResult.error && inviteResult.data.user) {
       authUser = inviteResult.data.user;
       inviteSent = true;
-    } else if (inviteResult.error && isExistingAuthUserError(inviteResult.error.message)) {
-      authUser = await findAuthUserByEmail(admin, trimmedEmail);
-      if (!authUser) {
+    } else if (inviteResult.error && shouldFallbackFromInviteError(inviteResult.error)) {
+      const fallback = await sendExistingUserOnboardingEmail(
+        admin,
+        trimmedEmail,
+        fullName
+      );
+
+      if (fallback.error) {
+        console.error(
+          `[worker-auth-email] Invite fallback failed for ${trimmedEmail}:`,
+          inviteResult.error.message,
+          fallback.error
+        );
         return {
-          error: inviteResult.error.message,
-          authUserId: null,
+          error: fallback.error,
+          authUserId: fallback.authUserId,
           inviteSent: false,
           linkedWorkerId: null,
         };
       }
 
-      const resetResult = await sendWorkerPasswordResetEmail(trimmedEmail);
-      if (resetResult.error) {
-        return {
-          error: resetResult.error,
-          authUserId: authUser.id,
-          inviteSent: false,
-          linkedWorkerId: null,
-        };
-      }
+      authUser = fallback.authUserId
+        ? ({ id: fallback.authUserId } as User)
+        : await findAuthUserByEmail(admin, trimmedEmail);
       inviteSent = true;
+    } else if (inviteResult.error) {
+      console.error(
+        `[worker-auth-email] inviteUserByEmail failed for ${trimmedEmail}:`,
+        inviteResult.error.message
+      );
+      return {
+        error: inviteResult.error.message,
+        authUserId: null,
+        inviteSent: false,
+        linkedWorkerId: null,
+      };
     } else {
       return {
-        error: inviteResult.error?.message ?? "Failed to send worker invite.",
+        error: "Failed to send worker invite.",
         authUserId: null,
         inviteSent: false,
         linkedWorkerId: null,
