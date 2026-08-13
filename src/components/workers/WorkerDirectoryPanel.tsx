@@ -32,7 +32,6 @@ import {
   isNonCompliant,
 } from "@/lib/worker-compliance";
 import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
-import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
@@ -350,17 +349,20 @@ export default function WorkerDirectoryPanel({
     setResendingInviteId(worker.id);
 
     try {
-      const data = await requestWorkerAuthInvite(email, worker.id);
+      const response = await fetch("/api/workers/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
 
-      if (data.authUserId) {
-        setWorkerList((prev) => {
-          const next = prev.map((row) =>
-            row.id === worker.id ? { ...row, auth_user_id: data.authUserId } : row
-          );
-          const updated = next.find((row) => row.id === worker.id);
-          if (updated) onWorkerUpdated?.(updated);
-          return next;
-        });
+      const data = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to send worker invite.");
       }
 
       showSuccess(data.message ?? "Invite sent successfully");

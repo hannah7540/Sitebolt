@@ -1,14 +1,12 @@
-import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { type SupabaseClient, type User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   getSiteUrl,
   isSupabaseAdminConfigured,
-  isSupabaseConfigured,
-  supabaseAnonKey,
-  supabaseUrl,
 } from "@/lib/supabase/env";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { sendEmail } from "@/lib/email-service";
+import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 
 export function getAuthCallbackUrl(nextPath: string): string {
   const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
@@ -104,7 +102,7 @@ export async function sendExistingUserOnboardingEmail(
     );
   }
 
-  const resetResult = await sendWorkerPasswordResetEmail(trimmedEmail);
+  const resetResult = await sendWorkerInviteEmailViaResend(trimmedEmail);
   if (resetResult.error) {
     return { authUserId: null, error: resetResult.error };
   }
@@ -278,59 +276,17 @@ export async function ensureWorkerAuthUserAndInvite(
       DEFAULT_WORKER_SECURITY_ROLE;
     const fullName = options?.fullName ?? workerContext?.fullName ?? trimmedEmail;
 
-    let authUser: User | null = null;
-    let inviteSent = false;
-
-    const inviteResult = await admin.auth.admin.inviteUserByEmail(trimmedEmail, {
-      redirectTo: getConfirmInviteRedirectUrl(),
-      data: {
-        role: securityRole,
-        security_role: securityRole,
-        full_name: fullName,
-      },
-    });
-
-    if (!inviteResult.error && inviteResult.data.user) {
-      authUser = inviteResult.data.user;
-      inviteSent = true;
-    } else if (inviteResult.error) {
-      console.warn(
-        `[worker-auth-email] inviteUserByEmail failed for ${trimmedEmail}, using fallback:`,
-        inviteResult.error.message
-      );
-
-      const fallback = await sendExistingUserOnboardingEmail(
-        admin,
-        trimmedEmail,
-        fullName
-      );
-
-      if (fallback.error) {
-        console.error(
-          `[worker-auth-email] Invite fallback failed for ${trimmedEmail}:`,
-          inviteResult.error.message,
-          fallback.error
-        );
-        return {
-          error: fallback.error,
-          authUserId: fallback.authUserId,
-          inviteSent: false,
-          linkedWorkerId: null,
-        };
-      }
-
-      authUser = fallback.authUserId
-        ? ({ id: fallback.authUserId } as User)
-        : await findAuthUserByEmail(admin, trimmedEmail);
-      inviteSent = true;
-    } else {
+    const inviteResult = await sendWorkerInviteEmailViaResend(trimmedEmail);
+    if (!inviteResult.success) {
       return {
-        error: "Failed to send worker invite.",
+        error: inviteResult.error ?? "Failed to send worker invite.",
         authUserId: null,
         inviteSent: false,
         linkedWorkerId: null,
       };
     }
+
+    let authUser: User | null = await findAuthUserByEmail(admin, trimmedEmail);
 
     if (workerId && authUser) {
       const linkResult = await linkWorkerAuthAccount(admin, {
@@ -352,7 +308,7 @@ export async function ensureWorkerAuthUserAndInvite(
     return {
       error: null,
       authUserId: authUser?.id ?? null,
-      inviteSent,
+      inviteSent: true,
       linkedWorkerId: workerId,
     };
   } catch (error) {
@@ -380,25 +336,6 @@ export async function inviteWorkerByEmail(
 export async function sendWorkerPasswordResetEmail(
   email: string
 ): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
-  }
-
-  try {
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: getResetPasswordRedirectUrl(),
-    });
-
-    if (error) return { error: error.message };
-    return { error: null };
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error ? error.message : "Failed to send password reset email.",
-    };
-  }
+  const result = await sendWorkerInviteEmailViaResend(email);
+  return { error: result.error };
 }
