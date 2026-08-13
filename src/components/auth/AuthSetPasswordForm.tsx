@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, EmailOtpType, Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { resolvePostAuthPathForUser } from "@/lib/auth-profile";
 import {
@@ -17,20 +17,38 @@ interface AuthSetPasswordFormProps {
   description: string;
   submitLabel: string;
   successMessage: string;
+  initialHasSession?: boolean;
 }
 
-function hasAuthTokensInUrl(): boolean {
-  if (typeof window === "undefined") return false;
+const VALID_OTP_TYPES = new Set<EmailOtpType>([
+  "signup",
+  "invite",
+  "magiclink",
+  "recovery",
+  "email",
+  "email_change",
+]);
 
-  const search = window.location.search;
-  const hash = window.location.hash;
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
-  return (
-    search.includes("code=") ||
-    hash.includes("access_token=") ||
-    hash.includes("type=invite") ||
-    hash.includes("type=recovery")
-  );
+async function resolveClientSession(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData.user) return true;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session) return true;
+
+    if (attempt < 3) {
+      await wait(200);
+    }
+  }
+
+  return false;
 }
 
 export default function AuthSetPasswordForm({
@@ -38,25 +56,61 @@ export default function AuthSetPasswordForm({
   description,
   submitLabel,
   successMessage,
+  initialHasSession = false,
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackError = searchParams.get("error");
   const authCode = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+  const otpType = searchParams.get("type");
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [hasSession, setHasSession] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(!initialHasSession);
+  const [hasSession, setHasSession] = useState(initialHasSession);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
+    if (initialHasSession) {
+      setHasSession(true);
+      setCheckingSession(false);
+      return;
+    }
+
     let cancelled = false;
     const supabase = createSupabaseBrowserClient();
 
     async function establishSession() {
+      if (
+        tokenHash &&
+        otpType &&
+        VALID_OTP_TYPES.has(otpType as EmailOtpType)
+      ) {
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: otpType as EmailOtpType,
+        });
+
+        if (!cancelled) {
+          if (verifyError) {
+            setError(verifyError.message);
+            setHasSession(false);
+            setCheckingSession(false);
+            return;
+          }
+
+          if (data.session) {
+            setHasSession(true);
+            setCheckingSession(false);
+            router.replace(window.location.pathname);
+            return;
+          }
+        }
+      }
+
       if (authCode) {
         const { data, error: exchangeError } =
           await supabase.auth.exchangeCodeForSession(authCode);
@@ -78,20 +132,9 @@ export default function AuthSetPasswordForm({
         }
       }
 
-      if (hasAuthTokensInUrl()) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-      }
-
-      const { data: userData } = await supabase.auth.getUser();
-      if (!cancelled && userData.user) {
-        setHasSession(true);
-        setCheckingSession(false);
-        return;
-      }
-
-      const { data: sessionData } = await supabase.auth.getSession();
+      const sessionReady = await resolveClientSession(supabase);
       if (!cancelled) {
-        setHasSession(Boolean(sessionData.session));
+        setHasSession(sessionReady);
         setCheckingSession(false);
       }
     }
@@ -119,7 +162,7 @@ export default function AuthSetPasswordForm({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [authCode, router]);
+  }, [authCode, initialHasSession, otpType, router, tokenHash]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

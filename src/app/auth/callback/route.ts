@@ -1,9 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
+
+const VALID_OTP_TYPES = new Set<EmailOtpType>([
+  "signup",
+  "invite",
+  "magiclink",
+  "recovery",
+  "email",
+  "email_change",
+]);
 
 function copyCookies(from: NextResponse, to: NextResponse): void {
   from.cookies.getAll().forEach((cookie) => {
@@ -11,18 +22,14 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
-  const next = requestUrl.searchParams.get("next") ?? "/";
-  const safeNext = next.startsWith("/") ? next : "/";
-  const origin = requestUrl.origin;
-
-  if (!code) {
-    return NextResponse.redirect(`${origin}${safeNext}`);
+function resolveSafeNext(next: string | null): string {
+  if (!next || !next.startsWith("/")) {
+    return WORKER_INVITE_NEXT_PATH;
   }
+  return next;
+}
 
-  const cookieStore = await cookies();
+function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   let sessionResponse = NextResponse.next();
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -42,18 +49,54 @@ export async function GET(request: Request) {
     },
   });
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  return { supabase, getSessionResponse: () => sessionResponse };
+}
 
-  if (error) {
-    const fallbackPath = safeNext.startsWith("/auth/") ? safeNext : "/auth/confirm-invite";
-    const redirectUrl = new URL(fallbackPath, origin);
-    redirectUrl.searchParams.set("error", error.message);
-    const errorResponse = NextResponse.redirect(redirectUrl);
-    copyCookies(sessionResponse, errorResponse);
-    return errorResponse;
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get("code");
+  const tokenHash = requestUrl.searchParams.get("token_hash");
+  const otpTypeParam = requestUrl.searchParams.get("type");
+  const safeNext = resolveSafeNext(requestUrl.searchParams.get("next"));
+  const origin = requestUrl.origin;
+
+  const cookieStore = await cookies();
+  const { supabase, getSessionResponse } = createSupabaseWithCookieBridge(cookieStore);
+
+  if (tokenHash && otpTypeParam && VALID_OTP_TYPES.has(otpTypeParam as EmailOtpType)) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: otpTypeParam as EmailOtpType,
+    });
+
+    if (error) {
+      const redirectUrl = new URL(safeNext, origin);
+      redirectUrl.searchParams.set("error", error.message);
+      const errorResponse = NextResponse.redirect(redirectUrl);
+      copyCookies(getSessionResponse(), errorResponse);
+      return errorResponse;
+    }
+
+    const redirectResponse = NextResponse.redirect(`${origin}${safeNext}`);
+    copyCookies(getSessionResponse(), redirectResponse);
+    return redirectResponse;
   }
 
-  const redirectResponse = NextResponse.redirect(`${origin}${safeNext}`);
-  copyCookies(sessionResponse, redirectResponse);
-  return redirectResponse;
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+      const redirectUrl = new URL(safeNext, origin);
+      redirectUrl.searchParams.set("error", error.message);
+      const errorResponse = NextResponse.redirect(redirectUrl);
+      copyCookies(getSessionResponse(), errorResponse);
+      return errorResponse;
+    }
+
+    const redirectResponse = NextResponse.redirect(`${origin}${safeNext}`);
+    copyCookies(getSessionResponse(), redirectResponse);
+    return redirectResponse;
+  }
+
+  return NextResponse.redirect(`${origin}${safeNext}`);
 }

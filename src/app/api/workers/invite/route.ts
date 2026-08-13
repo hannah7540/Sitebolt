@@ -5,11 +5,15 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import {
+  buildWorkerInviteCallbackUrl,
+  WORKER_INVITE_CALLBACK_PATH,
+  WORKER_INVITE_NEXT_PATH,
+  type WorkerInviteLinkType,
+} from "@/lib/worker-invite-link";
 
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-const INVITE_REDIRECT_TO = `${PRODUCTION_SITE_URL}/auth/callback?next=/auth/confirm-invite`;
-
-const INVITE_LINK_TYPES = ["invite", "recovery"] as const;
+const INVITE_LINK_TYPES: WorkerInviteLinkType[] = ["invite", "recovery"];
 
 export async function POST(req: Request) {
   const apiKey =
@@ -36,14 +40,16 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    let actionLink: string | null = null;
+    let inviteLink: string | null = null;
     let lastLinkError: string | null = null;
 
     for (const linkType of INVITE_LINK_TYPES) {
       const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
         type: linkType,
         email: email,
-        options: { redirectTo: INVITE_REDIRECT_TO },
+        options: {
+          redirectTo: `${PRODUCTION_SITE_URL}${WORKER_INVITE_CALLBACK_PATH}?next=${encodeURIComponent(WORKER_INVITE_NEXT_PATH)}`,
+        },
       });
 
       if (linkError) {
@@ -52,13 +58,16 @@ export async function POST(req: Request) {
         continue;
       }
 
-      if (data?.properties?.action_link) {
-        actionLink = data.properties.action_link;
+      const hashedToken = data?.properties?.hashed_token;
+      if (hashedToken) {
+        inviteLink = buildWorkerInviteCallbackUrl(hashedToken, linkType);
         break;
       }
+
+      lastLinkError = "generateLink did not return hashed_token";
     }
 
-    if (!actionLink) {
+    if (!inviteLink) {
       return NextResponse.json(
         { error: lastLinkError || "Failed to generate link" },
         { status: 500 }
@@ -77,17 +86,17 @@ export async function POST(req: Request) {
             You've been invited to join Site Bolt. Click the button below to set up your password and activate your account.
           </p>
           <p style="margin: 0 0 32px;">
-            <a href="${actionLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+            <a href="${inviteLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
               Create Your Account
             </a>
           </p>
           <p style="font-size: 14px; color: #64748b; margin: 0;">
             If the button doesn't work, copy and paste this link into your browser:<br />
-            <a href="${actionLink}" style="color: #ea580c; word-break: break-all;">${actionLink}</a>
+            <a href="${inviteLink}" style="color: #ea580c; word-break: break-all;">${inviteLink}</a>
           </p>
         </div>
       `.trim(),
-      text: `Welcome to Site Bolt\n\nYou've been invited to join Site Bolt. Click the link below to set up your password and activate your account.\n\n${actionLink}`,
+      text: `Welcome to Site Bolt\n\nYou've been invited to join Site Bolt. Click the link below to set up your password and activate your account.\n\n${inviteLink}`,
     });
 
     return NextResponse.json(

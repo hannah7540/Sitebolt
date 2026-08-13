@@ -14,6 +14,7 @@ import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supaba
 const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/auth/",
+  "/accept-invite",
   "/portal/",
   "/swms/sign/",
   "/scan/",
@@ -61,6 +62,7 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/account/") ||
     pathname.startsWith("/settings/account") ||
     pathname.startsWith("/auth/") ||
+    pathname.startsWith("/accept-invite") ||
     pathname.startsWith("/portal/")
   );
 }
