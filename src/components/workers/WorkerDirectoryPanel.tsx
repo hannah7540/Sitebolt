@@ -31,7 +31,7 @@ import {
   getWorkerTicketStatus,
   isNonCompliant,
 } from "@/lib/worker-compliance";
-import { canResendWorkerInvite, isCompanyEmployeeWorker } from "@/lib/worker-utils";
+import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
 import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
@@ -113,6 +113,30 @@ const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
   { id: "Revoked", label: "Revoked Workers" },
   { id: "All", label: "All" },
 ];
+
+const PENDING_WORKER_STATUSES = new Set(["pending", "pending_induction", "invited"]);
+
+function workerHasSignedIn(
+  workerId: string,
+  lastSignInByWorkerId: Record<string, string | null>
+): boolean {
+  return Boolean(lastSignInByWorkerId[workerId]);
+}
+
+/** Show Resend Invite only for workers still setting up their account. */
+function shouldShowResendInvite(
+  worker: Worker,
+  lastSignInByWorkerId: Record<string, string | null>
+): boolean {
+  if (isWorkerRevoked(worker)) return false;
+  if (!worker.email?.trim()) return false;
+
+  const hasSignedIn = workerHasSignedIn(worker.id, lastSignInByWorkerId);
+  if (hasSignedIn) return false;
+
+  const status = (worker.status ?? "active").toLowerCase();
+  return PENDING_WORKER_STATUSES.has(status);
+}
 
 async function loadWorkerAuthSignInStatus(
   workers: Worker[]
@@ -459,10 +483,7 @@ export default function WorkerDirectoryPanel({
               const assignedProjects = projects.filter((project) =>
                 assignedProjectIds.includes(project.id)
               );
-              const showResendInvite = canResendWorkerInvite(
-                w,
-                lastSignInByWorkerId[w.id] ?? null
-              );
+              const showResendInvite = shouldShowResendInvite(w, lastSignInByWorkerId);
 
               return (
                 <tr

@@ -200,7 +200,6 @@ export function canResendWorkerInvite(
   );
   if (revoked) return false;
   if (!worker.email?.trim()) return false;
-  if (worker.induction_completed_at) return false;
   if (lastSignInAt) return false;
 
   const status = (worker.status ?? "active").toLowerCase();
