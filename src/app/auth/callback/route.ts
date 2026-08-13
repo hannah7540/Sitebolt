@@ -2,8 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { PASSWORD_RESET_NEXT_PATH, WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
+import { WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+
+const PASSWORD_RESET_PATH = "/reset-password";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,7 @@ function resolveSafeNext(next: string | null, otpType: string | null): string {
   }
 
   if (otpType === "recovery") {
-    return PASSWORD_RESET_NEXT_PATH;
+    return PASSWORD_RESET_PATH;
   }
 
   return WORKER_INVITE_NEXT_PATH;
@@ -137,7 +139,9 @@ export async function GET(request: Request) {
       );
     }
 
-    return redirectWithSession(origin, safeNext, getSessionResponse());
+    const redirectResponse = NextResponse.redirect(new URL(safeNext, request.url));
+    copyCookies(getSessionResponse(), redirectResponse);
+    return redirectResponse;
   }
 
   const {

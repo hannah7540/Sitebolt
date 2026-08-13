@@ -6,7 +6,8 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
-const PASSWORD_RESET_REDIRECT_URL = "https://www.site-bolt.com.au/reset-password";
+const PASSWORD_RESET_REDIRECT_URL =
+  "https://www.site-bolt.com.au/auth/callback?next=/reset-password";
 
 export async function POST(req: Request) {
   const apiKey =
