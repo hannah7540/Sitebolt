@@ -24,16 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
 
-    const apiKey =
-      process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
-    if (!apiKey) {
-      console.error("No API key found in process.env");
-      return NextResponse.json(
-        { error: "No API key found in process.env" },
-        { status: 500 }
-      );
-    }
-
+    const apiKey = "re_epw5FP4m_2FTPUBMy24UwCoQeW2sv2QnR";
     const resend = new Resend(apiKey);
 
     const supabaseAdmin = createSupabaseAdminClient();
