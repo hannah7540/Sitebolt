@@ -137,6 +137,7 @@ export interface Worker {
   is_subcontractor?: boolean;
   subcontractor_id?: string | null;
   state?: string | null;
+  auth_user_id?: string | null;
   created_at?: string;
 }
 
@@ -203,6 +204,7 @@ const WORKER_SELECT_COLUMNS = [
   "has_company_vehicle",
   "assigned_vehicle_asset_id",
   "state",
+  "auth_user_id",
   "created_at",
 ] as const;
 
@@ -416,6 +418,7 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
       ? String(row.assigned_vehicle_asset_id)
       : null,
     state: row.state ?? null,
+    auth_user_id: row.auth_user_id ? String(row.auth_user_id) : null,
     created_at: row.created_at,
   };
 }

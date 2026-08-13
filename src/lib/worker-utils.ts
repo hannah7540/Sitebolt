@@ -173,7 +173,24 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   ...WORKER_LEGACY_PAY_RATE_FIELD_KEYS,
   "id",
   "created_at",
+  "auth_user_id",
 ] as const;
+
+export function workerNeedsAuthAccount(worker: {
+  auth_user_id?: string | null;
+  email?: string | null;
+  is_revoked?: boolean;
+  status?: string | null;
+  is_archived?: boolean;
+}): boolean {
+  const revoked = Boolean(
+    worker.is_revoked === true ||
+      worker.status === "Revoked" ||
+      worker.is_archived === true
+  );
+  if (revoked) return false;
+  return Boolean(worker.email?.trim()) && !worker.auth_user_id;
+}
 
 export const WORKER_DATE_FIELD_KEYS = [
   "dob",

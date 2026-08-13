@@ -15,6 +15,7 @@ import { assignDefaultPayRuleToWorker, assignPayRuleToWorker } from "@/lib/worke
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
+import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import { cn } from "@/lib/utils";
 import {
@@ -214,27 +215,7 @@ export default function WorkerOnboardingModal({
   };
 
   const sendWorkerInviteEmail = async (email: string, workerId?: string) => {
-    const response = await fetch("/api/workers/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, workerId }),
-    });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      throw new Error(data.error ?? "Failed to send worker invite.");
-    }
-  };
-
-  const sendWorkerPasswordResetEmail = async (email: string) => {
-    const response = await fetch("/api/workers/reset-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      throw new Error(data.error ?? "Failed to send password setup email.");
-    }
+    await requestWorkerAuthInvite(email, workerId);
   };
 
   const handleSubmit = async () => {
@@ -387,33 +368,17 @@ export default function WorkerOnboardingModal({
 
       const workerEmail = (form.email ?? "").trim();
 
-      if (mode === "quick") {
-        try {
-          await sendWorkerInviteEmail(workerEmail, workerId ?? undefined);
-          showSuccess(
-            "Invite sent! Worker will receive an email to set their password."
-          );
-          window.setTimeout(onClose, 1500);
-        } catch (inviteError) {
-          const message =
-            inviteError instanceof Error
-              ? inviteError.message
-              : "Worker saved, but the invite email could not be sent.";
-          setError(message);
-          showError(message);
-        }
-        return;
-      }
-
       try {
-        await sendWorkerPasswordResetEmail(workerEmail);
-        showSuccess("Onboarding saved! Password setup email sent to worker.");
+        await sendWorkerInviteEmail(workerEmail, workerId ?? undefined);
+        showSuccess(
+          "Invite sent! Worker will receive an email to set their password."
+        );
         window.setTimeout(onClose, 1500);
-      } catch (resetError) {
+      } catch (inviteError) {
         const message =
-          resetError instanceof Error
-            ? resetError.message
-            : "Onboarding saved, but the password setup email could not be sent.";
+          inviteError instanceof Error
+            ? inviteError.message
+            : "Worker saved, but the invite email could not be sent.";
         setError(message);
         showError(message);
       }
