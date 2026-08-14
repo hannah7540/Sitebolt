@@ -10,7 +10,6 @@ import {
 } from "@/lib/security-roles";
 import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
-import { WORKER_ONBOARDING_PATH } from "@/lib/worker-onboarding";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -294,18 +293,6 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       "/reset-password",
       sessionResponse
     );
-  }
-
-  if (
-    context.user &&
-    context.role === "general_worker" &&
-    context.workerId &&
-    !context.onboardingCompleted &&
-    !pathname.startsWith(WORKER_ONBOARDING_PATH) &&
-    !pathname.startsWith("/auth/") &&
-    !pathname.startsWith("/accept-invite")
-  ) {
-    return redirectWithCookies(request, WORKER_ONBOARDING_PATH, sessionResponse);
   }
 
   if (pathname.startsWith("/login")) {

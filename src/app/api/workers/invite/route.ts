@@ -7,9 +7,9 @@ import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { ensureWorkerInviteRecord } from "@/lib/ensure-worker-profile";
 import {
-  buildWorkerInviteCallbackUrl,
   AUTH_CALLBACK_PATH,
   WORKER_INVITE_NEXT_PATH,
+  buildPasswordResetOtpPageUrl,
   type WorkerInviteLinkType,
 } from "@/lib/worker-invite-link";
 
@@ -79,22 +79,21 @@ export async function POST(req: Request) {
       }
 
       authUserId = data?.user?.id ?? null;
-
-      const hashedToken = data?.properties?.hashed_token;
-      if (hashedToken) {
-        inviteLink = buildWorkerInviteCallbackUrl(hashedToken, linkType);
+      if (authUserId) {
         break;
       }
 
-      lastLinkError = "generateLink did not return hashed_token";
+      lastLinkError = "generateLink did not return auth user";
     }
 
-    if (!inviteLink) {
+    if (!authUserId) {
       return NextResponse.json(
-        { error: lastLinkError || "Failed to generate link" },
+        { error: lastLinkError || "Failed to create auth account" },
         { status: 500 }
       );
     }
+
+    inviteLink = buildPasswordResetOtpPageUrl(email);
 
     await ensureWorkerInviteRecord(supabaseAdmin, {
       email,
@@ -109,16 +108,16 @@ export async function POST(req: Request) {
     await resend.emails.send({
       from: "Site Bolt <hannah@site-bolt.com.au>",
       to: [email],
-      subject: "Set up your Site Bolt account",
+      subject: "You have been added to Site-Bolt",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site Bolt</h1>
+          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site-Bolt</h1>
           <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            You've been invited to join Site Bolt. Click the button below to set up your password and activate your account.
+            You've been added to Site-Bolt. Please click the link below to set your password and access your account.
           </p>
           <p style="margin: 0 0 32px;">
             <a href="${inviteLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
-              Create Your Account
+              Set Your Password
             </a>
           </p>
           <p style="font-size: 14px; color: #64748b; margin: 0;">
@@ -127,7 +126,7 @@ export async function POST(req: Request) {
           </p>
         </div>
       `.trim(),
-      text: `Welcome to Site Bolt\n\nYou've been invited to join Site Bolt. Click the link below to set up your password and activate your account.\n\n${inviteLink}`,
+      text: `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`,
     });
 
     return NextResponse.json(

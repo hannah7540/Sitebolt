@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import {
+  bindAuthSessionForUser,
+  resolvePostAuthPathForUser,
+} from "@/lib/auth-profile";
+import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 function parseApiError(payload: unknown): string | null {
@@ -21,6 +26,17 @@ function parseApiError(payload: unknown): string | null {
   return null;
 }
 
+function parseRedirectPath(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const redirectPath = (payload as { redirectPath?: unknown }).redirectPath;
+  if (typeof redirectPath === "string" && redirectPath.startsWith("/")) {
+    return redirectPath;
+  }
+
+  return null;
+}
+
 export default function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -29,6 +45,8 @@ export default function ResetPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isInviteSetup = useMemo(() => Boolean(searchParams.get("email")), [searchParams]);
 
   useEffect(() => {
     const emailParam = searchParams.get("email");
@@ -73,13 +91,31 @@ export default function ResetPasswordForm() {
       const payload: unknown = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setError(parseApiError(payload) ?? "Failed to reset password.");
+        setError(parseApiError(payload) ?? "Failed to set password.");
         return;
       }
 
-      router.replace("/login?reset=success");
+      const supabase = createSupabaseBrowserClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (signInError || !data.user) {
+        setError(
+          "Your password was saved, but automatic sign-in failed. Please sign in manually."
+        );
+        return;
+      }
+
+      await bindAuthSessionForUser(data.user);
+
+      const redirectPath =
+        parseRedirectPath(payload) ?? (await resolvePostAuthPathForUser(data.user));
+
+      router.replace(redirectPath);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to reset password.");
+      setError(cause instanceof Error ? cause.message : "Failed to set password.");
     } finally {
       setSubmitting(false);
     }
@@ -96,9 +132,18 @@ export default function ResetPasswordForm() {
             <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
               SiteBolt
             </p>
-            <h1 className="text-xl font-bold text-slate-900">Reset your password</h1>
+            <h1 className="text-xl font-bold text-slate-900">
+              {isInviteSetup ? "Set your password" : "Reset your password"}
+            </h1>
           </div>
         </div>
+
+        {isInviteSetup ? (
+          <p className="mb-6 text-sm text-slate-600">
+            Create a password for your Site-Bolt account. You&apos;ll be signed in
+            automatically once your password is saved.
+          </p>
+        ) : null}
 
         <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
           <div className="space-y-1">
@@ -116,12 +161,14 @@ export default function ResetPasswordForm() {
               inputMode="email"
               spellCheck={false}
               required
+              readOnly={isInviteSetup}
+              aria-readonly={isInviteSetup}
             />
           </div>
 
           <div className="space-y-1">
             <label htmlFor="reset-password" className={labelClass}>
-              New Password
+              {isInviteSetup ? "Password" : "New Password"}
             </label>
             <input
               id="reset-password"
@@ -167,19 +214,23 @@ export default function ResetPasswordForm() {
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Updating password…
+                {isInviteSetup ? "Setting password…" : "Updating password…"}
               </>
+            ) : isInviteSetup ? (
+              "Set Password"
             ) : (
               "Reset password"
             )}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
-          <Link href="/login" className="font-medium text-orange-600 hover:text-orange-700">
-            Back to sign in
-          </Link>
-        </p>
+        {!isInviteSetup ? (
+          <p className="mt-6 text-center text-sm text-slate-500">
+            <Link href="/login" className="font-medium text-orange-600 hover:text-orange-700">
+              Back to sign in
+            </Link>
+          </p>
+        ) : null}
       </div>
     </div>
   );
