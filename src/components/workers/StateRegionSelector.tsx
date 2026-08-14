@@ -60,6 +60,9 @@ export default function StateRegionSelector({
           );
         })}
       </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Pay rule is assigned automatically from state/region (no manual selection).
+      </p>
     </fieldset>
   );
 }

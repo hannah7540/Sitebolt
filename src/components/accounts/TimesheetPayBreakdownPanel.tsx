@@ -75,8 +75,8 @@ export default function TimesheetPayBreakdownPanel({
   if (!payRule) {
     return (
       <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        No pay rule assigned to this worker. Assign the NSW Site Worker rule under
-        Accounts → Rates and Rules.
+        No pay rule assigned to this worker. Set the worker&apos;s state/region on their
+        profile — the matching pay rule is assigned automatically.
       </div>
     );
   }
