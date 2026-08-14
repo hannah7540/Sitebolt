@@ -5,7 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import type { AuthChangeEvent, EmailOtpType, Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { resolvePostAuthPathForUser } from "@/lib/auth-profile";
+import {
+  bindAuthSessionForUser,
+  resolvePostAuthPathForUser,
+} from "@/lib/auth-profile";
+import { isGeneralWorkerRole, resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import { WORKER_ONBOARDING_PATH } from "@/lib/worker-onboarding";
 import {
   passwordRequirementsLabel,
   validatePassword,
@@ -254,9 +259,18 @@ export default function AuthSetPasswordForm({
         }
       }
 
-      const nextPath =
-        successRedirectPath ??
-        (user ? await resolvePostAuthPathForUser(user) : "/worker-dashboard");
+      let nextPath = successRedirectPath;
+      if (!nextPath && user) {
+        if (ensureWorkerProfileOnSuccess) {
+          const bound = await bindAuthSessionForUser(user);
+          nextPath = isGeneralWorkerRole(bound.role)
+            ? WORKER_ONBOARDING_PATH
+            : resolveDefaultLandingPathForRole(bound.role, bound.workerId);
+        } else {
+          nextPath = await resolvePostAuthPathForUser(user);
+        }
+      }
+      if (!nextPath) nextPath = "/worker-dashboard";
 
       setSuccess(true);
       window.setTimeout(() => router.replace(nextPath), 2000);

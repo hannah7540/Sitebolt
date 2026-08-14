@@ -11,12 +11,8 @@ import {
 import { validatePassword } from "@/lib/password-validation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
-import {
-  canAccessAdminConsole,
-  DEFAULT_WORKER_SECURITY_ROLE,
-  normalizeSecurityRole,
-} from "@/lib/security-roles";
-import { workerDashboardUrl } from "@/lib/user-session";
+import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
+import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
 
 async function findAuthUserByEmail(email: string): Promise<User | null> {
@@ -83,14 +79,7 @@ function resolvePostPasswordRedirectPath(
   workerId: string | null,
   securityRole: string | null
 ): string {
-  const role = normalizeSecurityRole(securityRole);
-  if (workerId && canAccessAdminConsole(role)) {
-    return "/admin";
-  }
-  if (workerId) {
-    return workerDashboardUrl(workerId);
-  }
-  return "/worker-dashboard";
+  return resolveDefaultLandingPathForRole(securityRole, workerId);
 }
 
 async function activateWorkerAfterPasswordSetup(

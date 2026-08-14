@@ -10,7 +10,7 @@ import {
   canAccessAdminConsole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
-import { setAdminWorkerId, setStoredWorkerId, workerDashboardUrl } from "@/lib/user-session";
+import { setAdminWorkerId, setStoredWorkerId, resolveDefaultLandingPathForRole } from "@/lib/user-session";
 
 export interface UserProfileRow {
   role: string;
@@ -149,13 +149,7 @@ export async function bindAuthSessionForUser(user: User): Promise<{
 
 export async function resolvePostAuthPathForUser(user: User): Promise<string> {
   const bound = await bindAuthSessionForUser(user);
-  if (bound.workerId && canAccessAdminConsole(normalizeSecurityRole(bound.role))) {
-    return "/admin";
-  }
-  if (bound.workerId) {
-    return workerDashboardUrl(bound.workerId);
-  }
-  return "/worker-dashboard";
+  return resolveDefaultLandingPathForRole(bound.role, bound.workerId);
 }
 
 async function resolveWorkerIdForAuthUser(user: User): Promise<string | null> {

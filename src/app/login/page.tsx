@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
-import { bindAdminSessionForUser } from "@/lib/auth-profile";
+import { bindAuthSessionForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 
@@ -35,10 +36,13 @@ function LoginPageContent() {
         return;
       }
 
-      const bound = await bindAdminSessionForUser(user);
+      const bound = await bindAuthSessionForUser(user);
       if (!cancelled) {
         if (bound.ok) {
-          router.replace(returnPath ?? "/admin");
+          router.replace(
+            returnPath ??
+              resolveDefaultLandingPathForRole(bound.role, bound.workerId)
+          );
         } else {
           setCheckingSession(false);
         }
@@ -68,14 +72,16 @@ function LoginPageContent() {
         return;
       }
 
-      const bound = await bindAdminSessionForUser(data.user);
+      const bound = await bindAuthSessionForUser(data.user);
       if (!bound.ok) {
         await supabase.auth.signOut();
-        setError(bound.error ?? "You do not have permission to access the admin console.");
+        setError(bound.error ?? "Unable to sign in. Contact your administrator.");
         return;
       }
 
-      router.replace(returnPath ?? "/admin");
+      router.replace(
+        returnPath ?? resolveDefaultLandingPathForRole(bound.role, bound.workerId)
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed.");
     } finally {

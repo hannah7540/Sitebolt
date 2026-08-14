@@ -3,13 +3,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import {
-  canAccessAdminConsole,
   canManageOrganisation,
   normalizeSecurityRole,
   type SecurityRole,
 } from "@/lib/security-roles";
 import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+import {
+  PROJECT_DASHBOARD_HOME_PATH,
+  resolveDefaultLandingPathForRole,
+} from "@/lib/user-session";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -35,7 +38,7 @@ const AUTH_REQUIRED_PREFIXES = [
 ] as const;
 
 /** Project-scoped admin roles land on the main project console. */
-const PROJECTS_HOME_PATH = "/";
+const PROJECTS_HOME_PATH = PROJECT_DASHBOARD_HOME_PATH;
 
 const GENERAL_WORKER_HOME_PATH = "/worker-dashboard";
 
@@ -222,16 +225,7 @@ async function resolveAuthContext(
 }
 
 function resolveAuthenticatedHomePath(context: AuthContext): string {
-  if (context.user && canAccessAdminConsole(context.role)) {
-    return "/admin";
-  }
-
-  if (context.workerId) {
-    const params = new URLSearchParams({ worker_id: context.workerId });
-    return `${GENERAL_WORKER_HOME_PATH}?${params.toString()}`;
-  }
-
-  return GENERAL_WORKER_HOME_PATH;
+  return resolveDefaultLandingPathForRole(context.role, context.workerId);
 }
 
 function resolveGeneralWorkerHomePath(context: AuthContext): string {

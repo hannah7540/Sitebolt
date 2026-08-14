@@ -1,8 +1,15 @@
 import { MASTER_ADMIN_EMAIL, MASTER_ADMIN_FULL_NAME } from "./master-admin-config";
+import {
+  canAccessAdminConsole,
+  normalizeSecurityRole,
+} from "./security-roles";
 
 /** Placeholder admin display name until auth profile resolves. */
 export const DEFAULT_ADMIN_PROFILE_NAME = MASTER_ADMIN_FULL_NAME;
 export const DEFAULT_ADMIN_EMAIL = MASTER_ADMIN_EMAIL;
+
+/** Project dashboard — default landing for non-general-worker roles. */
+export const PROJECT_DASHBOARD_HOME_PATH = "/";
 
 export const WORKER_ID_KEY = "sitebolt_worker_id";
 export const ADMIN_WORKER_ID_KEY = "sitebolt_admin_worker_id";
@@ -90,4 +97,30 @@ export async function resolveDashboardWorkerId(options?: {
   if (adminId) return adminId;
 
   return null;
+}
+
+export function isGeneralWorkerRole(role: string | null | undefined): boolean {
+  return normalizeSecurityRole(role) === "general_worker";
+}
+
+/** Post-login / post-setup default route from security role. */
+export function resolveDefaultLandingPathForRole(
+  role: string | null | undefined,
+  workerId?: string | null
+): string {
+  const normalized = normalizeSecurityRole(role);
+
+  if (isGeneralWorkerRole(normalized)) {
+    const trimmedId = workerId?.trim();
+    if (trimmedId) return workerDashboardUrl(trimmedId);
+    return "/worker-dashboard";
+  }
+
+  if (canAccessAdminConsole(normalized)) {
+    return PROJECT_DASHBOARD_HOME_PATH;
+  }
+
+  const trimmedId = workerId?.trim();
+  if (trimmedId) return workerDashboardUrl(trimmedId);
+  return "/worker-dashboard";
 }
