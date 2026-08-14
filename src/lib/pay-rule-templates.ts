@@ -71,7 +71,6 @@ export interface PayRuleTemplate {
   name: string;
   conditions: PayRuleCondition[];
   created_at?: string;
-  updated_at?: string;
 }
 
 export interface PayRuleConditionInput {
@@ -294,7 +293,6 @@ function mapPayRuleTemplate(
     name: String(row.name ?? "").trim(),
     conditions: [...conditions].sort((a, b) => a.sort_order - b.sort_order),
     created_at: row.created_at ? String(row.created_at) : undefined,
-    updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };
 }
 
@@ -940,7 +938,7 @@ export async function fetchPayRuleTemplates(): Promise<{
 
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
-    .select("id,name,created_at,updated_at")
+    .select("id,name,created_at")
     .order("name", { ascending: true });
 
   if (error) {
@@ -1031,7 +1029,7 @@ export async function createPayRuleTemplate(
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
     .insert([{ name: sanitized.name }])
-    .select("id,name,created_at,updated_at");
+    .select("id,name,created_at");
 
   const row = firstSelectedRow(data as Record<string, unknown>[] | null);
 
@@ -1097,10 +1095,9 @@ export async function updatePayRuleTemplate(
     .from(PAY_RULE_TEMPLATES_TABLE)
     .update({
       name: sanitized.name,
-      updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .select("id,name,created_at,updated_at");
+    .select("id,name,created_at");
 
   const row = firstSelectedRow(data as Record<string, unknown>[] | null);
 
