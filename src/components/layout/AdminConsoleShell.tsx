@@ -29,6 +29,7 @@ import {
   canAccessAccountsArea,
   canAccessAdminConsole,
   canAccessPayRules,
+  canAddAccountsTimesheets,
   canManageAccountsTimesheets,
   canViewAccountsTimesheets,
   isAccountsTimesheetsReadOnly,
@@ -41,6 +42,7 @@ import {
   isOrganisationPath,
   isPayRulesPath,
   isTimesheetsPath,
+  isAddTimesheetsPath,
   PROJECT_VIEWS,
 } from "@/lib/rbac-guards";
 import {
@@ -188,7 +190,10 @@ export default function AdminConsoleShell({
       return;
     }
 
-    const timesheetsRoute = requireAccountsAccess || isTimesheetsPath(pathname);
+    const timesheetsRoute =
+      requireAccountsAccess ||
+      isTimesheetsPath(pathname) ||
+      isAddTimesheetsPath(pathname);
     if (timesheetsRoute) {
       const allowed =
         canViewAccountsTimesheets(sessionRole) ||
@@ -201,6 +206,18 @@ export default function AdminConsoleShell({
         setAccessDenied("You do not have Accounts access for this area.");
         return;
       }
+    }
+
+    if (
+      isAddTimesheetsPath(pathname) &&
+      !canAddAccountsTimesheets(
+        sessionRole,
+        sessionWorker.accounts_access_role,
+        sessionWorker.can_access_accounts
+      )
+    ) {
+      setAccessDenied("You do not have permission to add timesheets.");
+      return;
     }
 
     setAccessDenied(null);

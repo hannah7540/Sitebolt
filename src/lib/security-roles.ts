@@ -177,6 +177,18 @@ export function canManageAccountsTimesheets(role: SecurityRole): boolean {
   return role === "owner" || role === "full_access";
 }
 
+/** Managers/admins who can submit and approve timesheets on behalf of workers. */
+export function canAddAccountsTimesheets(
+  securityRole: SecurityRole | string | null | undefined,
+  accountsAccessRole?: AccountsAccessRole | string | null,
+  canAccessAccounts?: boolean | null
+): boolean {
+  return canManageAccountsActions(accountsAccessRole, {
+    securityRole,
+    canAccessAccounts,
+  });
+}
+
 export function normalizeAccountsAccessRole(
   role: string | null | undefined
 ): AccountsAccessRole {

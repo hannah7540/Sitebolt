@@ -61,6 +61,10 @@ export function isTimesheetsPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/accounts/timesheets"));
 }
 
+export function isAddTimesheetsPath(pathname: string | null | undefined): boolean {
+  return Boolean(pathname?.startsWith("/accounts/add-timesheets"));
+}
+
 export function filterProjectsForRole(
   role: SecurityRole,
   projects: DbProject[],

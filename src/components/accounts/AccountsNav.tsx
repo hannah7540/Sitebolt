@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, Scale } from "lucide-react";
+import { Clock, Scale, UserPlus } from "lucide-react";
 import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
 import {
   canAccessPayRules,
+  canAddAccountsTimesheets,
   canViewAccountsTimesheets,
 } from "@/lib/security-roles";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,8 @@ export default function AccountsNav() {
   const pathname = usePathname();
   const adminConsole = useAdminConsoleOptional();
   const sessionRole = adminConsole?.sessionRole ?? "general_worker";
+  const accountsAccessRole = adminConsole?.accountsAccessRole ?? "disabled";
+  const canAccessAccounts = adminConsole?.canAccessAccounts ?? false;
 
   const tabs = [
     canViewAccountsTimesheets(sessionRole)
@@ -28,6 +31,13 @@ export default function AccountsNav() {
           label: "Pay Rules",
           href: "/accounts/pay-rules",
           icon: Scale,
+        }
+      : null,
+    canAddAccountsTimesheets(sessionRole, accountsAccessRole, canAccessAccounts)
+      ? {
+          label: "Add Timesheets",
+          href: "/accounts/add-timesheets",
+          icon: UserPlus,
         }
       : null,
   ].filter(Boolean) as Array<{

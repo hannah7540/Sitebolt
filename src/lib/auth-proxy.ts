@@ -342,7 +342,8 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     context.user &&
     context.role === "super_admin" &&
     isAccountsPath(pathname) &&
-    pathname.startsWith("/accounts/pay-rules")
+    (pathname.startsWith("/accounts/pay-rules") ||
+      pathname.startsWith("/accounts/add-timesheets"))
   ) {
     return redirectWithCookies(request, "/accounts/timesheets", sessionResponse);
   }

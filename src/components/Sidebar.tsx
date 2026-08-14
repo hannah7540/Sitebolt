@@ -15,6 +15,7 @@ import {
   ReceiptText,
   Clock,
   Scale,
+  UserPlus,
   LogOut,
   KeyRound,
   type LucideIcon,
@@ -38,6 +39,7 @@ import {
   canManageOrganisation,
   canManageSecuritySettings,
   canViewAccountsTimesheets,
+  canAddAccountsTimesheets,
   type SecurityRole,
   type AccountsAccessRole,
 } from "@/lib/security-roles";
@@ -116,7 +118,11 @@ interface SidebarMenuGroup {
   children: SidebarMenuChild[];
 }
 
-function buildAccountsMenu(sessionRole: SecurityRole): SidebarMenuGroup | null {
+function buildAccountsMenu(
+  sessionRole: SecurityRole,
+  accountsAccessRole: AccountsAccessRole = "disabled",
+  canAccessAccounts = false
+): SidebarMenuGroup | null {
   const children: SidebarMenuChild[] = [];
 
   if (canViewAccountsTimesheets(sessionRole)) {
@@ -132,6 +138,14 @@ function buildAccountsMenu(sessionRole: SecurityRole): SidebarMenuGroup | null {
       title: "Pay Rules",
       href: "/accounts/pay-rules",
       icon: Scale,
+    });
+  }
+
+  if (canAddAccountsTimesheets(sessionRole, accountsAccessRole, canAccessAccounts)) {
+    children.push({
+      title: "Add Timesheets",
+      href: "/accounts/add-timesheets",
+      icon: UserPlus,
     });
   }
 
@@ -475,8 +489,8 @@ export default function Sidebar({
   const showAdministration = canManageAdministration(sessionRole);
   const showSecurity = canManageSecuritySettings(sessionRole);
   const accountsMenu = useMemo(
-    () => buildAccountsMenu(sessionRole),
-    [sessionRole]
+    () => buildAccountsMenu(sessionRole, accountsAccessRole, canAccessAccounts),
+    [sessionRole, accountsAccessRole, canAccessAccounts]
   );
   const showAccounts =
     permissionsLoading ||
