@@ -1,22 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { WorkerOnboardingRecord } from "@/lib/worker-onboarding-types";
+
+export type { WorkerOnboardingFormPayload, WorkerOnboardingRecord } from "@/lib/worker-onboarding-types";
 
 export const WORKER_ONBOARDING_PATH = "/onboarding";
-
-export interface WorkerOnboardingRecord {
-  id: string;
-  email: string;
-  full_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  phone: string | null;
-  trade: string | null;
-  emergency_contact_name: string | null;
-  emergency_contact_phone: string | null;
-  white_card_number: string | null;
-  drivers_licence_number: string | null;
-  onboarding_completed: boolean;
-}
 
 export async function findWorkerIdForAuthUser(
   supabase: SupabaseClient,

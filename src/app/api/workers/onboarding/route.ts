@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
@@ -15,6 +15,133 @@ import {
   markWorkerAccountActivated,
 } from "@/lib/ensure-worker-profile";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
+import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function nullIfBlank(value: string): string | null {
+  return value.trim() ? value.trim() : null;
+}
+
+function nullIfBlankDate(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | null {
+  if (!body || typeof body !== "object") return null;
+
+  const raw = body as Record<string, unknown>;
+  const rawVocs = Array.isArray(raw.vocs) ? raw.vocs : [];
+
+  return {
+    fullName: readString(raw.fullName),
+    email: readString(raw.email),
+    phone: readString(raw.phone),
+    address: readString(raw.address),
+    emergencyContactName: readString(raw.emergencyContactName),
+    emergencyContactRelationship: readString(raw.emergencyContactRelationship),
+    emergencyContactPhone: readString(raw.emergencyContactPhone),
+    bankName: readString(raw.bankName),
+    bankBsb: readString(raw.bankBsb),
+    bankAccountNumber: readString(raw.bankAccountNumber),
+    superFund: readString(raw.superFund),
+    superMemberNumber: readString(raw.superMemberNumber),
+    superUsi: readString(raw.superUsi),
+    tfn: readString(raw.tfn),
+    redundancyFundName: readString(raw.redundancyFundName),
+    redundancyMemberNumber: readString(raw.redundancyMemberNumber),
+    whiteCardNumber: readString(raw.whiteCardNumber),
+    whiteCardState: readString(raw.whiteCardState),
+    silicaCertNumber: readString(raw.silicaCertNumber),
+    silicaCertIssueDate: readString(raw.silicaCertIssueDate),
+    driversLicenceNumber: readString(raw.driversLicenceNumber),
+    driversLicenceClass: readString(raw.driversLicenceClass),
+    driversLicenceExpiry: readString(raw.driversLicenceExpiry),
+    vocs: rawVocs
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const voc = item as Record<string, unknown>;
+        const vocType = readString(voc.voc_type ?? voc.title);
+        if (!vocType) return null;
+        return {
+          title: vocType,
+          voc_type: vocType,
+          issuing_org: nullIfBlank(readString(voc.issuing_org)),
+          issue_date: nullIfBlankDate(readString(voc.issue_date)),
+          expiry_date: nullIfBlankDate(readString(voc.expiry_date)),
+          document_url: nullIfBlank(readString(voc.document_url)),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null),
+  };
+}
+
+function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string | null {
+  if (!payload.fullName) return "Full name is required.";
+  if (!payload.phone) return "Phone number is required.";
+  if (!payload.address) return "Address is required.";
+  if (!payload.emergencyContactName) return "Emergency contact name is required.";
+  if (!payload.emergencyContactRelationship) {
+    return "Emergency contact relationship is required.";
+  }
+  if (!payload.emergencyContactPhone) return "Emergency contact phone is required.";
+  if (!payload.bankName) return "Bank name is required.";
+  if (!payload.bankBsb) return "Bank BSB is required.";
+  if (!payload.bankAccountNumber) return "Bank account number is required.";
+  if (!payload.superFund) return "Superannuation fund name is required.";
+  if (!payload.superMemberNumber) return "Super member number is required.";
+  if (!payload.tfn) return "Tax File Number is required.";
+  return null;
+}
+
+async function replaceWorkerVocs(
+  admin: SupabaseClient,
+  workerId: string,
+  vocs: WorkerOnboardingFormPayload["vocs"]
+): Promise<string | null> {
+  const { error: deleteError } = await admin
+    .from("worker_vocs")
+    .delete()
+    .eq("worker_id", workerId);
+
+  if (deleteError) return deleteError.message;
+  if (vocs.length === 0) return null;
+
+  const rows = vocs.map((voc) => ({
+    worker_id: workerId,
+    title: voc.title,
+    voc_type: voc.voc_type ?? voc.title,
+    name: voc.voc_type ?? voc.title,
+    issuing_org: voc.issuing_org ?? null,
+    issue_date: voc.issue_date ?? null,
+    expiry_date: voc.expiry_date ?? null,
+    document_url: voc.document_url ?? null,
+  }));
+
+  const attempts = [
+    rows,
+    rows.map(({ name: _name, voc_type: _vocType, ...row }) => row),
+    rows.map(({ name: _name, ...row }) => row),
+  ];
+
+  for (const payload of attempts) {
+    const { error } = await admin.from("worker_vocs").insert(payload);
+    if (!error) return null;
+    const lower = error.message.toLowerCase();
+    if (
+      !lower.includes("column") &&
+      !lower.includes("schema cache") &&
+      !lower.includes("could not find")
+    ) {
+      return error.message;
+    }
+  }
+
+  return "Unable to save VOC records.";
+}
 
 async function resolveOnboardingWorker(user: User | null) {
   if (!user) {
@@ -76,39 +203,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => null);
-  const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
-  const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
-  const trade = typeof body?.trade === "string" ? body.trade.trim() : "";
-  const emergencyContactName =
-    typeof body?.emergencyContactName === "string"
-      ? body.emergencyContactName.trim()
-      : "";
-  const emergencyContactPhone =
-    typeof body?.emergencyContactPhone === "string"
-      ? body.emergencyContactPhone.trim()
-      : "";
-  const whiteCardNumber =
-    typeof body?.whiteCardNumber === "string" ? body.whiteCardNumber.trim() : "";
-  const driversLicenceNumber =
-    typeof body?.driversLicenceNumber === "string"
-      ? body.driversLicenceNumber.trim()
-      : "";
+  const payload = parseOnboardingPayload(await req.json().catch(() => null));
+  if (!payload) {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
 
-  if (!fullName) {
-    return NextResponse.json({ error: "Full name is required." }, { status: 400 });
-  }
-  if (!phone) {
-    return NextResponse.json({ error: "Phone number is required." }, { status: 400 });
-  }
-  if (!emergencyContactName || !emergencyContactPhone) {
-    return NextResponse.json(
-      { error: "Emergency contact name and phone are required." },
-      { status: 400 }
-    );
-  }
-  if (!trade) {
-    return NextResponse.json({ error: "Trade / role is required." }, { status: 400 });
+  const validationError = validateOnboardingPayload(payload);
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
   const resolved = await resolveOnboardingWorker(user);
@@ -118,25 +220,45 @@ export async function POST(req: Request) {
 
   const workerId = resolved.worker.id;
   const admin = createSupabaseAdminClient();
-  const { firstName, lastName } = splitWorkerFullName(fullName);
+  const { firstName, lastName } = splitWorkerFullName(payload.fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
   const { error: updateError } = await admin
     .from("workers")
     .update({
       ...nameFields,
-      phone,
-      trade,
-      emergency_contact_name: emergencyContactName,
-      emergency_contact_phone: emergencyContactPhone,
-      white_card_number: whiteCardNumber || null,
-      drivers_licence_number: driversLicenceNumber || null,
+      phone: payload.phone,
+      emergency_contact: payload.address,
+      emergency_contact_name: payload.emergencyContactName,
+      emergency_contact_relationship: payload.emergencyContactRelationship,
+      emergency_contact_phone: payload.emergencyContactPhone,
+      bank_name: payload.bankName,
+      bank_bsb: payload.bankBsb,
+      bank_account_number: payload.bankAccountNumber,
+      super_fund: payload.superFund,
+      super_member_number: payload.superMemberNumber,
+      super_usi: nullIfBlank(payload.superUsi),
+      tfn: payload.tfn,
+      redundancy_fund_name: nullIfBlank(payload.redundancyFundName),
+      redundancy_member_number: nullIfBlank(payload.redundancyMemberNumber),
+      white_card_number: nullIfBlank(payload.whiteCardNumber),
+      state: nullIfBlank(payload.whiteCardState),
+      silica_cert_number: nullIfBlank(payload.silicaCertNumber),
+      silica_cert_issue_date: nullIfBlankDate(payload.silicaCertIssueDate),
+      drivers_licence_number: nullIfBlank(payload.driversLicenceNumber),
+      drivers_licence_class: nullIfBlank(payload.driversLicenceClass),
+      drivers_licence_expiry: nullIfBlankDate(payload.driversLicenceExpiry),
       updated_at: new Date().toISOString(),
     })
     .eq("id", workerId);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
+  }
+
+  const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);
+  if (vocError) {
+    return NextResponse.json({ error: vocError }, { status: 400 });
   }
 
   const activationResult = await markWorkerAccountActivated(admin, workerId, {
