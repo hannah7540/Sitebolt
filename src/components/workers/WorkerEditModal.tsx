@@ -144,16 +144,11 @@ export default function WorkerEditModal({
       worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
 
     if (worker.state) {
-      const { error: payRuleError, templateId } = await assignDefaultPayRuleToWorker(
+      const { templateId } = await assignDefaultPayRuleToWorker(
         worker.id,
         worker.state,
         isApprentice
       );
-      if (payRuleError) {
-        setSaving(false);
-        setError(payRuleError);
-        return;
-      }
       resolvedPayRuleId = templateId ?? resolvedPayRuleId;
     }
 

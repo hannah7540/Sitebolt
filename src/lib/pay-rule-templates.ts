@@ -657,21 +657,30 @@ export async function fetchPayRuleTemplateIdByNameAdmin(
 
   const preset = getPayRuleTemplateInputByName(trimmed);
   if (preset) {
-    const ensured = await ensurePayRuleTemplateByNameWithClient(admin, preset);
-    if (ensured.error) {
-      return { id: null, error: ensured.error };
+    try {
+      const ensured = await ensurePayRuleTemplateByNameWithClient(admin, preset);
+      if (ensured.template?.id) {
+        return { id: ensured.template.id, error: null };
+      }
+      if (ensured.error) {
+        console.warn("[pay-rule-templates] Pay rule save skipped:", ensured.error);
+      }
+    } catch (err) {
+      console.warn("Pay rule save skipped:", err);
     }
-    return {
-      id: ensured.template?.id ?? null,
-      error: ensured.template?.id
-        ? null
-        : `Failed to create pay rule template "${trimmed}".`,
-    };
+
+    const retryAfterEnsure = await lookupPayRuleTemplateIdByNameWithClient(admin, trimmed);
+    if (retryAfterEnsure.id) {
+      return retryAfterEnsure;
+    }
+
+    return { id: null, error: null };
   }
 
-  const seeded = await ensureDefaultPayRuleTemplatesWithClient(admin);
-  if (seeded.error) {
-    return { id: null, error: seeded.error };
+  try {
+    await ensureDefaultPayRuleTemplatesWithClient(admin);
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
   }
 
   const retry = await lookupPayRuleTemplateIdByNameWithClient(admin, trimmed);
@@ -692,11 +701,15 @@ async function ensureDefaultPayRuleTemplatesWithClient(
   let created = 0;
 
   for (const preset of DEFAULT_PAY_RULE_TEMPLATE_INPUTS) {
-    const result = await ensurePayRuleTemplateByNameWithClient(client, preset);
-    if (result.error) {
-      return { created, error: result.error };
+    try {
+      const result = await ensurePayRuleTemplateByNameWithClient(client, preset);
+      if (result.error) {
+        console.warn("[pay-rule-templates] Pay rule save skipped:", preset.name, result.error);
+      }
+      if (result.created) created += 1;
+    } catch (err) {
+      console.warn("Pay rule save skipped:", err);
     }
-    if (result.created) created += 1;
   }
 
   return { created, error: null };
@@ -729,7 +742,7 @@ async function ensurePayRuleTemplateByNameWithClient(
       };
     }
 
-    await saveConditionsWithClient(client, existing.id, sanitized.conditions, { silent: true });
+    await saveConditionsWithClient(client, existing.id, sanitized.conditions);
 
     const refreshed = await fetchConditionRowsByTemplateIdsWithClient(client, [existing.id]);
     return {
@@ -742,24 +755,39 @@ async function ensurePayRuleTemplateByNameWithClient(
     };
   }
 
-  const created = await createPayRuleTemplateWithClient(client, input, {
-    silentConditionErrors: true,
-  });
-  if (created.error || !created.template) {
+  try {
+    const created = await createPayRuleTemplateWithClient(client, input);
+    if (created.template) {
+      return { template: created.template, created: true, error: null };
+    }
+    if (created.error) {
+      console.warn("[pay-rule-templates] Pay rule save skipped:", created.error);
+    }
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+  }
+
+  const retryLookup = await lookupPayRuleTemplateIdByNameWithClient(client, sanitized.name);
+  if (retryLookup.id) {
+    const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [
+      retryLookup.id,
+    ]);
     return {
-      template: null,
+      template: mapPayRuleTemplate(
+        { id: retryLookup.id, name: sanitized.name },
+        conditionsByTemplate.get(retryLookup.id) ?? []
+      ),
       created: false,
-      error: created.error ?? `Failed to create ${sanitized.name} template.`,
+      error: null,
     };
   }
 
-  return { template: created.template, created: true, error: null };
+  return { template: null, created: false, error: null };
 }
 
 async function createPayRuleTemplateWithClient(
   client: SupabaseClient,
-  input: PayRuleTemplateInput,
-  options: { silentConditionErrors?: boolean } = {}
+  input: PayRuleTemplateInput
 ): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
   const sanitized = sanitizePayRuleTemplateInput(input);
 
@@ -806,16 +834,7 @@ async function createPayRuleTemplateWithClient(
   }
 
   const templateId = String(row.id);
-  const conditionError = await saveConditionsWithClient(
-    client,
-    templateId,
-    sanitized.conditions,
-    { silent: options.silentConditionErrors }
-  );
-  if (conditionError && !options.silentConditionErrors) {
-    await client.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", templateId);
-    return { template: null, error: conditionError };
-  }
+  await saveConditionsWithClient(client, templateId, sanitized.conditions);
 
   const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [
     templateId,
@@ -889,61 +908,57 @@ function buildExtendedConditionInsertRow(
 async function saveConditionsWithClient(
   _client: SupabaseClient,
   templateId: string,
-  conditions: PayRuleConditionInput[],
-  options: { silent?: boolean } = {}
+  conditions: PayRuleConditionInput[]
 ): Promise<string | null> {
-  if (conditions.length === 0) return null;
+  try {
+    if (conditions.length === 0) return null;
 
-  const writeClient = await resolvePayRuleWriteClient();
+    const writeClient = await resolvePayRuleWriteClient();
 
-  const { error: deleteError } = await writeClient
-    .from(PAY_RULE_CONDITIONS_TABLE)
-    .delete()
-    .eq("template_id", templateId);
+    const { error: deleteError } = await writeClient
+      .from(PAY_RULE_CONDITIONS_TABLE)
+      .delete()
+      .eq("template_id", templateId);
 
-  if (deleteError) {
-    logPayRuleConditionInsertError("delete", "replace", templateId, deleteError);
-    if (options.silent) return null;
-    return deleteError.message;
-  }
-
-  const extendedPayload = conditions.map((condition) =>
-    buildExtendedConditionInsertRow(templateId, condition)
-  );
-  const basePayload = conditions.map((condition) =>
-    buildBaseConditionInsertRow(templateId, condition)
-  );
-
-  let lastError: string | null = null;
-
-  for (const [payloadKind, payload] of [
-    ["extended", extendedPayload],
-    ["base", basePayload],
-  ] as const) {
-    const { error } = await writeClient.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
-    if (!error) return null;
-
-    logPayRuleConditionInsertError("insert", payloadKind, templateId, error);
-    lastError = error.message;
-
-    if (
-      isSupabaseMissingColumnError(error) ||
-      isSupabaseSchemaOrConstraintError(error)
-    ) {
-      continue;
+    if (deleteError) {
+      logPayRuleConditionInsertError("delete", "replace", templateId, deleteError);
+      console.warn("Pay rule save skipped:", deleteError.message);
+      return null;
     }
 
-    if (options.silent) return null;
-    return error.message;
+    const extendedPayload = conditions.map((condition) =>
+      buildExtendedConditionInsertRow(templateId, condition)
+    );
+    const basePayload = conditions.map((condition) =>
+      buildBaseConditionInsertRow(templateId, condition)
+    );
+
+    for (const [payloadKind, payload] of [
+      ["extended", extendedPayload],
+      ["base", basePayload],
+    ] as const) {
+      const { error } = await writeClient.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
+      if (!error) return null;
+
+      logPayRuleConditionInsertError("insert", payloadKind, templateId, error);
+
+      if (
+        isSupabaseMissingColumnError(error) ||
+        isSupabaseSchemaOrConstraintError(error)
+      ) {
+        continue;
+      }
+
+      console.warn("Pay rule save skipped:", error.message);
+      return null;
+    }
+
+    console.warn("Pay rule save skipped: all insert attempts failed.", { templateId });
+    return null;
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+    return null;
   }
-
-  console.error(
-    "[pay-rule-templates] All payroll condition (pay_rule_conditions) insert attempts failed.",
-    { templateId, lastError }
-  );
-
-  if (options.silent) return null;
-  return lastError ?? "Failed to save payroll conditions.";
 }
 
 /**
@@ -965,21 +980,30 @@ export async function fetchPayRuleTemplateIdByName(
 
   const preset = getPayRuleTemplateInputByName(trimmed);
   if (preset) {
-    const ensured = await ensurePayRuleTemplateByName(preset);
-    if (ensured.error) {
-      return { id: null, error: ensured.error };
+    try {
+      const ensured = await ensurePayRuleTemplateByName(preset);
+      if (ensured.template?.id) {
+        return { id: ensured.template.id, error: null };
+      }
+      if (ensured.error) {
+        console.warn("[pay-rule-templates] Pay rule save skipped:", ensured.error);
+      }
+    } catch (err) {
+      console.warn("Pay rule save skipped:", err);
     }
-    return {
-      id: ensured.template?.id ?? null,
-      error: ensured.template?.id
-        ? null
-        : `Failed to create pay rule template "${trimmed}".`,
-    };
+
+    const retryAfterEnsure = await lookupPayRuleTemplateIdByName(trimmed);
+    if (retryAfterEnsure.id) {
+      return retryAfterEnsure;
+    }
+
+    return { id: null, error: null };
   }
 
-  const seeded = await ensureDefaultPayRuleTemplates();
-  if (seeded.error) {
-    return { id: null, error: seeded.error };
+  try {
+    await ensureDefaultPayRuleTemplates();
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
   }
 
   const retry = await lookupPayRuleTemplateIdByName(trimmed);
@@ -1374,10 +1398,7 @@ async function updatePayRuleTemplateWithClient(
     };
   }
 
-  const conditionError = await saveConditionsWithClient(client, id, sanitized.conditions);
-  if (conditionError) {
-    return { template: null, error: conditionError };
-  }
+  await saveConditionsWithClient(client, id, sanitized.conditions);
 
   const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [id]);
   return {
@@ -1815,11 +1836,15 @@ export async function ensureDefaultPayRuleTemplates(): Promise<{
   let created = 0;
 
   for (const preset of DEFAULT_PAY_RULE_TEMPLATE_INPUTS) {
-    const result = await ensurePayRuleTemplateByName(preset);
-    if (result.error) {
-      return { created, error: result.error };
+    try {
+      const result = await ensurePayRuleTemplateByName(preset);
+      if (result.error) {
+        console.warn("[pay-rule-templates] Pay rule save skipped:", preset.name, result.error);
+      }
+      if (result.created) created += 1;
+    } catch (err) {
+      console.warn("Pay rule save skipped:", err);
     }
-    if (result.created) created += 1;
   }
 
   return { created, error: null };
@@ -1839,15 +1864,20 @@ export async function ensurePayRuleTemplateByName(
   }
 
   const created = await createPayRuleTemplate(input);
-  if (created.error || !created.template) {
-    return {
-      template: null,
-      created: false,
-      error: created.error ?? `Failed to create ${input.name} template.`,
-    };
+  if (created.template) {
+    return { template: created.template, created: true, error: null };
+  }
+  if (created.error) {
+    console.warn("[pay-rule-templates] Pay rule save skipped:", created.error);
   }
 
-  return { template: created.template, created: true, error: null };
+  const retry = await fetchPayRuleTemplates();
+  const foundAfterCreate = retry.templates.find((template) => template.name === input.name);
+  if (foundAfterCreate) {
+    return { template: foundAfterCreate, created: false, error: null };
+  }
+
+  return { template: null, created: false, error: null };
 }
 
 export async function ensureNswSiteWorkerPayRuleTemplate(): Promise<{

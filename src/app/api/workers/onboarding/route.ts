@@ -270,17 +270,7 @@ export async function POST(req: Request) {
 
   // Pay rule is never submitted from the form — derive template from worker state/region.
   if (payRuleState) {
-    const payRuleResult = await assignDefaultPayRuleToWorkerAdmin(
-      admin,
-      workerId,
-      payRuleState
-    );
-    if (payRuleResult.error) {
-      console.warn(
-        "[onboarding] Pay rule assignment failed; continuing worker onboarding:",
-        payRuleResult.error
-      );
-    }
+    await assignDefaultPayRuleToWorkerAdmin(admin, workerId, payRuleState);
   }
 
   const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);

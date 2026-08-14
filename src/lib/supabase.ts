@@ -1532,17 +1532,11 @@ export async function addWorker(
   const workerId = data?.id ?? null;
   if (workerId && worker.state) {
     const { assignDefaultPayRuleToWorker } = await import("./worker-pay-rule-assignment");
-    const payRuleResult = await assignDefaultPayRuleToWorker(
+    await assignDefaultPayRuleToWorker(
       workerId,
       worker.state,
       worker.is_apprentice ?? false
     );
-    if (payRuleResult.error) {
-      console.warn(
-        "[addWorker] Pay rule assignment failed; worker was created:",
-        payRuleResult.error
-      );
-    }
   }
 
   return { error: null, workerId };

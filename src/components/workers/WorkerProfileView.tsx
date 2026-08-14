@@ -456,17 +456,12 @@ function BasicInfoTab({
       worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
 
     if (state) {
-      const payRuleResult = await assignDefaultPayRuleToWorker(
+      const { templateId } = await assignDefaultPayRuleToWorker(
         worker.id,
         state,
         isApprentice
       );
-      if (payRuleResult.error) {
-        setSaving(false);
-        setError(payRuleResult.error);
-        return;
-      }
-      resolvedPayRuleId = payRuleResult.templateId ?? resolvedPayRuleId;
+      resolvedPayRuleId = templateId ?? resolvedPayRuleId;
     }
 
     const { error: assignError } = await setWorkerProjectAssignments(

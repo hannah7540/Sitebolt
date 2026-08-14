@@ -271,14 +271,7 @@ export default function WorkerInductionPortalPage() {
       }
 
       if (stateRegion) {
-        const payRuleResult = await assignDefaultPayRuleToWorker(
-          workerId,
-          stateRegion
-        );
-        if (payRuleResult.error) {
-          setError(payRuleResult.error);
-          return;
-        }
+        await assignDefaultPayRuleToWorker(workerId, stateRegion);
       }
 
       if (preparedVocs.length > 0) {

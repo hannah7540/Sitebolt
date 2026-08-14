@@ -61,7 +61,7 @@ export interface AssignDefaultPayRuleResult {
 
 /**
  * Assign the state-default pay rule template to a worker (browser/client).
- * Delegates to the service-role API route so template writes bypass RLS.
+ * Never surfaces pay rule / condition errors to the UI — logs and continues.
  */
 export async function assignDefaultPayRuleToWorker(
   workerId: string,
@@ -73,24 +73,27 @@ export async function assignDefaultPayRuleToWorker(
     return { templateId: null, templateName: null, error: null };
   }
 
-  if (typeof window !== "undefined") {
-    try {
+  try {
+    if (typeof window !== "undefined") {
       const response = await fetch("/api/workers/assign-pay-rule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workerId, state }),
       });
       const payload = (await response.json().catch(() => null)) as {
-        error?: string;
         templateId?: string | null;
         templateName?: string | null;
       } | null;
 
       if (!response.ok) {
+        console.warn(
+          "[assignDefaultPayRuleToWorker] Pay rule assignment skipped:",
+          payload
+        );
         return {
-          templateId: null,
-          templateName,
-          error: payload?.error ?? "Failed to assign pay rule.",
+          templateId: payload?.templateId ?? null,
+          templateName: payload?.templateName ?? templateName,
+          error: null,
         };
       }
 
@@ -99,38 +102,24 @@ export async function assignDefaultPayRuleToWorker(
         templateName: payload?.templateName ?? templateName,
         error: null,
       };
-    } catch (cause) {
-      return {
-        templateId: null,
-        templateName,
-        error: cause instanceof Error ? cause.message : "Failed to assign pay rule.",
-      };
     }
-  }
 
-  const { id, error: fetchError } = await fetchPayRuleTemplateIdByName(templateName);
-  if (fetchError) {
-    return { templateId: null, templateName, error: fetchError };
-  }
-  if (!id) {
-    return {
-      templateId: null,
-      templateName,
-      error: `Pay rule template "${templateName}" could not be resolved.`,
-    };
-  }
+    const { id } = await fetchPayRuleTemplateIdByName(templateName);
+    if (!id) {
+      console.warn(
+        `[assignDefaultPayRuleToWorker] Pay rule template "${templateName}" not resolved; continuing.`
+      );
+      return { templateId: null, templateName, error: null };
+    }
 
-  const { error: templateError } = await updateWorkerPayRuleTemplateId(workerId, id);
-  if (templateError) {
-    return { templateId: null, templateName, error: templateError };
-  }
+    await updateWorkerPayRuleTemplateId(workerId, id);
+    await updateWorkerPayRuleId(workerId, id);
 
-  const { error: ruleError } = await updateWorkerPayRuleId(workerId, id);
-  if (ruleError) {
-    return { templateId: id, templateName, error: ruleError };
+    return { templateId: id, templateName, error: null };
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+    return { templateId: null, templateName, error: null };
   }
-
-  return { templateId: id, templateName, error: null };
 }
 
 /** Server-side pay rule assignment using the Supabase admin/service client. */
@@ -145,33 +134,37 @@ export async function assignDefaultPayRuleToWorkerAdmin(
     return { templateId: null, templateName: null, error: null };
   }
 
-  let templateId: string | null = null;
-  const resolved = await fetchPayRuleTemplateIdByNameAdmin(admin, templateName);
-  if (resolved.error) {
-    return { templateId: null, templateName, error: resolved.error };
+  try {
+    const resolved = await fetchPayRuleTemplateIdByNameAdmin(admin, templateName);
+    const templateId = resolved.id;
+
+    if (!templateId) {
+      console.warn(
+        `[assignDefaultPayRuleToWorkerAdmin] Pay rule template "${templateName}" not resolved; continuing.`
+      );
+      return { templateId: null, templateName, error: null };
+    }
+
+    const { error: updateError } = await admin
+      .from("workers")
+      .update({
+        pay_rule_template_id: templateId,
+        pay_rule_id: templateId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", workerId);
+
+    if (updateError) {
+      console.warn(
+        "[assignDefaultPayRuleToWorkerAdmin] Pay rule worker update skipped:",
+        updateError.message
+      );
+      return { templateId: null, templateName, error: null };
+    }
+
+    return { templateId, templateName, error: null };
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+    return { templateId: null, templateName, error: null };
   }
-  templateId = resolved.id;
-
-  if (!templateId) {
-    return {
-      templateId: null,
-      templateName,
-      error: `Pay rule template "${templateName}" could not be resolved.`,
-    };
-  }
-
-  const { error: updateError } = await admin
-    .from("workers")
-    .update({
-      pay_rule_template_id: templateId,
-      pay_rule_id: templateId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", workerId);
-
-  if (updateError) {
-    return { templateId: null, templateName, error: updateError.message };
-  }
-
-  return { templateId, templateName, error: null };
 }
