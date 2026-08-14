@@ -1,6 +1,7 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import {
+  getPostgrestErrorCode,
   isSupabaseMissingColumnError,
   isSupabaseRelationMissingError,
   isSupabaseSchemaOrConstraintError,
@@ -16,6 +17,43 @@ export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
 
 /** Valid pay_rule_templates columns in production (no updated_at). */
 export const PAY_RULE_TEMPLATE_COLUMNS = "id,name,created_at";
+
+function isSupabaseRlsError(
+  error: SupabaseRequestError | PostgrestError | null | undefined
+): boolean {
+  if (!error) return false;
+  const code = getPostgrestErrorCode(error);
+  if (code === "42501") return true;
+  return String(error.message ?? "").toLowerCase().includes("row-level security");
+}
+
+function logPayRuleConditionInsertError(
+  payloadKind: "full" | "legacy",
+  templateId: string,
+  error: PostgrestError | SupabaseRequestError
+): void {
+  console.error(
+    `[pay-rule-templates] pay_rule_conditions ${payloadKind} insert failed for template ${templateId}:`,
+    {
+      message: error.message,
+      details: "details" in error && error.details != null ? error.details : "",
+      hint: "hint" in error && error.hint != null ? error.hint : "",
+      code: getPostgrestErrorCode(error),
+    }
+  );
+}
+
+/** Prefer service-role client on the server so RLS does not block template/condition writes. */
+async function resolvePayRuleWriteClient(): Promise<SupabaseClient> {
+  if (typeof window === "undefined") {
+    const { isSupabaseAdminConfigured } = await import("./supabase/env");
+    if (isSupabaseAdminConfigured()) {
+      const { createSupabaseAdminClient } = await import("./supabase/admin");
+      return createSupabaseAdminClient();
+    }
+  }
+  return supabase;
+}
 
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
 export const WA_SITE_WORKER_TEMPLATE_NAME = "WA Site Worker";
@@ -826,19 +864,40 @@ async function insertConditionsWithClient(
     sort_order: condition.sort_order,
   }));
 
-  for (const payload of [fullPayload, legacyPayload]) {
+  let lastError: string | null = null;
+
+  for (const [payloadKind, payload] of [
+    ["full", fullPayload],
+    ["legacy", legacyPayload],
+  ] as const) {
     const { error } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
     if (!error) return null;
+
+    logPayRuleConditionInsertError(payloadKind, templateId, error);
+    lastError = error.message;
+
+    if (isSupabaseRlsError(error)) {
+      return error.message;
+    }
+
     if (
       isSupabaseMissingColumnError(error) ||
       isSupabaseSchemaOrConstraintError(error)
     ) {
       continue;
     }
-    return error.message;
+
+    return formatSupabaseError(
+      toSupabaseRequestError(error),
+      "Failed to save pay rule conditions."
+    );
   }
 
-  return "Failed to save pay rule conditions.";
+  console.error(
+    "[pay-rule-templates] All pay_rule_conditions insert attempts failed.",
+    { templateId, lastError }
+  );
+  return lastError ?? "Failed to save pay rule conditions.";
 }
 
 /**
@@ -1209,115 +1268,23 @@ async function insertConditions(
   templateId: string,
   conditions: PayRuleConditionInput[]
 ): Promise<string | null> {
-  if (conditions.length === 0) return null;
-
-  const fullPayload = conditions.map((condition) => ({
-    template_id: templateId,
-    condition_type: condition.condition_type,
-    condition_name: condition.condition_name,
-    applicable_days: condition.applicable_days,
-    time_condition: condition.time_condition,
-    hours_threshold: condition.hours_threshold,
-    pay_multiplier_type: condition.pay_multiplier_type,
-    allowance_trigger: condition.allowance_trigger,
-    payout_unit: condition.payout_unit,
-    sort_order: condition.sort_order,
-  }));
-
-  const legacyPayload = conditions.map((condition) => ({
-    template_id: templateId,
-    condition_name: condition.condition_name,
-    applicable_days: condition.applicable_days,
-    time_condition: condition.time_condition,
-    hours_threshold: condition.hours_threshold,
-    pay_multiplier_type: condition.pay_multiplier_type,
-    sort_order: condition.sort_order,
-  }));
-
-  for (const payload of [fullPayload, legacyPayload]) {
-    const { error } = await supabase.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
-    if (!error) return null;
-    if (
-      isSupabaseMissingColumnError(error) ||
-      isSupabaseSchemaOrConstraintError(error)
-    ) {
-      continue;
-    }
-    return error.message;
-  }
-
-  return "Failed to save pay rule conditions.";
+  const client = await resolvePayRuleWriteClient();
+  return insertConditionsWithClient(client, templateId, conditions);
 }
 
 export async function createPayRuleTemplate(
   input: PayRuleTemplateInput
 ): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
-  const sanitized = sanitizePayRuleTemplateInput(input);
-
-  if (!sanitized.name) {
-    return { template: null, error: "Template name is required." };
-  }
-
-  if (sanitized.conditions.length === 0) {
-    return { template: null, error: "Add at least one rule condition." };
-  }
-
-  if (sanitized.conditions.some((condition) => !condition.condition_name)) {
-    return { template: null, error: "Every condition needs a name." };
-  }
-
   if (!isSupabaseConfigured()) {
     return { template: null, error: "Supabase is not configured." };
   }
 
-  const { data, error } = await supabase
-    .from(PAY_RULE_TEMPLATES_TABLE)
-    .insert([{ name: sanitized.name }])
-    .select(PAY_RULE_TEMPLATE_COLUMNS);
-
-  const row = firstSelectedRow(data as Record<string, unknown>[] | null);
-
-  if (error) {
-    if (isSupabaseRelationMissingError(error)) {
-      return { template: null, error: tableMissingMessage() };
-    }
-    if (isSupabaseZeroRowsError(error)) {
-      return {
-        template: null,
-        error: zeroRowResultMessage("Pay rule template was not returned after create."),
-      };
-    }
-    return {
-      template: null,
-      error: formatSupabaseError(toSupabaseRequestError(error), "Failed to create pay rule."),
-    };
-  }
-
-  if (!row) {
-    return {
-      template: null,
-      error: zeroRowResultMessage("Pay rule template was not returned after create."),
-    };
-  }
-
-  const templateId = String(row.id);
-  const conditionError = await insertConditions(templateId, sanitized.conditions);
-  if (conditionError) {
-    await supabase.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", templateId);
-    return { template: null, error: conditionError };
-  }
-
-  const conditionsByTemplate = await fetchConditionRowsByTemplateIds([templateId]);
-  return {
-    template: mapPayRuleTemplate(
-      row,
-      conditionsByTemplate.get(templateId) ?? []
-    ),
-    error: null,
-  };
+  const client = await resolvePayRuleWriteClient();
+  return createPayRuleTemplateWithClient(client, input);
 }
 
-export async function updatePayRuleTemplate(
+async function updatePayRuleTemplateWithClient(
+  client: SupabaseClient,
   id: string,
   input: PayRuleTemplateInput
 ): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
@@ -1331,11 +1298,7 @@ export async function updatePayRuleTemplate(
     return { template: null, error: "Add at least one rule condition." };
   }
 
-  if (!isSupabaseConfigured()) {
-    return { template: null, error: "Supabase is not configured." };
-  }
-
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from(PAY_RULE_TEMPLATES_TABLE)
     .update({
       name: sanitized.name,
@@ -1365,28 +1328,43 @@ export async function updatePayRuleTemplate(
     };
   }
 
-  const { error: deleteError } = await supabase
+  const { error: deleteError } = await client
     .from(PAY_RULE_CONDITIONS_TABLE)
     .delete()
     .eq("template_id", id);
 
   if (deleteError) {
+    console.error("[pay-rule-templates] Failed to delete pay_rule_conditions:", {
+      templateId: id,
+      message: deleteError.message,
+      details: deleteError.details,
+      code: deleteError.code,
+    });
     return { template: null, error: deleteError.message };
   }
 
-  const conditionError = await insertConditions(id, sanitized.conditions);
+  const conditionError = await insertConditionsWithClient(client, id, sanitized.conditions);
   if (conditionError) {
     return { template: null, error: conditionError };
   }
 
-  const conditionsByTemplate = await fetchConditionRowsByTemplateIds([id]);
+  const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [id]);
   return {
-    template: mapPayRuleTemplate(
-      row,
-      conditionsByTemplate.get(id) ?? []
-    ),
+    template: mapPayRuleTemplate(row, conditionsByTemplate.get(id) ?? []),
     error: null,
   };
+}
+
+export async function updatePayRuleTemplate(
+  id: string,
+  input: PayRuleTemplateInput
+): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    return { template: null, error: "Supabase is not configured." };
+  }
+
+  const client = await resolvePayRuleWriteClient();
+  return updatePayRuleTemplateWithClient(client, id, input);
 }
 
 export async function deletePayRuleTemplate(
@@ -1396,7 +1374,16 @@ export async function deletePayRuleTemplate(
     return { error: "Supabase is not configured." };
   }
 
-  const { error } = await supabase.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", id);
+  const client = await resolvePayRuleWriteClient();
+  const { error } = await client.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", id);
+  if (error) {
+    console.error("[pay-rule-templates] Failed to delete pay_rule_template:", {
+      templateId: id,
+      message: error.message,
+      details: error.details,
+      code: error.code,
+    });
+  }
   return { error: error?.message ?? null };
 }
 
