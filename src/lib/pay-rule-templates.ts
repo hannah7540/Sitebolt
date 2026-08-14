@@ -906,7 +906,7 @@ export async function fetchPayRuleTemplatesWithConditions(): Promise<{
 
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
-    .select("*, pay_rule_conditions(*)")
+    .select("id,name,created_at,pay_rule_conditions(*)")
     .order("name", { ascending: true });
 
   if (error) {

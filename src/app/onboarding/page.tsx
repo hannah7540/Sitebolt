@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import OnboardingForm from "./OnboardingForm";
 
+/** Worker onboarding — pay rules are assigned from state on the server, not in this UI. */
+
 export const dynamic = "force-dynamic";
 
 export default function OnboardingPage() {
