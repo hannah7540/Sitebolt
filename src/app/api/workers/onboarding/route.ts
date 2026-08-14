@@ -7,8 +7,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
+import { ensureWorkerProfileForAuthUser } from "@/lib/ensure-worker-profile";
 import {
-  findWorkerIdForAuthUser,
   type WorkerOnboardingRecord,
 } from "@/lib/worker-onboarding";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
@@ -48,12 +48,15 @@ export async function GET() {
   }
 
   const admin = createSupabaseAdminClient();
-  const workerId = await findWorkerIdForAuthUser(admin, user.id, user.email);
-  if (!workerId) {
-    return NextResponse.json({ error: "Worker profile not found." }, { status: 404 });
+  const ensured = await ensureWorkerProfileForAuthUser(admin, user);
+  if (ensured.error || !ensured.workerId) {
+    return NextResponse.json(
+      { error: ensured.error ?? "Worker profile not found." },
+      { status: 400 }
+    );
   }
 
-  const worker = await loadWorkerForOnboarding(workerId);
+  const worker = await loadWorkerForOnboarding(ensured.workerId);
   if (!worker) {
     return NextResponse.json({ error: "Worker profile not found." }, { status: 404 });
   }
@@ -114,10 +117,15 @@ export async function POST(req: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const workerId = await findWorkerIdForAuthUser(admin, user.id, user.email);
-  if (!workerId) {
-    return NextResponse.json({ error: "Worker profile not found." }, { status: 404 });
+  const ensured = await ensureWorkerProfileForAuthUser(admin, user);
+  if (ensured.error || !ensured.workerId) {
+    return NextResponse.json(
+      { error: ensured.error ?? "Worker profile not found." },
+      { status: 400 }
+    );
   }
+
+  const workerId = ensured.workerId;
 
   const { firstName, lastName } = splitWorkerFullName(fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);

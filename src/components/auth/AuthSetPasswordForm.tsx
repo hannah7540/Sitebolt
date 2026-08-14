@@ -26,6 +26,8 @@ interface AuthSetPasswordFormProps {
   successRedirectPath?: string;
   /** Sign out before redirecting on success (e.g. password reset should return to login). */
   signOutOnSuccess?: boolean;
+  /** Ensure workers/profiles rows exist after password is set (invite acceptance). */
+  ensureWorkerProfileOnSuccess?: boolean;
   noSessionMessage?: string;
 }
 
@@ -71,6 +73,7 @@ export default function AuthSetPasswordForm({
   confirmPasswordLabel = "Confirm password",
   successRedirectPath,
   signOutOnSuccess = false,
+  ensureWorkerProfileOnSuccess = false,
   noSessionMessage = "Open the link from your invitation or password reset email to continue. If your link expired, ask your administrator to send a new invite.",
 }: AuthSetPasswordFormProps) {
   const router = useRouter();
@@ -229,6 +232,26 @@ export default function AuthSetPasswordForm({
 
       const user =
         sessionUserData.user ?? (await supabase.auth.getSession()).data.session?.user;
+
+      if (ensureWorkerProfileOnSuccess && user) {
+        const ensureResponse = await fetch("/api/workers/ensure-profile", {
+          method: "POST",
+        });
+        const ensurePayload: unknown = await ensureResponse.json().catch(() => null);
+
+        if (!ensureResponse.ok) {
+          const ensureError =
+            ensurePayload &&
+            typeof ensurePayload === "object" &&
+            "error" in ensurePayload &&
+            typeof ensurePayload.error === "string"
+              ? ensurePayload.error
+              : "Failed to set up your worker profile.";
+          setError(ensureError);
+          return;
+        }
+      }
+
       const nextPath =
         successRedirectPath ??
         (user ? await resolvePostAuthPathForUser(user) : "/worker-dashboard");

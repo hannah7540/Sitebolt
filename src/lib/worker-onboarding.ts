@@ -23,6 +23,16 @@ export async function findWorkerIdForAuthUser(
   userId: string,
   email: string | null | undefined
 ): Promise<string | null> {
+  const profileLookup = await supabase
+    .from("profiles")
+    .select("worker_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!profileLookup.error && profileLookup.data?.worker_id) {
+    return profileLookup.data.worker_id as string;
+  }
+
   const authLookup = await supabase
     .from("workers")
     .select("id")

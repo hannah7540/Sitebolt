@@ -15,6 +15,7 @@ export default function AcceptInviteClient({ initialHasSession }: AcceptInviteCl
       submitLabel="Activate account"
       successMessage="Account activated! Complete your profile setup next."
       successRedirectPath="/onboarding"
+      ensureWorkerProfileOnSuccess
     />
   );
 }
