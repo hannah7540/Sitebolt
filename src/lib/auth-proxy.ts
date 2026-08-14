@@ -297,11 +297,12 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
 
   if (pathname.startsWith("/login")) {
     if (context.user) {
-      return redirectWithCookies(
-        request,
-        resolveAuthenticatedHomePath(context),
-        sessionResponse
-      );
+      const nextParam =
+        request.nextUrl.searchParams.get("next") ??
+        request.nextUrl.searchParams.get("redirect_to");
+      const destination =
+        nextParam?.startsWith("/") ? nextParam : resolveAuthenticatedHomePath(context);
+      return redirectWithCookies(request, destination, sessionResponse);
     }
     return sessionResponse;
   }
@@ -309,7 +310,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   if (requiresAuthentication(pathname) && !context.user) {
     const loginUrl = new URL("/login", request.url);
     const nextPath = `${pathname}${request.nextUrl.search}`;
-    if (nextPath !== "/") {
+    if (nextPath !== "/" && !nextPath.startsWith("/login")) {
       loginUrl.searchParams.set("next", nextPath);
     }
     return redirectWithCookies(

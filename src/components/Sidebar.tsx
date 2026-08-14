@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ClipboardList,
   ChevronDown,
@@ -26,7 +26,6 @@ import {
 } from "@/lib/project-resolver";
 import {
   extractProjectIdFromPathname,
-  parseProjectRoute,
   resolveProjectNavHref,
 } from "@/lib/project-nav-routes";
 import { DEFAULT_ADMIN_PROFILE_NAME, workerProfileDashboardPath } from "@/lib/user-session";
@@ -44,6 +43,7 @@ import {
   type AccountsAccessRole,
 } from "@/lib/security-roles";
 import { filterProjectsForRole } from "@/lib/rbac-guards";
+import { parseConsoleRoute } from "@/lib/console-nav-routes";
 import { cn } from "@/lib/utils";
 
 export type ActiveView =
@@ -462,6 +462,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { profileName: sessionProfileName, loading: profileLoading } =
     useAuthProfileDisplay();
   const profileName = profileNameOverride ?? sessionProfileName;
@@ -478,10 +479,13 @@ export default function Sidebar({
       workerProfileDashboardPath(profileWorkerId, { fromAdmin: pathname !== "/" })
     );
   };
-  const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
+  const consoleRoute = useMemo(
+    () => parseConsoleRoute(pathname, searchParams),
+    [pathname, searchParams]
+  );
   const effectiveSelectedProjectId =
-    selectedProjectId ?? routeContext?.projectId ?? null;
-  const effectiveActiveView = routeContext?.view ?? activeView;
+    selectedProjectId ?? consoleRoute?.projectId ?? null;
+  const effectiveActiveView = consoleRoute?.view ?? activeView;
   const profileActive =
     effectiveActiveView === "my-profile" ||
     pathname.startsWith("/worker-dashboard");
@@ -594,13 +598,13 @@ export default function Sidebar({
 
         {showAdministration && (
           <AdministrationSection
-            activeView={activeView}
+            activeView={effectiveActiveView}
             pathname={pathname}
             onNavigate={onNavigate}
           />
         )}
 
-        <SubcontractorsSection activeView={activeView} onNavigate={onNavigate} />
+        <SubcontractorsSection activeView={effectiveActiveView} onNavigate={onNavigate} />
 
         {showAccounts && accountsMenu ? (
           <AccountsSection menu={accountsMenu} pathname={pathname} />
@@ -609,7 +613,7 @@ export default function Sidebar({
         {showOrganisation && (
           <OrganisationSection
             items={organisationItems}
-            activeView={activeView}
+            activeView={effectiveActiveView}
             pathname={pathname}
             onNavigate={onNavigate}
           />

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   fetchWorkers,
   fetchPlant,
@@ -18,6 +18,11 @@ import {
   getProjectViewPath,
   parseProjectRoute,
 } from "@/lib/project-nav-routes";
+import {
+  buildConsoleNavHref,
+  parseConsoleRoute,
+  readConsoleOpenAdd,
+} from "@/lib/console-nav-routes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
 import {
@@ -74,11 +79,11 @@ import { cn } from "@/lib/utils";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 
-export default function Home() {
+function HomeConsole() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ActiveView>("dashboard");
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workerVocs, setWorkerVocs] = useState<WorkerVoc[]>([]);
   const [plant, setPlant] = useState<PlantAsset[]>([]);
@@ -199,14 +204,31 @@ export default function Home() {
     return linked?.can_access_accounts === true;
   }, [workers, adminWorkerId]);
 
+  const consoleRoute = useMemo(
+    () => parseConsoleRoute(pathname, searchParams),
+    [pathname, searchParams]
+  );
+  const activeTab = consoleRoute?.view ?? "dashboard";
+  const openAddFromUrl = readConsoleOpenAdd(searchParams);
   const hideFinancialFields = !canViewFinancialFields(sessionRole);
   const assignPayRules = canAssignPayRules(sessionRole);
   const manageWorkerRoles = canManageSecuritySettings(sessionRole);
 
+  useEffect(() => {
+    setShowAddWorker(activeTab === "org-workers" && openAddFromUrl);
+    setShowAddPlant(activeTab === "org-plant" && openAddFromUrl);
+    setShowAddAsset(activeTab === "org-assets" && openAddFromUrl);
+    setShowAddSubcontractor(
+      activeTab === "subcontractors" && openAddFromUrl
+    );
+  }, [activeTab, openAddFromUrl]);
+
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
 
   useEffect(() => {
-    if (!sessionReady || !hasAuthSession || !adminWorkerId || workers.length === 0) return;
+    if (!sessionReady || !hasAuthSession || !adminWorkerId || workers.length === 0) {
+      return;
+    }
     const linked = workers.find((w) => w.id === adminWorkerId);
     const role = normalizeSecurityRole(linked?.security_role);
     if (!canAccessAdminConsole(role)) {
@@ -215,19 +237,19 @@ export default function Home() {
   }, [sessionReady, hasAuthSession, adminWorkerId, workers, router]);
 
   useEffect(() => {
-    if (!sessionReady || !hasAuthSession) return;
-    const parsed = parseProjectRoute(pathname);
-    if (!parsed || sidebarProjects.length === 0) return;
+    if (!sessionReady || !hasAuthSession || sidebarProjects.length === 0) return;
+
+    const projectId = consoleRoute?.projectId;
+    if (!projectId) return;
 
     const project =
       sidebarProjects.find(
-        (row) => row.id === parsed.projectId || row.slug === parsed.projectId
+        (row) => row.id === projectId || row.slug === projectId
       ) ?? null;
     if (project) {
       setDashboardProject((prev) => (prev?.id === project.id ? prev : project));
     }
-    setActiveTab((prev) => (prev === parsed.view ? prev : parsed.view));
-  }, [sessionReady, hasAuthSession, pathname, sidebarProjects]);
+  }, [sessionReady, hasAuthSession, sidebarProjects, consoleRoute?.projectId]);
 
   useEffect(() => {
     if (!sessionReady || !hasAuthSession || visibleProjects.length === 0) return;
@@ -245,7 +267,7 @@ export default function Home() {
     setShowAddAsset(false);
     setShowAddSubcontractor(false);
     setSidebarOpen(false);
-    setActiveTab("my-profile");
+    router.push(buildConsoleNavHref("my-profile"));
   };
 
   const handleNavigate = (
@@ -284,27 +306,13 @@ export default function Home() {
     const projectId =
       options?.projectId ?? dashboardProject?.id ?? visibleProjects[0]?.id ?? null;
 
-    if (projectId && PROJECT_VIEWS.includes(view)) {
-      setActiveTab(view);
-      setShowAddWorker(view === "org-workers" && (options?.openAdd ?? false));
-      setShowAddPlant(view === "org-plant" && (options?.openAdd ?? false));
-      setShowAddAsset(view === "org-assets" && (options?.openAdd ?? false));
-      setShowAddSubcontractor(
-        view === "subcontractors" && (options?.openAdd ?? false)
-      );
-      setSidebarOpen(false);
-      router.push(getProjectViewPath(projectId, view));
-      return;
-    }
-
-    setActiveTab(view);
-    setShowAddWorker(view === "org-workers" && (options?.openAdd ?? false));
-    setShowAddPlant(view === "org-plant" && (options?.openAdd ?? false));
-    setShowAddAsset(view === "org-assets" && (options?.openAdd ?? false));
-    setShowAddSubcontractor(
-      view === "subcontractors" && (options?.openAdd ?? false)
-    );
     setSidebarOpen(false);
+    router.push(
+      buildConsoleNavHref(view, {
+        projectId,
+        openAdd: options?.openAdd,
+      })
+    );
   };
 
   return (
@@ -332,7 +340,7 @@ export default function Home() {
         )}
       >
         <Sidebar
-          activeView={routeContext?.view ?? activeTab}
+          activeView={activeTab}
           projects={sidebarProjects}
           assignedProjectIds={assignedProjectIds}
           selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
@@ -677,5 +685,19 @@ export default function Home() {
         </>
       )}
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        </div>
+      }
+    >
+      <HomeConsole />
+    </Suspense>
   );
 }

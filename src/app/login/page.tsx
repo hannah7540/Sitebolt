@@ -8,11 +8,12 @@ import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import { bindAdminSessionForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { readLoginReturnPath } from "@/lib/console-nav-routes";
 
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next");
+  const returnPath = readLoginReturnPath(searchParams);
   const resetSuccess = searchParams.get("reset") === "success";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +38,7 @@ function LoginPageContent() {
       const bound = await bindAdminSessionForUser(user);
       if (!cancelled) {
         if (bound.ok) {
-          router.replace(nextPath?.startsWith("/") ? nextPath : "/admin");
+          router.replace(returnPath ?? "/admin");
         } else {
           setCheckingSession(false);
         }
@@ -48,7 +49,7 @@ function LoginPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, returnPath]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,7 +75,7 @@ function LoginPageContent() {
         return;
       }
 
-      router.replace(nextPath?.startsWith("/") ? nextPath : "/admin");
+      router.replace(returnPath ?? "/admin");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed.");
     } finally {

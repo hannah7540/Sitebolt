@@ -10,6 +10,17 @@ export function buildLoginRedirectPath(nextPath?: string | null): string {
   return `/login?next=${encodeURIComponent(trimmed)}`;
 }
 
+/** Alias for callers that prefer redirect_to naming. */
+export function buildLoginRedirectPathWithLegacyParam(
+  nextPath?: string | null
+): string {
+  const trimmed = nextPath?.trim();
+  if (!trimmed || trimmed === "/" || trimmed.startsWith("/login")) {
+    return "/login";
+  }
+  return `/login?redirect_to=${encodeURIComponent(trimmed)}`;
+}
+
 /** Redirect unauthenticated users to the login page. */
 export function redirectToLogin(
   router: AppRouterInstance,

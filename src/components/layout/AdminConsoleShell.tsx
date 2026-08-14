@@ -50,6 +50,10 @@ import {
   getProjectViewPath,
   parseProjectRoute,
 } from "@/lib/project-nav-routes";
+import {
+  buildConsoleNavHref,
+  parseConsoleRoute,
+} from "@/lib/console-nav-routes";
 import type { NavigateOptions } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 
@@ -235,6 +239,8 @@ export default function AdminConsoleShell({
   ]);
 
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
+  const sidebarActiveView =
+    parseConsoleRoute(pathname, null)?.view ?? routeContext?.view ?? "dashboard";
 
   const handleNavigate = (view: ActiveView, options?: NavigateOptions) => {
     setSidebarOpen(false);
@@ -251,7 +257,12 @@ export default function AdminConsoleShell({
       return;
     }
 
-    router.push("/");
+    router.push(
+      buildConsoleNavHref(view, {
+        projectId,
+        openAdd: options?.openAdd,
+      })
+    );
   };
 
   const handleOpenProfile = () => {
@@ -334,7 +345,7 @@ export default function AdminConsoleShell({
           )}
         >
           <Sidebar
-            activeView={routeContext?.view ?? "dashboard"}
+            activeView={sidebarActiveView}
             projects={sidebarProjects}
             assignedProjectIds={assignedProjectIds}
             selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
