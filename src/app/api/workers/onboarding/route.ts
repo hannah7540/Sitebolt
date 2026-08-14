@@ -229,11 +229,13 @@ export async function POST(req: Request) {
   const { firstName, lastName } = splitWorkerFullName(payload.fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
-  const workerState =
+  const workerStateRaw =
     nullIfBlank(payload.whiteCardState) ??
     nullIfBlank(payload.state) ??
     null;
-  const payRuleState = nullIfBlank(payload.state) ?? nullIfBlank(payload.whiteCardState);
+  const workerState = workerStateRaw
+    ? normalizeWorkerStateRegion(workerStateRaw) ?? workerStateRaw.trim().toUpperCase()
+    : null;
 
   const { error: updateError } = await admin
     .from("workers")
@@ -269,6 +271,10 @@ export async function POST(req: Request) {
   }
 
   // Pay rule is never submitted from the form — derive template from worker state/region.
+  const payRuleState =
+    nullIfBlank(payload.state) ??
+    nullIfBlank(payload.whiteCardState) ??
+    workerState;
   if (payRuleState) {
     await assignDefaultPayRuleToWorkerAdmin(admin, workerId, payRuleState);
   }

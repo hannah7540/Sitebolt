@@ -627,17 +627,46 @@ async function lookupPayRuleTemplateIdByNameWithClient(
   client: SupabaseClient,
   name: string
 ): Promise<{ id: string | null; error: string | null }> {
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) {
+    return { id: null, error: null };
+  }
+
   const { data, error } = await client
     .from(PAY_RULE_TEMPLATES_TABLE)
-    .select("id")
-    .eq("name", name)
+    .select("id,name")
+    .eq("name", trimmed)
     .limit(1);
 
   if (error) {
     return { id: null, error: error.message };
   }
 
-  const row = firstSelectedRow(data as Array<{ id: string }> | null);
+  let row = firstSelectedRow(data as Array<{ id: string; name?: string }> | null);
+  if (row?.id) {
+    return { id: String(row.id), error: null };
+  }
+
+  const statePrefix = trimmed.match(/^([A-Z]{2,3})\b/i)?.[1]?.toUpperCase();
+  if (statePrefix) {
+    const { data: fuzzyRows, error: fuzzyError } = await client
+      .from(PAY_RULE_TEMPLATES_TABLE)
+      .select("id,name")
+      .ilike("name", `%${statePrefix}%`)
+      .order("name", { ascending: true })
+      .limit(10);
+
+    if (fuzzyError) {
+      return { id: null, error: fuzzyError.message };
+    }
+
+    const candidates = (fuzzyRows ?? []) as Array<{ id: string; name: string }>;
+    row =
+      candidates.find((candidate) =>
+        candidate.name.toLowerCase().includes("site worker")
+      ) ?? candidates[0];
+  }
+
   return { id: row?.id ? String(row.id) : null, error: null };
 }
 

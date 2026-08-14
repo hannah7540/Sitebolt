@@ -10,6 +10,7 @@ import {
   fetchPayRuleTemplateIdByName,
   type PayRuleTemplate,
 } from "@/lib/pay-rule-templates";
+import { workerMatchesPayRuleTemplate } from "@/lib/worker-pay-rule-assignment";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { fetchAllWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
 import { cardClass } from "@/lib/ui-classes";
@@ -139,6 +140,12 @@ export default function AccountsPayRules() {
     let cancelled = false;
 
     async function loadWorkersAndProjects() {
+      try {
+        await fetch("/api/pay-rules/sync-workers", { method: "POST" });
+      } catch (syncError) {
+        console.warn("[AccountsPayRules] Pay rule worker sync skipped:", syncError);
+      }
+
       const [workersResult, projectList] = await Promise.all([
         fetchAllWorkers(),
         fetchProjects(),
@@ -165,15 +172,13 @@ export default function AccountsPayRules() {
     const map = new Map<string, number>();
 
     for (const template of PAY_RULE_TEMPLATES) {
-      const supabaseId = templateIdsByName[template.name];
-      if (!supabaseId) {
-        map.set(template.name, 0);
-        continue;
-      }
+      const supabaseId = templateIdsByName[template.name] ?? null;
 
       let count = 0;
       for (const worker of workers) {
-        if (worker.pay_rule_template_id === supabaseId) count += 1;
+        if (workerMatchesPayRuleTemplate(worker, template.name, supabaseId)) {
+          count += 1;
+        }
       }
       map.set(template.name, count);
     }
