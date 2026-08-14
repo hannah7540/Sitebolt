@@ -13,6 +13,9 @@ import { MEAL_ALLOWANCE_HOURS_THRESHOLD } from "./meal-allowance";
 export const PAY_RULE_TEMPLATES_TABLE = "pay_rule_templates";
 export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
 
+/** Valid pay_rule_templates columns in production (no updated_at). */
+export const PAY_RULE_TEMPLATE_COLUMNS = "id,name,created_at";
+
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
 export const WA_SITE_WORKER_TEMPLATE_NAME = "WA Site Worker";
 export const ACT_SITE_WORKER_TEMPLATE_NAME = "ACT Site Worker";
@@ -906,7 +909,7 @@ export async function fetchPayRuleTemplatesWithConditions(): Promise<{
 
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
-    .select("id,name,created_at,pay_rule_conditions(*)")
+    .select(`${PAY_RULE_TEMPLATE_COLUMNS},pay_rule_conditions(*)`)
     .order("name", { ascending: true });
 
   if (error) {
@@ -938,7 +941,7 @@ export async function fetchPayRuleTemplates(): Promise<{
 
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
-    .select("id,name,created_at")
+    .select(PAY_RULE_TEMPLATE_COLUMNS)
     .order("name", { ascending: true });
 
   if (error) {
@@ -1029,7 +1032,7 @@ export async function createPayRuleTemplate(
   const { data, error } = await supabase
     .from(PAY_RULE_TEMPLATES_TABLE)
     .insert([{ name: sanitized.name }])
-    .select("id,name,created_at");
+    .select(PAY_RULE_TEMPLATE_COLUMNS);
 
   const row = firstSelectedRow(data as Record<string, unknown>[] | null);
 
@@ -1097,7 +1100,7 @@ export async function updatePayRuleTemplate(
       name: sanitized.name,
     })
     .eq("id", id)
-    .select("id,name,created_at");
+    .select(PAY_RULE_TEMPLATE_COLUMNS);
 
   const row = firstSelectedRow(data as Record<string, unknown>[] | null);
 
