@@ -33,7 +33,6 @@ import { getVocDisplayTitle } from "@/lib/voc-utils";
 import { buildWorkerFullName } from "@/lib/worker-utils";
 import {
   assignDefaultPayRuleToWorker,
-  assignPayRuleToWorker,
   resolvePayRuleTemplateNameForWorker,
   resolveTravelPayrollCategory,
 } from "@/lib/worker-pay-rule-assignment";
@@ -45,7 +44,6 @@ import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
 import WorkerStateRegionBadge from "@/components/workers/WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
 import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
-import AssignPayRuleSelect from "@/components/workers/AssignPayRuleSelect";
 import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
 import {
   normalizeSecurityRole,
@@ -354,9 +352,6 @@ function BasicInfoTab({
   );
   const [workerCode, setWorkerCode] = useState(worker.worker_code ?? "");
   const [employmentType, setEmploymentType] = useState(worker.employment_type ?? "");
-  const [assignedPayRuleId, setAssignedPayRuleId] = useState<string | null>(
-    worker.pay_rule_id ?? worker.pay_rule_template_id ?? null
-  );
   const [accountStatus, setAccountStatus] = useState<AccountStatusOption>(() =>
     isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
   );
@@ -382,7 +377,6 @@ function BasicInfoTab({
     setState(normalizeWorkerStateRegion(worker.state));
     setWorkerCode(worker.worker_code ?? "");
     setEmploymentType(worker.employment_type ?? "");
-    setAssignedPayRuleId(worker.pay_rule_id ?? worker.pay_rule_template_id ?? null);
     setAccountStatus(
       isWorkerRevoked(worker) ? "Revoked" : (worker.status as AccountStatusOption) ?? "active"
     );
@@ -464,18 +458,7 @@ function BasicInfoTab({
     let resolvedPayRuleId =
       worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
 
-    if (canAssignPayRules && assignedPayRuleId) {
-      const { error: payRuleError } = await assignPayRuleToWorker(
-        worker.id,
-        assignedPayRuleId
-      );
-      if (payRuleError) {
-        setSaving(false);
-        setError(payRuleError);
-        return;
-      }
-      resolvedPayRuleId = assignedPayRuleId;
-    } else if (state) {
+    if (state) {
       const payRuleResult = await assignDefaultPayRuleToWorker(
         worker.id,
         state,
@@ -607,14 +590,6 @@ function BasicInfoTab({
             ))}
           </select>
         </label>
-        {canAssignPayRules ? (
-          <AssignPayRuleSelect
-            id={`profile-pay-rule-${worker.id}`}
-            value={assignedPayRuleId}
-            onChange={setAssignedPayRuleId}
-            disabled={saving}
-          />
-        ) : null}
         <label className="block space-y-1">
           <span className={labelClass}>Account status</span>
           <select

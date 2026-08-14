@@ -1525,7 +1525,24 @@ export async function addWorker(
     .select("id")
     .single();
 
-  return { error: error?.message ?? null, workerId: data?.id ?? null };
+  if (error) {
+    return { error: error.message ?? null, workerId: null };
+  }
+
+  const workerId = data?.id ?? null;
+  if (workerId && worker.state) {
+    const { assignDefaultPayRuleToWorker } = await import("./worker-pay-rule-assignment");
+    const payRuleResult = await assignDefaultPayRuleToWorker(
+      workerId,
+      worker.state,
+      worker.is_apprentice ?? false
+    );
+    if (payRuleResult.error) {
+      return { error: payRuleResult.error, workerId };
+    }
+  }
+
+  return { error: null, workerId };
 }
 
 /** Workers linked to a subcontractor company (workers.subcontractor_id). */

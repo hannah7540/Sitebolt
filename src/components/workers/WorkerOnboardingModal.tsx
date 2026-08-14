@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { addWorker, insertWorkerVocs, type WorkerOnboardingInput } from "@/lib/supabase";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
-import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
@@ -308,18 +307,6 @@ export default function WorkerOnboardingModal({
       if (insertError) {
         setError(insertError);
         return;
-      }
-
-      if (workerId && form.state) {
-        const { error: payRuleError } = await assignDefaultPayRuleToWorker(
-          workerId,
-          form.state,
-          form.is_apprentice ?? false
-        );
-        if (payRuleError) {
-          setError(payRuleError);
-          return;
-        }
       }
 
       if (mode === "full" && workerId) {
