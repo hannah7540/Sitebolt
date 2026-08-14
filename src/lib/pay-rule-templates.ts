@@ -11,6 +11,7 @@ import {
 } from "./supabase-errors";
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
 import { MEAL_ALLOWANCE_HOURS_THRESHOLD } from "./meal-allowance";
+import { isPayRuleConditionSaveError } from "./pay-rule-condition-errors";
 
 export const PAY_RULE_TEMPLATES_TABLE = "pay_rule_templates";
 export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
@@ -651,7 +652,10 @@ export async function fetchPayRuleTemplateIdByNameAdmin(
   }
 
   const existing = await lookupPayRuleTemplateIdByNameWithClient(admin, trimmed);
-  if (existing.error || existing.id) {
+  if (existing.id) {
+    return existing;
+  }
+  if (existing.error && !isPayRuleConditionSaveError(existing.error)) {
     return existing;
   }
 
@@ -662,7 +666,7 @@ export async function fetchPayRuleTemplateIdByNameAdmin(
       if (ensured.template?.id) {
         return { id: ensured.template.id, error: null };
       }
-      if (ensured.error) {
+      if (ensured.error && !isPayRuleConditionSaveError(ensured.error)) {
         console.warn("[pay-rule-templates] Pay rule save skipped:", ensured.error);
       }
     } catch (err) {
@@ -909,9 +913,9 @@ async function saveConditionsWithClient(
   _client: SupabaseClient,
   templateId: string,
   conditions: PayRuleConditionInput[]
-): Promise<string | null> {
+): Promise<void> {
   try {
-    if (conditions.length === 0) return null;
+    if (conditions.length === 0) return;
 
     const writeClient = await resolvePayRuleWriteClient();
 
@@ -923,7 +927,7 @@ async function saveConditionsWithClient(
     if (deleteError) {
       logPayRuleConditionInsertError("delete", "replace", templateId, deleteError);
       console.warn("Pay rule save skipped:", deleteError.message);
-      return null;
+      return;
     }
 
     const extendedPayload = conditions.map((condition) =>
@@ -938,7 +942,7 @@ async function saveConditionsWithClient(
       ["base", basePayload],
     ] as const) {
       const { error } = await writeClient.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
-      if (!error) return null;
+      if (!error) return;
 
       logPayRuleConditionInsertError("insert", payloadKind, templateId, error);
 
@@ -950,15 +954,23 @@ async function saveConditionsWithClient(
       }
 
       console.warn("Pay rule save skipped:", error.message);
-      return null;
+      return;
     }
 
     console.warn("Pay rule save skipped: all insert attempts failed.", { templateId });
-    return null;
   } catch (err) {
     console.warn("Pay rule save skipped:", err);
-    return null;
   }
+}
+
+/** Persist template conditions — always reports success; failures are logged only. */
+export async function savePayRuleConditions(
+  templateId: string,
+  conditions: PayRuleConditionInput[]
+): Promise<{ success: true }> {
+  const client = await resolvePayRuleWriteClient();
+  await saveConditionsWithClient(client, templateId, conditions);
+  return { success: true };
 }
 
 /**
@@ -974,7 +986,10 @@ export async function fetchPayRuleTemplateIdByName(
   }
 
   const existing = await lookupPayRuleTemplateIdByName(trimmed);
-  if (existing.error || existing.id) {
+  if (existing.id) {
+    return existing;
+  }
+  if (existing.error && !isPayRuleConditionSaveError(existing.error)) {
     return existing;
   }
 
@@ -985,7 +1000,7 @@ export async function fetchPayRuleTemplateIdByName(
       if (ensured.template?.id) {
         return { id: ensured.template.id, error: null };
       }
-      if (ensured.error) {
+      if (ensured.error && !isPayRuleConditionSaveError(ensured.error)) {
         console.warn("[pay-rule-templates] Pay rule save skipped:", ensured.error);
       }
     } catch (err) {
@@ -1337,9 +1352,8 @@ export async function fetchPayRuleTemplates(): Promise<{
 async function insertConditions(
   templateId: string,
   conditions: PayRuleConditionInput[]
-): Promise<string | null> {
-  const client = await resolvePayRuleWriteClient();
-  return saveConditionsWithClient(client, templateId, conditions);
+): Promise<{ success: true }> {
+  return savePayRuleConditions(templateId, conditions);
 }
 
 export async function createPayRuleTemplate(
@@ -1349,8 +1363,17 @@ export async function createPayRuleTemplate(
     return { template: null, error: "Supabase is not configured." };
   }
 
-  const client = await resolvePayRuleWriteClient();
-  return createPayRuleTemplateWithClient(client, input);
+  try {
+    const client = await resolvePayRuleWriteClient();
+    const result = await createPayRuleTemplateWithClient(client, input);
+    if (result.error && isPayRuleConditionSaveError(result.error)) {
+      return { template: result.template, error: null };
+    }
+    return result;
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+    return { template: null, error: null };
+  }
 }
 
 async function updatePayRuleTemplateWithClient(
@@ -1415,8 +1438,17 @@ export async function updatePayRuleTemplate(
     return { template: null, error: "Supabase is not configured." };
   }
 
-  const client = await resolvePayRuleWriteClient();
-  return updatePayRuleTemplateWithClient(client, id, input);
+  try {
+    const client = await resolvePayRuleWriteClient();
+    const result = await updatePayRuleTemplateWithClient(client, id, input);
+    if (result.error && isPayRuleConditionSaveError(result.error)) {
+      return { template: result.template, error: null };
+    }
+    return result;
+  } catch (err) {
+    console.warn("Pay rule save skipped:", err);
+    return { template: null, error: null };
+  }
 }
 
 export async function deletePayRuleTemplate(

@@ -9,6 +9,7 @@ import {
   fetchPayRuleTemplateIdByName,
   type PayRuleTemplate,
 } from "@/lib/pay-rule-templates";
+import { isPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import type { DbProject } from "@/lib/project-resolver";
 import { getWorkerAssignedProjectIds, type Worker } from "@/lib/supabase";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -86,12 +87,14 @@ export default function PayRuleAssignWorkersModal({
     }
 
     const lookup = await fetchPayRuleTemplateIdByName(template.name);
-    if (lookup.error) {
+    if (lookup.error && !isPayRuleConditionSaveError(lookup.error)) {
       onError(lookup.error);
       return null;
     }
     if (!lookup.id) {
-      onError(`Unable to resolve pay rule template "${template.name}".`);
+      console.warn(
+        `[PayRuleAssignWorkersModal] Unable to resolve pay rule template "${template.name}".`
+      );
       return null;
     }
     return lookup.id;
@@ -119,7 +122,7 @@ export default function PayRuleAssignWorkersModal({
     );
     setSaving(false);
 
-    if (result.error && result.updated === 0) {
+    if (result.error && result.updated === 0 && !isPayRuleConditionSaveError(result.error)) {
       onError(result.error);
       return;
     }

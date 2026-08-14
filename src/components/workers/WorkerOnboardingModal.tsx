@@ -17,6 +17,7 @@ import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
 import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
+import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import { cn } from "@/lib/utils";
 import {
@@ -306,8 +307,9 @@ export default function WorkerOnboardingModal({
 
       const { error: insertError, workerId } = await addWorker(payload, vocExpiries);
 
-      if (insertError) {
-        setError(insertError);
+      const workerInsertError = scrubPayRuleConditionSaveError(insertError);
+      if (workerInsertError) {
+        setError(workerInsertError);
         return;
       }
 

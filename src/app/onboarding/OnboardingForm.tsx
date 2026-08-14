@@ -13,6 +13,7 @@ import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import type { WorkerOnboardingRecord } from "@/lib/worker-onboarding";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { workerDashboardUrl } from "@/lib/user-session";
+import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import { vocFromRecord, type VocDraft } from "@/lib/voc-utils";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +56,9 @@ interface OnboardingFormState {
 function parseApiError(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const error = (payload as { error?: unknown }).error;
-  return typeof error === "string" && error.trim() ? error.trim() : null;
+  const message =
+    typeof error === "string" && error.trim() ? error.trim() : null;
+  return scrubPayRuleConditionSaveError(message);
 }
 
 function Field({
