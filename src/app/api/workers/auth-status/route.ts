@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { markWorkerAccountActivated } from "@/lib/ensure-worker-profile";
 
 export async function POST(request: Request) {
   try {
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
     const entries = body.entries ?? [];
     const admin = createSupabaseAdminClient();
     const lastSignInByWorkerId: Record<string, string | null> = {};
+    const syncedWorkerIds: string[] = [];
 
     await Promise.all(
       entries.map(async (entry) => {
@@ -31,12 +33,27 @@ export async function POST(request: Request) {
         }
 
         const { data, error } = await admin.auth.admin.getUserById(authUserId);
-        lastSignInByWorkerId[workerId] =
-          error || !data.user ? null : data.user.last_sign_in_at ?? null;
+        if (error || !data.user) {
+          lastSignInByWorkerId[workerId] = null;
+          return;
+        }
+
+        const lastSignInAt = data.user.last_sign_in_at ?? null;
+        lastSignInByWorkerId[workerId] = lastSignInAt;
+
+        const emailConfirmed = Boolean(data.user.email_confirmed_at);
+        if (lastSignInAt || emailConfirmed) {
+          const syncResult = await markWorkerAccountActivated(admin, workerId, {
+            completeOnboarding: false,
+          });
+          if (!syncResult.error) {
+            syncedWorkerIds.push(workerId);
+          }
+        }
       })
     );
 
-    return NextResponse.json({ lastSignInByWorkerId });
+    return NextResponse.json({ lastSignInByWorkerId, syncedWorkerIds });
   } catch (error) {
     return NextResponse.json(
       {

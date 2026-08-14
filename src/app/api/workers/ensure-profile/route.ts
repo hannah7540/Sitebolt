@@ -5,10 +5,15 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ensureWorkerProfileForAuthUser } from "@/lib/ensure-worker-profile";
+import {
+  ensureWorkerProfileForAuthUser,
+  markWorkerAccountActivated,
+  syncWorkerStatusFromAuthUser,
+  workerAuthIsActivated,
+} from "@/lib/ensure-worker-profile";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
-export async function POST() {
+export async function POST(req: Request) {
   if (!isSupabaseAdminConfigured()) {
     return NextResponse.json(
       { error: "Server configuration error." },
@@ -25,6 +30,11 @@ export async function POST() {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const passwordAccepted = Boolean(
+    body && typeof body === "object" && "passwordAccepted" in body && body.passwordAccepted
+  );
+
   const admin = createSupabaseAdminClient();
   const { workerId, error } = await ensureWorkerProfileForAuthUser(admin, user);
 
@@ -35,5 +45,13 @@ export async function POST() {
     );
   }
 
-  return NextResponse.json({ success: true, workerId });
+  if (passwordAccepted || workerAuthIsActivated(user)) {
+    await markWorkerAccountActivated(admin, workerId, {
+      completeOnboarding: false,
+    });
+  } else {
+    await syncWorkerStatusFromAuthUser(admin, user, workerId);
+  }
+
+  return NextResponse.json({ success: true, workerId, status: "active" });
 }

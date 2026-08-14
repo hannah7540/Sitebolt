@@ -12,6 +12,7 @@ import {
   buildFallbackOnboardingRecord,
   ensureWorkerProfileForAuthUser,
   loadWorkerForOnboardingRecord,
+  markWorkerAccountActivated,
 } from "@/lib/ensure-worker-profile";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 
@@ -120,38 +121,30 @@ export async function POST(req: Request) {
   const { firstName, lastName } = splitWorkerFullName(fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
-  const updatePayload: Record<string, unknown> = {
-    ...nameFields,
-    phone,
-    trade,
-    emergency_contact_name: emergencyContactName,
-    emergency_contact_phone: emergencyContactPhone,
-    white_card_number: whiteCardNumber || null,
-    drivers_licence_number: driversLicenceNumber || null,
-    onboarding_completed: true,
-    status: "active",
-    updated_at: new Date().toISOString(),
-  };
-
-  let { error: updateError } = await admin
+  const { error: updateError } = await admin
     .from("workers")
-    .update(updatePayload)
+    .update({
+      ...nameFields,
+      phone,
+      trade,
+      emergency_contact_name: emergencyContactName,
+      emergency_contact_phone: emergencyContactPhone,
+      white_card_number: whiteCardNumber || null,
+      drivers_licence_number: driversLicenceNumber || null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", workerId);
-
-  if (
-    updateError &&
-    updateError.message.toLowerCase().includes("onboarding_completed")
-  ) {
-    const fallbackPayload = { ...updatePayload };
-    delete fallbackPayload.onboarding_completed;
-    ({ error: updateError } = await admin
-      .from("workers")
-      .update(fallbackPayload)
-      .eq("id", workerId));
-  }
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
+  }
+
+  const activationResult = await markWorkerAccountActivated(admin, workerId, {
+    completeOnboarding: true,
+  });
+
+  if (activationResult.error) {
+    return NextResponse.json({ error: activationResult.error }, { status: 400 });
   }
 
   const { data: workerMeta } = await admin

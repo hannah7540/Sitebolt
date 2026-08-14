@@ -176,11 +176,7 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   "auth_user_id",
 ] as const;
 
-const PENDING_ONBOARDING_STATUSES = new Set([
-  "pending_induction",
-  "pending",
-  "invited",
-]);
+const PENDING_INVITE_STATUSES = new Set(["pending", "invited"]);
 
 /** Whether a worker can still receive an onboarding invite email. */
 export function canResendWorkerInvite(
@@ -203,7 +199,9 @@ export function canResendWorkerInvite(
   if (lastSignInAt) return false;
 
   const status = (worker.status ?? "active").toLowerCase();
-  return PENDING_ONBOARDING_STATUSES.has(status);
+  if (status === "active") return false;
+
+  return PENDING_INVITE_STATUSES.has(status);
 }
 
 export const WORKER_DATE_FIELD_KEYS = [

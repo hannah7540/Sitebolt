@@ -236,6 +236,8 @@ export default function AuthSetPasswordForm({
       if (ensureWorkerProfileOnSuccess && user) {
         const ensureResponse = await fetch("/api/workers/ensure-profile", {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passwordAccepted: true }),
         });
         const ensurePayload: unknown = await ensureResponse.json().catch(() => null);
 

@@ -31,7 +31,7 @@ import {
   getWorkerTicketStatus,
   isNonCompliant,
 } from "@/lib/worker-compliance";
-import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
+import { isCompanyEmployeeWorker, canResendWorkerInvite } from "@/lib/worker-utils";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
@@ -113,39 +113,20 @@ const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
   { id: "All", label: "All" },
 ];
 
-const PENDING_WORKER_STATUSES = new Set(["pending", "pending_induction", "invited"]);
-
-function workerHasSignedIn(
-  workerId: string,
-  lastSignInByWorkerId: Record<string, string | null>
-): boolean {
-  return Boolean(lastSignInByWorkerId[workerId]);
-}
-
-/** Show Resend Invite only for workers still setting up their account. */
-function shouldShowResendInvite(
-  worker: Worker,
-  lastSignInByWorkerId: Record<string, string | null>
-): boolean {
-  if (isWorkerRevoked(worker)) return false;
-  if (!worker.email?.trim()) return false;
-
-  const hasSignedIn = workerHasSignedIn(worker.id, lastSignInByWorkerId);
-  if (hasSignedIn) return false;
-
-  const status = (worker.status ?? "active").toLowerCase();
-  return PENDING_WORKER_STATUSES.has(status);
-}
-
 async function loadWorkerAuthSignInStatus(
   workers: Worker[]
-): Promise<Record<string, string | null>> {
+): Promise<{
+  lastSignInByWorkerId: Record<string, string | null>;
+  syncedWorkerIds: string[];
+}> {
   const entries = workers.map((worker) => ({
     workerId: worker.id,
     authUserId: worker.auth_user_id ?? null,
   }));
 
-  if (entries.length === 0) return {};
+  if (entries.length === 0) {
+    return { lastSignInByWorkerId: {}, syncedWorkerIds: [] };
+  }
 
   const response = await fetch("/api/workers/auth-status", {
     method: "POST",
@@ -155,6 +136,7 @@ async function loadWorkerAuthSignInStatus(
 
   const data = (await response.json()) as {
     lastSignInByWorkerId?: Record<string, string | null>;
+    syncedWorkerIds?: string[];
     error?: string;
   };
 
@@ -162,7 +144,10 @@ async function loadWorkerAuthSignInStatus(
     throw new Error(data.error ?? "Failed to load worker auth status.");
   }
 
-  return data.lastSignInByWorkerId ?? {};
+  return {
+    lastSignInByWorkerId: data.lastSignInByWorkerId ?? {},
+    syncedWorkerIds: data.syncedWorkerIds ?? [],
+  };
 }
 
 export default function WorkerDirectoryPanel({
@@ -200,8 +185,20 @@ export default function WorkerDirectoryPanel({
     let cancelled = false;
 
     void loadWorkerAuthSignInStatus(workers)
-      .then((statuses) => {
-        if (!cancelled) setLastSignInByWorkerId(statuses);
+      .then(({ lastSignInByWorkerId: statuses, syncedWorkerIds }) => {
+        if (cancelled) return;
+
+        setLastSignInByWorkerId(statuses);
+
+        if (syncedWorkerIds.length > 0) {
+          setWorkerList((current) =>
+            current.map((worker) =>
+              syncedWorkerIds.includes(worker.id)
+                ? { ...worker, status: "active" }
+                : worker
+            )
+          );
+        }
       })
       .catch(() => {
         if (!cancelled) setLastSignInByWorkerId({});
@@ -492,7 +489,10 @@ export default function WorkerDirectoryPanel({
               const assignedProjects = projects.filter((project) =>
                 assignedProjectIds.includes(project.id)
               );
-              const showResendInvite = shouldShowResendInvite(w, lastSignInByWorkerId);
+              const showResendInvite = canResendWorkerInvite(
+                w,
+                lastSignInByWorkerId[w.id] ?? null
+              );
 
               return (
                 <tr

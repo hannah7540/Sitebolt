@@ -51,6 +51,82 @@ function isMissingColumnError(message: string, column: string): boolean {
   return lower.includes(column.toLowerCase()) && lower.includes("column");
 }
 
+const PENDING_INVITE_STATUSES = new Set(["pending", "invited"]);
+
+export function workerAuthIsActivated(user: User): boolean {
+  return Boolean(user.last_sign_in_at || user.email_confirmed_at);
+}
+
+/** Flip worker status to active after invite acceptance or auth sign-in. */
+export async function markWorkerAccountActivated(
+  admin: SupabaseClient,
+  workerId: string,
+  options: { completeOnboarding?: boolean } = {}
+): Promise<{ error: string | null }> {
+  const { data: existing } = await admin
+    .from("workers")
+    .select("status, onboarding_completed")
+    .eq("id", workerId)
+    .maybeSingle();
+
+  const currentStatus = String(existing?.status ?? "").toLowerCase();
+  const alreadyActive =
+    currentStatus === "active" &&
+    (!options.completeOnboarding || existing?.onboarding_completed === true);
+
+  if (alreadyActive) {
+    return { error: null };
+  }
+
+  if (
+    !options.completeOnboarding &&
+    !PENDING_INVITE_STATUSES.has(currentStatus) &&
+    currentStatus !== "pending_induction" &&
+    currentStatus !== ""
+  ) {
+    return { error: null };
+  }
+
+  const payload: Record<string, unknown> = {
+    status: "active",
+    updated_at: new Date().toISOString(),
+  };
+
+  if (options.completeOnboarding) {
+    payload.onboarding_completed = true;
+  }
+
+  let { error } = await admin.from("workers").update(payload).eq("id", workerId);
+
+  if (
+    error &&
+    options.completeOnboarding &&
+    isMissingColumnError(error.message, "onboarding_completed")
+  ) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.onboarding_completed;
+    ({ error } = await admin.from("workers").update(fallbackPayload).eq("id", workerId));
+  }
+
+  return { error: error?.message ?? null };
+}
+
+export async function syncWorkerStatusFromAuthUser(
+  admin: SupabaseClient,
+  user: User,
+  workerId: string
+): Promise<{ synced: boolean; error: string | null }> {
+  if (!workerAuthIsActivated(user)) {
+    return { synced: false, error: null };
+  }
+
+  const result = await markWorkerAccountActivated(admin, workerId, {
+    completeOnboarding: false,
+  });
+
+  return { synced: !result.error, error: result.error };
+}
+
 async function upsertProfileRow(
   admin: SupabaseClient,
   options: {
