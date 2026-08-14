@@ -54,16 +54,12 @@ async function resolvePayRuleWriteClient(): Promise<SupabaseClient | null> {
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
 export const WA_SITE_WORKER_TEMPLATE_NAME = "WA Site Worker";
 export const ACT_SITE_WORKER_TEMPLATE_NAME = "ACT Site Worker";
-export const VIC_SITE_WORKER_TEMPLATE_NAME = "VIC Site Worker";
-export const QLD_SITE_WORKER_TEMPLATE_NAME = "QLD Site Worker";
 export const NZ_SITE_WORKER_TEMPLATE_NAME = "NZ Site Worker";
 
 export const PRESET_PAY_RULE_TEMPLATE_NAMES = [
   WA_SITE_WORKER_TEMPLATE_NAME,
   NSW_SITE_WORKER_TEMPLATE_NAME,
   ACT_SITE_WORKER_TEMPLATE_NAME,
-  VIC_SITE_WORKER_TEMPLATE_NAME,
-  QLD_SITE_WORKER_TEMPLATE_NAME,
   NZ_SITE_WORKER_TEMPLATE_NAME,
 ] as const;
 
@@ -1913,12 +1909,6 @@ function cloneNswSiteWorkerTemplate(
 export const ACT_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
   cloneNswSiteWorkerTemplate(ACT_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance ACT");
 
-export const VIC_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
-  cloneNswSiteWorkerTemplate(VIC_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance VIC");
-
-export const QLD_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
-  cloneNswSiteWorkerTemplate(QLD_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance QLD");
-
 export const NZ_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
   name: NZ_SITE_WORKER_TEMPLATE_NAME,
   conditions: WA_SITE_WORKER_TEMPLATE_INPUT.conditions.map((condition) => ({
@@ -1931,8 +1921,6 @@ const DEFAULT_PAY_RULE_TEMPLATE_INPUTS: PayRuleTemplateInput[] = [
   WA_SITE_WORKER_TEMPLATE_INPUT,
   NSW_SITE_WORKER_TEMPLATE_INPUT,
   ACT_SITE_WORKER_TEMPLATE_INPUT,
-  VIC_SITE_WORKER_TEMPLATE_INPUT,
-  QLD_SITE_WORKER_TEMPLATE_INPUT,
   NZ_SITE_WORKER_TEMPLATE_INPUT,
 ];
 

@@ -204,7 +204,7 @@ export function mergeAdvanceLeaveRequestsIntoTimesheets(
 export { WORKER_STATE_REGION_OPTIONS as ACCOUNTS_TIMESHEET_STATE_OPTIONS };
 export type { WorkerStateRegion as AccountsTimesheetStateFilter };
 
-/** Parse NSW/ACT/WA/NZ from a project location string (e.g. "Perth, WA"). */
+/** Parse ACT/NSW/WA/NZ from a project location string (e.g. "Perth, WA"). */
 export function parseStateFromProjectLocation(
   location: string | null | undefined
 ): WorkerStateRegion | null {

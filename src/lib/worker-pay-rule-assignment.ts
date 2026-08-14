@@ -5,8 +5,6 @@ import {
   fetchPayRuleTemplateIdByNameAdmin,
   NSW_SITE_WORKER_TEMPLATE_NAME,
   NZ_SITE_WORKER_TEMPLATE_NAME,
-  QLD_SITE_WORKER_TEMPLATE_NAME,
-  VIC_SITE_WORKER_TEMPLATE_NAME,
   WA_SITE_WORKER_TEMPLATE_NAME,
   updateWorkerPayRuleTemplateId,
 } from "./pay-rule-templates";
@@ -18,31 +16,23 @@ export const TRAVEL_NSW_APPRENTICE_CATEGORY = "Travel NSW Apprentice";
 
 /**
  * State → pay rule template name (assigned automatically; never collected in UI forms).
- * ACT → ACT Site Worker, NSW → NSW Site Worker, WA → WA Site Worker, NZ → NZ Site Worker.
- * Other states fall back to "[STATE] Site Worker".
+ * Allowed: ACT, NSW, WA, NZ only.
  */
 export const STATE_PAY_RULE_TEMPLATE_NAMES: Record<string, string> = {
   ACT: ACT_SITE_WORKER_TEMPLATE_NAME,
   NSW: NSW_SITE_WORKER_TEMPLATE_NAME,
   WA: WA_SITE_WORKER_TEMPLATE_NAME,
   NZ: NZ_SITE_WORKER_TEMPLATE_NAME,
-  VIC: VIC_SITE_WORKER_TEMPLATE_NAME,
-  QLD: QLD_SITE_WORKER_TEMPLATE_NAME,
-  SA: "SA Site Worker",
-  TAS: "TAS Site Worker",
-  NT: "NT Site Worker",
 };
 
 /** Map worker state/region to the default pay rule template name. */
 export function resolvePayRuleTemplateNameForWorker(
   state: string | null | undefined
 ): string | null {
-  const normalized = normalizeWorkerStateRegion(state) ?? state?.trim().toUpperCase();
+  const normalized = normalizeWorkerStateRegion(state);
   if (!normalized) return null;
 
-  return (
-    STATE_PAY_RULE_TEMPLATE_NAMES[normalized] ?? `${normalized} Site Worker`
-  );
+  return STATE_PAY_RULE_TEMPLATE_NAMES[normalized] ?? null;
 }
 
 /** Payroll export category for NSW travel — apprentice uses a separate MYOB category. */
@@ -98,7 +88,7 @@ export function workerMatchesPayRuleTemplate(
 function normalizeWorkerStateForPayRule(
   state: string | null | undefined
 ): string | null {
-  return normalizeWorkerStateRegion(state) ?? state?.trim().toUpperCase() ?? null;
+  return normalizeWorkerStateRegion(state);
 }
 
 /** Resolve pay_rule_templates.id by worker state (exact name, then ILIKE fallback). */

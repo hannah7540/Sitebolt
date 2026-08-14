@@ -191,11 +191,11 @@ const PROJECT_SPECS = [
     code: "MP-PH2",
   },
   {
-    name: "Western Highway Expansion",
-    slug: "western-highway-expansion",
-    location: "Western Hwy, VIC",
-    client: "Major Roads Victoria",
-    code: "WHE-2026",
+    name: "Western Sydney Link",
+    slug: "western-sydney-link",
+    location: "Western Sydney, NSW",
+    client: "Major Roads NSW",
+    code: "WSL-2026",
   },
   {
     name: "Canberra Light Rail Depot",
@@ -857,7 +857,7 @@ async function seedSafetyAndMeetings(
       title: "Highway Corridor Safety Walk — Clean",
       status: "Completed",
       formData: {
-        client: "Major Roads Victoria",
+        client: "Major Roads NSW",
         description_of_works: "Traffic management and exclusion zones verified",
         hazards_to_report: "no",
         seed_tag: SEED_TAG,

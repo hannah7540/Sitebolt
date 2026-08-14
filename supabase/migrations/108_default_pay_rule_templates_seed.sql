@@ -1,4 +1,4 @@
--- Idempotent seed for baseline site worker pay rule templates (NSW, ACT, VIC, QLD, WA, NZ).
+-- Idempotent seed for baseline site worker pay rule templates (ACT, NSW, WA, NZ).
 
 DO $$
 DECLARE
@@ -76,9 +76,7 @@ BEGIN
 
   FOR target_name, travel_label IN
     SELECT * FROM (VALUES
-      ('ACT Site Worker', 'Travel Allowance ACT'),
-      ('VIC Site Worker', 'Travel Allowance VIC'),
-      ('QLD Site Worker', 'Travel Allowance QLD')
+      ('ACT Site Worker', 'Travel Allowance ACT')
     ) AS presets(name, travel_name)
   LOOP
     SELECT id INTO target_id FROM pay_rule_templates WHERE name = target_name LIMIT 1;
@@ -167,4 +165,4 @@ BEGIN
 END $$;
 
 COMMENT ON TABLE pay_rule_templates IS
-  'Named pay rule templates for accounts payroll. Baseline templates: NSW, ACT, VIC, QLD, WA, NZ Site Worker.';
+  'Named pay rule templates for accounts payroll. Baseline templates: ACT, NSW, WA, NZ Site Worker.';

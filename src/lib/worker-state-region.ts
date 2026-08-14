@@ -1,12 +1,7 @@
 export const WORKER_STATE_REGION_OPTIONS = [
-  "NSW",
   "ACT",
-  "VIC",
-  "QLD",
-  "SA",
+  "NSW",
   "WA",
-  "TAS",
-  "NT",
   "NZ",
 ] as const;
 
