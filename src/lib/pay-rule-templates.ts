@@ -36,16 +36,19 @@ function logPayRuleConditionInsertError(
   );
 }
 
-/** Prefer service-role client on the server so RLS does not block template/condition writes. */
-async function resolvePayRuleWriteClient(): Promise<SupabaseClient> {
-  if (typeof window === "undefined") {
-    const { isSupabaseAdminConfigured } = await import("./supabase/env");
-    if (isSupabaseAdminConfigured()) {
-      const { createSupabaseAdminClient } = await import("./supabase/admin");
-      return createSupabaseAdminClient();
-    }
+/** Service-role client for writes (server only). Browser returns null — never write via anon client. */
+async function resolvePayRuleWriteClient(): Promise<SupabaseClient | null> {
+  if (typeof window !== "undefined") {
+    return null;
   }
-  return supabase;
+
+  const { isSupabaseAdminConfigured } = await import("./supabase/env");
+  if (isSupabaseAdminConfigured()) {
+    const { createSupabaseAdminClient } = await import("./supabase/admin");
+    return createSupabaseAdminClient();
+  }
+
+  return null;
 }
 
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
@@ -807,7 +810,26 @@ async function createPayRuleTemplateWithClient(
     return { template: null, error: "Every condition needs a name." };
   }
 
-  const { data, error } = await client
+  const writeClient = await resolvePayRuleWriteClient();
+  if (!writeClient) {
+    console.warn("Pay rule save skipped: template create requires server service role.");
+    const retry = await lookupPayRuleTemplateIdByNameWithClient(client, sanitized.name);
+    if (retry.id) {
+      const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [
+        retry.id,
+      ]);
+      return {
+        template: mapPayRuleTemplate(
+          { id: retry.id, name: sanitized.name },
+          conditionsByTemplate.get(retry.id) ?? []
+        ),
+        error: null,
+      };
+    }
+    return { template: null, error: null };
+  }
+
+  const { data, error } = await writeClient
     .from(PAY_RULE_TEMPLATES_TABLE)
     .insert([{ name: sanitized.name }])
     .select(PAY_RULE_TEMPLATE_COLUMNS);
@@ -918,6 +940,13 @@ async function saveConditionsWithClient(
     if (conditions.length === 0) return;
 
     const writeClient = await resolvePayRuleWriteClient();
+    if (!writeClient) {
+      console.warn(
+        "Pay rule save skipped: condition writes require server service role.",
+        { templateId }
+      );
+      return;
+    }
 
     const { error: deleteError } = await writeClient
       .from(PAY_RULE_CONDITIONS_TABLE)
@@ -968,8 +997,7 @@ export async function savePayRuleConditions(
   templateId: string,
   conditions: PayRuleConditionInput[]
 ): Promise<{ success: true }> {
-  const client = await resolvePayRuleWriteClient();
-  await saveConditionsWithClient(client, templateId, conditions);
+  await saveConditionsWithClient(supabase, templateId, conditions);
   return { success: true };
 }
 
@@ -993,41 +1021,35 @@ export async function fetchPayRuleTemplateIdByName(
     return existing;
   }
 
-  const preset = getPayRuleTemplateInputByName(trimmed);
-  if (preset) {
+  if (typeof window !== "undefined") {
     try {
-      const ensured = await ensurePayRuleTemplateByName(preset);
-      if (ensured.template?.id) {
-        return { id: ensured.template.id, error: null };
-      }
-      if (ensured.error && !isPayRuleConditionSaveError(ensured.error)) {
-        console.warn("[pay-rule-templates] Pay rule save skipped:", ensured.error);
+      const response = await fetch("/api/pay-rules/ensure-template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        id?: string | null;
+      } | null;
+      if (payload?.id) {
+        return { id: String(payload.id), error: null };
       }
     } catch (err) {
       console.warn("Pay rule save skipped:", err);
     }
 
-    const retryAfterEnsure = await lookupPayRuleTemplateIdByName(trimmed);
-    if (retryAfterEnsure.id) {
-      return retryAfterEnsure;
+    const retryAfterApi = await lookupPayRuleTemplateIdByName(trimmed);
+    if (retryAfterApi.id) {
+      return retryAfterApi;
     }
 
     return { id: null, error: null };
   }
 
-  try {
-    await ensureDefaultPayRuleTemplates();
-  } catch (err) {
-    console.warn("Pay rule save skipped:", err);
-  }
-
-  const retry = await lookupPayRuleTemplateIdByName(trimmed);
-  if (retry.error || retry.id) {
-    return retry;
-  }
-
-  if (trimmed !== NSW_SITE_WORKER_TEMPLATE_NAME) {
-    return fetchPayRuleTemplateIdByName(NSW_SITE_WORKER_TEMPLATE_NAME);
+  const { isSupabaseAdminConfigured } = await import("./supabase/env");
+  if (isSupabaseAdminConfigured()) {
+    const { createSupabaseAdminClient } = await import("./supabase/admin");
+    return fetchPayRuleTemplateIdByNameAdmin(createSupabaseAdminClient(), trimmed);
   }
 
   return { id: null, error: null };
@@ -1364,9 +1386,14 @@ export async function createPayRuleTemplate(
   }
 
   try {
-    const client = await resolvePayRuleWriteClient();
-    const result = await createPayRuleTemplateWithClient(client, input);
+    const writeClient = await resolvePayRuleWriteClient();
+    const readClient = writeClient ?? supabase;
+    const result = await createPayRuleTemplateWithClient(readClient, input);
     if (result.error && isPayRuleConditionSaveError(result.error)) {
+      return { template: result.template, error: null };
+    }
+    if (result.error) {
+      console.warn("[pay-rule-templates] Pay rule save skipped:", result.error);
       return { template: result.template, error: null };
     }
     return result;
@@ -1391,7 +1418,28 @@ async function updatePayRuleTemplateWithClient(
     return { template: null, error: "Add at least one rule condition." };
   }
 
-  const { data, error } = await client
+  const writeClient = await resolvePayRuleWriteClient();
+  if (!writeClient) {
+    console.warn("Pay rule save skipped: template update requires server service role.");
+    const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [id]);
+    const existingRow = await client
+      .from(PAY_RULE_TEMPLATES_TABLE)
+      .select(PAY_RULE_TEMPLATE_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    if (existingRow.data) {
+      return {
+        template: mapPayRuleTemplate(
+          existingRow.data as Record<string, unknown>,
+          conditionsByTemplate.get(id) ?? []
+        ),
+        error: null,
+      };
+    }
+    return { template: null, error: null };
+  }
+
+  const { data, error } = await writeClient
     .from(PAY_RULE_TEMPLATES_TABLE)
     .update({
       name: sanitized.name,
@@ -1439,9 +1487,14 @@ export async function updatePayRuleTemplate(
   }
 
   try {
-    const client = await resolvePayRuleWriteClient();
-    const result = await updatePayRuleTemplateWithClient(client, id, input);
+    const writeClient = await resolvePayRuleWriteClient();
+    const readClient = writeClient ?? supabase;
+    const result = await updatePayRuleTemplateWithClient(readClient, id, input);
     if (result.error && isPayRuleConditionSaveError(result.error)) {
+      return { template: result.template, error: null };
+    }
+    if (result.error) {
+      console.warn("[pay-rule-templates] Pay rule save skipped:", result.error);
       return { template: result.template, error: null };
     }
     return result;
@@ -1458,8 +1511,13 @@ export async function deletePayRuleTemplate(
     return { error: "Supabase is not configured." };
   }
 
-  const client = await resolvePayRuleWriteClient();
-  const { error } = await client.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", id);
+  const writeClient = await resolvePayRuleWriteClient();
+  if (!writeClient) {
+    console.warn("[pay-rule-templates] Pay rule delete skipped: requires server service role.");
+    return { error: null };
+  }
+
+  const { error } = await writeClient.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", id);
   if (error) {
     console.error("[pay-rule-templates] Failed to delete pay_rule_template:", {
       templateId: id,
