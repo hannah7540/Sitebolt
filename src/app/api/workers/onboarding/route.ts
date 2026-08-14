@@ -15,6 +15,8 @@ import {
   markWorkerAccountActivated,
 } from "@/lib/ensure-worker-profile";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
+import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
+import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
 
 function readString(value: unknown): string {
@@ -41,6 +43,7 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
     email: readString(raw.email),
     phone: readString(raw.phone),
     address: readString(raw.address),
+    state: readString(raw.state),
     emergencyContactName: readString(raw.emergencyContactName),
     emergencyContactRelationship: readString(raw.emergencyContactRelationship),
     emergencyContactPhone: readString(raw.emergencyContactPhone),
@@ -83,6 +86,9 @@ function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string
   if (!payload.fullName) return "Full name is required.";
   if (!payload.phone) return "Phone number is required.";
   if (!payload.address) return "Address is required.";
+  if (!normalizeWorkerStateRegion(payload.state)) {
+    return "State / Region is required.";
+  }
   if (!payload.emergencyContactName) return "Emergency contact name is required.";
   if (!payload.emergencyContactRelationship) {
     return "Emergency contact relationship is required.";
@@ -223,6 +229,12 @@ export async function POST(req: Request) {
   const { firstName, lastName } = splitWorkerFullName(payload.fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
+  const workerState =
+    nullIfBlank(payload.whiteCardState) ??
+    nullIfBlank(payload.state) ??
+    null;
+  const payRuleState = nullIfBlank(payload.state) ?? nullIfBlank(payload.whiteCardState);
+
   const { error: updateError } = await admin
     .from("workers")
     .update({
@@ -242,7 +254,7 @@ export async function POST(req: Request) {
       redundancy_fund_name: nullIfBlank(payload.redundancyFundName),
       redundancy_member_number: nullIfBlank(payload.redundancyMemberNumber),
       white_card_number: nullIfBlank(payload.whiteCardNumber),
-      state: nullIfBlank(payload.whiteCardState),
+      state: workerState,
       silica_cert_number: nullIfBlank(payload.silicaCertNumber),
       silica_cert_issue_date: nullIfBlankDate(payload.silicaCertIssueDate),
       drivers_licence_number: nullIfBlank(payload.driversLicenceNumber),
@@ -254,6 +266,17 @@ export async function POST(req: Request) {
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
+  }
+
+  if (payRuleState) {
+    const payRuleResult = await assignDefaultPayRuleToWorkerAdmin(
+      admin,
+      workerId,
+      payRuleState
+    );
+    if (payRuleResult.error) {
+      return NextResponse.json({ error: payRuleResult.error }, { status: 400 });
+    }
   }
 
   const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);

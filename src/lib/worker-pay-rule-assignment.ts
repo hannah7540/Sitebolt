@@ -1,44 +1,45 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ACT_SITE_WORKER_TEMPLATE_NAME,
   fetchPayRuleTemplateIdByName,
   NSW_SITE_WORKER_TEMPLATE_NAME,
   NZ_SITE_WORKER_TEMPLATE_NAME,
-  updateWorkerPayRuleTemplateId,
+  QLD_SITE_WORKER_TEMPLATE_NAME,
+  VIC_SITE_WORKER_TEMPLATE_NAME,
   WA_SITE_WORKER_TEMPLATE_NAME,
+  updateWorkerPayRuleTemplateId,
 } from "./pay-rule-templates";
 import { updateWorkerPayRuleId } from "./pay-rules-assignment";
-import {
-  isWorkerStateRegion,
-  type WorkerStateRegion,
-} from "./worker-state-region";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
 
 export const TRAVEL_NSW_CATEGORY = "Travel NSW";
 export const TRAVEL_NSW_APPRENTICE_CATEGORY = "Travel NSW Apprentice";
 
+const KNOWN_STATE_PAY_RULE_TEMPLATE_NAMES: Record<string, string> = {
+  NSW: NSW_SITE_WORKER_TEMPLATE_NAME,
+  ACT: ACT_SITE_WORKER_TEMPLATE_NAME,
+  WA: WA_SITE_WORKER_TEMPLATE_NAME,
+  NZ: NZ_SITE_WORKER_TEMPLATE_NAME,
+  VIC: VIC_SITE_WORKER_TEMPLATE_NAME,
+  QLD: QLD_SITE_WORKER_TEMPLATE_NAME,
+};
+
 /** Map worker state/region to the default pay rule template name. */
 export function resolvePayRuleTemplateNameForWorker(
-  state: WorkerStateRegion | string | null | undefined
+  state: string | null | undefined
 ): string | null {
-  if (!state || !isWorkerStateRegion(state)) return null;
+  const normalized = normalizeWorkerStateRegion(state) ?? state?.trim().toUpperCase();
+  if (!normalized) return null;
 
-  switch (state) {
-    case "NSW":
-      return NSW_SITE_WORKER_TEMPLATE_NAME;
-    case "WA":
-      return WA_SITE_WORKER_TEMPLATE_NAME;
-    case "ACT":
-      return ACT_SITE_WORKER_TEMPLATE_NAME;
-    case "NZ":
-      return NZ_SITE_WORKER_TEMPLATE_NAME;
-    default:
-      return null;
-  }
+  return (
+    KNOWN_STATE_PAY_RULE_TEMPLATE_NAMES[normalized] ?? `${normalized} Site Worker`
+  );
 }
 
 /** Payroll export category for NSW travel — apprentice uses a separate MYOB category. */
 export function resolveTravelPayrollCategory(
   isApprentice: boolean,
-  state?: WorkerStateRegion | string | null
+  state?: string | null
 ): string {
   if (state === "NSW" || !state) {
     return isApprentice ? TRAVEL_NSW_APPRENTICE_CATEGORY : TRAVEL_NSW_CATEGORY;
@@ -58,7 +59,7 @@ export interface AssignDefaultPayRuleResult {
  */
 export async function assignDefaultPayRuleToWorker(
   workerId: string,
-  state: WorkerStateRegion | string | null | undefined,
+  state: string | null | undefined,
   _isApprentice = false
 ): Promise<AssignDefaultPayRuleResult> {
   const templateName = resolvePayRuleTemplateNameForWorker(state);
@@ -89,6 +90,64 @@ export async function assignDefaultPayRuleToWorker(
   }
 
   return { templateId: id, templateName, error: null };
+}
+
+/** Server-side pay rule assignment using the Supabase admin/service client. */
+export async function assignDefaultPayRuleToWorkerAdmin(
+  admin: SupabaseClient,
+  workerId: string,
+  state: string | null | undefined,
+  _isApprentice = false
+): Promise<AssignDefaultPayRuleResult> {
+  const templateName = resolvePayRuleTemplateNameForWorker(state);
+  if (!templateName) {
+    return { templateId: null, templateName: null, error: null };
+  }
+
+  let templateId: string | null = null;
+  const { data: existingTemplate, error: lookupError } = await admin
+    .from("pay_rule_templates")
+    .select("id")
+    .eq("name", templateName)
+    .limit(1)
+    .maybeSingle();
+
+  if (lookupError) {
+    return { templateId: null, templateName, error: lookupError.message };
+  }
+
+  if (existingTemplate?.id) {
+    templateId = String(existingTemplate.id);
+  } else {
+    const ensured = await fetchPayRuleTemplateIdByName(templateName);
+    if (ensured.error) {
+      return { templateId: null, templateName, error: ensured.error };
+    }
+    templateId = ensured.id;
+  }
+
+  if (!templateId) {
+    return {
+      templateId: null,
+      templateName,
+      error: `Pay rule template "${templateName}" could not be resolved.`,
+    };
+  }
+
+  const { error: updateError } = await admin
+    .from("workers")
+    .update({
+      pay_rule_template_id: templateId,
+      pay_rule_id: templateId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", workerId);
+
+  if (updateError) {
+    return { templateId: null, templateName, error: updateError.message };
+  }
+
+  return { templateId, templateName, error: null };
 }
 
 /** Assign an explicit pay rule/template selection to a worker. */

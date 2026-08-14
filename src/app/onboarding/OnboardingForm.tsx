@@ -27,6 +27,7 @@ interface OnboardingFormState {
   email: string;
   phone: string;
   address: string;
+  state: WorkerStateRegion | null;
   emergencyContactName: string;
   emergencyContactRelationship: string;
   emergencyContactPhone: string;
@@ -81,6 +82,7 @@ function validateStep1(form: OnboardingFormState): string | null {
   if (!form.fullName.trim()) return "Full name is required.";
   if (!form.phone.trim()) return "Phone number is required.";
   if (!form.address.trim()) return "Address is required.";
+  if (!form.state) return "State / Region is required.";
   if (!form.emergencyContactName.trim()) return "Emergency contact name is required.";
   if (!form.emergencyContactRelationship.trim()) {
     return "Emergency contact relationship is required.";
@@ -136,6 +138,7 @@ function populateFormFromWorker(worker: WorkerOnboardingRecord): OnboardingFormS
     email: worker.email ?? "",
     phone: worker.phone ?? "",
     address: worker.address ?? "",
+    state: (worker.state as WorkerStateRegion | null) ?? null,
     emergencyContactName: worker.emergency_contact_name ?? "",
     emergencyContactRelationship: worker.emergency_contact_relationship ?? "",
     emergencyContactPhone: worker.emergency_contact_phone ?? "",
@@ -221,6 +224,7 @@ export default function OnboardingForm() {
     email: "",
     phone: "",
     address: "",
+    state: null,
     emergencyContactName: "",
     emergencyContactRelationship: "",
     emergencyContactPhone: "",
@@ -254,6 +258,12 @@ export default function OnboardingForm() {
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+
+  useEffect(() => {
+    if (step === 3 && form.state && !form.whiteCardState) {
+      setForm((prev) => ({ ...prev, whiteCardState: prev.state }));
+    }
+  }, [step, form.state, form.whiteCardState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,6 +370,7 @@ export default function OnboardingForm() {
           email: form.email,
           phone: form.phone,
           address: form.address,
+          state: form.state ?? "",
           emergencyContactName: form.emergencyContactName,
           emergencyContactRelationship: form.emergencyContactRelationship,
           emergencyContactPhone: form.emergencyContactPhone,
@@ -488,6 +499,14 @@ export default function OnboardingForm() {
                   autoComplete="street-address"
                 />
               </Field>
+              <div className="sm:col-span-2">
+                <StateRegionSelector
+                  id="onboarding-work-state"
+                  value={form.state}
+                  onChange={(value) => setField("state", value)}
+                  disabled={submitting}
+                />
+              </div>
               <div className={cn(sectionClass, "sm:col-span-2")}>
                 <h4 className="text-sm font-semibold text-orange-600">Emergency Contact</h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">

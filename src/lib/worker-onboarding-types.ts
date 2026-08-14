@@ -3,6 +3,7 @@ export interface WorkerOnboardingFormPayload {
   email: string;
   phone: string;
   address: string;
+  state: string;
   emergencyContactName: string;
   emergencyContactRelationship: string;
   emergencyContactPhone: string;

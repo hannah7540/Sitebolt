@@ -22,6 +22,7 @@ import {
   uploadWorkerSignature,
 } from "@/lib/worker-doc-upload";
 import { computeWorkerStatusFromExpiries, nullIfBlankWorkerDate } from "@/lib/worker-utils";
+import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import VocListEditor from "@/components/workers/VocListEditor";
@@ -267,6 +268,17 @@ export default function WorkerInductionPortalPage() {
       if (updateError) {
         setError(updateError);
         return;
+      }
+
+      if (stateRegion) {
+        const payRuleResult = await assignDefaultPayRuleToWorker(
+          workerId,
+          stateRegion
+        );
+        if (payRuleResult.error) {
+          setError(payRuleResult.error);
+          return;
+        }
       }
 
       if (preparedVocs.length > 0) {

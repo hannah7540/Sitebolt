@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { addWorker, insertWorkerVocs, type WorkerOnboardingInput } from "@/lib/supabase";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
-import { assignDefaultPayRuleToWorker, assignPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
+import { assignDefaultPayRuleToWorker } from "@/lib/worker-pay-rule-assignment";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
@@ -29,7 +29,6 @@ import DocumentCapture from "@/components/ui/DocumentCapture";
 import VocListEditor from "./VocListEditor";
 import StateRegionSelector from "./StateRegionSelector";
 import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
-import AssignPayRuleSelect from "./AssignPayRuleSelect";
 import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
 import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import Toast from "@/components/ui/Toast";
@@ -93,7 +92,6 @@ interface WorkerOnboardingModalProps {
   onClose: () => void;
   onSaved: () => void;
   hideFinancialFields?: boolean;
-  canAssignPayRules?: boolean;
 }
 
 function Field({
@@ -130,7 +128,6 @@ export default function WorkerOnboardingModal({
   onClose,
   onSaved,
   hideFinancialFields = false,
-  canAssignPayRules = false,
 }: WorkerOnboardingModalProps) {
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const fullSteps = hideFinancialFields
@@ -155,7 +152,6 @@ export default function WorkerOnboardingModal({
   );
   const uploadPrefix = uploadPrefixRef.current;
   const [vocs, setVocs] = useState<VocDraft[]>([createEmptyVoc()]);
-  const [selectedPayRuleId, setSelectedPayRuleId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -314,26 +310,15 @@ export default function WorkerOnboardingModal({
         return;
       }
 
-      if (workerId) {
-        if (canAssignPayRules && selectedPayRuleId) {
-          const { error: payRuleError } = await assignPayRuleToWorker(
-            workerId,
-            selectedPayRuleId
-          );
-          if (payRuleError) {
-            setError(payRuleError);
-            return;
-          }
-        } else if (form.state) {
-          const { error: payRuleError } = await assignDefaultPayRuleToWorker(
-            workerId,
-            form.state,
-            form.is_apprentice ?? false
-          );
-          if (payRuleError) {
-            setError(payRuleError);
-            return;
-          }
+      if (workerId && form.state) {
+        const { error: payRuleError } = await assignDefaultPayRuleToWorker(
+          workerId,
+          form.state,
+          form.is_apprentice ?? false
+        );
+        if (payRuleError) {
+          setError(payRuleError);
+          return;
         }
       }
 
@@ -535,14 +520,6 @@ export default function WorkerOnboardingModal({
                 />
                 <span className={labelClass}>Apprentice? (Yes/No)</span>
               </label>
-              {canAssignPayRules ? (
-                <AssignPayRuleSelect
-                  id="onboarding-quick-pay-rule"
-                  value={selectedPayRuleId}
-                  onChange={setSelectedPayRuleId}
-                  disabled={submitting}
-                />
-              ) : null}
               <WorkerCompanyVehicleFields
                 idPrefix="onboarding-quick-company-vehicle"
                 hasCompanyVehicle={form.has_company_vehicle ?? false}
@@ -625,14 +602,6 @@ export default function WorkerOnboardingModal({
                 />
                 <span className={labelClass}>Apprentice? (Yes/No)</span>
               </label>
-              {canAssignPayRules ? (
-                <AssignPayRuleSelect
-                  id="onboarding-full-pay-rule"
-                  value={selectedPayRuleId}
-                  onChange={setSelectedPayRuleId}
-                  disabled={submitting}
-                />
-              ) : null}
               <WorkerCompanyVehicleFields
                 idPrefix="onboarding-full-company-vehicle"
                 hasCompanyVehicle={form.has_company_vehicle ?? false}

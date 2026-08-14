@@ -646,7 +646,6 @@ export default function WorkerDirectoryPanel({
           onClose={() => setShowModal(false)}
           onSaved={onRefresh}
           hideFinancialFields={hideFinancialFields}
-          canAssignPayRules={canAssignPayRules}
         />
       )}
 
