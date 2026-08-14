@@ -3,6 +3,7 @@
 import { ClipboardCheck, ChevronRight, X } from "lucide-react";
 import {
   assignmentDueLabel,
+  resolveAssignmentProjectLabel,
   type FormWorkerAssignment,
 } from "@/lib/induction-form-builder";
 import { modalClass, modalOverlayClass } from "@/lib/ui-classes";
@@ -43,7 +44,9 @@ export default function WorkerInductionAssignmentsModal({
           </p>
         ) : (
           <ul className="space-y-2">
-            {assignments.map((assignment) => (
+            {assignments.map((assignment) => {
+              const projectLabel = resolveAssignmentProjectLabel(assignment);
+              return (
               <li key={assignment.id}>
                 <button
                   type="button"
@@ -54,9 +57,16 @@ export default function WorkerInductionAssignmentsModal({
                     <ClipboardCheck className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-slate-900">
-                      {assignment.form_title ?? "Site induction"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-900">
+                        {assignment.form_title ?? "Site induction"}
+                      </p>
+                      {projectLabel ? (
+                        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                          {projectLabel}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="mt-0.5 text-xs text-slate-500">
                       Assigned {assignmentDueLabel(assignment.assigned_at)} · Pending
                     </p>
@@ -66,7 +76,8 @@ export default function WorkerInductionAssignmentsModal({
                   </span>
                 </button>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
 

@@ -70,6 +70,7 @@ import WorkerFormsSubDashboard, {
 import FormViewer from "./FormViewer";
 import {
   fetchOutstandingWorkerFormAssignments,
+  resolveAssignmentProjectLabel,
   type FormWorkerAssignment,
 } from "@/lib/induction-form-builder";
 import {
@@ -682,7 +683,11 @@ export default function WorkerDashboardView({
 
     if (widgetId === "inductions") {
       const pendingCount = pendingInductions.length;
-      const firstTitle = pendingInductions[0]?.form_title ?? "Site induction";
+      const firstAssignment = pendingInductions[0];
+      const firstTitle = firstAssignment?.form_title ?? "Site induction";
+      const firstProjectLabel = firstAssignment
+        ? resolveAssignmentProjectLabel(firstAssignment)
+        : null;
 
       return (
         <button
@@ -704,15 +709,23 @@ export default function WorkerDashboardView({
           </div>
 
           {pendingCount > 0 ? (
-            <p className="line-clamp-2 text-sm font-medium text-orange-900">
-              {firstTitle}
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="line-clamp-2 text-sm font-medium text-orange-900">
+                  {firstTitle}
+                </p>
+                {firstProjectLabel ? (
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                    {firstProjectLabel}
+                  </span>
+                ) : null}
+              </div>
               {pendingCount > 1 ? (
-                <span className="font-normal text-orange-700">
-                  {" "}
+                <p className="text-sm font-normal text-orange-700">
                   +{pendingCount - 1} more
-                </span>
+                </p>
               ) : null}
-            </p>
+            </div>
           ) : (
             <p className="text-xs text-slate-500">No pending inductions</p>
           )}

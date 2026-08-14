@@ -424,6 +424,9 @@ export default function WorkerProjectScheduler({
     const project = projects.find((p) => p.id === targetProjectId);
     if (!project) return;
 
+    const selectedWorker = workers.find((worker) => worker.id === selectedWorkerId);
+    const previousProjectId = selectedWorker?.assigned_project_id ?? null;
+
     setActionLoading(true);
     setActionMessage(null);
     const { error } = await assignWorkerToProject({
@@ -440,6 +443,21 @@ export default function WorkerProjectScheduler({
       setActionMessage(error);
       return;
     }
+
+    void fetch("/api/workers/reallocate-project", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workerId: selectedWorkerId,
+        projectId: project.id,
+        projectName: project.name,
+        effectiveDate: focusedWeekStartIso,
+        previousProjectId,
+      }),
+    }).catch((notifyError) => {
+      console.warn("Worker reallocation notification failed:", notifyError);
+    });
+
     setActionMessage(`Worker assigned to ${project.name} for this week.`);
     await loadSchedules();
     onRefresh();

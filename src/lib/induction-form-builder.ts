@@ -583,6 +583,83 @@ async function hydrateFormWorkerAssignmentsWithTemplates(
   });
 }
 
+async function enrichFormWorkerAssignmentsWithProjectNames(
+  assignments: FormWorkerAssignment[]
+): Promise<FormWorkerAssignment[]> {
+  const needsName = assignments.filter(
+    (row) => row.project_id?.trim() && !row.project_name?.trim()
+  );
+  if (needsName.length === 0) return assignments;
+
+  const lookupKeys = Array.from(
+    new Set(needsName.map((row) => row.project_id!.trim()))
+  );
+  const nameByKey = new Map<string, string>();
+
+  if (isSupabaseConfigured()) {
+    const { data: byId } = await supabase
+      .from("projects")
+      .select("id, slug, project_name")
+      .in("id", lookupKeys);
+
+    for (const row of byId ?? []) {
+      const record = row as {
+        id?: string;
+        slug?: string | null;
+        project_name?: string | null;
+      };
+      const label =
+        record.project_name?.trim() ||
+        record.slug?.trim() ||
+        record.id?.trim() ||
+        "";
+      if (record.id && label) nameByKey.set(record.id, label);
+      if (record.slug && label) nameByKey.set(record.slug, label);
+    }
+
+    const unresolved = lookupKeys.filter((key) => !nameByKey.has(key));
+    if (unresolved.length > 0) {
+      const { data: bySlug } = await supabase
+        .from("projects")
+        .select("id, slug, project_name")
+        .in("slug", unresolved);
+
+      for (const row of bySlug ?? []) {
+        const record = row as {
+          id?: string;
+          slug?: string | null;
+          project_name?: string | null;
+        };
+        const label =
+          record.project_name?.trim() ||
+          record.slug?.trim() ||
+          record.id?.trim() ||
+          "";
+        if (record.id && label) nameByKey.set(record.id, label);
+        if (record.slug && label) nameByKey.set(record.slug, label);
+      }
+    }
+  }
+
+  return assignments.map((assignment) => {
+    if (assignment.project_name?.trim() || !assignment.project_id?.trim()) {
+      return assignment;
+    }
+    const resolved = nameByKey.get(assignment.project_id.trim());
+    if (!resolved) return assignment;
+    return { ...assignment, project_name: resolved };
+  });
+}
+
+export function resolveAssignmentProjectLabel(
+  assignment: Pick<FormWorkerAssignment, "project_id" | "project_name">
+): string | null {
+  const label = assignment.project_name?.trim();
+  if (label) return label;
+  const projectId = assignment.project_id?.trim();
+  return projectId || null;
+}
+
 function filterAssignmentsForWorker(
   assignments: FormWorkerAssignment[],
   input: FetchOutstandingAssignmentsInput
@@ -1639,8 +1716,9 @@ export async function fetchOutstandingWorkerFormAssignments(
       params
     );
     const hydrated = await hydrateFormWorkerAssignmentsWithTemplates(resolved);
+    const enriched = await enrichFormWorkerAssignmentsWithProjectNames(hydrated);
 
-    return { assignments: hydrated, error: null };
+    return { assignments: enriched, error: null };
   } catch (cause) {
     const allLocal = readLocalAssignments().filter((row) =>
       isOutstandingAssignmentStatus(row.status)
