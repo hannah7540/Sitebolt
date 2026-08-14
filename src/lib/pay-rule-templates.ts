@@ -27,13 +27,23 @@ function isSupabaseRlsError(
   return String(error.message ?? "").toLowerCase().includes("row-level security");
 }
 
+function isSupabaseDuplicateKeyError(
+  error: SupabaseRequestError | PostgrestError | null | undefined
+): boolean {
+  if (!error) return false;
+  const code = getPostgrestErrorCode(error);
+  if (code === "23505") return true;
+  return String(error.message ?? "").toLowerCase().includes("duplicate key");
+}
+
 function logPayRuleConditionInsertError(
-  payloadKind: "full" | "legacy",
+  operation: "insert" | "upsert" | "delete",
+  payloadKind: "full" | "legacy" | "replace",
   templateId: string,
   error: PostgrestError | SupabaseRequestError
 ): void {
   console.error(
-    `[pay-rule-templates] pay_rule_conditions ${payloadKind} insert failed for template ${templateId}:`,
+    `[pay-rule-templates] Failed to ${operation} payroll conditions (pay_rule_conditions) for template ${templateId} [${payloadKind}]:`,
     {
       message: error.message,
       details: "details" in error && error.details != null ? error.details : "",
@@ -714,13 +724,45 @@ async function ensurePayRuleTemplateByNameWithClient(
   client: SupabaseClient,
   input: PayRuleTemplateInput
 ): Promise<{ template: PayRuleTemplate | null; created: boolean; error: string | null }> {
-  const existing = await lookupPayRuleTemplateIdByNameWithClient(client, input.name);
+  const sanitized = sanitizePayRuleTemplateInput(input);
+  const existing = await lookupPayRuleTemplateIdByNameWithClient(client, sanitized.name);
   if (existing.error) {
     return { template: null, created: false, error: existing.error };
   }
+
   if (existing.id) {
+    const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [
+      existing.id,
+    ]);
+    const existingConditions = conditionsByTemplate.get(existing.id) ?? [];
+
+    if (existingConditions.length > 0) {
+      return {
+        template: mapPayRuleTemplate(
+          { id: existing.id, name: sanitized.name },
+          existingConditions
+        ),
+        created: false,
+        error: null,
+      };
+    }
+
+    const conditionError = await saveConditionsWithClient(
+      client,
+      existing.id,
+      sanitized.conditions,
+      { replaceExisting: true }
+    );
+    if (conditionError) {
+      return { template: null, created: false, error: conditionError };
+    }
+
+    const refreshed = await fetchConditionRowsByTemplateIdsWithClient(client, [existing.id]);
     return {
-      template: { id: existing.id, name: input.name, conditions: [] },
+      template: mapPayRuleTemplate(
+        { id: existing.id, name: sanitized.name },
+        refreshed.get(existing.id) ?? []
+      ),
       created: false,
       error: null,
     };
@@ -731,7 +773,7 @@ async function ensurePayRuleTemplateByNameWithClient(
     return {
       template: null,
       created: false,
-      error: created.error ?? `Failed to create ${input.name} template.`,
+      error: created.error ?? `Failed to create ${sanitized.name} template.`,
     };
   }
 
@@ -787,7 +829,7 @@ async function createPayRuleTemplateWithClient(
   }
 
   const templateId = String(row.id);
-  const conditionError = await insertConditionsWithClient(
+  const conditionError = await saveConditionsWithClient(
     client,
     templateId,
     sanitized.conditions
@@ -834,7 +876,42 @@ async function fetchConditionRowsByTemplateIdsWithClient(
   return map;
 }
 
-async function insertConditionsWithClient(
+async function deleteConditionsForTemplateWithClient(
+  client: SupabaseClient,
+  templateId: string
+): Promise<string | null> {
+  const { error } = await client
+    .from(PAY_RULE_CONDITIONS_TABLE)
+    .delete()
+    .eq("template_id", templateId);
+
+  if (error) {
+    logPayRuleConditionInsertError("delete", "replace", templateId, error);
+    return error.message;
+  }
+
+  return null;
+}
+
+async function saveConditionsWithClient(
+  client: SupabaseClient,
+  templateId: string,
+  conditions: PayRuleConditionInput[],
+  options: { replaceExisting?: boolean } = {}
+): Promise<string | null> {
+  const writeClient = await resolvePayRuleWriteClient();
+
+  if (options.replaceExisting) {
+    const deleteError = await deleteConditionsForTemplateWithClient(writeClient, templateId);
+    if (deleteError) {
+      return deleteError;
+    }
+  }
+
+  return upsertConditionsWithClient(writeClient, templateId, conditions);
+}
+
+async function upsertConditionsWithClient(
   client: SupabaseClient,
   templateId: string,
   conditions: PayRuleConditionInput[]
@@ -870,34 +947,81 @@ async function insertConditionsWithClient(
     ["full", fullPayload],
     ["legacy", legacyPayload],
   ] as const) {
-    const { error } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
+    const { error } = await client
+      .from(PAY_RULE_CONDITIONS_TABLE)
+      .upsert(payload, { onConflict: "template_id,sort_order" });
+
     if (!error) return null;
 
-    logPayRuleConditionInsertError(payloadKind, templateId, error);
+    logPayRuleConditionInsertError("upsert", payloadKind, templateId, error);
     lastError = error.message;
 
     if (isSupabaseRlsError(error)) {
       return error.message;
     }
 
+    if (isSupabaseDuplicateKeyError(error)) {
+      const deleteError = await deleteConditionsForTemplateWithClient(client, templateId);
+      if (deleteError) {
+        return deleteError;
+      }
+
+      const { error: retryError } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
+      if (!retryError) return null;
+
+      logPayRuleConditionInsertError("insert", payloadKind, templateId, retryError);
+      return (
+        retryError.message ??
+        "Failed to save payroll conditions after duplicate-key retry."
+      );
+    }
+
     if (
       isSupabaseMissingColumnError(error) ||
       isSupabaseSchemaOrConstraintError(error)
     ) {
+      const { error: insertError } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
+      if (!insertError) return null;
+
+      logPayRuleConditionInsertError("insert", payloadKind, templateId, insertError);
+      lastError = insertError.message;
+
+      if (isSupabaseRlsError(insertError)) {
+        return insertError.message;
+      }
+
+      if (
+        !isSupabaseMissingColumnError(insertError) &&
+        !isSupabaseSchemaOrConstraintError(insertError)
+      ) {
+        return formatSupabaseError(
+          toSupabaseRequestError(insertError),
+          "Failed to save payroll conditions."
+        );
+      }
       continue;
     }
 
     return formatSupabaseError(
       toSupabaseRequestError(error),
-      "Failed to save pay rule conditions."
+      "Failed to save payroll conditions."
     );
   }
 
   console.error(
-    "[pay-rule-templates] All pay_rule_conditions insert attempts failed.",
+    "[pay-rule-templates] All payroll condition (pay_rule_conditions) save attempts failed.",
     { templateId, lastError }
   );
-  return lastError ?? "Failed to save pay rule conditions.";
+  return lastError ?? "Failed to save payroll conditions.";
+}
+
+/** @deprecated Use saveConditionsWithClient — kept for internal call sites. */
+async function insertConditionsWithClient(
+  client: SupabaseClient,
+  templateId: string,
+  conditions: PayRuleConditionInput[]
+): Promise<string | null> {
+  return saveConditionsWithClient(client, templateId, conditions);
 }
 
 /**
@@ -1269,7 +1393,7 @@ async function insertConditions(
   conditions: PayRuleConditionInput[]
 ): Promise<string | null> {
   const client = await resolvePayRuleWriteClient();
-  return insertConditionsWithClient(client, templateId, conditions);
+  return saveConditionsWithClient(client, templateId, conditions);
 }
 
 export async function createPayRuleTemplate(
@@ -1328,22 +1452,9 @@ async function updatePayRuleTemplateWithClient(
     };
   }
 
-  const { error: deleteError } = await client
-    .from(PAY_RULE_CONDITIONS_TABLE)
-    .delete()
-    .eq("template_id", id);
-
-  if (deleteError) {
-    console.error("[pay-rule-templates] Failed to delete pay_rule_conditions:", {
-      templateId: id,
-      message: deleteError.message,
-      details: deleteError.details,
-      code: deleteError.code,
-    });
-    return { template: null, error: deleteError.message };
-  }
-
-  const conditionError = await insertConditionsWithClient(client, id, sanitized.conditions);
+  const conditionError = await saveConditionsWithClient(client, id, sanitized.conditions, {
+    replaceExisting: true,
+  });
   if (conditionError) {
     return { template: null, error: conditionError };
   }
