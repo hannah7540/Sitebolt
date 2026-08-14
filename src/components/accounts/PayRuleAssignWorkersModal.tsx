@@ -91,9 +91,7 @@ export default function PayRuleAssignWorkersModal({
       return null;
     }
     if (!lookup.id) {
-      onError(
-        `"${template.name}" was not found in Supabase. Run pay rule migrations before assigning workers.`
-      );
+      onError(`Unable to resolve pay rule template "${template.name}".`);
       return null;
     }
     return lookup.id;

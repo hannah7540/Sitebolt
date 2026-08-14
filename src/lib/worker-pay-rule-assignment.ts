@@ -74,7 +74,7 @@ export async function assignDefaultPayRuleToWorker(
     return {
       templateId: null,
       templateName,
-      error: `Pay rule template "${templateName}" was not found. Run pay rule migrations or seed templates.`,
+      error: `Pay rule template "${templateName}" could not be resolved.`,
     };
   }
 

@@ -16,12 +16,16 @@ export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
 export const NSW_SITE_WORKER_TEMPLATE_NAME = "NSW Site Worker";
 export const WA_SITE_WORKER_TEMPLATE_NAME = "WA Site Worker";
 export const ACT_SITE_WORKER_TEMPLATE_NAME = "ACT Site Worker";
+export const VIC_SITE_WORKER_TEMPLATE_NAME = "VIC Site Worker";
+export const QLD_SITE_WORKER_TEMPLATE_NAME = "QLD Site Worker";
 export const NZ_SITE_WORKER_TEMPLATE_NAME = "NZ Site Worker";
 
 export const PRESET_PAY_RULE_TEMPLATE_NAMES = [
   WA_SITE_WORKER_TEMPLATE_NAME,
   NSW_SITE_WORKER_TEMPLATE_NAME,
   ACT_SITE_WORKER_TEMPLATE_NAME,
+  VIC_SITE_WORKER_TEMPLATE_NAME,
+  QLD_SITE_WORKER_TEMPLATE_NAME,
   NZ_SITE_WORKER_TEMPLATE_NAME,
 ] as const;
 
@@ -574,7 +578,7 @@ export function partitionPayRuleConditionsForDisplay(template: PayRuleTemplate):
   return { payRates, allowances, leaveRules };
 }
 
-export async function fetchPayRuleTemplateIdByName(
+export async function lookupPayRuleTemplateIdByName(
   name: string
 ): Promise<{ id: string | null; error: string | null }> {
   if (!isSupabaseConfigured()) {
@@ -593,6 +597,54 @@ export async function fetchPayRuleTemplateIdByName(
 
   const row = firstSelectedRow(data as Array<{ id: string }> | null);
   return { id: row?.id ? String(row.id) : null, error: null };
+}
+
+/**
+ * Resolve a pay rule template id by name, creating preset templates on demand when missing.
+ * Falls back to NSW Site Worker when an unknown name cannot be resolved.
+ */
+export async function fetchPayRuleTemplateIdByName(
+  name: string
+): Promise<{ id: string | null; error: string | null }> {
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) {
+    return { id: null, error: "Template name is required." };
+  }
+
+  const existing = await lookupPayRuleTemplateIdByName(trimmed);
+  if (existing.error || existing.id) {
+    return existing;
+  }
+
+  const preset = getPayRuleTemplateInputByName(trimmed);
+  if (preset) {
+    const ensured = await ensurePayRuleTemplateByName(preset);
+    if (ensured.error) {
+      return { id: null, error: ensured.error };
+    }
+    return {
+      id: ensured.template?.id ?? null,
+      error: ensured.template?.id
+        ? null
+        : `Failed to create pay rule template "${trimmed}".`,
+    };
+  }
+
+  const seeded = await ensureDefaultPayRuleTemplates();
+  if (seeded.error) {
+    return { id: null, error: seeded.error };
+  }
+
+  const retry = await lookupPayRuleTemplateIdByName(trimmed);
+  if (retry.error || retry.id) {
+    return retry;
+  }
+
+  if (trimmed !== NSW_SITE_WORKER_TEMPLATE_NAME) {
+    return fetchPayRuleTemplateIdByName(NSW_SITE_WORKER_TEMPLATE_NAME);
+  }
+
+  return { id: null, error: null };
 }
 
 /** Display labels for the WA Site Worker preset template card. */
@@ -1443,16 +1495,30 @@ export const WA_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
   ],
 };
 
-export const ACT_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
-  name: ACT_SITE_WORKER_TEMPLATE_NAME,
-  conditions: NSW_SITE_WORKER_TEMPLATE_INPUT.conditions.map((condition) => ({
-    ...condition,
-    condition_name:
-      condition.condition_name === "Travel Allowance NSW"
-        ? "Travel Allowance ACT"
-        : condition.condition_name,
-  })),
-};
+function cloneNswSiteWorkerTemplate(
+  templateName: string,
+  travelAllowanceName: string
+): PayRuleTemplateInput {
+  return {
+    name: templateName,
+    conditions: NSW_SITE_WORKER_TEMPLATE_INPUT.conditions.map((condition) => ({
+      ...condition,
+      condition_name:
+        condition.condition_name === "Travel Allowance NSW"
+          ? travelAllowanceName
+          : condition.condition_name,
+    })),
+  };
+}
+
+export const ACT_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
+  cloneNswSiteWorkerTemplate(ACT_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance ACT");
+
+export const VIC_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
+  cloneNswSiteWorkerTemplate(VIC_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance VIC");
+
+export const QLD_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput =
+  cloneNswSiteWorkerTemplate(QLD_SITE_WORKER_TEMPLATE_NAME, "Travel Allowance QLD");
 
 export const NZ_SITE_WORKER_TEMPLATE_INPUT: PayRuleTemplateInput = {
   name: NZ_SITE_WORKER_TEMPLATE_NAME,
@@ -1466,8 +1532,22 @@ const DEFAULT_PAY_RULE_TEMPLATE_INPUTS: PayRuleTemplateInput[] = [
   WA_SITE_WORKER_TEMPLATE_INPUT,
   NSW_SITE_WORKER_TEMPLATE_INPUT,
   ACT_SITE_WORKER_TEMPLATE_INPUT,
+  VIC_SITE_WORKER_TEMPLATE_INPUT,
+  QLD_SITE_WORKER_TEMPLATE_INPUT,
   NZ_SITE_WORKER_TEMPLATE_INPUT,
 ];
+
+const PAY_RULE_TEMPLATE_INPUT_BY_NAME: Record<string, PayRuleTemplateInput> =
+  Object.fromEntries(
+    DEFAULT_PAY_RULE_TEMPLATE_INPUTS.map((input) => [input.name, input])
+  );
+
+export function getPayRuleTemplateInputByName(
+  name: string
+): PayRuleTemplateInput | null {
+  const trimmed = String(name ?? "").trim();
+  return trimmed ? (PAY_RULE_TEMPLATE_INPUT_BY_NAME[trimmed] ?? null) : null;
+}
 
 export async function ensureDefaultPayRuleTemplates(): Promise<{
   created: number;
