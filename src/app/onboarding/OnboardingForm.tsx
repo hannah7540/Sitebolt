@@ -35,21 +35,29 @@ export default function OnboardingForm() {
 
     async function loadWorker() {
       try {
+        await fetch("/api/workers/ensure-profile", { method: "POST" });
+
         const response = await fetch("/api/workers/onboarding");
-        const payload: unknown = await response.json().catch(() => null);
+        let payload: unknown = await response.json().catch(() => null);
 
         if (!response.ok) {
-          if (!cancelled) {
-            setError(parseApiError(payload) ?? "Unable to load your worker profile.");
-            setLoading(false);
+          await fetch("/api/workers/ensure-profile", { method: "POST" });
+          const retryResponse = await fetch("/api/workers/onboarding");
+          payload = await retryResponse.json().catch(() => null);
+
+          if (!retryResponse.ok) {
+            if (!cancelled) {
+              setError(parseApiError(payload) ?? "Unable to load your worker profile.");
+              setLoading(false);
+            }
+            return;
           }
-          return;
         }
 
         const worker = (payload as { worker?: WorkerOnboardingRecord }).worker;
-        if (!worker) {
+        if (!worker?.id) {
           if (!cancelled) {
-            setError("Worker profile not found.");
+            setError("Unable to prepare your worker profile. Please refresh and try again.");
             setLoading(false);
           }
           return;

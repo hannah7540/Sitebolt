@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import { ensureWorkerInviteRecord } from "@/lib/ensure-worker-profile";
 import {
   buildWorkerInviteCallbackUrl,
   AUTH_CALLBACK_PATH,
@@ -20,7 +21,6 @@ export async function POST(req: Request) {
     process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
 
   if (!apiKey) {
-    console.error("DEBUG: Environment variables available:", Object.keys(process.env));
     return NextResponse.json(
       { error: "Server error: RESEND_API_KEY is not loaded in Node runtime." },
       { status: 500 }
@@ -29,7 +29,11 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { email } = body;
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const workerId = typeof body?.workerId === "string" ? body.workerId.trim() : "";
+    const firstName = typeof body?.firstName === "string" ? body.firstName.trim() : "";
+    const lastName = typeof body?.lastName === "string" ? body.lastName.trim() : "";
+    const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -40,13 +44,29 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    const preInviteWorker = await ensureWorkerInviteRecord(supabaseAdmin, {
+      email,
+      workerId: workerId || null,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      fullName: fullName || null,
+    });
+
+    if (preInviteWorker.error || !preInviteWorker.workerId) {
+      return NextResponse.json(
+        { error: preInviteWorker.error ?? "Failed to prepare worker profile." },
+        { status: 400 }
+      );
+    }
+
     let inviteLink: string | null = null;
     let lastLinkError: string | null = null;
+    let authUserId: string | null = null;
 
     for (const linkType of INVITE_LINK_TYPES) {
       const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
         type: linkType,
-        email: email,
+        email,
         options: {
           redirectTo: `${PRODUCTION_SITE_URL}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(WORKER_INVITE_NEXT_PATH)}`,
         },
@@ -57,6 +77,8 @@ export async function POST(req: Request) {
         console.warn(`[/api/workers/invite] generateLink(${linkType}) failed:`, linkError.message);
         continue;
       }
+
+      authUserId = data?.user?.id ?? null;
 
       const hashedToken = data?.properties?.hashed_token;
       if (hashedToken) {
@@ -73,6 +95,15 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    await ensureWorkerInviteRecord(supabaseAdmin, {
+      email,
+      workerId: preInviteWorker.workerId,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      fullName: fullName || null,
+      authUserId,
+    });
 
     const resend = new Resend(apiKey);
     await resend.emails.send({
@@ -100,7 +131,12 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { success: true, message: "Invite sent successfully" },
+      {
+        success: true,
+        message: "Invite sent successfully",
+        workerId: preInviteWorker.workerId,
+        authUserId,
+      },
       { status: 200 }
     );
   } catch (err: unknown) {

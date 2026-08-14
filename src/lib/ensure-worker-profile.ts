@@ -1,8 +1,20 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
-import { findWorkerIdForAuthUser } from "@/lib/worker-onboarding";
+import {
+  findWorkerIdForAuthUser,
+  type WorkerOnboardingRecord,
+} from "@/lib/worker-onboarding";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
+
+export interface EnsureWorkerInviteInput {
+  email: string;
+  workerId?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  authUserId?: string | null;
+}
 
 function readUserFullName(user: User): string {
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
@@ -15,6 +27,30 @@ function readUserFullName(user: User): string {
   return "";
 }
 
+function resolveInviteNameFields(input: EnsureWorkerInviteInput) {
+  const firstName = input.firstName?.trim() ?? "";
+  const lastName = input.lastName?.trim() ?? "";
+  const fullName = input.fullName?.trim() ?? "";
+
+  if (firstName || lastName) {
+    return buildWorkerNameFields(firstName, lastName || "Worker");
+  }
+
+  if (fullName) {
+    const parts = splitWorkerFullName(fullName);
+    return buildWorkerNameFields(parts.firstName, parts.lastName || "Worker");
+  }
+
+  const fallback = input.email.split("@")[0] ?? "Worker";
+  const parts = splitWorkerFullName(fallback);
+  return buildWorkerNameFields(parts.firstName, parts.lastName || "Worker");
+}
+
+function isMissingColumnError(message: string, column: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes(column.toLowerCase()) && lower.includes("column");
+}
+
 async function upsertProfileRow(
   admin: SupabaseClient,
   options: {
@@ -25,7 +61,7 @@ async function upsertProfileRow(
     role?: string | null;
   }
 ): Promise<void> {
-  await admin.from("profiles").upsert(
+  const { error } = await admin.from("profiles").upsert(
     [
       {
         id: options.authUserId,
@@ -38,6 +74,218 @@ async function upsertProfileRow(
     ],
     { onConflict: "id" }
   );
+
+  if (error) {
+    console.warn("upsertProfileRow:", error.message);
+  }
+}
+
+async function findWorkerIdByEmail(
+  admin: SupabaseClient,
+  email: string
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("workers")
+    .select("id")
+    .ilike("email", email.trim())
+    .limit(1);
+
+  if (error || !data?.length) return null;
+  return data[0]?.id as string;
+}
+
+async function insertWorkerRow(
+  admin: SupabaseClient,
+  payload: Record<string, unknown>
+): Promise<{ workerId: string | null; error: string | null }> {
+  const attempts: Record<string, unknown>[] = [payload];
+
+  if ("onboarding_completed" in payload) {
+    const withoutOnboarding = { ...payload };
+    delete withoutOnboarding.onboarding_completed;
+    attempts.push(withoutOnboarding);
+  }
+
+  for (const attempt of attempts) {
+    const { data, error } = await admin
+      .from("workers")
+      .insert([attempt])
+      .select("id, security_role")
+      .maybeSingle();
+
+    if (!error && data?.id) {
+      return { workerId: data.id as string, error: null };
+    }
+
+    if (error && attempts.indexOf(attempt) < attempts.length - 1) {
+      continue;
+    }
+
+    if (error) {
+      return { workerId: null, error: error.message };
+    }
+  }
+
+  return { workerId: null, error: "Failed to create worker profile." };
+}
+
+export async function ensureWorkerInviteRecord(
+  admin: SupabaseClient,
+  input: EnsureWorkerInviteInput
+): Promise<{ workerId: string | null; error: string | null }> {
+  const email = input.email.trim();
+  if (!email) {
+    return { workerId: null, error: "Email is required." };
+  }
+
+  const nameFields = resolveInviteNameFields(input);
+  const authUserId = input.authUserId?.trim() || null;
+
+  if (input.workerId?.trim()) {
+    const workerId = input.workerId.trim();
+    const { data: existing } = await admin
+      .from("workers")
+      .select("id")
+      .eq("id", workerId)
+      .maybeSingle();
+
+    if (existing?.id) {
+      await admin
+        .from("workers")
+        .update({
+          email,
+          auth_user_id: authUserId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", workerId);
+
+      if (authUserId) {
+        await upsertProfileRow(admin, {
+          authUserId,
+          email,
+          fullName: nameFields.full_name,
+          workerId,
+        });
+      }
+
+      return { workerId, error: null };
+    }
+  }
+
+  let workerId = await findWorkerIdByEmail(admin, email);
+
+  if (workerId) {
+    await admin
+      .from("workers")
+      .update({
+        ...nameFields,
+        email,
+        auth_user_id: authUserId ?? undefined,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", workerId);
+
+    if (authUserId) {
+      await upsertProfileRow(admin, {
+        authUserId,
+        email,
+        fullName: nameFields.full_name,
+        workerId,
+      });
+    }
+
+    return { workerId, error: null };
+  }
+
+  const insertPayload: Record<string, unknown> = {
+    ...nameFields,
+    email,
+    auth_user_id: authUserId,
+    security_role: DEFAULT_WORKER_SECURITY_ROLE,
+    status: "pending_induction",
+    onboarding_completed: false,
+  };
+
+  const inserted = await insertWorkerRow(admin, insertPayload);
+  if (inserted.workerId && authUserId) {
+    await upsertProfileRow(admin, {
+      authUserId,
+      email,
+      fullName: nameFields.full_name,
+      workerId: inserted.workerId,
+    });
+  }
+
+  return inserted;
+}
+
+export function buildFallbackOnboardingRecord(
+  workerId: string,
+  user: User,
+  partial?: Partial<WorkerOnboardingRecord>
+): WorkerOnboardingRecord {
+  const fullName = readUserFullName(user) || user.email?.split("@")[0] || "";
+  const parts = splitWorkerFullName(fullName);
+
+  return {
+    id: workerId,
+    email: partial?.email ?? user.email ?? "",
+    full_name: partial?.full_name ?? (fullName || null),
+    first_name: partial?.first_name ?? (parts.firstName || null),
+    last_name: partial?.last_name ?? (parts.lastName || null),
+    phone: partial?.phone ?? null,
+    trade: partial?.trade ?? null,
+    emergency_contact_name: partial?.emergency_contact_name ?? null,
+    emergency_contact_phone: partial?.emergency_contact_phone ?? null,
+    white_card_number: partial?.white_card_number ?? null,
+    drivers_licence_number: partial?.drivers_licence_number ?? null,
+    onboarding_completed: partial?.onboarding_completed ?? false,
+  };
+}
+
+const WORKER_ONBOARDING_SELECT_VARIANTS = [
+  "id, email, full_name, first_name, last_name, phone, trade, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number, onboarding_completed",
+  "id, email, full_name, first_name, last_name, phone, trade, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number",
+  "id, email, full_name, first_name, last_name, phone, trade, emergency_contact_name, emergency_contact_phone",
+  "id, email, full_name, phone, trade",
+] as const;
+
+export async function loadWorkerForOnboardingRecord(
+  admin: SupabaseClient,
+  workerId: string
+): Promise<WorkerOnboardingRecord | null> {
+  for (const select of WORKER_ONBOARDING_SELECT_VARIANTS) {
+    const { data, error } = await admin
+      .from("workers")
+      .select(select)
+      .eq("id", workerId)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, "onboarding_completed")) continue;
+      continue;
+    }
+
+    if (!data) return null;
+
+    const row = data as Partial<WorkerOnboardingRecord>;
+    return {
+      id: row.id as string,
+      email: row.email ?? "",
+      full_name: row.full_name ?? null,
+      first_name: row.first_name ?? null,
+      last_name: row.last_name ?? null,
+      phone: row.phone ?? null,
+      trade: row.trade ?? null,
+      emergency_contact_name: row.emergency_contact_name ?? null,
+      emergency_contact_phone: row.emergency_contact_phone ?? null,
+      white_card_number: row.white_card_number ?? null,
+      drivers_licence_number: row.drivers_licence_number ?? null,
+      onboarding_completed: row.onboarding_completed ?? false,
+    };
+  }
+
+  return null;
 }
 
 export async function ensureWorkerProfileForAuthUser(
@@ -49,116 +297,37 @@ export async function ensureWorkerProfileForAuthUser(
     return { workerId: null, error: "Auth user email is required." };
   }
 
-  const fullNameFromUser = readUserFullName(user);
-  const fallbackName = email.split("@")[0] ?? "Worker";
-  const { firstName, lastName } = splitWorkerFullName(
-    fullNameFromUser || fallbackName
-  );
-  const nameFields = buildWorkerNameFields(firstName, lastName || "Worker");
+  const inviteResult = await ensureWorkerInviteRecord(admin, {
+    email,
+    authUserId: user.id,
+    fullName: readUserFullName(user),
+  });
 
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("worker_id, role, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profile?.worker_id) {
-    await admin
-      .from("workers")
-      .update({
-        auth_user_id: user.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.worker_id);
-
-    await upsertProfileRow(admin, {
-      authUserId: user.id,
-      email,
-      fullName: profile.full_name?.trim() || nameFields.full_name,
-      workerId: profile.worker_id as string,
-      role: typeof profile.role === "string" ? profile.role : null,
-    });
-
-    return { workerId: profile.worker_id as string, error: null };
-  }
-
-  let workerId = await findWorkerIdForAuthUser(admin, user.id, email);
-
-  if (workerId) {
+  if (inviteResult.workerId) {
     const linkResult = await linkWorkerAuthAccount(admin, {
-      workerId,
+      workerId: inviteResult.workerId,
       authUserId: user.id,
       email,
-      fullName: nameFields.full_name,
+      fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
       securityRole: DEFAULT_WORKER_SECURITY_ROLE,
     });
 
     if (linkResult.error) {
-      return { workerId: null, error: linkResult.error };
+      await upsertProfileRow(admin, {
+        authUserId: user.id,
+        email,
+        fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
+        workerId: inviteResult.workerId,
+      });
     }
 
+    return inviteResult;
+  }
+
+  let workerId = await findWorkerIdForAuthUser(admin, user.id, email);
+  if (workerId) {
     return { workerId, error: null };
   }
 
-  const insertPayload: Record<string, unknown> = {
-    ...nameFields,
-    email,
-    auth_user_id: user.id,
-    security_role: DEFAULT_WORKER_SECURITY_ROLE,
-    status: "pending_induction",
-    onboarding_completed: false,
-  };
-
-  const { data: inserted, error: insertError } = await admin
-    .from("workers")
-    .insert([insertPayload])
-    .select("id, security_role")
-    .single();
-
-  if (insertError) {
-    workerId = await findWorkerIdForAuthUser(admin, user.id, email);
-    if (workerId) {
-      const linkResult = await linkWorkerAuthAccount(admin, {
-        workerId,
-        authUserId: user.id,
-        email,
-        fullName: nameFields.full_name,
-        securityRole: DEFAULT_WORKER_SECURITY_ROLE,
-      });
-
-      if (linkResult.error) {
-        return { workerId: null, error: linkResult.error };
-      }
-
-      return { workerId, error: null };
-    }
-
-    return { workerId: null, error: insertError.message };
-  }
-
-  workerId = inserted.id as string;
-  const securityRole =
-    inserted && typeof inserted.security_role === "string"
-      ? inserted.security_role
-      : DEFAULT_WORKER_SECURITY_ROLE;
-
-  const linkResult = await linkWorkerAuthAccount(admin, {
-    workerId,
-    authUserId: user.id,
-    email,
-    fullName: nameFields.full_name,
-    securityRole,
-  });
-
-  if (linkResult.error) {
-    await upsertProfileRow(admin, {
-      authUserId: user.id,
-      email,
-      fullName: nameFields.full_name,
-      workerId,
-      role: securityRole,
-    });
-  }
-
-  return { workerId, error: null };
+  return inviteResult;
 }

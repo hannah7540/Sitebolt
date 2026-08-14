@@ -3,31 +3,38 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
-import { ensureWorkerProfileForAuthUser } from "@/lib/ensure-worker-profile";
 import {
-  type WorkerOnboardingRecord,
-} from "@/lib/worker-onboarding";
+  buildFallbackOnboardingRecord,
+  ensureWorkerProfileForAuthUser,
+  loadWorkerForOnboardingRecord,
+} from "@/lib/ensure-worker-profile";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 
-const WORKER_ONBOARDING_SELECT =
-  "id, email, full_name, first_name, last_name, phone, trade, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number, onboarding_completed";
+async function resolveOnboardingWorker(user: User | null) {
+  if (!user) {
+    return { error: "Not authenticated.", status: 401 as const, worker: null };
+  }
 
-async function loadWorkerForOnboarding(
-  workerId: string
-): Promise<WorkerOnboardingRecord | null> {
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from("workers")
-    .select(WORKER_ONBOARDING_SELECT)
-    .eq("id", workerId)
-    .maybeSingle();
+  const ensured = await ensureWorkerProfileForAuthUser(admin, user);
+  if (ensured.error || !ensured.workerId) {
+    return {
+      error: ensured.error ?? "Worker profile not found.",
+      status: 400 as const,
+      worker: null,
+    };
+  }
 
-  if (error || !data) return null;
-  return data as WorkerOnboardingRecord;
+  const worker =
+    (await loadWorkerForOnboardingRecord(admin, ensured.workerId)) ??
+    buildFallbackOnboardingRecord(ensured.workerId, user);
+
+  return { error: null, status: 200 as const, worker };
 }
 
 export async function GET() {
@@ -43,25 +50,12 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const result = await resolveOnboardingWorker(user);
+  if (result.error || !result.worker) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  const admin = createSupabaseAdminClient();
-  const ensured = await ensureWorkerProfileForAuthUser(admin, user);
-  if (ensured.error || !ensured.workerId) {
-    return NextResponse.json(
-      { error: ensured.error ?? "Worker profile not found." },
-      { status: 400 }
-    );
-  }
-
-  const worker = await loadWorkerForOnboarding(ensured.workerId);
-  if (!worker) {
-    return NextResponse.json({ error: "Worker profile not found." }, { status: 404 });
-  }
-
-  return NextResponse.json({ worker });
+  return NextResponse.json({ worker: result.worker });
 }
 
 export async function POST(req: Request) {
@@ -116,41 +110,49 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Trade / role is required." }, { status: 400 });
   }
 
-  const admin = createSupabaseAdminClient();
-  const ensured = await ensureWorkerProfileForAuthUser(admin, user);
-  if (ensured.error || !ensured.workerId) {
-    return NextResponse.json(
-      { error: ensured.error ?? "Worker profile not found." },
-      { status: 400 }
-    );
+  const resolved = await resolveOnboardingWorker(user);
+  if (resolved.error || !resolved.worker) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
-  const workerId = ensured.workerId;
-
+  const workerId = resolved.worker.id;
+  const admin = createSupabaseAdminClient();
   const { firstName, lastName } = splitWorkerFullName(fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
-  const { error: updateError } = await admin
+  const updatePayload: Record<string, unknown> = {
+    ...nameFields,
+    phone,
+    trade,
+    emergency_contact_name: emergencyContactName,
+    emergency_contact_phone: emergencyContactPhone,
+    white_card_number: whiteCardNumber || null,
+    drivers_licence_number: driversLicenceNumber || null,
+    onboarding_completed: true,
+    status: "active",
+    updated_at: new Date().toISOString(),
+  };
+
+  let { error: updateError } = await admin
     .from("workers")
-    .update({
-      ...nameFields,
-      phone,
-      trade,
-      emergency_contact_name: emergencyContactName,
-      emergency_contact_phone: emergencyContactPhone,
-      white_card_number: whiteCardNumber || null,
-      drivers_licence_number: driversLicenceNumber || null,
-      onboarding_completed: true,
-      status: "active",
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", workerId);
+
+  if (
+    updateError &&
+    updateError.message.toLowerCase().includes("onboarding_completed")
+  ) {
+    const fallbackPayload = { ...updatePayload };
+    delete fallbackPayload.onboarding_completed;
+    ({ error: updateError } = await admin
+      .from("workers")
+      .update(fallbackPayload)
+      .eq("id", workerId));
+  }
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
-
-  const worker = await loadWorkerForOnboarding(workerId);
 
   const { data: workerMeta } = await admin
     .from("workers")
@@ -161,7 +163,7 @@ export async function POST(req: Request) {
   await linkWorkerAuthAccount(admin, {
     workerId,
     authUserId: user.id,
-    email: user.email ?? workerMeta?.email ?? worker?.email ?? "",
+    email: user.email ?? workerMeta?.email ?? resolved.worker.email ?? "",
     fullName: nameFields.full_name,
     securityRole:
       workerMeta && typeof workerMeta.security_role === "string"

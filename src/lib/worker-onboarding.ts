@@ -49,10 +49,10 @@ export async function findWorkerIdForAuthUser(
       .from("workers")
       .select("id")
       .ilike("email", trimmedEmail)
-      .maybeSingle();
+      .limit(1);
 
-    if (!emailLookup.error && emailLookup.data?.id) {
-      return emailLookup.data.id as string;
+    if (!emailLookup.error && emailLookup.data?.[0]?.id) {
+      return emailLookup.data[0].id as string;
     }
   }
 

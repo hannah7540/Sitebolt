@@ -352,7 +352,13 @@ export default function WorkerDirectoryPanel({
       const response = await fetch("/api/workers/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({
+          email,
+          workerId: worker.id,
+          firstName: worker.first_name ?? "",
+          lastName: worker.last_name ?? "",
+          fullName: worker.full_name ?? "",
+        }),
       });
 
       const data = (await response.json()) as {

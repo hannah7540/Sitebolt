@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import AuthSetPasswordForm from "@/components/auth/AuthSetPasswordForm";
 
 interface AcceptInviteClientProps {
@@ -7,6 +8,11 @@ interface AcceptInviteClientProps {
 }
 
 export default function AcceptInviteClient({ initialHasSession }: AcceptInviteClientProps) {
+  useEffect(() => {
+    if (!initialHasSession) return;
+    void fetch("/api/workers/ensure-profile", { method: "POST" });
+  }, [initialHasSession]);
+
   return (
     <AuthSetPasswordForm
       initialHasSession={initialHasSession}
