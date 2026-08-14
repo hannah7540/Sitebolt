@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ACT_SITE_WORKER_TEMPLATE_NAME,
   fetchPayRuleTemplateIdByName,
+  fetchPayRuleTemplateIdByNameAdmin,
   NSW_SITE_WORKER_TEMPLATE_NAME,
   NZ_SITE_WORKER_TEMPLATE_NAME,
   QLD_SITE_WORKER_TEMPLATE_NAME,
@@ -59,8 +60,8 @@ export interface AssignDefaultPayRuleResult {
 }
 
 /**
- * Assign the state-default pay rule template to a worker.
- * NSW workers always receive "NSW Site Worker"; apprentice travel is resolved at export time.
+ * Assign the state-default pay rule template to a worker (browser/client).
+ * Delegates to the service-role API route so template writes bypass RLS.
  */
 export async function assignDefaultPayRuleToWorker(
   workerId: string,
@@ -70,6 +71,41 @@ export async function assignDefaultPayRuleToWorker(
   const templateName = resolvePayRuleTemplateNameForWorker(state);
   if (!templateName) {
     return { templateId: null, templateName: null, error: null };
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      const response = await fetch("/api/workers/assign-pay-rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId, state }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        templateId?: string | null;
+        templateName?: string | null;
+      } | null;
+
+      if (!response.ok) {
+        return {
+          templateId: null,
+          templateName,
+          error: payload?.error ?? "Failed to assign pay rule.",
+        };
+      }
+
+      return {
+        templateId: payload?.templateId ?? null,
+        templateName: payload?.templateName ?? templateName,
+        error: null,
+      };
+    } catch (cause) {
+      return {
+        templateId: null,
+        templateName,
+        error: cause instanceof Error ? cause.message : "Failed to assign pay rule.",
+      };
+    }
   }
 
   const { id, error: fetchError } = await fetchPayRuleTemplateIdByName(templateName);
@@ -110,26 +146,11 @@ export async function assignDefaultPayRuleToWorkerAdmin(
   }
 
   let templateId: string | null = null;
-  const { data: existingTemplate, error: lookupError } = await admin
-    .from("pay_rule_templates")
-    .select("id")
-    .eq("name", templateName)
-    .limit(1)
-    .maybeSingle();
-
-  if (lookupError) {
-    return { templateId: null, templateName, error: lookupError.message };
+  const resolved = await fetchPayRuleTemplateIdByNameAdmin(admin, templateName);
+  if (resolved.error) {
+    return { templateId: null, templateName, error: resolved.error };
   }
-
-  if (existingTemplate?.id) {
-    templateId = String(existingTemplate.id);
-  } else {
-    const ensured = await fetchPayRuleTemplateIdByName(templateName);
-    if (ensured.error) {
-      return { templateId: null, templateName, error: ensured.error };
-    }
-    templateId = ensured.id;
-  }
+  templateId = resolved.id;
 
   if (!templateId) {
     return {

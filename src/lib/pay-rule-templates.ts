@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import {
   isSupabaseMissingColumnError,
@@ -585,8 +586,14 @@ export async function lookupPayRuleTemplateIdByName(
   if (!isSupabaseConfigured()) {
     return { id: null, error: "Supabase is not configured." };
   }
+  return lookupPayRuleTemplateIdByNameWithClient(supabase, name);
+}
 
-  const { data, error } = await supabase
+async function lookupPayRuleTemplateIdByNameWithClient(
+  client: SupabaseClient,
+  name: string
+): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await client
     .from(PAY_RULE_TEMPLATES_TABLE)
     .select("id")
     .eq("name", name)
@@ -598,6 +605,240 @@ export async function lookupPayRuleTemplateIdByName(
 
   const row = firstSelectedRow(data as Array<{ id: string }> | null);
   return { id: row?.id ? String(row.id) : null, error: null };
+}
+
+/**
+ * Resolve/create pay rule templates using the service-role client (bypasses RLS).
+ * Use from server API routes and onboarding handlers only.
+ */
+export async function fetchPayRuleTemplateIdByNameAdmin(
+  admin: SupabaseClient,
+  name: string
+): Promise<{ id: string | null; error: string | null }> {
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) {
+    return { id: null, error: "Template name is required." };
+  }
+
+  const existing = await lookupPayRuleTemplateIdByNameWithClient(admin, trimmed);
+  if (existing.error || existing.id) {
+    return existing;
+  }
+
+  const preset = getPayRuleTemplateInputByName(trimmed);
+  if (preset) {
+    const ensured = await ensurePayRuleTemplateByNameWithClient(admin, preset);
+    if (ensured.error) {
+      return { id: null, error: ensured.error };
+    }
+    return {
+      id: ensured.template?.id ?? null,
+      error: ensured.template?.id
+        ? null
+        : `Failed to create pay rule template "${trimmed}".`,
+    };
+  }
+
+  const seeded = await ensureDefaultPayRuleTemplatesWithClient(admin);
+  if (seeded.error) {
+    return { id: null, error: seeded.error };
+  }
+
+  const retry = await lookupPayRuleTemplateIdByNameWithClient(admin, trimmed);
+  if (retry.error || retry.id) {
+    return retry;
+  }
+
+  if (trimmed !== NSW_SITE_WORKER_TEMPLATE_NAME) {
+    return fetchPayRuleTemplateIdByNameAdmin(admin, NSW_SITE_WORKER_TEMPLATE_NAME);
+  }
+
+  return { id: null, error: null };
+}
+
+async function ensureDefaultPayRuleTemplatesWithClient(
+  client: SupabaseClient
+): Promise<{ created: number; error: string | null }> {
+  let created = 0;
+
+  for (const preset of DEFAULT_PAY_RULE_TEMPLATE_INPUTS) {
+    const result = await ensurePayRuleTemplateByNameWithClient(client, preset);
+    if (result.error) {
+      return { created, error: result.error };
+    }
+    if (result.created) created += 1;
+  }
+
+  return { created, error: null };
+}
+
+async function ensurePayRuleTemplateByNameWithClient(
+  client: SupabaseClient,
+  input: PayRuleTemplateInput
+): Promise<{ template: PayRuleTemplate | null; created: boolean; error: string | null }> {
+  const existing = await lookupPayRuleTemplateIdByNameWithClient(client, input.name);
+  if (existing.error) {
+    return { template: null, created: false, error: existing.error };
+  }
+  if (existing.id) {
+    return {
+      template: { id: existing.id, name: input.name, conditions: [] },
+      created: false,
+      error: null,
+    };
+  }
+
+  const created = await createPayRuleTemplateWithClient(client, input);
+  if (created.error || !created.template) {
+    return {
+      template: null,
+      created: false,
+      error: created.error ?? `Failed to create ${input.name} template.`,
+    };
+  }
+
+  return { template: created.template, created: true, error: null };
+}
+
+async function createPayRuleTemplateWithClient(
+  client: SupabaseClient,
+  input: PayRuleTemplateInput
+): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
+  const sanitized = sanitizePayRuleTemplateInput(input);
+
+  if (!sanitized.name) {
+    return { template: null, error: "Template name is required." };
+  }
+
+  if (sanitized.conditions.length === 0) {
+    return { template: null, error: "Add at least one rule condition." };
+  }
+
+  if (sanitized.conditions.some((condition) => !condition.condition_name)) {
+    return { template: null, error: "Every condition needs a name." };
+  }
+
+  const { data, error } = await client
+    .from(PAY_RULE_TEMPLATES_TABLE)
+    .insert([{ name: sanitized.name }])
+    .select(PAY_RULE_TEMPLATE_COLUMNS);
+
+  const row = firstSelectedRow(data as Record<string, unknown>[] | null);
+
+  if (error) {
+    if (isSupabaseRelationMissingError(error)) {
+      return { template: null, error: tableMissingMessage() };
+    }
+    if (isSupabaseZeroRowsError(error)) {
+      return {
+        template: null,
+        error: zeroRowResultMessage("Pay rule template was not returned after create."),
+      };
+    }
+    return {
+      template: null,
+      error: formatSupabaseError(toSupabaseRequestError(error), "Failed to create pay rule."),
+    };
+  }
+
+  if (!row) {
+    return {
+      template: null,
+      error: zeroRowResultMessage("Pay rule template was not returned after create."),
+    };
+  }
+
+  const templateId = String(row.id);
+  const conditionError = await insertConditionsWithClient(
+    client,
+    templateId,
+    sanitized.conditions
+  );
+  if (conditionError) {
+    await client.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", templateId);
+    return { template: null, error: conditionError };
+  }
+
+  const conditionsByTemplate = await fetchConditionRowsByTemplateIdsWithClient(client, [
+    templateId,
+  ]);
+  return {
+    template: mapPayRuleTemplate(row, conditionsByTemplate.get(templateId) ?? []),
+    error: null,
+  };
+}
+
+async function fetchConditionRowsByTemplateIdsWithClient(
+  client: SupabaseClient,
+  templateIds: string[]
+): Promise<Map<string, PayRuleCondition[]>> {
+  const map = new Map<string, PayRuleCondition[]>();
+  if (templateIds.length === 0) return map;
+
+  const { data, error } = await client
+    .from(PAY_RULE_CONDITIONS_TABLE)
+    .select("*")
+    .in("template_id", templateIds)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    console.warn("[pay-rules] fetch conditions failed:", error.message);
+    return map;
+  }
+
+  for (const row of data ?? []) {
+    const condition = mapPayRuleCondition(row as Record<string, unknown>);
+    const list = map.get(condition.template_id) ?? [];
+    list.push(condition);
+    map.set(condition.template_id, list);
+  }
+
+  return map;
+}
+
+async function insertConditionsWithClient(
+  client: SupabaseClient,
+  templateId: string,
+  conditions: PayRuleConditionInput[]
+): Promise<string | null> {
+  if (conditions.length === 0) return null;
+
+  const fullPayload = conditions.map((condition) => ({
+    template_id: templateId,
+    condition_type: condition.condition_type,
+    condition_name: condition.condition_name,
+    applicable_days: condition.applicable_days,
+    time_condition: condition.time_condition,
+    hours_threshold: condition.hours_threshold,
+    pay_multiplier_type: condition.pay_multiplier_type,
+    allowance_trigger: condition.allowance_trigger,
+    payout_unit: condition.payout_unit,
+    sort_order: condition.sort_order,
+  }));
+
+  const legacyPayload = conditions.map((condition) => ({
+    template_id: templateId,
+    condition_name: condition.condition_name,
+    applicable_days: condition.applicable_days,
+    time_condition: condition.time_condition,
+    hours_threshold: condition.hours_threshold,
+    pay_multiplier_type: condition.pay_multiplier_type,
+    sort_order: condition.sort_order,
+  }));
+
+  for (const payload of [fullPayload, legacyPayload]) {
+    const { error } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
+    if (!error) return null;
+    if (
+      isSupabaseMissingColumnError(error) ||
+      isSupabaseSchemaOrConstraintError(error)
+    ) {
+      continue;
+    }
+    return error.message;
+  }
+
+  return "Failed to save pay rule conditions.";
 }
 
 /**
