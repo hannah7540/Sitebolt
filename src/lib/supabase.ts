@@ -1538,7 +1538,10 @@ export async function addWorker(
       worker.is_apprentice ?? false
     );
     if (payRuleResult.error) {
-      return { error: payRuleResult.error, workerId };
+      console.warn(
+        "[addWorker] Pay rule assignment failed; worker was created:",
+        payRuleResult.error
+      );
     }
   }
 

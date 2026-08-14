@@ -18,27 +18,9 @@ export const PAY_RULE_CONDITIONS_TABLE = "pay_rule_conditions";
 /** Valid pay_rule_templates columns in production (no updated_at). */
 export const PAY_RULE_TEMPLATE_COLUMNS = "id,name,created_at";
 
-function isSupabaseRlsError(
-  error: SupabaseRequestError | PostgrestError | null | undefined
-): boolean {
-  if (!error) return false;
-  const code = getPostgrestErrorCode(error);
-  if (code === "42501") return true;
-  return String(error.message ?? "").toLowerCase().includes("row-level security");
-}
-
-function isSupabaseDuplicateKeyError(
-  error: SupabaseRequestError | PostgrestError | null | undefined
-): boolean {
-  if (!error) return false;
-  const code = getPostgrestErrorCode(error);
-  if (code === "23505") return true;
-  return String(error.message ?? "").toLowerCase().includes("duplicate key");
-}
-
 function logPayRuleConditionInsertError(
-  operation: "insert" | "upsert" | "delete",
-  payloadKind: "full" | "legacy" | "replace",
+  operation: "insert" | "delete",
+  payloadKind: "extended" | "base" | "replace",
   templateId: string,
   error: PostgrestError | SupabaseRequestError
 ): void {
@@ -747,15 +729,7 @@ async function ensurePayRuleTemplateByNameWithClient(
       };
     }
 
-    const conditionError = await saveConditionsWithClient(
-      client,
-      existing.id,
-      sanitized.conditions,
-      { replaceExisting: true }
-    );
-    if (conditionError) {
-      return { template: null, created: false, error: conditionError };
-    }
+    await saveConditionsWithClient(client, existing.id, sanitized.conditions, { silent: true });
 
     const refreshed = await fetchConditionRowsByTemplateIdsWithClient(client, [existing.id]);
     return {
@@ -768,7 +742,9 @@ async function ensurePayRuleTemplateByNameWithClient(
     };
   }
 
-  const created = await createPayRuleTemplateWithClient(client, input);
+  const created = await createPayRuleTemplateWithClient(client, input, {
+    silentConditionErrors: true,
+  });
   if (created.error || !created.template) {
     return {
       template: null,
@@ -782,7 +758,8 @@ async function ensurePayRuleTemplateByNameWithClient(
 
 async function createPayRuleTemplateWithClient(
   client: SupabaseClient,
-  input: PayRuleTemplateInput
+  input: PayRuleTemplateInput,
+  options: { silentConditionErrors?: boolean } = {}
 ): Promise<{ template: PayRuleTemplate | null; error: string | null }> {
   const sanitized = sanitizePayRuleTemplateInput(input);
 
@@ -832,9 +809,10 @@ async function createPayRuleTemplateWithClient(
   const conditionError = await saveConditionsWithClient(
     client,
     templateId,
-    sanitized.conditions
+    sanitized.conditions,
+    { silent: options.silentConditionErrors }
   );
-  if (conditionError) {
+  if (conditionError && !options.silentConditionErrors) {
     await client.from(PAY_RULE_TEMPLATES_TABLE).delete().eq("id", templateId);
     return { template: null, error: conditionError };
   }
@@ -876,152 +854,96 @@ async function fetchConditionRowsByTemplateIdsWithClient(
   return map;
 }
 
-async function deleteConditionsForTemplateWithClient(
-  client: SupabaseClient,
-  templateId: string
+/** Core pay_rule_conditions columns present in all schema versions. */
+function buildBaseConditionInsertRow(
+  templateId: string,
+  condition: PayRuleConditionInput
+): Record<string, unknown> {
+  return {
+    template_id: templateId,
+    condition_name: condition.condition_name,
+    applicable_days: condition.applicable_days,
+    time_condition: condition.time_condition,
+    hours_threshold: condition.hours_threshold,
+    pay_multiplier_type: condition.pay_multiplier_type,
+    sort_order: condition.sort_order,
+  };
+}
+
+/** Extended row when allowance columns exist (migration 079+). */
+function buildExtendedConditionInsertRow(
+  templateId: string,
+  condition: PayRuleConditionInput
+): Record<string, unknown> {
+  const row = buildBaseConditionInsertRow(templateId, condition);
+  row.condition_type = condition.condition_type;
+  if (condition.allowance_trigger != null) {
+    row.allowance_trigger = condition.allowance_trigger;
+  }
+  if (condition.payout_unit != null) {
+    row.payout_unit = condition.payout_unit;
+  }
+  return row;
+}
+
+async function saveConditionsWithClient(
+  _client: SupabaseClient,
+  templateId: string,
+  conditions: PayRuleConditionInput[],
+  options: { silent?: boolean } = {}
 ): Promise<string | null> {
-  const { error } = await client
+  if (conditions.length === 0) return null;
+
+  const writeClient = await resolvePayRuleWriteClient();
+
+  const { error: deleteError } = await writeClient
     .from(PAY_RULE_CONDITIONS_TABLE)
     .delete()
     .eq("template_id", templateId);
 
-  if (error) {
-    logPayRuleConditionInsertError("delete", "replace", templateId, error);
-    return error.message;
+  if (deleteError) {
+    logPayRuleConditionInsertError("delete", "replace", templateId, deleteError);
+    if (options.silent) return null;
+    return deleteError.message;
   }
 
-  return null;
-}
-
-async function saveConditionsWithClient(
-  client: SupabaseClient,
-  templateId: string,
-  conditions: PayRuleConditionInput[],
-  options: { replaceExisting?: boolean } = {}
-): Promise<string | null> {
-  const writeClient = await resolvePayRuleWriteClient();
-
-  if (options.replaceExisting) {
-    const deleteError = await deleteConditionsForTemplateWithClient(writeClient, templateId);
-    if (deleteError) {
-      return deleteError;
-    }
-  }
-
-  return upsertConditionsWithClient(writeClient, templateId, conditions);
-}
-
-async function upsertConditionsWithClient(
-  client: SupabaseClient,
-  templateId: string,
-  conditions: PayRuleConditionInput[]
-): Promise<string | null> {
-  if (conditions.length === 0) return null;
-
-  const fullPayload = conditions.map((condition) => ({
-    template_id: templateId,
-    condition_type: condition.condition_type,
-    condition_name: condition.condition_name,
-    applicable_days: condition.applicable_days,
-    time_condition: condition.time_condition,
-    hours_threshold: condition.hours_threshold,
-    pay_multiplier_type: condition.pay_multiplier_type,
-    allowance_trigger: condition.allowance_trigger,
-    payout_unit: condition.payout_unit,
-    sort_order: condition.sort_order,
-  }));
-
-  const legacyPayload = conditions.map((condition) => ({
-    template_id: templateId,
-    condition_name: condition.condition_name,
-    applicable_days: condition.applicable_days,
-    time_condition: condition.time_condition,
-    hours_threshold: condition.hours_threshold,
-    pay_multiplier_type: condition.pay_multiplier_type,
-    sort_order: condition.sort_order,
-  }));
+  const extendedPayload = conditions.map((condition) =>
+    buildExtendedConditionInsertRow(templateId, condition)
+  );
+  const basePayload = conditions.map((condition) =>
+    buildBaseConditionInsertRow(templateId, condition)
+  );
 
   let lastError: string | null = null;
 
   for (const [payloadKind, payload] of [
-    ["full", fullPayload],
-    ["legacy", legacyPayload],
+    ["extended", extendedPayload],
+    ["base", basePayload],
   ] as const) {
-    const { error } = await client
-      .from(PAY_RULE_CONDITIONS_TABLE)
-      .upsert(payload, { onConflict: "template_id,sort_order" });
-
+    const { error } = await writeClient.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
     if (!error) return null;
 
-    logPayRuleConditionInsertError("upsert", payloadKind, templateId, error);
+    logPayRuleConditionInsertError("insert", payloadKind, templateId, error);
     lastError = error.message;
-
-    if (isSupabaseRlsError(error)) {
-      return error.message;
-    }
-
-    if (isSupabaseDuplicateKeyError(error)) {
-      const deleteError = await deleteConditionsForTemplateWithClient(client, templateId);
-      if (deleteError) {
-        return deleteError;
-      }
-
-      const { error: retryError } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
-      if (!retryError) return null;
-
-      logPayRuleConditionInsertError("insert", payloadKind, templateId, retryError);
-      return (
-        retryError.message ??
-        "Failed to save payroll conditions after duplicate-key retry."
-      );
-    }
 
     if (
       isSupabaseMissingColumnError(error) ||
       isSupabaseSchemaOrConstraintError(error)
     ) {
-      const { error: insertError } = await client.from(PAY_RULE_CONDITIONS_TABLE).insert(payload);
-      if (!insertError) return null;
-
-      logPayRuleConditionInsertError("insert", payloadKind, templateId, insertError);
-      lastError = insertError.message;
-
-      if (isSupabaseRlsError(insertError)) {
-        return insertError.message;
-      }
-
-      if (
-        !isSupabaseMissingColumnError(insertError) &&
-        !isSupabaseSchemaOrConstraintError(insertError)
-      ) {
-        return formatSupabaseError(
-          toSupabaseRequestError(insertError),
-          "Failed to save payroll conditions."
-        );
-      }
       continue;
     }
 
-    return formatSupabaseError(
-      toSupabaseRequestError(error),
-      "Failed to save payroll conditions."
-    );
+    if (options.silent) return null;
+    return error.message;
   }
 
   console.error(
-    "[pay-rule-templates] All payroll condition (pay_rule_conditions) save attempts failed.",
+    "[pay-rule-templates] All payroll condition (pay_rule_conditions) insert attempts failed.",
     { templateId, lastError }
   );
-  return lastError ?? "Failed to save payroll conditions.";
-}
 
-/** @deprecated Use saveConditionsWithClient — kept for internal call sites. */
-async function insertConditionsWithClient(
-  client: SupabaseClient,
-  templateId: string,
-  conditions: PayRuleConditionInput[]
-): Promise<string | null> {
-  return saveConditionsWithClient(client, templateId, conditions);
+  if (options.silent) return null;
+  return lastError ?? "Failed to save payroll conditions.";
 }
 
 /**
@@ -1452,9 +1374,7 @@ async function updatePayRuleTemplateWithClient(
     };
   }
 
-  const conditionError = await saveConditionsWithClient(client, id, sanitized.conditions, {
-    replaceExisting: true,
-  });
+  const conditionError = await saveConditionsWithClient(client, id, sanitized.conditions);
   if (conditionError) {
     return { template: null, error: conditionError };
   }

@@ -86,7 +86,13 @@ export async function POST(req: Request) {
   const result = await assignDefaultPayRuleToWorkerAdmin(admin, workerId, state);
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    console.warn("[assign-pay-rule] Pay rule assignment failed:", result.error);
+    return NextResponse.json({
+      success: true,
+      warning: result.error,
+      templateId: result.templateId,
+      templateName: result.templateName ?? templateName,
+    });
   }
 
   return NextResponse.json({

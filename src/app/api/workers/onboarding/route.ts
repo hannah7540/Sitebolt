@@ -276,7 +276,10 @@ export async function POST(req: Request) {
       payRuleState
     );
     if (payRuleResult.error) {
-      return NextResponse.json({ error: payRuleResult.error }, { status: 400 });
+      console.warn(
+        "[onboarding] Pay rule assignment failed; continuing worker onboarding:",
+        payRuleResult.error
+      );
     }
   }
 
