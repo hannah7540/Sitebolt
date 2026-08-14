@@ -268,6 +268,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
 
+  // Pay rule is never submitted from the form — derive template from worker state/region.
   if (payRuleState) {
     const payRuleResult = await assignDefaultPayRuleToWorkerAdmin(
       admin,

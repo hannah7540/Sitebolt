@@ -1,5 +1,7 @@
 "use client";
 
+/** Worker self-service onboarding wizard — no Pay Rule input; API assigns pay rule from state on submit. */
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

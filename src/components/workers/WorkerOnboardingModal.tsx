@@ -1,5 +1,7 @@
 "use client";
 
+/** Quick Invite and Full Admin Onboarding — no Pay Rule field; pay rules are assigned on save from state. */
+
 import { useState, useRef } from "react";
 import {
   X,

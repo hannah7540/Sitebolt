@@ -15,9 +15,14 @@ import { normalizeWorkerStateRegion } from "./worker-state-region";
 export const TRAVEL_NSW_CATEGORY = "Travel NSW";
 export const TRAVEL_NSW_APPRENTICE_CATEGORY = "Travel NSW Apprentice";
 
-const KNOWN_STATE_PAY_RULE_TEMPLATE_NAMES: Record<string, string> = {
-  NSW: NSW_SITE_WORKER_TEMPLATE_NAME,
+/**
+ * State → pay rule template name (assigned automatically; never collected in UI forms).
+ * ACT → ACT Site Worker, NSW → NSW Site Worker, WA → WA Site Worker, NZ → NZ Site Worker.
+ * Other states fall back to "[STATE] Site Worker".
+ */
+export const STATE_PAY_RULE_TEMPLATE_NAMES: Record<string, string> = {
   ACT: ACT_SITE_WORKER_TEMPLATE_NAME,
+  NSW: NSW_SITE_WORKER_TEMPLATE_NAME,
   WA: WA_SITE_WORKER_TEMPLATE_NAME,
   NZ: NZ_SITE_WORKER_TEMPLATE_NAME,
   VIC: VIC_SITE_WORKER_TEMPLATE_NAME,
@@ -32,7 +37,7 @@ export function resolvePayRuleTemplateNameForWorker(
   if (!normalized) return null;
 
   return (
-    KNOWN_STATE_PAY_RULE_TEMPLATE_NAMES[normalized] ?? `${normalized} Site Worker`
+    STATE_PAY_RULE_TEMPLATE_NAMES[normalized] ?? `${normalized} Site Worker`
   );
 }
 

@@ -281,7 +281,6 @@ export default function WorkerProfileView({
         <BasicInfoTab
           worker={currentWorker}
           projects={projects}
-          canAssignPayRules={canAssignPayRules}
           canManageWorkerRoles={canManageWorkerRoles}
           onSaved={patchWorker}
         />
@@ -324,13 +323,11 @@ export default function WorkerProfileView({
 function BasicInfoTab({
   worker,
   projects,
-  canAssignPayRules,
   canManageWorkerRoles,
   onSaved,
 }: {
   worker: Worker;
   projects: DbProject[];
-  canAssignPayRules: boolean;
   canManageWorkerRoles: boolean;
   onSaved: (worker: Worker) => void;
 }) {
