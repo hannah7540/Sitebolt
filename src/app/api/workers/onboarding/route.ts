@@ -18,6 +18,10 @@ import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
+import {
+  isValidProfilePhotoUrl,
+  PROFILE_PHOTO_API_REQUIRED_MESSAGE,
+} from "@/lib/worker-profile-photo-validation";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -63,6 +67,7 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
     driversLicenceNumber: readString(raw.driversLicenceNumber),
     driversLicenceClass: readString(raw.driversLicenceClass),
     driversLicenceExpiry: readString(raw.driversLicenceExpiry),
+    photoUrl: readString(raw.photoUrl),
     vocs: rawVocs
       .map((item) => {
         if (!item || typeof item !== "object") return null;
@@ -100,6 +105,9 @@ function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string
   if (!payload.superFund) return "Superannuation fund name is required.";
   if (!payload.superMemberNumber) return "Super member number is required.";
   if (!payload.tfn) return "Tax File Number is required.";
+  if (!isValidProfilePhotoUrl(payload.photoUrl)) {
+    return PROFILE_PHOTO_API_REQUIRED_MESSAGE;
+  }
   return null;
 }
 
@@ -226,6 +234,26 @@ export async function POST(req: Request) {
 
   const workerId = resolved.worker.id;
   const admin = createSupabaseAdminClient();
+
+  let photoUrl = payload.photoUrl.trim();
+  if (!isValidProfilePhotoUrl(photoUrl)) {
+    const { data: existingWorker } = await admin
+      .from("workers")
+      .select("photo_url")
+      .eq("id", workerId)
+      .maybeSingle();
+    if (isValidProfilePhotoUrl(existingWorker?.photo_url as string | null | undefined)) {
+      photoUrl = String(existingWorker?.photo_url).trim();
+    }
+  }
+
+  if (!isValidProfilePhotoUrl(photoUrl)) {
+    return NextResponse.json(
+      { error: PROFILE_PHOTO_API_REQUIRED_MESSAGE },
+      { status: 400 }
+    );
+  }
+
   const { firstName, lastName } = splitWorkerFullName(payload.fullName);
   const nameFields = buildWorkerNameFields(firstName, lastName);
 
@@ -262,6 +290,7 @@ export async function POST(req: Request) {
       drivers_licence_number: nullIfBlank(payload.driversLicenceNumber),
       drivers_licence_class: nullIfBlank(payload.driversLicenceClass),
       drivers_licence_expiry: nullIfBlankDate(payload.driversLicenceExpiry),
+      photo_url: photoUrl,
       updated_at: new Date().toISOString(),
     })
     .eq("id", workerId);

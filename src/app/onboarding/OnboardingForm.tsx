@@ -16,6 +16,8 @@ import { workerDashboardUrl } from "@/lib/user-session";
 import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import { vocFromRecord, type VocDraft } from "@/lib/voc-utils";
 import { cn } from "@/lib/utils";
+import WorkerOnboardingProfilePhoto from "@/components/workers/WorkerOnboardingProfilePhoto";
+import { PROFILE_PHOTO_REQUIRED_MESSAGE } from "@/lib/worker-profile-photo-validation";
 
 const STEPS = [
   { key: 1, shortLabel: "Personal", title: "Personal & Emergency Contact" },
@@ -51,6 +53,7 @@ interface OnboardingFormState {
   driversLicenceClass: string;
   driversLicenceExpiry: string;
   vocs: VocDraft[];
+  photoUrl: string;
 }
 
 function parseApiError(payload: unknown): string | null {
@@ -93,6 +96,7 @@ function validateStep1(form: OnboardingFormState): string | null {
     return "Emergency contact relationship is required.";
   }
   if (!form.emergencyContactPhone.trim()) return "Emergency contact phone is required.";
+  if (!form.photoUrl.trim()) return PROFILE_PHOTO_REQUIRED_MESSAGE;
   return null;
 }
 
@@ -164,6 +168,7 @@ function populateFormFromWorker(worker: WorkerOnboardingRecord): OnboardingFormS
     driversLicenceClass: worker.drivers_licence_class ?? "",
     driversLicenceExpiry: worker.drivers_licence_expiry ?? "",
     vocs,
+    photoUrl: worker.photo_url ?? "",
   };
 }
 
@@ -250,6 +255,7 @@ export default function OnboardingForm() {
     driversLicenceClass: "",
     driversLicenceExpiry: "",
     vocs: [],
+    photoUrl: "",
   }));
 
   const uploadPrefix = useMemo(
@@ -395,6 +401,7 @@ export default function OnboardingForm() {
           driversLicenceNumber: form.driversLicenceNumber,
           driversLicenceClass: form.driversLicenceClass,
           driversLicenceExpiry: form.driversLicenceExpiry,
+          photoUrl: form.photoUrl,
           vocs: form.vocs
             .filter((voc) => voc.voc_type.trim())
             .map((voc) => ({
@@ -468,6 +475,18 @@ export default function OnboardingForm() {
         <div className="space-y-4">
           {step === 1 ? (
             <div className="grid gap-4 sm:grid-cols-2">
+              {workerId ? (
+                <WorkerOnboardingProfilePhoto
+                  workerId={workerId}
+                  photoUrl={form.photoUrl || null}
+                  onPhotoUrlChange={(url) => setField("photoUrl", url)}
+                  disabled={submitting}
+                  showValidationError={
+                    !form.photoUrl.trim() &&
+                    error === PROFILE_PHOTO_REQUIRED_MESSAGE
+                  }
+                />
+              ) : null}
               <Field label="Full Name" className="sm:col-span-2" required>
                 <input
                   type="text"

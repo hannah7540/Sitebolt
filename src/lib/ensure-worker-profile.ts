@@ -360,6 +360,7 @@ function mapWorkerRowToOnboardingRecord(
       typeof row.drivers_licence_expiry === "string"
         ? row.drivers_licence_expiry
         : null,
+    photo_url: typeof row.photo_url === "string" ? row.photo_url : null,
     onboarding_completed:
       typeof row.onboarding_completed === "boolean"
         ? row.onboarding_completed
@@ -427,6 +428,7 @@ export function buildFallbackOnboardingRecord(
       drivers_licence_number: partial?.drivers_licence_number ?? null,
       drivers_licence_class: partial?.drivers_licence_class ?? null,
       drivers_licence_expiry: partial?.drivers_licence_expiry ?? null,
+      photo_url: partial?.photo_url ?? null,
       onboarding_completed: partial?.onboarding_completed ?? false,
     },
     partial?.vocs ?? []
@@ -434,8 +436,8 @@ export function buildFallbackOnboardingRecord(
 }
 
 const WORKER_ONBOARDING_SELECT_VARIANTS = [
+  "id, email, full_name, first_name, last_name, phone, photo_url, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
-  "id, email, full_name, first_name, last_name, phone, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number, onboarding_completed",
   "id, email, full_name, phone, trade",
 ] as const;

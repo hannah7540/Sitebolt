@@ -23,6 +23,7 @@ export interface WorkerOnboardingFormPayload {
   driversLicenceNumber: string;
   driversLicenceClass: string;
   driversLicenceExpiry: string;
+  photoUrl: string;
   vocs: Array<{
     title: string;
     voc_type?: string | null;
@@ -60,6 +61,7 @@ export interface WorkerOnboardingRecord {
   drivers_licence_number: string | null;
   drivers_licence_class: string | null;
   drivers_licence_expiry: string | null;
+  photo_url: string | null;
   onboarding_completed: boolean;
   vocs: Array<{
     id?: string;
