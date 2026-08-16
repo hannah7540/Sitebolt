@@ -17,6 +17,7 @@ export interface WorkerProjectReallocationInput {
   projectName: string;
   effectiveDate: string;
   previousProjectId?: string | null;
+  roleOnSite?: string | null;
 }
 
 export interface WorkerProjectReallocationResult {
@@ -181,9 +182,11 @@ async function insertProjectInductionAssignment(
     workerId: string;
     projectId: string;
     projectName: string;
+    effectiveDate: string;
   }
 ): Promise<boolean> {
   const workerName = getWorkerDisplayName(input.worker, "Worker");
+  const assignedAt = `${input.effectiveDate.slice(0, 10)}T12:00:00.000Z`;
   const payload = sanitizeFormWorkerAssignmentRow({
     template: {
       id: input.template.id,
@@ -198,9 +201,13 @@ async function insertProjectInductionAssignment(
       project_name: input.projectName,
     },
     assignedBy: { id: "system", full_name: "SiteBolt Calendar" },
+    assignedAt,
   });
 
-  let currentPayload = { ...payload };
+  let currentPayload: Record<string, unknown> = {
+    ...payload,
+    due_date: input.effectiveDate.slice(0, 10),
+  };
   const optionalColumns = [
     "form_template_id",
     "template_id",
@@ -210,6 +217,7 @@ async function insertProjectInductionAssignment(
     "assigned_by",
     "assigned_by_id",
     "assigned_by_name",
+    "due_date",
   ] as const;
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
@@ -251,6 +259,7 @@ async function assignProjectInductionIfNeeded(
     projectId: string;
     projectName: string;
     worker: WorkerRow;
+    effectiveDate: string;
   }
 ): Promise<boolean> {
   const template = await findActiveProjectInductionTemplate(admin, input.projectId);
@@ -273,6 +282,7 @@ async function assignProjectInductionIfNeeded(
     workerId: input.workerId,
     projectId: input.projectId,
     projectName: input.projectName,
+    effectiveDate: input.effectiveDate,
   });
 }
 
@@ -322,7 +332,6 @@ export async function processWorkerProjectReallocation(
   const projectId = input.projectId.trim();
   const projectName = input.projectName.trim();
   const effectiveDate = input.effectiveDate.trim();
-  const previousProjectId = input.previousProjectId?.trim() || null;
 
   if (!workerId || !projectId || !projectName || !effectiveDate) {
     return {
@@ -331,16 +340,6 @@ export async function processWorkerProjectReallocation(
       inductionAssigned: false,
       emailSent: false,
       warnings: ["Missing required reallocation fields."],
-    };
-  }
-
-  if (previousProjectId && previousProjectId === projectId) {
-    return {
-      ok: true,
-      skipped: true,
-      inductionAssigned: false,
-      emailSent: false,
-      warnings: ["Project unchanged; notifications skipped."],
     };
   }
 
@@ -377,6 +376,7 @@ export async function processWorkerProjectReallocation(
       projectId,
       projectName,
       worker,
+      effectiveDate,
     });
   } catch (cause) {
     console.warn("[worker-reallocation] induction assignment error:", cause);

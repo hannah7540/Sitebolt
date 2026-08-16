@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
-import { assignWorkerToProject, fetchWorkerSchedules } from "@/lib/supabase";
+import { fetchWorkerSchedules } from "@/lib/supabase";
 import { getProjectColor } from "@/lib/projects";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
@@ -270,6 +270,7 @@ export default function WorkerProjectScheduler({
   );
   const projects = projectsProp ?? projectsInternal;
   const [roleOnSite, setRoleOnSite] = useState("");
+  const [moveStartDate, setMoveStartDate] = useState(() => formatDateOnly(new Date()));
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [showRdos, setShowRdos] = useState(true);
@@ -285,7 +286,10 @@ export default function WorkerProjectScheduler({
   const rangeStartIso = formatDateOnly(rangeStart);
   const rangeEndIso = formatDateOnly(rangeEnd);
   const focusedWeekStartIso = formatDateOnly(focusedWeekStart);
-  const focusedWeekEndIso = formatDateOnly(addDays(focusedWeekStart, 6));
+
+  useEffect(() => {
+    setMoveStartDate(focusedWeekStartIso);
+  }, [focusedWeekStartIso]);
 
   const handleRangeExtendPast = useCallback(() => {
     if (extendingPastRef.current) return;
@@ -420,47 +424,58 @@ export default function WorkerProjectScheduler({
 
   const handleMove = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedWorkerId) return;
+    if (!selectedWorkerId || !targetProjectId || !moveStartDate) {
+      setActionMessage("Select a worker, destination project, and start date.");
+      return;
+    }
+
     const project = projects.find((p) => p.id === targetProjectId);
-    if (!project) return;
+    if (!project) {
+      setActionMessage("Select a valid destination project.");
+      return;
+    }
 
     const selectedWorker = workers.find((worker) => worker.id === selectedWorkerId);
     const previousProjectId = selectedWorker?.assigned_project_id ?? null;
 
     setActionLoading(true);
     setActionMessage(null);
-    const { error } = await assignWorkerToProject({
-      workerId: selectedWorkerId,
-      projectId: project.id,
-      projectName: project.name,
-      startDate: focusedWeekStartIso,
-      endDate: focusedWeekEndIso,
-      roleOnSite: roleOnSite || undefined,
-    });
-    setActionLoading(false);
 
-    if (error) {
-      setActionMessage(error);
-      return;
+    try {
+      const response = await fetch("/api/workers/reallocate-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workerId: selectedWorkerId,
+          projectId: project.id,
+          projectName: project.name,
+          startDate: moveStartDate,
+          previousProjectId,
+          roleOnSite: roleOnSite || undefined,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+
+      if (!response.ok) {
+        setActionMessage(payload?.error ?? "Unable to move worker to project.");
+        return;
+      }
+
+      setActionMessage(
+        `Worker assigned to ${project.name} from ${formatWeekRange(new Date(`${moveStartDate}T12:00:00`))}.`
+      );
+      await loadSchedules();
+      onRefresh();
+    } catch (cause) {
+      setActionMessage(
+        cause instanceof Error ? cause.message : "Unable to move worker to project."
+      );
+    } finally {
+      setActionLoading(false);
     }
-
-    void fetch("/api/workers/reallocate-project", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workerId: selectedWorkerId,
-        projectId: project.id,
-        projectName: project.name,
-        effectiveDate: focusedWeekStartIso,
-        previousProjectId,
-      }),
-    }).catch((notifyError) => {
-      console.warn("Worker reallocation notification failed:", notifyError);
-    });
-
-    setActionMessage(`Worker assigned to ${project.name} for this week.`);
-    await loadSchedules();
-    onRefresh();
   };
 
   const handleDeleteEvent = async () => {
@@ -853,6 +868,7 @@ export default function WorkerProjectScheduler({
                 value={targetProjectId}
                 onChange={(e) => setTargetProjectId(e.target.value)}
                 className={inputClass}
+                required
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -860,6 +876,19 @@ export default function WorkerProjectScheduler({
                   </option>
                 ))}
               </select>
+              <div>
+                <label htmlFor="move-start-date" className={labelClass}>
+                  Start Date
+                </label>
+                <input
+                  id="move-start-date"
+                  type="date"
+                  value={moveStartDate}
+                  onChange={(e) => setMoveStartDate(e.target.value)}
+                  className={inputClass}
+                  required
+                />
+              </div>
               <input
                 type="text"
                 placeholder="Role on site (optional)"
@@ -868,11 +897,14 @@ export default function WorkerProjectScheduler({
                 className={inputClass}
               />
               <p className="text-xs text-slate-500">
-                Assigns worker for {formatWeekRange(focusedWeekStart)}
+                Creates a schedule from the selected start date through the end of
+                that calendar week. Past shifts before the start date are kept.
               </p>
               <button
                 type="submit"
-                disabled={actionLoading || !selectedWorkerId}
+                disabled={
+                  actionLoading || !selectedWorkerId || !targetProjectId || !moveStartDate
+                }
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
               >
                 {actionLoading ? "Saving…" : "Move to Project"}
