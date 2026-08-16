@@ -42,17 +42,17 @@ export default function ItpSignOffModal({
 
     setSaving(true);
     setError(null);
-    const signatureUrl = await uploadItpSignature(signature, itpId, itemId);
-    if (!signatureUrl) {
+    const upload = await uploadItpSignature(signature, itpId, itemId);
+    if (!upload.url) {
       setSaving(false);
-      setError("Signature upload failed");
+      setError(upload.error ?? "Signature upload failed");
       return;
     }
 
     const { error: signError } = await signOffItpItem({
       itemId,
       inspectorName,
-      signatureUrl,
+      signatureUrl: upload.url,
     });
     setSaving(false);
     if (signError) {

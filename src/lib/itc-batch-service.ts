@@ -502,7 +502,17 @@ export async function massSaveAndGenerateItcs(input: {
       sort_order: index,
     }));
 
-    await supabase.from("itc_inspection_activities").insert(activityPayload);
+    const { error: activityError } = await supabase
+      .from("itc_inspection_activities")
+      .insert(activityPayload);
+
+    if (activityError) {
+      return {
+        error: activityError.message,
+        generated,
+        documents,
+      };
+    }
 
     const { data: activityRows } = await supabase
       .from("itc_inspection_activities")

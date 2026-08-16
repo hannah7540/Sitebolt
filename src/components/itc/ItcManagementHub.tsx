@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, FileSpreadsheet, MapPin, Wrench } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, MapPin, Wrench, ClipboardCheck } from "lucide-react";
 import ItcCompactionMapView from "@/components/itc/ItcCompactionMapView";
 import ItcMasterSpecPanel from "@/components/itc/ItcMasterSpecPanel";
 import ItcQualitySystemView from "@/components/itc/ItcQualitySystemView";
 import ItcTradeFormPanel from "@/components/itc/ItcTradeFormPanel";
+import ProjectItpView from "@/components/itp/ProjectItpView";
 import { cn } from "@/lib/utils";
 
-type HubTab = "master-spec" | "trade-forms" | "register" | "compaction";
+type HubTab = "itp-register" | "master-spec" | "trade-forms" | "register" | "compaction";
 
 interface ItcManagementHubProps {
   projectId: string;
@@ -18,6 +19,7 @@ interface ItcManagementHubProps {
 }
 
 const TABS: Array<{ id: HubTab; label: string; icon: typeof Wrench }> = [
+  { id: "itp-register", label: "ITP Register", icon: ClipboardCheck },
   { id: "master-spec", label: "Master Spec Workbook", icon: FileSpreadsheet },
   { id: "trade-forms", label: "Add ITC", icon: Wrench },
   { id: "register", label: "On-Site Register", icon: ClipboardList },
@@ -30,17 +32,17 @@ export default function ItcManagementHub({
   workerId,
   workerName,
 }: ItcManagementHubProps) {
-  const [activeTab, setActiveTab] = useState<HubTab>("master-spec");
+  const [activeTab, setActiveTab] = useState<HubTab>("itp-register");
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">
-          ITC &amp; <span className="text-orange-500">Compaction</span>
+          ITPs &amp; <span className="text-orange-500">ITCs</span>
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Master specification workbook, add ITC records, worker execution, and GPS
-          compaction mapping for {projectName}.
+          Inspection test plans, master specification workbook, ITC records, worker execution,
+          and GPS compaction mapping for {projectName}.
         </p>
       </div>
 
@@ -66,6 +68,13 @@ export default function ItcManagementHub({
         })}
       </div>
 
+      {activeTab === "itp-register" ? (
+        <ProjectItpView
+          projectId={projectId}
+          projectName={projectName}
+          inspectorName={workerName}
+        />
+      ) : null}
       {activeTab === "master-spec" ? <ItcMasterSpecPanel projectId={projectId} /> : null}
       {activeTab === "trade-forms" ? <ItcTradeFormPanel projectId={projectId} /> : null}
       {activeTab === "register" ? (

@@ -1,6 +1,12 @@
-import { supabase } from "./supabase";
+import {
+  ITP_ATTACHMENTS_BUCKET,
+  ITP_DRAWINGS_BUCKET,
+  buildUniqueStorageFileName,
+  logStorageUploadError,
+  uploadToStorageBucket,
+} from "./itp-itc-storage";
 
-export const ITP_DRAWINGS_BUCKET = "itp-drawings";
+export { ITP_DRAWINGS_BUCKET };
 
 export interface ItcDrawingUploadResult {
   url: string | null;
@@ -46,51 +52,44 @@ export async function uploadItcDrawingFile(input: {
     };
   }
 
-  try {
-    const extension = input.file.name.split(".").pop()?.toLowerCase() ?? "png";
-    const path = `${input.projectId}/drawings/${Date.now()}.${extension}`;
+  const extension = input.file.name.split(".").pop()?.toLowerCase() ?? "png";
+  const fileName = buildUniqueStorageFileName(`drawing.${extension}`);
 
-    const { error } = await supabase.storage
-      .from(ITP_DRAWINGS_BUCKET)
-      .upload(path, input.file, {
-        cacheControl: "3600",
-        upsert: true,
-        contentType: input.file.type || "application/octet-stream",
-      });
+  const primary = await uploadToStorageBucket({
+    bucket: ITP_DRAWINGS_BUCKET,
+    pathPrefix: `${input.projectId}/drawings`,
+    file: input.file,
+    fileName,
+    contentType: input.file.type || "application/octet-stream",
+    fallbackBuckets: [ITP_ATTACHMENTS_BUCKET],
+  });
 
-    if (error) {
-      if (isStorageBucketError(error.message)) {
-        return {
-          url: null,
-          localDataUrl,
-          usedLocalFallback: true,
-          error: null,
-        };
-      }
-
-      return {
-        url: null,
-        localDataUrl,
-        usedLocalFallback: true,
-        error: error.message,
-      };
-    }
-
-    const { data } = supabase.storage.from(ITP_DRAWINGS_BUCKET).getPublicUrl(path);
+  if (primary.url) {
     return {
-      url: data.publicUrl,
+      url: primary.url,
       localDataUrl,
       usedLocalFallback: false,
       error: null,
     };
-  } catch (error) {
+  }
+
+  if (primary.error && isStorageBucketError(primary.error)) {
+    logStorageUploadError("uploadItcDrawingFile", primary.error);
     return {
       url: null,
       localDataUrl,
       usedLocalFallback: true,
-      error: error instanceof Error ? error.message : "Drawing upload failed",
+      error: null,
     };
   }
+
+  logStorageUploadError("uploadItcDrawingFile", primary.error ?? "Drawing upload failed");
+  return {
+    url: null,
+    localDataUrl,
+    usedLocalFallback: true,
+    error: primary.error ?? "Drawing upload failed",
+  };
 }
 
 export function sanitizeRelativeCoordinate(value: number): number {

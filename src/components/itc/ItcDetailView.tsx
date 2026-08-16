@@ -208,6 +208,7 @@ export default function ItcDetailView({
             allSignoffs={signoffs}
             workerId={workerId}
             workerName={workerName}
+            isAdmin={isAdmin}
             roverOptions={roverOptions}
             operatorOptions={operatorOptions}
             onUpdated={onUpdated}

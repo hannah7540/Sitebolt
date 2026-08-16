@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { nullIfBlank } from "./form-payload-utils";
+import { nullIfBlank, sanitizeWritePayload } from "./form-payload-utils";
 import { resolveProjectId } from "./project-resolver";
 import {
   DEFAULT_ITC_FORM_STEPS,
@@ -169,6 +169,42 @@ export interface BulkCreateItcInput {
   conduits: ItcConduitConfig[];
   lengthM?: number;
   trenchGroup?: string;
+}
+
+function stripItcPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeWritePayload(
+    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
+  );
+}
+
+async function submitItcSignoffViaApi(input: {
+  signoffId: string;
+  itcId: string;
+  signedByWorkerId: string;
+  autoVerify?: boolean;
+  verifiedBy?: string;
+  verifiedByName?: string;
+}): Promise<{ error: string | null; useFallback: boolean }> {
+  try {
+    const response = await fetch("/api/itc/signoffs/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    if (response.status === 503) {
+      return { error: null, useFallback: true };
+    }
+
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      return { error: payload.error ?? "Submit failed", useFallback: false };
+    }
+
+    return { error: null, useFallback: false };
+  } catch {
+    return { error: null, useFallback: true };
+  }
 }
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -462,7 +498,6 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
     { data: stepPhotoRows },
     { data: signoffRows },
     { data: crRows },
-    { data: activityRows },
   ] = await Promise.all([
     supabase.from("itc_photos").select("*").eq("itc_id", itcId),
     supabase.from("itc_step_photos").select("*").eq("itc_id", itcId).order("created_at"),
@@ -472,16 +507,7 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
       .select("*")
       .eq("itc_id", itcId)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("itc_inspection_activities")
-      .select("*")
-      .eq("itc_id", itcId)
-      .order("sort_order"),
   ]);
-
-  const storedActivities = (activityRows ?? []).map((row) =>
-    normalizeInspectionActivity(row as Record<string, unknown>)
-  );
 
   return {
     itc: normalizeItc(itcRow as Record<string, unknown>),
@@ -496,7 +522,7 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
       normalizeChangeRequest(row as Record<string, unknown>)
     ),
     steps: DEFAULT_ITC_FORM_STEPS,
-    inspectionActivities: mergeInspectionActivities(itcId, storedActivities),
+    inspectionActivities: mergeInspectionActivities(itcId, []),
   };
 }
 
@@ -590,7 +616,7 @@ export async function saveItcPhoto(input: {
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const payload = {
+  const payload = stripItcPayload({
     itc_id: input.itcId,
     slot_key: input.slotKey,
     photo_url: input.photoUrl ?? null,
@@ -601,7 +627,7 @@ export async function saveItcPhoto(input: {
     captured_at: new Date().toISOString(),
     uploaded_by: input.uploadedBy ?? null,
     updated_at: new Date().toISOString(),
-  };
+  });
 
   const { error } = await supabase.from("itc_photos").upsert(payload, {
     onConflict: "itc_id,slot_key",
@@ -650,7 +676,7 @@ export async function upsertItcSignoffDraft(input: {
     return { error: "Complete and submit the previous step before working on this one." };
   }
 
-  const payload = {
+  const payload = stripItcPayload({
     itc_id: input.itcId,
     step_key: input.stepKey,
     step_index: input.stepIndex,
@@ -661,7 +687,7 @@ export async function upsertItcSignoffDraft(input: {
     signature_url: nullIfBlank(input.signatureUrl),
     status: "draft" as const,
     updated_at: new Date().toISOString(),
-  };
+  });
 
   const { data, error } = existing?.id
     ? await supabase
@@ -680,8 +706,16 @@ export async function submitItcSignoff(input: {
   signoffId: string;
   itcId: string;
   signedByWorkerId: string;
+  autoVerify?: boolean;
+  verifiedBy?: string;
+  verifiedByName?: string;
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const apiResult = await submitItcSignoffViaApi(input);
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
 
   const { data: signoffRow, error: fetchError } = await supabase
     .from("itc_signoffs")
@@ -722,25 +756,38 @@ export async function submitItcSignoff(input: {
   }
 
   const submittedAt = new Date().toISOString();
+  const verifyPayload = input.autoVerify
+    ? {
+        verified_by: input.verifiedBy ?? input.signedByWorkerId,
+        verified_by_name: input.verifiedByName?.trim() || null,
+        verified_at: submittedAt,
+      }
+    : {};
+
   const { error } = await supabase
     .from("itc_signoffs")
-    .update({
-      status: "submitted",
-      submitted_at: submittedAt,
-      signed_at: submittedAt,
-      signed_by_worker_id: input.signedByWorkerId,
-      updated_at: submittedAt,
-    })
+    .update(
+      stripItcPayload({
+        status: "submitted",
+        submitted_at: submittedAt,
+        signed_at: submittedAt,
+        signed_by_worker_id: input.signedByWorkerId,
+        updated_at: submittedAt,
+        ...verifyPayload,
+      })
+    )
     .eq("id", input.signoffId)
     .eq("status", "draft");
 
   if (error) return { error: error.message };
 
-  const { data: signoffs } = await supabase
+  const { data: signoffs, error: signoffsError } = await supabase
     .from("itc_signoffs")
     .select("step_index, status")
     .eq("itc_id", input.itcId)
     .eq("status", "submitted");
+
+  if (signoffsError) return { error: signoffsError.message };
 
   const submittedCount = new Set(
     (signoffs ?? []).map((row) => Number(row.step_index))
@@ -752,14 +799,18 @@ export async function submitItcSignoff(input: {
     submittedSteps: submittedCount,
   });
 
-  await supabase
+  const { error: itcUpdateError } = await supabase
     .from("project_itcs")
-    .update({
-      progress_percent: progress,
-      status,
-      updated_at: submittedAt,
-    })
+    .update(
+      stripItcPayload({
+        progress_percent: progress,
+        status,
+        updated_at: submittedAt,
+      })
+    )
     .eq("id", input.itcId);
+
+  if (itcUpdateError) return { error: itcUpdateError.message };
 
   return { error: null };
 }

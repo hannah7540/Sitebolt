@@ -23,6 +23,7 @@ interface ItcStepSignoffCardProps {
   allSignoffs: ItcSignoff[];
   workerId: string;
   workerName: string;
+  isAdmin?: boolean;
   roverOptions: string[];
   operatorOptions: string[];
   onUpdated: () => void;
@@ -38,6 +39,7 @@ export default function ItcStepSignoffCard({
   allSignoffs,
   workerId,
   workerName,
+  isAdmin = false,
   roverOptions,
   operatorOptions,
   onUpdated,
@@ -281,10 +283,13 @@ export default function ItcStepSignoffCard({
       signoffId: refreshed.signoff.id,
       itcId,
       signedByWorkerId: workerId,
+      autoVerify: isAdmin,
+      verifiedBy: isAdmin ? workerId : undefined,
+      verifiedByName: isAdmin ? workerName : undefined,
     });
 
     setLoading(false);
-    setMessage(result.error ?? "Step submitted and locked.");
+    setMessage(result.error ?? "ITC Checklist submitted successfully");
     if (!result.error) {
       setSignatureDataUrl(null);
       onUpdated();

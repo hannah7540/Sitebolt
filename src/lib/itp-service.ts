@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { sanitizeWritePayload } from "./form-payload-utils";
 import { resolveProjectId } from "./project-resolver";
 import { getItpTemplate, type ItpTemplate } from "./itp-templates";
 import type {
@@ -61,6 +62,40 @@ export interface CreateItpInput {
     acceptance_criteria?: string;
     point_type: ItpPointType;
   }>;
+}
+
+async function mutateItpViaApi<T>(
+  url: string,
+  init: RequestInit
+): Promise<{ error: string | null; data?: T; useFallback: boolean }> {
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+
+    if (response.status === 503) {
+      return { error: null, useFallback: true };
+    }
+
+    const payload = (await response.json()) as { error?: string } & T;
+    if (!response.ok) {
+      return { error: payload.error ?? "Request failed", useFallback: false };
+    }
+
+    return { error: null, data: payload, useFallback: false };
+  } catch {
+    return { error: null, useFallback: true };
+  }
+}
+
+function stripItpPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeWritePayload(
+    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
+  );
 }
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -219,6 +254,17 @@ export async function createProjectItp(
 ): Promise<{ error: string | null; itp?: ProjectItp }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
+  const apiResult = await mutateItpViaApi<{ itpId?: string }>("/api/itp", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  if (!apiResult.useFallback) {
+    if (apiResult.error) return { error: apiResult.error };
+    const itp = apiResult.data?.itpId ? await fetchItpById(apiResult.data.itpId) : null;
+    return { error: null, itp: itp ?? undefined };
+  }
+
   try {
     const resolvedProjectId = await resolveProject(input.project_id);
     const itpNumber = await nextItpNumber(input.project_id);
@@ -238,35 +284,42 @@ export async function createProjectItp(
 
     const { data: itpRow, error: itpError } = await supabase
       .from("project_itps")
-      .insert({
-        project_id: resolvedProjectId ?? input.project_id,
-        itp_number: itpNumber,
-        title: input.title.trim(),
-        revision: input.revision?.trim() || "A",
-        trade_category: input.trade_category,
-        subcontractor_name: input.subcontractor_name?.trim() || null,
-        location_area: input.location_area?.trim() || null,
-        status: "draft",
-        template_key: input.template_key ?? null,
-      })
+      .insert(
+        stripItpPayload({
+          project_id: resolvedProjectId ?? input.project_id,
+          itp_number: itpNumber,
+          title: input.title.trim(),
+          revision: input.revision?.trim() || "A",
+          trade_category: input.trade_category,
+          subcontractor_name: input.subcontractor_name?.trim() || null,
+          location_area: input.location_area?.trim() || null,
+          status: "draft",
+          template_key: input.template_key ?? null,
+        })
+      )
       .select("*")
       .single();
 
     if (itpError || !itpRow) return { error: itpError?.message ?? "Failed to create ITP" };
 
     if (items.length > 0) {
-      const payload = items.map((item, index) => ({
-        itp_id: itpRow.id,
-        item_number: item.item_number,
-        description: item.description,
-        acceptance_criteria: item.acceptance_criteria ?? null,
-        point_type: item.point_type,
-        status: "pending",
-        sort_order: index,
-      }));
+      const payload = items.map((item, index) =>
+        stripItpPayload({
+          itp_id: itpRow.id,
+          item_number: item.item_number,
+          description: item.description,
+          acceptance_criteria: item.acceptance_criteria ?? null,
+          point_type: item.point_type,
+          status: "pending",
+          sort_order: index,
+        })
+      );
 
       const { error: itemsError } = await supabase.from("project_itp_items").insert(payload);
-      if (itemsError) return { error: itemsError.message };
+      if (itemsError) {
+        await supabase.from("project_itps").delete().eq("id", itpRow.id);
+        return { error: itemsError.message };
+      }
     }
 
     const itp = await fetchItpById(String(itpRow.id));
@@ -313,9 +366,18 @@ export async function updateItpStatus(
     }
   }
 
+  const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/status", {
+    method: "PATCH",
+    body: JSON.stringify({ itpId, status }),
+  });
+
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
+
   const { error } = await supabase
     .from("project_itps")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update(stripItpPayload({ status, updated_at: new Date().toISOString() }))
     .eq("id", itpId);
 
   if (error) return { error: error.message };
@@ -328,9 +390,18 @@ export async function updateItpItemStatus(
 ): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
+  const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {
+    method: "PATCH",
+    body: JSON.stringify({ itemId, patch: { status } }),
+  });
+
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
+
   const { error } = await supabase
     .from("project_itp_items")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update(stripItpPayload({ status, updated_at: new Date().toISOString() }))
     .eq("id", itemId);
 
   if (error) return { error: error.message };
@@ -344,14 +415,24 @@ export async function signOffItpItem(input: {
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
+  const patch = {
+    inspector_name: input.inspectorName.trim(),
+    signature_url: input.signatureUrl,
+    signed_off_at: new Date().toISOString(),
+  };
+
+  const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {
+    method: "PATCH",
+    body: JSON.stringify({ itemId: input.itemId, patch }),
+  });
+
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
+
   const { error } = await supabase
     .from("project_itp_items")
-    .update({
-      inspector_name: input.inspectorName.trim(),
-      signature_url: input.signatureUrl,
-      signed_off_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(stripItpPayload({ ...patch, updated_at: new Date().toISOString() }))
     .eq("id", input.itemId);
 
   if (error) return { error: error.message };
@@ -375,9 +456,18 @@ export async function appendItpItemPhoto(
   const photos = Array.isArray(data.photo_urls) ? [...(data.photo_urls as string[])] : [];
   photos.push(photoUrl);
 
+  const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {
+    method: "PATCH",
+    body: JSON.stringify({ itemId, patch: { photo_urls: photos } }),
+  });
+
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
+
   const { error } = await supabase
     .from("project_itp_items")
-    .update({ photo_urls: photos, updated_at: new Date().toISOString() })
+    .update(stripItpPayload({ photo_urls: photos, updated_at: new Date().toISOString() }))
     .eq("id", itemId);
 
   if (error) return { error: error.message };

@@ -1,65 +1,68 @@
-import { supabase } from "./supabase";
-
-const BUCKET = "itp-uploads";
+import {
+  ITP_ATTACHMENTS_BUCKET,
+  ITP_SIGNATURES_BUCKET,
+  logStorageUploadError,
+  uploadSignatureBlob,
+  uploadToStorageBucket,
+} from "./itp-itc-storage";
 
 export async function uploadItpFile(
   file: File | Blob,
-  path: string,
+  pathPrefix: string,
+  fileName: string,
   contentType?: string
 ): Promise<{ url: string | null; error: string | null }> {
-  try {
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, file, {
-        upsert: true,
-        contentType: contentType || (file instanceof File ? file.type : undefined),
-      });
-
-    if (uploadError) {
-      return { url: null, error: uploadError.message };
-    }
-
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    return { url: data.publicUrl, error: null };
-  } catch (err) {
-    return {
-      url: null,
-      error: err instanceof Error ? err.message : "Upload failed",
-    };
-  }
+  const result = await uploadToStorageBucket({
+    bucket: ITP_ATTACHMENTS_BUCKET,
+    pathPrefix,
+    file,
+    fileName,
+    contentType: contentType || (file instanceof File ? file.type : undefined),
+  });
+  return { url: result.url, error: result.error };
 }
 
 export async function uploadItpPhoto(
   file: File,
   itpId: string,
   itemId: string
-): Promise<string | null> {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  const path = `${itpId}/${itemId}/photo-${Date.now()}.${ext}`;
-  const { url, error } = await uploadItpFile(file, path, file.type);
-  if (error) {
-    console.warn("ITP photo upload failed:", error);
-    return null;
+): Promise<{ url: string | null; error: string | null }> {
+  const result = await uploadToStorageBucket({
+    bucket: ITP_ATTACHMENTS_BUCKET,
+    pathPrefix: `${itpId}/${itemId}`,
+    file,
+    fileName: file.name || "photo.jpg",
+    contentType: file.type || "image/jpeg",
+  });
+
+  if (result.error) {
+    logStorageUploadError("uploadItpPhoto", result.error);
   }
-  return url;
+
+  return { url: result.url, error: result.error };
 }
 
 export async function uploadItpSignature(
   dataUrl: string,
   itpId: string,
   itemId: string
-): Promise<string | null> {
+): Promise<{ url: string | null; error: string | null }> {
   try {
-    const blob = await fetch(dataUrl).then((r) => r.blob());
-    const path = `${itpId}/${itemId}/signature-${Date.now()}.png`;
-    const { url, error } = await uploadItpFile(blob, path, "image/png");
-    if (error) {
-      console.warn("ITP signature upload failed:", error);
-      return null;
+    const blob = await fetch(dataUrl).then((response) => response.blob());
+    const result = await uploadSignatureBlob({
+      pathPrefix: `${itpId}/${itemId}`,
+      blob,
+      fileName: "signature.png",
+    });
+
+    if (result.error) {
+      logStorageUploadError("uploadItpSignature", result.error);
     }
-    return url;
-  } catch (err) {
-    console.warn("ITP signature upload failed:", err);
-    return null;
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Signature upload failed";
+    logStorageUploadError("uploadItpSignature", message);
+    return { url: null, error: message };
   }
 }

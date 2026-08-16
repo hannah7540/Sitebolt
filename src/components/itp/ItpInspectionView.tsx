@@ -100,7 +100,7 @@ export default function ItpInspectionView({
     const { error } = await updateItpItemStatus(item.id, status);
     setActionId(null);
     if (error) {
-      alert(error);
+      setMessage(error);
       return;
     }
     await loadItp();
@@ -109,16 +109,17 @@ export default function ItpInspectionView({
 
   const handlePhotoUpload = async (item: ProjectItpItem, file: File) => {
     setActionId(item.id);
-    const url = await uploadItpPhoto(file, itpId, item.id);
-    if (!url) {
+    setMessage(null);
+    const upload = await uploadItpPhoto(file, itpId, item.id);
+    if (!upload.url) {
       setActionId(null);
-      alert("Photo upload failed");
+      setMessage(upload.error ?? "Photo upload failed");
       return;
     }
-    const { error } = await appendItpItemPhoto(item.id, url);
+    const { error } = await appendItpItemPhoto(item.id, upload.url);
     setActionId(null);
     if (error) {
-      alert(error);
+      setMessage(error);
       return;
     }
     await loadItp();

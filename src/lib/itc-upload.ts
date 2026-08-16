@@ -1,4 +1,9 @@
-import { supabase } from "./supabase";
+import {
+  ITC_ATTACHMENTS_BUCKET,
+  logStorageUploadError,
+  uploadSignatureBlob,
+  uploadToStorageBucket,
+} from "./itp-itc-storage";
 
 const MAX_WIDTH = 1600;
 const JPEG_QUALITY = 0.82;
@@ -75,25 +80,23 @@ export async function uploadItcPhoto(input: {
 }): Promise<{ url: string | null; error: string | null }> {
   try {
     const prepared = await prepareItcPhotoUpload(input.file);
-    const path = `${input.projectId}/${input.itcId}/${input.slotKey}-${Date.now()}.jpg`;
+    const result = await uploadToStorageBucket({
+      bucket: ITC_ATTACHMENTS_BUCKET,
+      pathPrefix: `${input.projectId}/${input.itcId}`,
+      file: prepared.file,
+      fileName: `${input.slotKey}.jpg`,
+      contentType: prepared.file.type || "image/jpeg",
+    });
 
-    const { error } = await supabase.storage
-      .from("itp-uploads")
-      .upload(path, prepared.file, {
-        cacheControl: "3600",
-        upsert: true,
-        contentType: prepared.file.type || "image/jpeg",
-      });
+    if (result.error) {
+      logStorageUploadError("uploadItcPhoto", result.error);
+    }
 
-    if (error) return { url: null, error: error.message };
-
-    const { data } = supabase.storage.from("itp-uploads").getPublicUrl(path);
-    return { url: data.publicUrl, error: null };
+    return { url: result.url, error: result.error };
   } catch (error) {
-    return {
-      url: null,
-      error: error instanceof Error ? error.message : "Photo upload failed",
-    };
+    const message = error instanceof Error ? error.message : "Photo upload failed";
+    logStorageUploadError("uploadItcPhoto", message);
+    return { url: null, error: message };
   }
 }
 
@@ -103,23 +106,17 @@ export async function uploadItcSignature(input: {
   stepKey: string;
   blob: Blob;
 }): Promise<{ url: string | null; error: string | null }> {
-  try {
-    const path = `${input.projectId}/${input.itcId}/signatures/${input.stepKey}-${Date.now()}.png`;
-    const { error } = await supabase.storage.from("itp-uploads").upload(path, input.blob, {
-      cacheControl: "3600",
-      upsert: true,
-      contentType: "image/png",
-    });
+  const result = await uploadSignatureBlob({
+    pathPrefix: `${input.projectId}/${input.itcId}/signatures/${input.stepKey}`,
+    blob: input.blob,
+    fileName: "signature.png",
+  });
 
-    if (error) return { url: null, error: error.message };
-    const { data } = supabase.storage.from("itp-uploads").getPublicUrl(path);
-    return { url: data.publicUrl, error: null };
-  } catch (error) {
-    return {
-      url: null,
-      error: error instanceof Error ? error.message : "Signature upload failed",
-    };
+  if (result.error) {
+    logStorageUploadError("uploadItcSignature", result.error);
   }
+
+  return result;
 }
 
 export async function uploadItcMarkup(input: {
@@ -129,20 +126,22 @@ export async function uploadItcMarkup(input: {
 }): Promise<{ url: string | null; error: string | null }> {
   try {
     const ext = input.file.name.split(".").pop() || "pdf";
-    const path = `${input.projectId}/redlines/${input.discipline}-${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("itp-uploads").upload(path, input.file, {
-      cacheControl: "3600",
-      upsert: true,
+    const result = await uploadToStorageBucket({
+      bucket: ITC_ATTACHMENTS_BUCKET,
+      pathPrefix: `${input.projectId}/redlines`,
+      file: input.file,
+      fileName: `${input.discipline}.${ext}`,
       contentType: input.file.type || "application/octet-stream",
     });
 
-    if (error) return { url: null, error: error.message };
-    const { data } = supabase.storage.from("itp-uploads").getPublicUrl(path);
-    return { url: data.publicUrl, error: null };
+    if (result.error) {
+      logStorageUploadError("uploadItcMarkup", result.error);
+    }
+
+    return { url: result.url, error: result.error };
   } catch (error) {
-    return {
-      url: null,
-      error: error instanceof Error ? error.message : "Redline upload failed",
-    };
+    const message = error instanceof Error ? error.message : "Redline upload failed";
+    logStorageUploadError("uploadItcMarkup", message);
+    return { url: null, error: message };
   }
 }
