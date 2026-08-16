@@ -80,6 +80,31 @@ export function getWorkerDisplayName(
   return fallback;
 }
 
+/** Two-letter initials for avatar fallbacks. */
+export function getWorkerInitials(
+  worker: WorkerNameFields,
+  fallback = "?"
+): string {
+  const firstName = worker.first_name?.trim();
+  const lastName = worker.last_name?.trim();
+
+  if (firstName && lastName) {
+    return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase();
+  }
+  if (firstName) {
+    return firstName.slice(0, 2).toUpperCase();
+  }
+
+  const displayName = getWorkerDisplayName(worker, "");
+  if (!displayName) return fallback;
+
+  const parts = displayName.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
+  }
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
 export function daysUntil(dateIso: string | null | undefined): number | null {
   if (!dateIso) return null;
   const target = new Date(dateIso);

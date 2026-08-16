@@ -52,6 +52,7 @@ import { mapTimesheetRow } from "@/lib/timesheet-entries";
 import type { SiteFormType } from "@/lib/site-forms";
 import { cardClass } from "@/lib/ui-classes";
 import CompanyLogo from "@/components/ui/CompanyLogo";
+import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { getPayWeekRange } from "@/lib/pay-week-utils";
 import { cn } from "@/lib/utils";
@@ -831,25 +832,19 @@ export default function WorkerDashboardView({
               onClick={() => worker && setShowPhotoModal(true)}
               disabled={!worker || isProfileLoading}
               className={cn(
-                "group relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full",
-                "ring-2 ring-orange-200 transition hover:ring-orange-400",
+                "group relative shrink-0 transition",
                 "disabled:cursor-not-allowed disabled:opacity-60"
               )}
               aria-label="Edit profile photo"
             >
-              {worker?.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={worker.photo_url}
-                  alt={profileName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-orange-500">
-                  <User className="h-5 w-5 text-white" />
-                </div>
-              )}
-              <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/35">
+              <WorkerProfileAvatar
+                photoUrl={worker?.photo_url}
+                worker={worker ?? undefined}
+                displayName={profileName}
+                size="md"
+                ringClassName="ring-2 ring-orange-200 transition group-hover:ring-orange-400"
+              />
+              <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 transition group-hover:bg-black/35">
                 <Camera className="h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
               </span>
             </button>

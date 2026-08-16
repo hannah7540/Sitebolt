@@ -45,6 +45,7 @@ import {
 import { filterProjectsForRole } from "@/lib/rbac-guards";
 import { parseConsoleRoute } from "@/lib/console-nav-routes";
 import { cn } from "@/lib/utils";
+import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 
 export type ActiveView =
   | "dashboard"
@@ -463,7 +464,7 @@ export default function Sidebar({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { profileName: sessionProfileName, loading: profileLoading } =
+  const { profileName: sessionProfileName, profilePhotoUrl, loading: profileLoading } =
     useAuthProfileDisplay();
   const profileName = profileNameOverride ?? sessionProfileName;
   const handleSignOut = () => {
@@ -548,14 +549,15 @@ export default function Sidebar({
         aria-current={profileActive ? "page" : undefined}
       >
         <div className="flex items-center gap-3">
-          <div
-            className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-600 ring-2",
+          <WorkerProfileAvatar
+            photoUrl={profilePhotoUrl}
+            displayName={profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
+            size="md"
+            ringClassName={cn(
+              "ring-2",
               profileActive ? "ring-white/40" : "ring-orange-200"
             )}
-          >
-            <HardHat className="h-5 w-5 text-white" />
-          </div>
+          />
           <div className="min-w-0 flex-1">
             <p
               className={cn(

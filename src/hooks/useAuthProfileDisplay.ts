@@ -10,6 +10,7 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 /** Resolve the signed-in user's display name from Supabase auth + linked worker. */
 export function useAuthProfileDisplay() {
   const [profileName, setProfileName] = useState(DEFAULT_ADMIN_PROFILE_NAME);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,11 +39,13 @@ export function useAuthProfileDisplay() {
         const worker = workers.find((row) => row.id === authSession.workerId);
         if (worker) {
           setProfileName(getWorkerDisplayName(worker));
+          setProfilePhotoUrl(worker.photo_url?.trim() || null);
           setLoading(false);
           return;
         }
       }
 
+      setProfilePhotoUrl(null);
       if (metadataName) {
         setProfileName(metadataName);
       }
@@ -56,5 +59,5 @@ export function useAuthProfileDisplay() {
     };
   }, []);
 
-  return { profileName, profileEmail, loading };
+  return { profileName, profilePhotoUrl, profileEmail, loading };
 }

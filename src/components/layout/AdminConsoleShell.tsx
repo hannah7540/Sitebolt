@@ -131,17 +131,19 @@ export default function AdminConsoleShell({
     void loadSession();
   }, [loadSession]);
 
-  const adminProfileName = useMemo(() => {
-    if (adminWorkerId) {
-      const match = workers.find((worker) => worker.id === adminWorkerId);
-      if (match) return getWorkerDisplayName(match);
-    }
-    return DEFAULT_ADMIN_PROFILE_NAME;
-  }, [adminWorkerId, workers]);
-
   const sessionWorker = useMemo(
     () => workers.find((worker) => worker.id === adminWorkerId) ?? null,
     [workers, adminWorkerId]
+  );
+
+  const adminProfileName = useMemo(() => {
+    if (sessionWorker) return getWorkerDisplayName(sessionWorker);
+    return DEFAULT_ADMIN_PROFILE_NAME;
+  }, [sessionWorker]);
+
+  const adminProfilePhotoUrl = useMemo(
+    () => sessionWorker?.photo_url?.trim() || null,
+    [sessionWorker]
   );
 
   const sessionRole = useMemo(
@@ -363,6 +365,7 @@ export default function AdminConsoleShell({
         <div className="flex min-w-0 flex-1 flex-col">
           <AppScreenHeader
             profileName={adminProfileName}
+            profilePhotoUrl={adminProfilePhotoUrl}
             onOpenProfile={handleOpenProfile}
             className="hidden lg:flex"
           />

@@ -179,6 +179,14 @@ function HomeConsole() {
     return DEFAULT_ADMIN_PROFILE_NAME;
   }, [adminWorkerId, workers]);
 
+  const adminProfilePhotoUrl = useMemo(() => {
+    if (adminWorkerId) {
+      const match = workers.find((w) => w.id === adminWorkerId);
+      if (match?.photo_url?.trim()) return match.photo_url.trim();
+    }
+    return null;
+  }, [adminWorkerId, workers]);
+
   const sessionRole = useMemo(() => {
     const linked = workers.find((w) => w.id === adminWorkerId);
     return normalizeSecurityRole(linked?.security_role);
@@ -360,6 +368,7 @@ function HomeConsole() {
           {activeTab !== "my-profile" && (
             <AppScreenHeader
               profileName={adminProfileName}
+              profilePhotoUrl={adminProfilePhotoUrl}
               profileActive={false}
               onOpenProfile={handleOpenProfile}
               className="hidden lg:flex"
