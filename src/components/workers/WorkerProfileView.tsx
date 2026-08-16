@@ -16,11 +16,11 @@ import {
   fetchWorkerVocs,
   getWorkerAssignedProjectIds,
   isWorkerRevoked,
-  setWorkerRevokedState,
   updateWorker,
   updateWorkerSecurityRole,
   updateWorkerStatusFromVocs,
 } from "@/lib/supabase";
+import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
 import { setWorkerProjectAssignments } from "@/lib/project-assignments";
 import {
   hydrateCardsVocsFromWorker,
@@ -403,7 +403,10 @@ function BasicInfoTab({
     const wantsRevoked = accountStatus === "Revoked";
 
     if (wantsRevoked !== wasRevoked) {
-      const { error: revokeError } = await setWorkerRevokedState(worker.id, wantsRevoked);
+      const { error: revokeError } = await requestWorkerRevokeAccess(
+        worker.id,
+        wantsRevoked
+      );
       if (revokeError) {
         setSaving(false);
         setError(revokeError);

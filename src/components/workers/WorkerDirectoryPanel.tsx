@@ -16,8 +16,8 @@ import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
   getWorkerAssignedProjectIds,
   isWorkerRevoked,
-  setWorkerRevokedState,
 } from "@/lib/supabase";
+import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
 import {
   loadAssignmentMaps,
   resolveWorkerAssignedProjectName,
@@ -310,15 +310,21 @@ export default function WorkerDirectoryPanel({
       )
     );
 
-    const { error } = await setWorkerRevokedState(worker.id, revoked);
+    const { error, message } = await requestWorkerRevokeAccess(worker.id, revoked);
     setActionId(null);
 
     if (error) {
       setWorkerList((prev) =>
         prev.map((row) => (row.id === worker.id ? snapshot : row))
       );
-      alert(error);
+      showError(error);
       return;
+    }
+
+    if (revoked) {
+      showSuccess(message ?? "Worker access successfully revoked.");
+    } else {
+      showSuccess(message ?? "Worker access restored.");
     }
 
     onWorkerUpdated?.({

@@ -11,6 +11,10 @@ import {
   normalizeSecurityRole,
 } from "@/lib/security-roles";
 import { setAdminWorkerId, setStoredWorkerId, resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import {
+  WORKER_REVOKED_LOGIN_MESSAGE,
+  fetchWorkerAccessRevokedForAuthUser,
+} from "@/lib/worker-revocation";
 
 export interface UserProfileRow {
   role: string;
@@ -105,6 +109,14 @@ export async function bindAdminSessionForUser(user: User): Promise<{
   error?: string;
   workerId?: string;
 }> {
+  const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(
+    createSupabaseBrowserClient(),
+    user
+  );
+  if (accessRevoked) {
+    return { ok: false, error: WORKER_REVOKED_LOGIN_MESSAGE };
+  }
+
   const role = await resolveRoleForAuthUser(user);
 
   if (!profileRoleAllowsAdminLogin(role)) {
@@ -134,6 +146,19 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   workerId?: string | null;
   role: ProfileRole;
 }> {
+  const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(
+    createSupabaseBrowserClient(),
+    user
+  );
+  if (accessRevoked) {
+    return {
+      ok: false,
+      error: WORKER_REVOKED_LOGIN_MESSAGE,
+      workerId: null,
+      role: "general_worker",
+    };
+  }
+
   const role = await resolveRoleForAuthUser(user);
   const workerId = await resolveWorkerIdForAuthUser(user);
 

@@ -10,12 +10,17 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
+import {
+  WORKER_REVOKED_LOGIN_ERROR_PARAM,
+  WORKER_REVOKED_LOGIN_MESSAGE,
+} from "@/lib/worker-revocation";
 
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = readLoginReturnPath(searchParams);
   const resetSuccess = searchParams.get("reset") === "success";
+  const revokedError = searchParams.get("error") === WORKER_REVOKED_LOGIN_ERROR_PARAM;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -44,6 +49,11 @@ function LoginPageContent() {
               resolveDefaultLandingPathForRole(bound.role, bound.workerId)
           );
         } else {
+          await supabase.auth.signOut();
+          if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
+            router.replace(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
+            return;
+          }
           setCheckingSession(false);
         }
       }
@@ -130,6 +140,12 @@ function LoginPageContent() {
         {resetSuccess ? (
           <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             Password updated successfully! Please sign in with your new password.
+          </p>
+        ) : null}
+
+        {revokedError ? (
+          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {WORKER_REVOKED_LOGIN_MESSAGE}
           </p>
         ) : null}
 

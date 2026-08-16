@@ -13,6 +13,10 @@ import {
   PROJECT_DASHBOARD_HOME_PATH,
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
+import {
+  WORKER_REVOKED_LOGIN_ERROR_PARAM,
+  fetchWorkerAccessRevokedForAuthUser,
+} from "@/lib/worker-revocation";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -101,6 +105,7 @@ interface AuthContext {
   role: SecurityRole;
   workerId: string | null;
   onboardingCompleted: boolean;
+  accessRevoked: boolean;
 }
 
 async function resolveWorkerOnboardingCompleted(
@@ -147,8 +152,16 @@ async function resolveAuthContext(
   user: User | null
 ): Promise<AuthContext> {
   if (!user) {
-    return { user: null, role: "general_worker", workerId: null, onboardingCompleted: true };
+    return {
+      user: null,
+      role: "general_worker",
+      workerId: null,
+      onboardingCompleted: true,
+      accessRevoked: false,
+    };
   }
+
+  const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(supabase, user);
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -167,6 +180,7 @@ async function resolveAuthContext(
       role: normalizeSecurityRole(profile.role),
       workerId,
       onboardingCompleted,
+      accessRevoked,
     };
   }
 
@@ -187,6 +201,7 @@ async function resolveAuthContext(
       role: normalizeSecurityRole(workerByAuth.security_role),
       workerId: workerByAuth.id,
       onboardingCompleted,
+      accessRevoked,
     };
   }
 
@@ -209,6 +224,7 @@ async function resolveAuthContext(
         role: normalizeSecurityRole(workerByEmail.security_role),
         workerId: workerByEmail.id,
         onboardingCompleted,
+        accessRevoked,
       };
     }
   }
@@ -221,6 +237,7 @@ async function resolveAuthContext(
     role: normalizeSecurityRole(typeof rawRole === "string" ? rawRole : null),
     workerId: null,
     onboardingCompleted: true,
+    accessRevoked,
   };
 }
 
@@ -273,6 +290,27 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
 
   const pathname = request.nextUrl.pathname;
   const context = await resolveAuthContext(supabase, user);
+
+  async function redirectRevokedToLogin(): Promise<NextResponse> {
+    await supabase.auth.signOut();
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("error", WORKER_REVOKED_LOGIN_ERROR_PARAM);
+    return redirectWithCookies(
+      request,
+      `${loginUrl.pathname}${loginUrl.search}`,
+      sessionResponse
+    );
+  }
+
+  if (context.user && context.accessRevoked) {
+    if (pathname.startsWith("/login")) {
+      if (request.nextUrl.searchParams.get("error") !== WORKER_REVOKED_LOGIN_ERROR_PARAM) {
+        return redirectRevokedToLogin();
+      }
+      return sessionResponse;
+    }
+    return redirectRevokedToLogin();
+  }
 
   if (
     session &&
