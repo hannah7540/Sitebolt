@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
@@ -15,8 +17,24 @@ import {
   WORKER_REVOKED_LOGIN_MESSAGE,
 } from "@/lib/worker-revocation";
 
+async function waitForAuthSession(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return true;
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+
+  const { data: refreshed } = await supabase.auth.refreshSession();
+  return Boolean(refreshed.session);
+}
+
+function redirectAfterLogin(path: string): void {
+  window.location.assign(path);
+}
+
 function LoginPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = readLoginReturnPath(searchParams);
   const resetSuccess = searchParams.get("reset") === "success";
@@ -27,6 +45,66 @@ function LoginPageContent() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast, showError, dismissToast } = useFormToast();
+
+  const handleLogin = useCallback(async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
+      const message = "Please enter your email and password.";
+      setError(message);
+      showError(message);
+      return;
+    }
+
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      if (signInError || !data.user) {
+        const message = signInError?.message ?? "Invalid email or password";
+        setError(message);
+        showError(message);
+        return;
+      }
+
+      const sessionReady = await waitForAuthSession(supabase);
+      if (!sessionReady) {
+        const message = "Sign in succeeded but the session could not be established. Please try again.";
+        setError(message);
+        showError(message);
+        return;
+      }
+
+      const bound = await bindAuthSessionForUser(data.user);
+      if (!bound.ok) {
+        await supabase.auth.signOut();
+        const message = bound.error ?? "Unable to sign in. Contact your administrator.";
+        setError(message);
+        showError(message);
+        return;
+      }
+
+      const targetPath =
+        returnPath ?? resolveDefaultLandingPathForRole(bound.role, bound.workerId);
+
+      redirectAfterLogin(targetPath);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Sign in failed.";
+      console.error("Login error:", cause);
+      setError(message);
+      showError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [email, password, returnPath, showError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,14 +122,14 @@ function LoginPageContent() {
       const bound = await bindAuthSessionForUser(user);
       if (!cancelled) {
         if (bound.ok) {
-          router.replace(
+          redirectAfterLogin(
             returnPath ??
               resolveDefaultLandingPathForRole(bound.role, bound.workerId)
           );
         } else {
           await supabase.auth.signOut();
           if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
-            router.replace(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
+            redirectAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
             return;
           }
           setCheckingSession(false);
@@ -63,40 +141,11 @@ function LoginPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, returnPath]);
+  }, [returnPath]);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (signInError || !data.user) {
-        setError("Invalid email or password");
-        return;
-      }
-
-      const bound = await bindAuthSessionForUser(data.user);
-      if (!bound.ok) {
-        await supabase.auth.signOut();
-        setError(bound.error ?? "Unable to sign in. Contact your administrator.");
-        return;
-      }
-
-      router.replace(
-        returnPath ?? resolveDefaultLandingPathForRole(bound.role, bound.workerId)
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Sign in failed.");
-    } finally {
-      setSubmitting(false);
-    }
+    void handleLogin();
   };
 
   if (checkingSession) {
@@ -162,8 +211,12 @@ function LoginPageContent() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
-              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
+              inputMode="email"
+              enterKeyHint="next"
+              disabled={submitting}
               required
             />
           </div>
@@ -177,6 +230,7 @@ function LoginPageContent() {
                 type="button"
                 onClick={() => setShowForgotPassword(true)}
                 className="text-xs font-semibold text-orange-600 hover:text-orange-700"
+                disabled={submitting}
               >
                 Forgot password?
               </button>
@@ -189,6 +243,11 @@ function LoginPageContent() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="go"
+              disabled={submitting}
               required
             />
           </div>
@@ -202,7 +261,8 @@ function LoginPageContent() {
           <button
             type="submit"
             disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
+            aria-busy={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (
               <>
@@ -214,6 +274,10 @@ function LoginPageContent() {
             )}
           </button>
         </form>
+
+        {toast ? (
+          <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+        ) : null}
 
         <p className="mt-6 text-center text-sm text-slate-500">
           <Link href="/" className="font-medium text-orange-600 hover:text-orange-700">
