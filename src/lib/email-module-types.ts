@@ -6,7 +6,8 @@ export type EmailMessageStatus =
   | "sent"
   | "failed"
   | "cancelled"
-  | "paused";
+  | "paused"
+  | "received";
 
 export type EmailTargetMode =
   | "all_workers"
@@ -30,6 +31,7 @@ export interface EmailTemplateRow {
   subject: string;
   body_html: string;
   body_text: string | null;
+  category: string;
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
@@ -63,6 +65,7 @@ export interface EmailMessageRow {
   sender_email: string | null;
   external_message_id: string | null;
   error_message: string | null;
+  attachment_urls: string[];
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
@@ -98,8 +101,15 @@ export interface SaveEmailTemplateInput {
   subject: string;
   body_html: string;
   body_text?: string | null;
+  category?: string;
   created_by?: string | null;
   created_by_name?: string | null;
+}
+
+export interface InboundEmailAttachmentInput {
+  filename: string;
+  contentType?: string;
+  content: string;
 }
 
 export interface InboundEmailWebhookPayload {
@@ -110,6 +120,7 @@ export interface InboundEmailWebhookPayload {
   text?: string;
   headers?: Record<string, string>;
   thread_id?: string;
+  attachments?: InboundEmailAttachmentInput[];
 }
 
 export const EMAIL_RECURRENCE_OPTIONS: Array<{

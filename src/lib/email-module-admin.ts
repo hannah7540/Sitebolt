@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "./email-service";
 import { resolveSystemFromEmail } from "./email-config";
+import { extractThreadIdFromReplyAddress } from "./email-inbound-parser";
 import type {
   ComposeEmailInput,
   EmailListFilters,
@@ -12,6 +13,22 @@ import type {
   InboundEmailWebhookPayload,
   SaveEmailTemplateInput,
 } from "./email-module-types";
+
+const EMAIL_ATTACHMENTS_BUCKET = "email-attachments";
+
+function buildReplyToAddress(threadId: string): string | undefined {
+  const replyDomain = process.env.EMAIL_INBOUND_REPLY_DOMAIN?.trim();
+  if (replyDomain) {
+    return `thread-${threadId}@${replyDomain}`;
+  }
+  return process.env.EMAIL_REPLY_TO?.trim() || undefined;
+}
+
+function buildOutboundSubject(subject: string, threadId: string): string {
+  const marker = `[Ref:${threadId.slice(0, 8)}]`;
+  if (subject.includes(marker)) return subject;
+  return `${marker} ${subject}`;
+}
 
 function isMissingTableError(message: string, table: string): boolean {
   const lower = message.toLowerCase();
@@ -45,6 +62,7 @@ function normalizeTemplate(row: Record<string, unknown>): EmailTemplateRow {
     subject: String(row.subject ?? ""),
     body_html: String(row.body_html ?? ""),
     body_text: row.body_text ? String(row.body_text) : null,
+    category: String(row.category ?? "General"),
     created_by: row.created_by ? String(row.created_by) : null,
     created_by_name: row.created_by_name ? String(row.created_by_name) : null,
     created_at: String(row.created_at ?? new Date().toISOString()),
@@ -82,6 +100,7 @@ function normalizeMessage(row: Record<string, unknown>): EmailMessageRow {
     sender_email: row.sender_email ? String(row.sender_email) : null,
     external_message_id: row.external_message_id ? String(row.external_message_id) : null,
     error_message: row.error_message ? String(row.error_message) : null,
+    attachment_urls: parseStringArray(row.attachment_urls),
     created_by: row.created_by ? String(row.created_by) : null,
     created_by_name: row.created_by_name ? String(row.created_by_name) : null,
     created_at: String(row.created_at ?? new Date().toISOString()),
@@ -235,6 +254,7 @@ export async function saveEmailTemplateAdmin(
     subject: input.subject.trim(),
     body_html: input.body_html,
     body_text: input.body_text ?? htmlToPlainText(input.body_html),
+    category: input.category?.trim() || "General",
     created_by: input.created_by ?? null,
     created_by_name: input.created_by_name ?? null,
     updated_at: now,
@@ -339,6 +359,9 @@ export async function fetchEmailMessagesAdmin(
     }
 
     if (filters.folder === "inbox") {
+      messages.sort((a, b) =>
+        (b.sent_at ?? b.created_at).localeCompare(a.sent_at ?? a.created_at)
+      );
       const threadMap = new Map<string, EmailMessageRow>();
       for (const message of messages) {
         const key = message.thread_id ?? message.id;
@@ -429,14 +452,18 @@ async function dispatchOutboundMessageAdmin(
   const threadId = message.thread_id ?? message.id;
   const fromEmail = resolveSystemFromEmail();
   const text = message.body_text ?? htmlToPlainText(message.body_html);
+  const outboundSubject = buildOutboundSubject(message.subject, threadId);
+  const replyTo = buildReplyToAddress(threadId);
 
   const sendResult = await sendEmail({
     to: recipients,
-    subject: message.subject,
+    subject: outboundSubject,
     html: message.body_html,
     text,
+    replyTo,
     headers: {
       "X-SiteBolt-Thread-Id": threadId,
+      "Reply-To": replyTo ?? fromEmail,
     },
   });
 
@@ -448,6 +475,7 @@ async function dispatchOutboundMessageAdmin(
     .update({
       thread_id: threadId,
       status: nextStatus,
+      subject: outboundSubject,
       to_emails: recipients,
       from_email: fromEmail,
       sent_at: sendResult.sent ? now : null,
@@ -643,75 +671,166 @@ function extractEmailAddress(value: string): string {
   return (match?.[1] ?? value).trim().toLowerCase();
 }
 
+function extractDisplayName(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(.+?)\s*<[^>]+>$/);
+  return match?.[1]?.replace(/"/g, "").trim() || trimmed;
+}
+
+async function uploadInboundAttachmentsAdmin(
+  admin: SupabaseClient,
+  threadId: string | null,
+  attachments: InboundEmailWebhookPayload["attachments"]
+): Promise<string[]> {
+  if (!attachments?.length) return [];
+
+  const urls: string[] = [];
+  const prefix = threadId ?? "unthreaded";
+
+  for (const attachment of attachments) {
+    try {
+      const buffer = Buffer.from(attachment.content, "base64");
+      const safeName = attachment.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${prefix}/${Date.now()}-${safeName}`;
+      const { error } = await admin.storage.from(EMAIL_ATTACHMENTS_BUCKET).upload(path, buffer, {
+        contentType: attachment.contentType || "application/octet-stream",
+        upsert: false,
+      });
+      if (error) continue;
+      const { data } = admin.storage.from(EMAIL_ATTACHMENTS_BUCKET).getPublicUrl(path);
+      if (data.publicUrl) urls.push(data.publicUrl);
+    } catch {
+      // Skip failed attachment uploads without blocking inbound ingest.
+    }
+  }
+
+  return urls;
+}
+
+async function matchWorkerByEmailAdmin(
+  admin: SupabaseClient,
+  email: string
+): Promise<{ id: string; full_name: string } | null> {
+  if (!email) return null;
+  const { data } = await admin
+    .from("workers")
+    .select("id, full_name, email")
+    .ilike("email", email)
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+  return {
+    id: String((data as Record<string, unknown>).id),
+    full_name: String((data as Record<string, unknown>).full_name ?? ""),
+  };
+}
+
 export async function ingestInboundEmailAdmin(
   admin: SupabaseClient,
   payload: InboundEmailWebhookPayload
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
-  const fromRaw = payload.from?.trim() ?? "";
-  const subject = payload.subject?.trim() ?? "(No subject)";
-  const bodyHtml = payload.html?.trim() || payload.text?.trim().replace(/\n/g, "<br>") || "";
-  const bodyText = payload.text?.trim() || htmlToPlainText(bodyHtml);
-  const senderEmail = extractEmailAddress(fromRaw);
-  const headerThread =
-    payload.thread_id?.trim() ||
-    payload.headers?.["X-SiteBolt-Thread-Id"]?.trim() ||
-    payload.headers?.["x-sitebolt-thread-id"]?.trim() ||
-    null;
+  try {
+    const fromRaw = payload.from?.trim() ?? "";
+    const subject = payload.subject?.trim() ?? "(No subject)";
+    const bodyHtml =
+      payload.html?.trim() || payload.text?.trim().replace(/\n/g, "<br>") || "";
+    const bodyText = payload.text?.trim() || htmlToPlainText(bodyHtml);
+    const senderEmail = extractEmailAddress(fromRaw);
+    const headerThread =
+      payload.thread_id?.trim() ||
+      payload.headers?.["X-SiteBolt-Thread-Id"]?.trim() ||
+      payload.headers?.["x-sitebolt-thread-id"]?.trim() ||
+      null;
 
-  let threadId = headerThread;
-
-  if (!threadId) {
-    const normalizedSubject = subject.replace(/^re:\s*/i, "").trim();
-    const { data: candidates } = await admin
-      .from("email_messages")
-      .select("id, thread_id, subject")
-      .eq("direction", "outbound")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    const match = (candidates ?? []).find((row) => {
-      const outboundSubject = String((row as Record<string, unknown>).subject ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        outboundSubject === normalizedSubject.toLowerCase() ||
-        normalizedSubject.toLowerCase().endsWith(outboundSubject)
-      );
-    });
-
-    if (match) {
-      threadId = String((match as Record<string, unknown>).thread_id ?? match.id);
-    }
-  }
-
-  const now = new Date().toISOString();
-  const insertPayload = {
-    thread_id: threadId,
-    direction: "inbound",
-    status: "sent",
-    subject,
-    body_html: bodyHtml,
-    body_text: bodyText,
-    from_email: senderEmail || fromRaw,
-    to_emails: Array.isArray(payload.to)
+    const toValues = Array.isArray(payload.to)
       ? payload.to
       : payload.to
         ? [payload.to]
-        : [],
-    sender_email: senderEmail || fromRaw,
-    sender_name: fromRaw.replace(/<.+>/, "").trim() || senderEmail,
-    is_read: false,
-    sent_at: now,
-    created_at: now,
-    updated_at: now,
-  };
+        : [];
 
-  const { data, error } = await admin
-    .from("email_messages")
-    .insert(insertPayload)
-    .select("*")
-    .single();
+    let threadId = headerThread;
+    if (!threadId) {
+      for (const address of toValues) {
+        const extracted = extractThreadIdFromReplyAddress(String(address));
+        if (extracted) {
+          threadId = extracted;
+          break;
+        }
+      }
+    }
 
-  if (error) return { message: null, error: error.message };
-  return { message: normalizeMessage(data as Record<string, unknown>), error: null };
+    if (!threadId) {
+      const normalizedSubject = subject
+        .replace(/^re:\s*/i, "")
+        .replace(/\[ref:[^\]]+\]\s*/i, "")
+        .trim();
+      const { data: candidates } = await admin
+        .from("email_messages")
+        .select("id, thread_id, subject")
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      const match = (candidates ?? []).find((row) => {
+        const outboundSubject = String((row as Record<string, unknown>).subject ?? "")
+          .replace(/\[ref:[^\]]+\]\s*/i, "")
+          .trim()
+          .toLowerCase();
+        return (
+          outboundSubject === normalizedSubject.toLowerCase() ||
+          normalizedSubject.toLowerCase().endsWith(outboundSubject)
+        );
+      });
+
+      if (match) {
+        threadId = String((match as Record<string, unknown>).thread_id ?? match.id);
+      }
+    }
+
+    const matchedWorker = await matchWorkerByEmailAdmin(admin, senderEmail);
+    const attachmentUrls = await uploadInboundAttachmentsAdmin(
+      admin,
+      threadId,
+      payload.attachments
+    );
+
+    const now = new Date().toISOString();
+    const insertPayload = {
+      thread_id: threadId,
+      direction: "inbound",
+      status: "received",
+      subject,
+      body_html: bodyHtml,
+      body_text: bodyText,
+      from_email: senderEmail || fromRaw,
+      to_emails: toValues,
+      sender_email: senderEmail || fromRaw,
+      sender_name:
+        matchedWorker?.full_name ||
+        extractDisplayName(fromRaw) ||
+        senderEmail ||
+        "Unknown sender",
+      sender_worker_id: matchedWorker?.id ?? null,
+      attachment_urls: attachmentUrls,
+      is_read: false,
+      sent_at: now,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const { data, error } = await admin
+      .from("email_messages")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+
+    if (error) return { message: null, error: error.message };
+    return { message: normalizeMessage(data as Record<string, unknown>), error: null };
+  } catch (error) {
+    return {
+      message: null,
+      error: error instanceof Error ? error.message : "Failed to ingest inbound email.",
+    };
+  }
 }

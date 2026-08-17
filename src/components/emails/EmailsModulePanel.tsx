@@ -15,6 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import EmailTemplatesPanel from "@/components/emails/EmailTemplatesPanel";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import { canAccessEmailsModule } from "@/lib/security-roles";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -98,6 +99,8 @@ export default function EmailsModulePanel() {
   const [threadMessages, setThreadMessages] = useState<EmailMessageRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composePrefillTemplate, setComposePrefillTemplate] =
+    useState<EmailTemplateRow | null>(null);
   const [saving, setSaving] = useState(false);
 
   const canAccess = canAccessEmailsModule(sessionRole);
@@ -360,37 +363,33 @@ export default function EmailsModulePanel() {
           ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
+            {folder === "templates" ? (
+              <div className="lg:col-span-2">
+                <EmailTemplatesPanel
+                  templates={templates}
+                  saving={saving}
+                  adminWorkerId={adminWorkerId}
+                  adminName={
+                    workers.find((worker) => worker.id === adminWorkerId)
+                      ? getWorkerDisplayName(
+                          workers.find((worker) => worker.id === adminWorkerId)!
+                        )
+                      : "Owner"
+                  }
+                  onRefresh={loadData}
+                  onUseInCompose={(template) => {
+                    setComposePrefillTemplate(template);
+                    setComposeOpen(true);
+                  }}
+                  onDelete={handleDeleteTemplate}
+                />
+              </div>
+            ) : (
+              <>
             <div className="overflow-y-auto border-r border-slate-200">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
-                </div>
-              ) : folder === "templates" ? (
-                <div className="space-y-2 p-4">
-                  {templates.length === 0 ? (
-                    <p className="text-sm text-slate-500">No templates saved yet.</p>
-                  ) : (
-                    templates.map((template) => (
-                      <div key={template.id} className={cn(cardClass, "p-4")}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-slate-900">{template.name}</p>
-                            <p className="mt-1 text-sm text-slate-600">{template.subject}</p>
-                            <p className="mt-2 text-xs text-slate-500">
-                              Updated {formatDateTime(template.updated_at)}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteTemplate(template)}
-                            className="rounded-md p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
               ) : messages.length === 0 ? (
                 <p className="p-6 text-sm text-slate-500">No messages in this folder.</p>
@@ -409,8 +408,24 @@ export default function EmailsModulePanel() {
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-slate-900">
+                        <div className="min-w-0 flex items-start gap-2">
+                          {folder === "inbox" && !message.is_read ? (
+                            <span
+                              className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-sky-500"
+                              aria-label="Unread"
+                            />
+                          ) : (
+                            <span className="mt-2 h-2.5 w-2.5 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                          <p
+                            className={cn(
+                              "truncate text-slate-900",
+                              folder === "inbox" && !message.is_read
+                                ? "font-bold"
+                                : "font-semibold"
+                            )}
+                          >
                             {message.subject}
                           </p>
                           <p className="mt-1 truncate text-sm text-slate-600">
@@ -421,6 +436,7 @@ export default function EmailsModulePanel() {
                           <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                             {bodyPreview(message.body_html)}
                           </p>
+                          </div>
                         </div>
                         <div className="shrink-0 text-right">
                           <p className="text-xs text-slate-500">
@@ -504,11 +520,29 @@ export default function EmailsModulePanel() {
                         className="prose prose-sm mt-3 max-w-none text-slate-700"
                         dangerouslySetInnerHTML={{ __html: message.body_html }}
                       />
+                      {message.attachment_urls.length > 0 ? (
+                        <ul className="mt-3 space-y-1 text-sm">
+                          {message.attachment_urls.map((url) => (
+                            <li key={url}>
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-orange-600 hover:underline"
+                              >
+                                Attachment
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </article>
                   ))}
                 </div>
               )}
             </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -519,6 +553,7 @@ export default function EmailsModulePanel() {
           projects={projects}
           templates={templates}
           adminWorkerId={adminWorkerId}
+          initialTemplate={composePrefillTemplate}
           adminName={
             workers.find((worker) => worker.id === adminWorkerId)
               ? getWorkerDisplayName(
@@ -527,9 +562,13 @@ export default function EmailsModulePanel() {
               : "Owner"
           }
           saving={saving}
-          onClose={() => setComposeOpen(false)}
+          onClose={() => {
+            setComposeOpen(false);
+            setComposePrefillTemplate(null);
+          }}
           onSaved={async () => {
             setComposeOpen(false);
+            setComposePrefillTemplate(null);
             await loadData();
           }}
           onSaveTemplate={async (input) => {
@@ -544,6 +583,7 @@ export default function EmailsModulePanel() {
               setError(result.error);
               return;
             }
+            setComposePrefillTemplate(null);
             await loadData();
             setComposeOpen(false);
           }}
@@ -601,6 +641,7 @@ function ComposeEmailModal({
   templates,
   adminWorkerId,
   adminName,
+  initialTemplate,
   saving,
   onClose,
   onSubmit,
@@ -611,6 +652,7 @@ function ComposeEmailModal({
   templates: EmailTemplateRow[];
   adminWorkerId: string | null;
   adminName: string;
+  initialTemplate?: EmailTemplateRow | null;
   saving: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -625,9 +667,11 @@ function ComposeEmailModal({
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [customEmails, setCustomEmails] = useState("");
-  const [templateId, setTemplateId] = useState("");
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
+  const [templateId, setTemplateId] = useState(initialTemplate?.id ?? "");
+  const [subject, setSubject] = useState(initialTemplate?.subject ?? "");
+  const [bodyHtml, setBodyHtml] = useState(
+    initialTemplate?.body_html?.replace(/<br\s*\/?>/gi, "\n") ?? ""
+  );
   const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
   const [scheduledFor, setScheduledFor] = useState("");
   const [recurrenceRule, setRecurrenceRule] = useState<EmailRecurrenceRule | "">("");
@@ -638,7 +682,7 @@ function ComposeEmailModal({
     const template = templates.find((row) => row.id === templateId);
     if (!template) return;
     setSubject(template.subject);
-    setBodyHtml(template.body_html);
+    setBodyHtml(template.body_html.replace(/<br\s*\/?>/gi, "\n"));
   }, [templateId, templates]);
 
   const applyFormatting = (before: string, after: string) => {
