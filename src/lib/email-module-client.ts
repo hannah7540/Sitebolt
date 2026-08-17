@@ -3,7 +3,9 @@ import type {
   EmailFolder,
   EmailListFilters,
   EmailMessageRow,
+  EmailSignatureRow,
   EmailTemplateRow,
+  SaveEmailSignatureInput,
   SaveEmailTemplateInput,
 } from "./email-module-types";
 
@@ -82,6 +84,49 @@ export async function deleteEmailTemplate(templateId: string): Promise<{ error: 
   return { error: result.error };
 }
 
+export async function fetchLiveEmailSignature(): Promise<{
+  signature: EmailSignatureRow | null;
+  error: string | null;
+}> {
+  const response = await fetch("/api/emails/signatures?live=true");
+  const result = await readJson<{ signature: EmailSignatureRow | null }>(response);
+  return { signature: result.data?.signature ?? null, error: result.error };
+}
+
+export async function fetchEmailSignatureForEditor(): Promise<{
+  signature: EmailSignatureRow | null;
+  error: string | null;
+}> {
+  const response = await fetch("/api/emails/signatures");
+  const result = await readJson<{ signature: EmailSignatureRow | null }>(response);
+  return { signature: result.data?.signature ?? null, error: result.error };
+}
+
+export async function saveEmailSignature(
+  input: SaveEmailSignatureInput
+): Promise<{ signature: EmailSignatureRow | null; error: string | null }> {
+  const response = await fetch("/api/emails/signatures", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const result = await readJson<{ signature: EmailSignatureRow }>(response);
+  return { signature: result.data?.signature ?? null, error: result.error };
+}
+
+export async function uploadEmailSignatureImage(
+  file: File
+): Promise<{ url: string | null; error: string | null }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/emails/signatures/upload", {
+    method: "POST",
+    body: formData,
+  });
+  const result = await readJson<{ url: string }>(response);
+  return { url: result.data?.url ?? null, error: result.error };
+}
+
 export async function composeEmail(
   input: ComposeEmailInput
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
@@ -137,4 +182,10 @@ export async function processDueScheduledEmails(): Promise<{
   };
 }
 
-export type { EmailFolder, EmailMessageRow, EmailTemplateRow, ComposeEmailInput };
+export type {
+  EmailFolder,
+  EmailMessageRow,
+  EmailSignatureRow,
+  EmailTemplateRow,
+  ComposeEmailInput,
+};

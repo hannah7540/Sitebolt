@@ -112,6 +112,26 @@ export interface InboundEmailAttachmentInput {
   content: string;
 }
 
+export interface EmailSignatureRow {
+  id: string;
+  name: string;
+  body_html: string;
+  body_text: string | null;
+  is_live: boolean;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaveEmailSignatureInput {
+  id?: string | null;
+  name?: string;
+  body_html: string;
+  body_text?: string | null;
+  make_live?: boolean;
+}
+
 export interface InboundEmailWebhookPayload {
   from?: string;
   to?: string | string[];

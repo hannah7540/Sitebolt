@@ -2,15 +2,23 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "./email-service";
 import { resolveSystemFromEmail } from "./email-config";
 import { extractThreadIdFromReplyAddress } from "./email-inbound-parser";
+import {
+  appendSignatureHtml,
+  appendSignatureText,
+  hasEmbeddedSignature,
+  htmlToPlainText as signatureHtmlToPlainText,
+} from "./email-signature-utils";
 import type {
   ComposeEmailInput,
   EmailListFilters,
   EmailMessageRow,
   EmailRecurrenceRule,
+  EmailSignatureRow,
   EmailTargetConfig,
   EmailTargetMode,
   EmailTemplateRow,
   InboundEmailWebhookPayload,
+  SaveEmailSignatureInput,
   SaveEmailTemplateInput,
 } from "./email-module-types";
 
@@ -451,14 +459,30 @@ async function dispatchOutboundMessageAdmin(
 
   const threadId = message.thread_id ?? message.id;
   const fromEmail = resolveSystemFromEmail();
-  const text = message.body_text ?? htmlToPlainText(message.body_html);
+
+  let bodyHtml = message.body_html;
+  let bodyText = message.body_text ?? htmlToPlainText(message.body_html);
+
+  if (!hasEmbeddedSignature(bodyHtml)) {
+    const liveSignature = await fetchLiveEmailSignatureAdmin(admin);
+    if (liveSignature.signature?.body_html.trim()) {
+      bodyHtml = appendSignatureHtml(bodyHtml, liveSignature.signature.body_html);
+      bodyText = appendSignatureText(
+        bodyText,
+        liveSignature.signature.body_text ??
+          signatureHtmlToPlainText(liveSignature.signature.body_html)
+      );
+    }
+  }
+
+  const text = bodyText;
   const outboundSubject = buildOutboundSubject(message.subject, threadId);
   const replyTo = buildReplyToAddress(threadId);
 
   const sendResult = await sendEmail({
     to: recipients,
     subject: outboundSubject,
-    html: message.body_html,
+    html: bodyHtml,
     text,
     replyTo,
     headers: {
@@ -476,6 +500,8 @@ async function dispatchOutboundMessageAdmin(
       thread_id: threadId,
       status: nextStatus,
       subject: outboundSubject,
+      body_html: bodyHtml,
+      body_text: bodyText,
       to_emails: recipients,
       from_email: fromEmail,
       sent_at: sendResult.sent ? now : null,
@@ -831,6 +857,204 @@ export async function ingestInboundEmailAdmin(
     return {
       message: null,
       error: error instanceof Error ? error.message : "Failed to ingest inbound email.",
+    };
+  }
+}
+
+function normalizeEmailSignature(row: Record<string, unknown>): EmailSignatureRow {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? "Email Signature"),
+    body_html: String(row.body_html ?? ""),
+    body_text: row.body_text ? String(row.body_text) : null,
+    is_live: row.is_live === true,
+    created_by: row.created_by ? String(row.created_by) : null,
+    created_by_name: row.created_by_name ? String(row.created_by_name) : null,
+    created_at: String(row.created_at ?? new Date().toISOString()),
+    updated_at: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+export async function fetchLiveEmailSignatureAdmin(
+  admin: SupabaseClient
+): Promise<{ signature: EmailSignatureRow | null; error: string | null }> {
+  try {
+    const { data, error } = await admin
+      .from("user_email_signatures")
+      .select("*")
+      .eq("is_live", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingTableError(error.message, "user_email_signatures")) {
+        return { signature: null, error: null };
+      }
+      return { signature: null, error: error.message };
+    }
+
+    return data
+      ? { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null }
+      : { signature: null, error: null };
+  } catch (error) {
+    return {
+      signature: null,
+      error: error instanceof Error ? error.message : "Failed to load email signature.",
+    };
+  }
+}
+
+export async function fetchEmailSignatureForEditorAdmin(
+  admin: SupabaseClient
+): Promise<{ signature: EmailSignatureRow | null; error: string | null }> {
+  const liveResult = await fetchLiveEmailSignatureAdmin(admin);
+  if (liveResult.signature) return liveResult;
+
+  try {
+    const { data, error } = await admin
+      .from("user_email_signatures")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingTableError(error.message, "user_email_signatures")) {
+        return { signature: null, error: null };
+      }
+      return { signature: null, error: error.message };
+    }
+
+    return data
+      ? { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null }
+      : { signature: null, error: null };
+  } catch (error) {
+    return {
+      signature: null,
+      error: error instanceof Error ? error.message : "Failed to load email signature.",
+    };
+  }
+}
+
+export async function saveEmailSignatureAdmin(
+  admin: SupabaseClient,
+  input: SaveEmailSignatureInput & { created_by?: string | null; created_by_name?: string | null }
+): Promise<{ signature: EmailSignatureRow | null; error: string | null }> {
+  try {
+    const now = new Date().toISOString();
+    const bodyHtml = input.body_html.trim();
+    const bodyText =
+      input.body_text?.trim() || signatureHtmlToPlainText(bodyHtml);
+    const makeLive = input.make_live === true;
+
+    const payload = {
+      name: input.name?.trim() || "Email Signature",
+      body_html: bodyHtml,
+      body_text: bodyText,
+      is_live: makeLive,
+      created_by: input.created_by ?? null,
+      created_by_name: input.created_by_name ?? null,
+      updated_at: now,
+    };
+
+    let signatureId = input.id?.trim() || null;
+
+    if (signatureId) {
+      const { data, error } = await admin
+        .from("user_email_signatures")
+        .update(payload)
+        .eq("id", signatureId)
+        .select("*")
+        .maybeSingle();
+
+      if (error) return { signature: null, error: error.message };
+      if (!data) signatureId = null;
+      else if (makeLive) {
+        await admin
+          .from("user_email_signatures")
+          .update({ is_live: false, updated_at: now })
+          .neq("id", signatureId);
+        await admin
+          .from("user_email_signatures")
+          .update({ is_live: true, updated_at: now })
+          .eq("id", signatureId);
+        const refreshed = await admin
+          .from("user_email_signatures")
+          .select("*")
+          .eq("id", signatureId)
+          .single();
+        return refreshed.data
+          ? {
+              signature: normalizeEmailSignature(refreshed.data as Record<string, unknown>),
+              error: null,
+            }
+          : { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null };
+      }
+
+      return data
+        ? { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null }
+        : { signature: null, error: "Signature not found." };
+    }
+
+    const { data, error } = await admin
+      .from("user_email_signatures")
+      .insert({ ...payload, created_at: now })
+      .select("*")
+      .single();
+
+    if (error) return { signature: null, error: error.message };
+    signatureId = String((data as Record<string, unknown>).id);
+
+    if (makeLive) {
+      await admin
+        .from("user_email_signatures")
+        .update({ is_live: false, updated_at: now })
+        .neq("id", signatureId);
+      await admin
+        .from("user_email_signatures")
+        .update({ is_live: true, updated_at: now })
+        .eq("id", signatureId);
+      const refreshed = await admin
+        .from("user_email_signatures")
+        .select("*")
+        .eq("id", signatureId)
+        .single();
+      return refreshed.data
+        ? {
+            signature: normalizeEmailSignature(refreshed.data as Record<string, unknown>),
+            error: null,
+          }
+        : { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null };
+    }
+
+    return { signature: normalizeEmailSignature(data as Record<string, unknown>), error: null };
+  } catch (error) {
+    return {
+      signature: null,
+      error: error instanceof Error ? error.message : "Failed to save email signature.",
+    };
+  }
+}
+
+export async function uploadEmailSignatureImageAdmin(
+  admin: SupabaseClient,
+  file: { filename: string; contentType: string; buffer: Buffer }
+): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `signatures/${Date.now()}-${safeName}`;
+    const { error } = await admin.storage.from(EMAIL_ATTACHMENTS_BUCKET).upload(path, file.buffer, {
+      contentType: file.contentType || "image/png",
+      upsert: false,
+    });
+    if (error) return { url: null, error: error.message };
+    const { data } = admin.storage.from(EMAIL_ATTACHMENTS_BUCKET).getPublicUrl(path);
+    return { url: data.publicUrl ?? null, error: null };
+  } catch (error) {
+    return {
+      url: null,
+      error: error instanceof Error ? error.message : "Failed to upload signature image.",
     };
   }
 }

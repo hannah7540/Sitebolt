@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
+  FileSignature,
   Inbox,
   Loader2,
   Mail,
@@ -15,7 +16,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import EmailSignatureModal from "@/components/emails/EmailSignatureModal";
 import EmailTemplatesPanel from "@/components/emails/EmailTemplatesPanel";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import { canAccessEmailsModule } from "@/lib/security-roles";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -26,6 +30,7 @@ import {
   fetchEmailMessages,
   fetchEmailTemplates,
   fetchEmailThread,
+  fetchLiveEmailSignature,
   fetchUnreadEmailCount,
   markEmailThreadRead,
   processDueScheduledEmails,
@@ -33,8 +38,13 @@ import {
   updateScheduledEmail,
   type EmailFolder,
   type EmailMessageRow,
+  type EmailSignatureRow,
   type EmailTemplateRow,
 } from "@/lib/email-module-client";
+import {
+  SIGNATURE_DIVIDER_HTML,
+  wrapSignatureHtml,
+} from "@/lib/email-signature-utils";
 import type {
   ComposeEmailInput,
   EmailRecurrenceRule,
@@ -101,7 +111,10 @@ export default function EmailsModulePanel() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composePrefillTemplate, setComposePrefillTemplate] =
     useState<EmailTemplateRow | null>(null);
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [liveSignature, setLiveSignature] = useState<EmailSignatureRow | null>(null);
   const [saving, setSaving] = useState(false);
+  const { toast, showSuccess, dismissToast } = useFormToast();
 
   const canAccess = canAccessEmailsModule(sessionRole);
 
@@ -139,7 +152,7 @@ export default function EmailsModulePanel() {
 
     await processDueScheduledEmails();
 
-    const [messageResult, templateResult, unreadResult] = await Promise.all([
+    const [messageResult, templateResult, unreadResult, signatureResult] = await Promise.all([
       folder === "templates"
         ? Promise.resolve({ messages: [], error: null })
         : fetchEmailMessages({
@@ -151,6 +164,7 @@ export default function EmailsModulePanel() {
           }),
       fetchEmailTemplates(),
       fetchUnreadEmailCount(),
+      fetchLiveEmailSignature(),
     ]);
 
     if (folder !== "templates") {
@@ -159,6 +173,7 @@ export default function EmailsModulePanel() {
     }
     setTemplates(templateResult.templates);
     setUnreadCount(unreadResult.count);
+    setLiveSignature(signatureResult.signature);
     setLoading(false);
   }, [
     canAccess,
@@ -337,6 +352,14 @@ export default function EmailsModulePanel() {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => setSignatureOpen(true)}
+                className="ml-auto inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-orange-200 hover:text-orange-600"
+              >
+                <FileSignature className="h-4 w-4" />
+                Signature
+              </button>
             </div>
             {dateFilter === "custom" ? (
               <div className="mt-3 flex flex-wrap gap-3">
@@ -554,6 +577,7 @@ export default function EmailsModulePanel() {
           templates={templates}
           adminWorkerId={adminWorkerId}
           initialTemplate={composePrefillTemplate}
+          liveSignatureHtml={liveSignature?.body_html ?? ""}
           adminName={
             workers.find((worker) => worker.id === adminWorkerId)
               ? getWorkerDisplayName(
@@ -588,6 +612,22 @@ export default function EmailsModulePanel() {
             setComposeOpen(false);
           }}
         />
+      ) : null}
+
+      <EmailSignatureModal
+        open={signatureOpen}
+        onClose={() => setSignatureOpen(false)}
+        onSaved={async (signature, madeLive) => {
+          if (madeLive) {
+            showSuccess("Live email signature updated.");
+          }
+          const refreshed = await fetchLiveEmailSignature();
+          setLiveSignature(refreshed.signature ?? signature);
+        }}
+      />
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
     </div>
   );
@@ -642,6 +682,7 @@ function ComposeEmailModal({
   adminWorkerId,
   adminName,
   initialTemplate,
+  liveSignatureHtml,
   saving,
   onClose,
   onSubmit,
@@ -653,6 +694,7 @@ function ComposeEmailModal({
   adminWorkerId: string | null;
   adminName: string;
   initialTemplate?: EmailTemplateRow | null;
+  liveSignatureHtml?: string;
   saving: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -669,7 +711,7 @@ function ComposeEmailModal({
   const [customEmails, setCustomEmails] = useState("");
   const [templateId, setTemplateId] = useState(initialTemplate?.id ?? "");
   const [subject, setSubject] = useState(initialTemplate?.subject ?? "");
-  const [bodyHtml, setBodyHtml] = useState(
+  const [messageBody, setMessageBody] = useState(
     initialTemplate?.body_html?.replace(/<br\s*\/?>/gi, "\n") ?? ""
   );
   const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
@@ -677,26 +719,44 @@ function ComposeEmailModal({
   const [recurrenceRule, setRecurrenceRule] = useState<EmailRecurrenceRule | "">("");
   const [templateName, setTemplateName] = useState("");
 
+  const signatureHtml = liveSignatureHtml?.trim() ?? "";
+
   useEffect(() => {
     if (!templateId) return;
     const template = templates.find((row) => row.id === templateId);
     if (!template) return;
     setSubject(template.subject);
-    setBodyHtml(template.body_html.replace(/<br\s*\/?>/gi, "\n"));
+    setMessageBody(template.body_html.replace(/<br\s*\/?>/gi, "\n"));
   }, [templateId, templates]);
+
+  const buildBodyHtml = () => {
+    const messageHtml = messageBody.replace(/\n/g, "<br>");
+    if (!signatureHtml) return messageHtml;
+    return `${messageHtml}${SIGNATURE_DIVIDER_HTML}${wrapSignatureHtml(signatureHtml)}`;
+  };
+
+  const buildBodyText = () => {
+    const base = messageBody.trimEnd();
+    if (!signatureHtml) return base;
+    const plainSignature = signatureHtml
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+    return base ? `${base}\n-- \n${plainSignature}` : plainSignature;
+  };
 
   const applyFormatting = (before: string, after: string) => {
     const textarea = document.getElementById("email-body-editor") as HTMLTextAreaElement | null;
     if (!textarea) return;
     const next = wrapSelection(textarea, before, after);
-    setBodyHtml(next);
+    setMessageBody(next);
   };
 
   const handleSubmit = async () => {
     const input: ComposeEmailInput = {
       subject,
-      body_html: bodyHtml.replace(/\n/g, "<br>"),
-      body_text: bodyHtml,
+      body_html: buildBodyHtml(),
+      body_text: buildBodyText(),
       target_mode: targetMode,
       target_config: {
         worker_ids: selectedWorkerIds,
@@ -850,7 +910,7 @@ function ComposeEmailModal({
               </button>
               <button
                 type="button"
-                onClick={() => setBodyHtml((current) => `${current}\n- `)}
+                onClick={() => setMessageBody((current) => `${current}\n- `)}
                 className="rounded border border-slate-200 px-2 py-1 text-xs"
               >
                 Bullet
@@ -858,10 +918,21 @@ function ComposeEmailModal({
             </div>
             <textarea
               id="email-body-editor"
-              value={bodyHtml}
-              onChange={(event) => setBodyHtml(event.target.value)}
+              value={messageBody}
+              onChange={(event) => setMessageBody(event.target.value)}
               className={cn(inputClass, "min-h-48 font-mono text-sm")}
             />
+            {signatureHtml ? (
+              <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Live Signature Preview
+                </p>
+                <div
+                  className="prose prose-sm max-w-none text-slate-700"
+                  dangerouslySetInnerHTML={{ __html: signatureHtml }}
+                />
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -925,7 +996,7 @@ function ComposeEmailModal({
                   void onSaveTemplate({
                     name: templateName.trim() || subject.trim() || "Untitled template",
                     subject,
-                    body_html: bodyHtml.replace(/\n/g, "<br>"),
+                    body_html: buildBodyHtml(),
                   })
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
