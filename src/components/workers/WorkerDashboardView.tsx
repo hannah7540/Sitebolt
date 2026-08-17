@@ -956,6 +956,15 @@ export default function WorkerDashboardView({
           </div>
         )}
 
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <WorkerItcsWidget
+              workerId={worker?.id ?? effectiveWorkerId}
+              projectId={selectedProjectId}
+            />
+          </div>
+        </div>
+
         {showFormsSubDashboard && worker ? (
           <WorkerFormsSubDashboard
             worker={worker}
@@ -989,12 +998,6 @@ export default function WorkerDashboardView({
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <WorkerItcsWidget
-                  workerId={worker?.id}
-                  projectId={selectedProjectId}
-                />
-              </div>
               {widgetsToRender.map((widget) => (
                 <DashboardWidgetFrame
                   key={widget.id}

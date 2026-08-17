@@ -43,11 +43,7 @@ export default function WorkerItcsWidget({
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-600">
-            View site floorplans &amp; complete inspection points
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Open the floorplan viewer to browse ITC pins, preview runs, and save checklist
-            progress with your crew.
+            Site floorplans, pins &amp; inspection checklists
           </p>
         </div>
       </div>
