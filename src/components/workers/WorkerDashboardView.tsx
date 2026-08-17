@@ -65,6 +65,7 @@ import DashboardCustomizeToolbar, {
   DashboardWidgetFrame,
 } from "@/components/dashboard/DashboardCustomizeToolbar";
 import { useDashboardLayout } from "@/hooks/useDashboardLayout";
+import WorkerItcsWidget from "./itc/WorkerItcsWidget";
 import WorkerInductionAssignmentsModal from "./WorkerInductionAssignmentsModal";
 import WorkerFormsSubDashboard, {
   FormsHubPreviewBadges,
@@ -692,29 +693,8 @@ export default function WorkerDashboardView({
     }
 
     if (widgetId === "itcs") {
-      const itcHref = `/worker-dashboard/itc${
-        worker?.id ? `?worker_id=${encodeURIComponent(worker.id)}` : ""
-      }${selectedProjectId ? `${worker?.id ? "&" : "?"}project_id=${encodeURIComponent(selectedProjectId)}` : ""}`;
-
       return (
-        <Link
-          href={itcHref}
-          className={cn(
-            cardClass,
-            "relative flex h-full flex-col items-start gap-3 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99] sm:col-span-2"
-          )}
-        >
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
-            <MapPin className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <p className="font-semibold text-slate-900">ITC&apos;s</p>
-            <p className="text-sm text-slate-500">
-              View floorplan pins, preview ITCs, and fill checklist items with your crew.
-            </p>
-          </div>
-          <ChevronRight className="absolute bottom-4 right-4 h-4 w-4 text-slate-400" />
-        </Link>
+        <WorkerItcsWidget workerId={worker?.id} projectId={selectedProjectId} />
       );
     }
 
@@ -822,7 +802,10 @@ export default function WorkerDashboardView({
 
   const widgetsToRender = useMemo(() => {
     const source = layout.editMode ? layout.orderedWidgets : layout.visibleWidgets;
-    return source.filter((widget) => !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id));
+    return source.filter(
+      (widget) =>
+        !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id) && widget.id !== "itcs"
+    );
   }, [layout.editMode, layout.orderedWidgets, layout.visibleWidgets]);
   const hiddenWidgetIds = layout.hiddenWidgets.map((widget) => widget.id);
 
@@ -1006,6 +989,12 @@ export default function WorkerDashboardView({
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <WorkerItcsWidget
+                  workerId={worker?.id}
+                  projectId={selectedProjectId}
+                />
+              </div>
               {widgetsToRender.map((widget) => (
                 <DashboardWidgetFrame
                   key={widget.id}

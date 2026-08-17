@@ -121,7 +121,12 @@ export function normalizeWidgetOrder(
 
   return [...merged.values()]
     .sort((a, b) => a.position - b.position)
-    .map((widget, index) => ({ ...widget, position: index }));
+    .map((widget, index) => ({
+      ...widget,
+      position: index,
+      // ITC widget must always remain available on the worker profile dashboard.
+      isVisible: widget.id === "itcs" ? true : widget.isVisible,
+    }));
 }
 
 export function getVisibleWidgets(widgets: DashboardWidgetConfig[]): DashboardWidgetConfig[] {
