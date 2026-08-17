@@ -124,8 +124,6 @@ export function normalizeWidgetOrder(
     .map((widget, index) => ({
       ...widget,
       position: index,
-      // ITC widget must always remain available on the worker profile dashboard.
-      isVisible: widget.id === "itcs" ? true : widget.isVisible,
     }));
 }
 

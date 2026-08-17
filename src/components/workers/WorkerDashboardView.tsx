@@ -694,7 +694,10 @@ export default function WorkerDashboardView({
 
     if (widgetId === "itcs") {
       return (
-        <WorkerItcsWidget workerId={worker?.id} projectId={selectedProjectId} />
+        <WorkerItcsWidget
+          workerId={worker?.id ?? effectiveWorkerId}
+          projectId={selectedProjectId}
+        />
       );
     }
 
@@ -803,8 +806,7 @@ export default function WorkerDashboardView({
   const widgetsToRender = useMemo(() => {
     const source = layout.editMode ? layout.orderedWidgets : layout.visibleWidgets;
     return source.filter(
-      (widget) =>
-        !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id) && widget.id !== "itcs"
+      (widget) => !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id)
     );
   }, [layout.editMode, layout.orderedWidgets, layout.visibleWidgets]);
   const hiddenWidgetIds = layout.hiddenWidgets.map((widget) => widget.id);
@@ -955,15 +957,6 @@ export default function WorkerDashboardView({
             {formProjectWarning}
           </div>
         )}
-
-        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <WorkerItcsWidget
-              workerId={worker?.id ?? effectiveWorkerId}
-              projectId={selectedProjectId}
-            />
-          </div>
-        </div>
 
         {showFormsSubDashboard && worker ? (
           <WorkerFormsSubDashboard
