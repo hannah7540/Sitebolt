@@ -1,4 +1,10 @@
-export type ItcStatus = "not_started" | "ongoing" | "issue" | "complete";
+export type ItcStatus =
+  | "not_started"
+  | "in_progress"
+  | "ongoing"
+  | "issue"
+  | "complete"
+  | "completed";
 
 export type ItcSignoffStatus = "draft" | "submitted";
 
@@ -26,9 +32,11 @@ export interface ItcFormStepTemplate {
 
 export const ITC_STATUS_LABELS: Record<ItcStatus, string> = {
   not_started: "Not Started",
+  in_progress: "In Progress",
   ongoing: "Ongoing",
   issue: "Issue / CR",
   complete: "Complete",
+  completed: "Completed",
 };
 
 export const ITC_STATUS_COLORS: Record<
@@ -36,9 +44,11 @@ export const ITC_STATUS_COLORS: Record<
   { bg: string; text: string; pin: string }
 > = {
   not_started: { bg: "bg-slate-100", text: "text-slate-700", pin: "bg-slate-400" },
+  in_progress: { bg: "bg-amber-100", text: "text-amber-800", pin: "bg-amber-400" },
   ongoing: { bg: "bg-amber-100", text: "text-amber-800", pin: "bg-amber-400" },
   issue: { bg: "bg-red-100", text: "text-red-800", pin: "bg-red-500" },
   complete: { bg: "bg-emerald-100", text: "text-emerald-800", pin: "bg-emerald-500" },
+  completed: { bg: "bg-emerald-100", text: "text-emerald-800", pin: "bg-emerald-500" },
 };
 
 export const ITC_PHOTO_SLOTS: ItcPhotoSlot[] = [

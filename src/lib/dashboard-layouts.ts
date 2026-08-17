@@ -48,6 +48,7 @@ export const MY_PROFILE_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
   { id: "plant_prestarts", position: 4, isVisible: true },
   { id: "timesheets", position: 5, isVisible: true },
   { id: "inductions", position: 6, isVisible: true },
+  { id: "itcs", position: 7, isVisible: true },
 ];
 
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
@@ -78,6 +79,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   toolbox: "Toolbox Talk",
   safety_walk: "Safety Walk",
   timesheets: "My Timesheets",
+  itcs: "ITC's",
 };
 
 export function getDefaultWidgets(dashboardType: DashboardType): DashboardWidgetConfig[] {

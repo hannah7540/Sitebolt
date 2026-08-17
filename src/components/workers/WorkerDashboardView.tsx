@@ -11,6 +11,7 @@ import {
   ChevronRight,
   LayoutDashboard,
   Clock,
+  MapPin,
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc, WorkerTimesheet, LeaveRequest, PlantAsset, PlantPrestart } from "@/lib/supabase";
 import {
@@ -129,6 +130,14 @@ const WIDGETS: DashboardWidget[] = [
     title: "My Timesheets",
     description: "Log hours & view history",
     icon: <Clock className="h-6 w-6" />,
+    accent: "border-orange-200 bg-orange-50 text-orange-600",
+    available: true,
+  },
+  {
+    id: "itcs",
+    title: "ITC's",
+    description: "Floorplan pins & collaborative checklists",
+    icon: <MapPin className="h-6 w-6" />,
     accent: "border-orange-200 bg-orange-50 text-orange-600",
     available: true,
   },
@@ -682,6 +691,33 @@ export default function WorkerDashboardView({
       );
     }
 
+    if (widgetId === "itcs") {
+      const itcHref = `/worker-dashboard/itc${
+        worker?.id ? `?worker_id=${encodeURIComponent(worker.id)}` : ""
+      }${selectedProjectId ? `${worker?.id ? "&" : "?"}project_id=${encodeURIComponent(selectedProjectId)}` : ""}`;
+
+      return (
+        <Link
+          href={itcHref}
+          className={cn(
+            cardClass,
+            "relative flex h-full flex-col items-start gap-3 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99] sm:col-span-2"
+          )}
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
+            <MapPin className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-slate-900">ITC&apos;s</p>
+            <p className="text-sm text-slate-500">
+              View floorplan pins, preview ITCs, and fill checklist items with your crew.
+            </p>
+          </div>
+          <ChevronRight className="absolute bottom-4 right-4 h-4 w-4 text-slate-400" />
+        </Link>
+      );
+    }
+
     if (widgetId === "inductions") {
       const pendingCount = pendingInductions.length;
       const firstAssignment = pendingInductions[0];
@@ -987,7 +1023,8 @@ export default function WorkerDashboardView({
                     widget.id === "assigned_projects" ||
                     widget.id === "swms" ||
                     widget.id === "plant_prestarts" ||
-                    widget.id === "forms_hub"
+                    widget.id === "forms_hub" ||
+                    widget.id === "itcs"
                       ? "sm:col-span-2"
                       : undefined
                   }
