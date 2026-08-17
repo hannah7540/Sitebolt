@@ -102,6 +102,51 @@ export interface SaveEmailTemplateInput {
   created_by?: string | null;
 }
 
+/** Accepts any field alias from forms/API before normalization. */
+export type RawSaveEmailTemplateInput = Partial<{
+  title: string;
+  name: string;
+  subject: string;
+  body: string;
+  content: string;
+  body_html: string;
+  bodyHtml: string;
+  text: string;
+  category: string;
+  created_by: string | null;
+}>;
+
+/** Accepts compose form/API aliases before normalization. */
+export type RawComposeEmailInput = Partial<{
+  subject: string;
+  body: string;
+  content: string;
+  body_html: string;
+  bodyHtml: string;
+  body_text: string;
+  bodyText: string;
+  recipient_type: string;
+  recipientType: string;
+  target_mode: EmailTargetMode;
+  recipient_emails: string[];
+  recipientEmails: string[];
+  recipient_filter_ids: string[];
+  recipientFilterIds: string[];
+  target_config: EmailTargetConfig;
+  template_id: string | null;
+  send_mode: "immediate" | "scheduled";
+  scheduled_for: string | null;
+  scheduledFor: string | null;
+  is_recurring: boolean;
+  isRecurring: boolean;
+  recurrence_rule: EmailRecurrenceRule | null;
+  recurrenceRule: EmailRecurrenceRule | null;
+  status: EmailMessageStatus;
+  created_by: string;
+  created_by_name: string;
+  sender_email: string | null;
+}>;
+
 export interface InboundEmailAttachmentInput {
   filename: string;
   contentType?: string;

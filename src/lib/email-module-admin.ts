@@ -8,6 +8,11 @@ import {
   hasEmbeddedSignature,
   htmlToPlainText as signatureHtmlToPlainText,
 } from "./email-signature-utils";
+import {
+  normalizeComposeInput,
+  normalizeSaveTemplateInput,
+  resolveMessageBodyHtml,
+} from "./email-payload-utils";
 import type {
   ComposeEmailInput,
   EmailListFilters,
@@ -71,7 +76,7 @@ function normalizeTemplateCategory(value: unknown): string {
 
 function normalizeTemplate(row: Record<string, unknown>): EmailTemplateRow {
   const title = String(row.title ?? row.name ?? "");
-  const body = String(row.body ?? row.body_html ?? "");
+  const body = String(row.body ?? row.body_html ?? row.content ?? "");
   return {
     id: String(row.id),
     title,
@@ -92,7 +97,7 @@ function normalizeMessage(row: Record<string, unknown>): EmailMessageRow {
     direction: row.direction === "inbound" ? "inbound" : "outbound",
     status: String(row.status ?? "draft") as EmailMessageRow["status"],
     subject: String(row.subject ?? ""),
-    body_html: String(row.body_html ?? ""),
+    body_html: resolveMessageBodyHtml(row),
     body_text: row.body_text ? String(row.body_text) : null,
     from_email: row.from_email ? String(row.from_email) : null,
     to_emails: parseStringArray(row.to_emails),
@@ -259,13 +264,14 @@ export async function fetchEmailTemplatesAdmin(
 
 export async function saveEmailTemplateAdmin(
   admin: SupabaseClient,
-  input: SaveEmailTemplateInput,
+  input: SaveEmailTemplateInput | Record<string, unknown>,
   templateId?: string | null
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
   try {
-    const subject = input.subject?.trim() ?? "";
-    const body = input.body?.trim() ?? "";
-    const title = input.title?.trim() || subject;
+    const normalized = normalizeSaveTemplateInput(input as Record<string, unknown>);
+    const subject = normalized.subject;
+    const body = normalized.body;
+    const title = normalized.title || subject || "Untitled Template";
 
     if (!subject) {
       return { template: null, error: "Subject is required." };
@@ -275,13 +281,13 @@ export async function saveEmailTemplateAdmin(
     }
 
     const now = new Date().toISOString();
-    const category = (input.category?.trim() || "general").toLowerCase();
+    const category = (normalized.category?.trim() || "general").toLowerCase();
     const payload: Record<string, unknown> = {
       title,
       subject,
       body,
       category,
-      created_by: input.created_by ?? null,
+      created_by: normalized.created_by ?? null,
       updated_at: now,
     };
 
@@ -311,7 +317,7 @@ export async function saveEmailTemplateAdmin(
         body_html: body,
         body_text: htmlToPlainText(body),
         category: normalizeTemplateCategory(category),
-        created_by: input.created_by ?? null,
+        created_by: normalized.created_by ?? null,
         updated_at: now,
       };
       ({ data, error } = await writeTemplate(legacyPayload));
@@ -341,11 +347,16 @@ export async function saveEmailTemplateAdmin(
 
 function isLegacyTemplateColumnError(message: string): boolean {
   const lower = message.toLowerCase();
+  if (lower.includes("body is required") || lower.includes("subject is required")) {
+    return false;
+  }
   return (
-    lower.includes("title") ||
-    lower.includes("body") ||
+    (lower.includes("column") &&
+      (lower.includes("title") ||
+        lower.includes("body_html") ||
+        (lower.includes("'body'") && !lower.includes("body_text")))) ||
     lower.includes("schema cache") ||
-    lower.includes("could not find")
+    (lower.includes("could not find") && lower.includes("column"))
   );
 }
 
@@ -369,9 +380,7 @@ export async function fetchEmailMessagesAdmin(
     } else if (filters.folder === "sent") {
       query = query.eq("direction", "outbound").eq("status", "sent");
     } else if (filters.folder === "scheduled") {
-      query = query
-        .eq("direction", "outbound")
-        .in("status", ["scheduled", "paused"]);
+      query = query.eq("direction", "outbound").eq("status", "scheduled");
     }
 
     if (filters.dateFrom) {
@@ -400,6 +409,7 @@ export async function fetchEmailMessagesAdmin(
         const haystack = [
           message.subject,
           message.body_text ?? "",
+          message.body_html ?? "",
           message.sender_name ?? "",
           message.sender_email ?? "",
           ...message.to_emails,
@@ -578,35 +588,36 @@ async function dispatchOutboundMessageAdmin(
 
 export async function composeEmailAdmin(
   admin: SupabaseClient,
-  input: ComposeEmailInput
+  input: ComposeEmailInput | Record<string, unknown>
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
+  const normalized = normalizeComposeInput(input as Record<string, unknown>);
   const now = new Date().toISOString();
   const recipientResult = await resolveEmailRecipientsAdmin(
     admin,
-    input.target_mode,
-    input.target_config
+    normalized.target_mode,
+    normalized.target_config
   );
   if (recipientResult.error) return { message: null, error: recipientResult.error };
 
-  const status = input.send_mode === "scheduled" ? "scheduled" : "sent";
+  const status = normalized.send_mode === "scheduled" ? "scheduled" : "sent";
   const payload = {
     direction: "outbound",
-    status: input.send_mode === "immediate" ? "draft" : status,
-    subject: input.subject.trim(),
-    body_html: input.body_html,
-    body_text: input.body_text ?? htmlToPlainText(input.body_html),
+    status: normalized.send_mode === "immediate" ? "draft" : status,
+    subject: normalized.subject.trim(),
+    body_html: normalized.body_html,
+    body_text: normalized.body_text ?? htmlToPlainText(normalized.body_html),
     from_email: resolveSystemFromEmail(),
     to_emails: recipientResult.emails,
     cc_emails: [],
-    target_mode: input.target_mode,
-    target_config: input.target_config,
-    template_id: input.template_id ?? null,
-    scheduled_for: input.send_mode === "scheduled" ? input.scheduled_for ?? null : null,
-    recurrence_rule: input.recurrence_rule ?? null,
-    recurrence_active: Boolean(input.recurrence_rule),
-    created_by: input.created_by,
-    created_by_name: input.created_by_name,
-    sender_email: input.sender_email ?? null,
+    target_mode: normalized.target_mode,
+    target_config: normalized.target_config,
+    template_id: normalized.template_id ?? null,
+    scheduled_for: normalized.send_mode === "scheduled" ? normalized.scheduled_for ?? null : null,
+    recurrence_rule: normalized.recurrence_rule ?? null,
+    recurrence_active: Boolean(normalized.recurrence_rule),
+    created_by: normalized.created_by,
+    created_by_name: normalized.created_by_name,
+    sender_email: normalized.sender_email ?? null,
     created_at: now,
     updated_at: now,
   };
@@ -632,7 +643,7 @@ export async function composeEmailAdmin(
     message = normalizeMessage(threaded as Record<string, unknown>);
   }
 
-  if (input.send_mode === "immediate") {
+  if (normalized.send_mode === "immediate") {
     return dispatchOutboundMessageAdmin(admin, message.id);
   }
 

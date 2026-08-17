@@ -8,7 +8,7 @@ import {
   saveEmailTemplateAdmin,
 } from "@/lib/email-module-admin";
 import { requireEmailsApiAccess } from "@/lib/email-module-auth";
-import type { SaveEmailTemplateInput } from "@/lib/email-module-types";
+import { normalizeSaveTemplateInput } from "@/lib/email-payload-utils";
 
 export async function PATCH(
   request: Request,
@@ -19,14 +19,26 @@ export async function PATCH(
 
   try {
     const { templateId } = await context.params;
-    let body: SaveEmailTemplateInput;
+    let raw: Record<string, unknown>;
     try {
-      body = (await request.json()) as SaveEmailTemplateInput;
+      raw = (await request.json()) as Record<string, unknown>;
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
-    const result = await saveEmailTemplateAdmin(auth.admin, body, templateId.trim());
+    const normalized = normalizeSaveTemplateInput(raw);
+    if (!normalized.subject || !normalized.body) {
+      return NextResponse.json(
+        { error: "Please enter a subject and body" },
+        { status: 400 }
+      );
+    }
+
+    const result = await saveEmailTemplateAdmin(
+      auth.admin,
+      { ...normalized, created_by: auth.workerId },
+      templateId.trim()
+    );
     if (result.error) {
       console.error("[PATCH /api/emails/templates]", result.error);
       return NextResponse.json({ error: result.error }, { status: 400 });

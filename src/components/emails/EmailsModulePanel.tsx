@@ -45,6 +45,10 @@ import {
   SIGNATURE_DIVIDER_HTML,
   wrapSignatureHtml,
 } from "@/lib/email-signature-utils";
+import {
+  messageBodyPreview,
+  resolveMessageBodyHtml,
+} from "@/lib/email-payload-utils";
 import type {
   ComposeEmailInput,
   EmailRecurrenceRule,
@@ -75,10 +79,6 @@ function daysAgoIso(days: number): string {
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   return new Date(value).toLocaleString();
-}
-
-function bodyPreview(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 }
 
 function wrapSelection(textarea: HTMLTextAreaElement, before: string, after: string) {
@@ -114,7 +114,7 @@ export default function EmailsModulePanel() {
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [liveSignature, setLiveSignature] = useState<EmailSignatureRow | null>(null);
   const [saving, setSaving] = useState(false);
-  const { toast, showSuccess, dismissToast } = useFormToast();
+  const { toast, showSuccess, showError, dismissToast } = useFormToast();
 
   const canAccess = canAccessEmailsModule(sessionRole);
 
@@ -460,7 +460,7 @@ export default function EmailsModulePanel() {
                               : message.to_emails.join(", ") || "No recipients"}
                           </p>
                           <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                            {bodyPreview(message.body_html)}
+                            {messageBodyPreview(message.body_html || message.body_text || "")}
                           </p>
                           </div>
                         </div>
@@ -544,7 +544,9 @@ export default function EmailsModulePanel() {
                       <h3 className="font-semibold text-slate-900">{message.subject}</h3>
                       <div
                         className="prose prose-sm mt-3 max-w-none text-slate-700"
-                        dangerouslySetInnerHTML={{ __html: message.body_html }}
+                        dangerouslySetInnerHTML={{
+                          __html: resolveMessageBodyHtml(message),
+                        }}
                       />
                       {message.attachment_urls.length > 0 ? (
                         <ul className="mt-3 space-y-1 text-sm">
@@ -608,10 +610,16 @@ export default function EmailsModulePanel() {
             setSaving(false);
             if (result.error) {
               setError(result.error);
+              showError(result.error);
               return;
             }
+            showSuccess(
+              input.send_mode === "scheduled"
+                ? "Email scheduled successfully."
+                : "Email sent successfully."
+            );
             setComposePrefillTemplate(null);
-            await loadData();
+            void loadData();
             setComposeOpen(false);
           }}
         />
@@ -621,9 +629,9 @@ export default function EmailsModulePanel() {
         open={signatureOpen}
         onClose={() => setSignatureOpen(false)}
         onSaved={async (signature, madeLive) => {
-          if (madeLive) {
-            showSuccess("Live email signature updated.");
-          }
+          showSuccess(
+            madeLive ? "Live email signature updated." : "Signature saved successfully."
+          );
           const refreshed = await fetchLiveEmailSignature();
           setLiveSignature(refreshed.signature ?? signature);
         }}
@@ -756,6 +764,10 @@ function ComposeEmailModal({
   };
 
   const handleSubmit = async () => {
+    if (!subject.trim() || !messageBody.trim()) {
+      return;
+    }
+
     const input: ComposeEmailInput = {
       subject,
       body_html: buildBodyHtml(),

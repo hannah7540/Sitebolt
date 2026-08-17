@@ -5,9 +5,16 @@ import type {
   EmailMessageRow,
   EmailSignatureRow,
   EmailTemplateRow,
+  RawComposeEmailInput,
+  RawSaveEmailTemplateInput,
   SaveEmailSignatureInput,
   SaveEmailTemplateInput,
 } from "./email-module-types";
+import {
+  buildTemplateAliasPayload,
+  normalizeComposeInput,
+  normalizeSaveTemplateInput,
+} from "./email-payload-utils";
 
 async function readJson<T>(response: Response): Promise<{ data?: T; error: string | null }> {
   const payload = (await response.json()) as { error?: string } & T;
@@ -61,15 +68,11 @@ export async function fetchEmailTemplates(): Promise<{
 }
 
 export async function saveEmailTemplate(
-  input: SaveEmailTemplateInput,
+  input: SaveEmailTemplateInput | RawSaveEmailTemplateInput,
   templateId?: string | null
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
-  const payload: SaveEmailTemplateInput = {
-    title: input.title.trim(),
-    subject: input.subject.trim(),
-    body: input.body.trim(),
-    ...(input.category?.trim() ? { category: input.category.trim() } : {}),
-  };
+  const normalized = normalizeSaveTemplateInput(input as Record<string, unknown>);
+  const payload = buildTemplateAliasPayload(normalized);
 
   const response = await fetch(
     templateId ? `/api/emails/templates/${encodeURIComponent(templateId)}` : "/api/emails/templates",
@@ -135,12 +138,26 @@ export async function uploadEmailSignatureImage(
 }
 
 export async function composeEmail(
-  input: ComposeEmailInput
+  input: ComposeEmailInput | RawComposeEmailInput
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
+  const normalized = normalizeComposeInput(input as Record<string, unknown>);
   const response = await fetch("/api/emails/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...normalized,
+      body: normalized.body_html,
+      content: normalized.body_html,
+      bodyHtml: normalized.body_html,
+      body_text: normalized.body_text,
+      bodyText: normalized.body_text,
+      recipient_type: normalized.target_mode,
+      target_mode: normalized.target_mode,
+      target_config: normalized.target_config,
+      send_mode: normalized.send_mode,
+      status: normalized.send_mode === "scheduled" ? "scheduled" : "sent",
+      is_recurring: Boolean(normalized.recurrence_rule),
+    }),
   });
   const result = await readJson<{ message: EmailMessageRow }>(response);
   return { message: result.data?.message ?? null, error: result.error };

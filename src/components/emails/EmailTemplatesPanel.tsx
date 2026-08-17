@@ -4,24 +4,19 @@ import { useState } from "react";
 import { Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
-import type { EmailTemplateRow, SaveEmailTemplateInput } from "@/lib/email-module-types";
+import type { EmailTemplateRow } from "@/lib/email-module-types";
 import {
   EMAIL_TEMPLATE_CATEGORIES,
   EMAIL_TEMPLATE_PLACEHOLDERS,
   categoryBadgeClass,
 } from "@/lib/email-template-utils";
 import { saveEmailTemplate } from "@/lib/email-module-client";
+import {
+  messageBodyPreview,
+  normalizeSaveTemplateInput,
+} from "@/lib/email-payload-utils";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
-
-function buildTemplateSavePayload(input: SaveEmailTemplateInput): SaveEmailTemplateInput {
-  return {
-    title: input.title.trim(),
-    subject: input.subject.trim(),
-    body: input.body.trim(),
-    category: input.category?.trim() || "general",
-  };
-}
 
 function htmlToEditorText(html: string): string {
   return html
@@ -33,10 +28,6 @@ function htmlToEditorText(html: string): string {
 
 function editorTextToHtml(text: string): string {
   return text.replace(/\n/g, "<br>");
-}
-
-function bodyPreview(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
 interface EmailTemplatesPanelProps {
@@ -71,11 +62,16 @@ export default function EmailTemplatesPanel({
     setModalOpen(true);
   };
 
-  const handleSaveTemplate = async (input: SaveEmailTemplateInput) => {
+  const handleSaveTemplate = async (raw: Record<string, unknown>) => {
     setLocalSaving(true);
     try {
-      const payload = buildTemplateSavePayload(input);
-      const result = await saveEmailTemplate(payload, editing?.id ?? null);
+      const normalized = normalizeSaveTemplateInput(raw);
+      if (!normalized.subject || !normalized.body) {
+        showError("Please enter a subject and body");
+        return;
+      }
+
+      const result = await saveEmailTemplate(raw, editing?.id ?? null);
 
       if (result.error) {
         throw new Error(result.error);
@@ -153,7 +149,7 @@ export default function EmailTemplatesPanel({
                     </div>
                     <p className="mt-1 text-sm font-medium text-slate-700">{template.subject}</p>
                     <p className="mt-2 line-clamp-3 text-xs text-slate-500">
-                      {bodyPreview(template.body)}
+                      {messageBodyPreview(template.body, 160)}
                     </p>
                   </div>
                 </div>
@@ -221,7 +217,7 @@ function TemplateEditorModal({
   template: EmailTemplateRow | null;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (input: SaveEmailTemplateInput) => Promise<void>;
+  onSave: (input: Record<string, unknown>) => Promise<void>;
   onValidationError: (message: string) => void;
 }) {
   const [title, setTitle] = useState(template?.title ?? "");
@@ -231,25 +227,33 @@ function TemplateEditorModal({
     template ? htmlToEditorText(template.body) : ""
   );
 
+  const setBodyContent = (value: string) => {
+    setBody(value);
+  };
+
   const insertPlaceholder = (token: string) => {
-    setBody((current) => `${current}${current.endsWith(" ") || !current ? "" : " "}${token}`);
+    setBodyContent(`${body}${body.endsWith(" ") || !body ? "" : " "}${token}`);
   };
 
   const handleSaveTemplate = () => {
     const trimmedTitle = title.trim();
     const trimmedSubject = subject.trim();
     const trimmedBody = body.trim();
+    const bodyHtml = editorTextToHtml(trimmedBody);
 
-    if (!trimmedTitle || !trimmedSubject || !trimmedBody) {
-      onValidationError("Please provide a Title, Subject, and Body");
+    if (!trimmedSubject || !trimmedBody) {
+      onValidationError("Please enter a subject and body");
       return;
     }
 
     void onSave({
-      title: trimmedTitle,
+      title: trimmedTitle || trimmedSubject || "Untitled Template",
+      name: trimmedTitle || trimmedSubject || "Untitled Template",
       subject: trimmedSubject,
+      body: bodyHtml,
+      body_html: bodyHtml,
+      content: bodyHtml,
       category: category.trim() || "general",
-      body: editorTextToHtml(trimmedBody),
     });
   };
 
@@ -326,7 +330,7 @@ function TemplateEditorModal({
             <label className={labelClass}>Body</label>
             <textarea
               value={body}
-              onChange={(event) => setBody(event.target.value)}
+              onChange={(event) => setBodyContent(event.target.value)}
               placeholder="Hi {{worker_name}}, please submit your timesheet for {{project_name}} by end of day."
               className={cn(inputClass, "mt-1 min-h-48 font-mono text-sm")}
             />
