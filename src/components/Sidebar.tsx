@@ -19,6 +19,7 @@ import {
   LogOut,
   KeyRound,
   Mail,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -803,19 +804,83 @@ function AccountsSection({
   );
 }
 
-function EmailsSection({ pathname }: { pathname: string | null }) {
-  const isActive = pathname === "/emails" || pathname?.startsWith("/emails/");
+function buildCommunicationMenu(): SidebarMenuGroup | null {
+  return {
+    title: "Communication",
+    icon: MessagesSquare,
+    isCollapsible: true,
+    defaultExpanded: true,
+    children: [
+      {
+        title: "Emails",
+        href: "/emails",
+        icon: Mail,
+      },
+    ],
+  };
+}
+
+function CommunicationSection({
+  menu,
+  pathname,
+}: {
+  menu: SidebarMenuGroup;
+  pathname: string | null;
+}) {
+  const isCommunicationRoute = pathname?.startsWith("/emails") ?? false;
+  const [open, setOpen] = useState(menu.defaultExpanded || isCommunicationRoute);
+  const SectionIcon = menu.icon;
 
   return (
     <div className="border-b border-slate-200 pb-3">
-      <RouteNavLink
-        label="EMAIL's"
-        href="/emails"
-        icon={Mail}
-        active={isActive}
-      />
+      <button
+        type="button"
+        onClick={() => menu.isCollapsible && setOpen(!open)}
+        className={cn(
+          "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
+          isCommunicationRoute ? "text-orange-700" : "text-orange-600"
+        )}
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2">
+          <SectionIcon className="h-4 w-4" />
+          {menu.title}
+        </span>
+        {menu.isCollapsible ? (
+          open ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )
+        ) : null}
+      </button>
+      {open && (
+        <div className="space-y-1 px-2">
+          {menu.children.map((item) => {
+            const isActive =
+              pathname === item.href || pathname?.startsWith(`${item.href}/`);
+
+            return (
+              <RouteNavLink
+                key={item.href}
+                label={item.title}
+                href={item.href}
+                icon={item.icon}
+                active={isActive}
+                depth={1}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
+}
+
+function EmailsSection({ pathname }: { pathname: string | null }) {
+  const menu = buildCommunicationMenu();
+  if (!menu) return null;
+  return <CommunicationSection menu={menu} pathname={pathname} />;
 }
 
 function AdministrationSection({

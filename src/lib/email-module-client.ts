@@ -64,12 +64,20 @@ export async function saveEmailTemplate(
   input: SaveEmailTemplateInput,
   templateId?: string | null
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
+  const payload: SaveEmailTemplateInput = {
+    name: input.name.trim(),
+    subject: input.subject.trim(),
+    body_html: input.body_html.trim(),
+    ...(input.body_text?.trim() ? { body_text: input.body_text.trim() } : {}),
+    ...(input.category?.trim() ? { category: input.category.trim() } : {}),
+  };
+
   const response = await fetch(
     templateId ? `/api/emails/templates/${encodeURIComponent(templateId)}` : "/api/emails/templates",
     {
       method: templateId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
     }
   );
   const result = await readJson<{ template: EmailTemplateRow }>(response);

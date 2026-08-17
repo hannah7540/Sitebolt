@@ -391,14 +391,6 @@ export default function EmailsModulePanel() {
                 <EmailTemplatesPanel
                   templates={templates}
                   saving={saving}
-                  adminWorkerId={adminWorkerId}
-                  adminName={
-                    workers.find((worker) => worker.id === adminWorkerId)
-                      ? getWorkerDisplayName(
-                          workers.find((worker) => worker.id === adminWorkerId)!
-                        )
-                      : "Owner"
-                  }
                   onRefresh={loadData}
                   onSaved={(template) => {
                     setTemplates((current) => {

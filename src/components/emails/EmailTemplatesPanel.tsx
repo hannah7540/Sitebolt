@@ -14,6 +14,16 @@ import { saveEmailTemplate } from "@/lib/email-module-client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
+function buildTemplateSavePayload(input: SaveEmailTemplateInput): SaveEmailTemplateInput {
+  return {
+    name: input.name.trim(),
+    subject: input.subject.trim(),
+    body_html: input.body_html.trim(),
+    body_text: input.body_text?.trim() || undefined,
+    category: input.category?.trim() || "General",
+  };
+}
+
 function htmlToEditorText(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
@@ -33,8 +43,6 @@ function bodyPreview(html: string): string {
 interface EmailTemplatesPanelProps {
   templates: EmailTemplateRow[];
   saving: boolean;
-  adminWorkerId: string | null;
-  adminName: string;
   onRefresh: () => Promise<void>;
   onUseInCompose: (template: EmailTemplateRow) => void;
   onDelete: (template: EmailTemplateRow) => Promise<void>;
@@ -44,8 +52,6 @@ interface EmailTemplatesPanelProps {
 export default function EmailTemplatesPanel({
   templates,
   saving,
-  adminWorkerId,
-  adminName,
   onRefresh,
   onUseInCompose,
   onDelete,
@@ -66,14 +72,14 @@ export default function EmailTemplatesPanel({
     setModalOpen(true);
   };
 
-  const handleSave = async (input: SaveEmailTemplateInput) => {
+  const handleSaveTemplate = async (input: SaveEmailTemplateInput) => {
     setLocalSaving(true);
     try {
-      const result = await saveEmailTemplate(input, editing?.id ?? null);
+      const payload = buildTemplateSavePayload(input);
+      const result = await saveEmailTemplate(payload, editing?.id ?? null);
+
       if (result.error) {
-        console.error("[EmailTemplatesPanel] Failed to save template:", result.error);
-        showError(result.error || "Failed to save template");
-        return;
+        throw new Error(result.error);
       }
 
       if (result.template) {
@@ -83,11 +89,11 @@ export default function EmailTemplatesPanel({
       showSuccess("Template saved successfully.");
       setModalOpen(false);
       setEditing(null);
-      await onRefresh();
+      void onRefresh();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to save template";
-      console.error("[EmailTemplatesPanel] Failed to save template:", error);
+      console.error("Save Template Error:", error);
       showError(message);
     } finally {
       setLocalSaving(false);
@@ -188,14 +194,13 @@ export default function EmailTemplatesPanel({
       {modalOpen ? (
         <TemplateEditorModal
           template={editing}
-          saving={localSaving}
-          adminWorkerId={adminWorkerId}
-          adminName={adminName}
+          isSaving={localSaving}
           onClose={() => {
+            if (localSaving) return;
             setModalOpen(false);
             setEditing(null);
           }}
-          onSave={handleSave}
+          onSave={handleSaveTemplate}
           onValidationError={showError}
         />
       ) : null}
@@ -209,17 +214,13 @@ export default function EmailTemplatesPanel({
 
 function TemplateEditorModal({
   template,
-  saving,
-  adminWorkerId,
-  adminName,
+  isSaving,
   onClose,
   onSave,
   onValidationError,
 }: {
   template: EmailTemplateRow | null;
-  saving: boolean;
-  adminWorkerId: string | null;
-  adminName: string;
+  isSaving: boolean;
   onClose: () => void;
   onSave: (input: SaveEmailTemplateInput) => Promise<void>;
   onValidationError: (message: string) => void;
@@ -235,26 +236,22 @@ function TemplateEditorModal({
     setBody((current) => `${current}${current.endsWith(" ") || !current ? "" : " "}${token}`);
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
+  const handleSaveTemplate = () => {
+    const trimmedName = name.trim();
     const trimmedSubject = subject.trim();
     const trimmedBody = body.trim();
-    const trimmedName = name.trim();
 
-    if (!trimmedSubject || !trimmedBody) {
-      onValidationError("Please fill in Title, Subject, and Body");
+    if (!trimmedName || !trimmedSubject || !trimmedBody) {
+      onValidationError("Please provide a Title, Subject, and Body");
       return;
     }
 
     void onSave({
-      name: trimmedName || trimmedSubject,
+      name: trimmedName,
       subject: trimmedSubject,
       category: category.trim() || "General",
       body_html: editorTextToHtml(trimmedBody),
       body_text: trimmedBody,
-      created_by: adminWorkerId,
-      created_by_name: adminName,
     });
   };
 
@@ -265,12 +262,16 @@ function TemplateEditorModal({
           <h2 className="text-lg font-bold text-slate-900">
             {template ? "Edit Template" : "Add Template"}
           </h2>
-          <button type="button" onClick={onClose} className="rounded-md p-2 hover:bg-slate-100">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-md p-2 hover:bg-slate-100 disabled:opacity-60"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <div className="space-y-4 overflow-y-auto px-5 py-4">
           <div>
             <label className={labelClass}>Template Title / Name</label>
@@ -338,20 +339,21 @@ function TemplateEditorModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+            disabled={isSaving}
+            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
           >
             Cancel
           </button>
           <button
-            type="submit"
-            disabled={saving}
+            type="button"
+            disabled={isSaving}
+            onClick={handleSaveTemplate}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save Template
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isSaving ? "Saving..." : "Save Template"}
           </button>
         </div>
-        </form>
       </div>
     </div>
   );
