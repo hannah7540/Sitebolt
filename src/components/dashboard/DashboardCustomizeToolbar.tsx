@@ -136,6 +136,7 @@ export function DashboardWidgetFrame({
 
   return (
     <div
+      data-widget-id={widgetId}
       className={cn(
         "relative",
         editMode && !isVisible && "opacity-60",

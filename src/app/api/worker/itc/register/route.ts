@@ -31,11 +31,21 @@ export async function GET(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await fetchWorkerItcRegisterAdmin(admin, projectId);
+  try {
+    const result = await fetchWorkerItcRegisterAdmin(admin, projectId);
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ itcs: result.itcs });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to load ITC register.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ itcs: result.itcs });
 }

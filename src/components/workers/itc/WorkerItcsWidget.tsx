@@ -9,12 +9,15 @@ interface WorkerItcsWidgetProps {
   workerId?: string | null;
   projectId?: string | null;
   className?: string;
+  /** When the dashboard layout is being customized, disable navigation. */
+  layoutEditMode?: boolean;
 }
 
 export default function WorkerItcsWidget({
   workerId,
   projectId,
   className,
+  layoutEditMode = false,
 }: WorkerItcsWidgetProps) {
   const params = new URLSearchParams();
   if (workerId?.trim()) params.set("worker_id", workerId.trim());
@@ -22,11 +25,15 @@ export default function WorkerItcsWidget({
   const query = params.toString();
   const href = query ? `/worker-dashboard/itc?${query}` : "/worker-dashboard/itc";
 
+  const actionClassName =
+    "inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-500";
+
   return (
     <div
       className={cn(
         cardClass,
         "relative flex h-full flex-col gap-4 border-orange-200 bg-gradient-to-br from-orange-50/80 to-white p-4 sm:p-5",
+        layoutEditMode && "pointer-events-none select-none",
         className
       )}
     >
@@ -49,12 +56,13 @@ export default function WorkerItcsWidget({
       </div>
 
       <div className="mt-auto flex flex-wrap items-center gap-2">
-        <Link
-          href={href}
-          className="inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-500"
-        >
-          Open ITCs
-        </Link>
+        {layoutEditMode ? (
+          <span className={cn(actionClassName, "opacity-70")}>Open ITCs</span>
+        ) : (
+          <Link href={href} className={actionClassName}>
+            Open ITCs
+          </Link>
+        )}
         <span className="text-xs text-slate-500">
           No active ITCs? You can still select a job and open the floorplan.
         </span>

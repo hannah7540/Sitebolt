@@ -101,6 +101,7 @@ export function normalizeWidgetOrder(
   }
 
   const defaultIds = new Set(defaults.map((widget) => widget.id));
+  const defaultById = new Map(defaults.map((widget) => [widget.id, widget]));
   const merged = new Map<string, DashboardWidgetConfig>();
 
   for (const widget of saved) {
@@ -113,9 +114,19 @@ export function normalizeWidgetOrder(
     }
   }
 
+  let maxPosition = -1;
+  for (const widget of merged.values()) {
+    maxPosition = Math.max(maxPosition, widget.position);
+  }
+
   for (const widget of defaults) {
     if (!merged.has(widget.id)) {
-      merged.set(widget.id, { ...widget });
+      maxPosition += 1;
+      merged.set(widget.id, {
+        id: widget.id,
+        position: maxPosition,
+        isVisible: defaultById.get(widget.id)?.isVisible ?? true,
+      });
     }
   }
 

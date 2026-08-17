@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sanitizeWritePayload } from "./form-payload-utils";
+import {
+  isSchemaCacheColumnError,
+  parseMissingColumnFromError,
+  sanitizeWritePayload,
+  stripMissingColumn,
+} from "./form-payload-utils";
 import {
   ITC_ATTACHMENTS_BUCKET,
   buildUniqueStorageFileName,
@@ -10,6 +15,67 @@ function stripPayload(payload: Record<string, unknown>): Record<string, unknown>
   return sanitizeWritePayload(
     Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
   );
+}
+
+function isMissingTableError(message: string, table: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes(table.toLowerCase()) &&
+    (lower.includes("does not exist") ||
+      lower.includes("could not find") ||
+      lower.includes("schema cache"))
+  );
+}
+
+async function updateWithMissingColumnFallback(
+  admin: SupabaseClient,
+  table: string,
+  payload: Record<string, unknown>,
+  matchColumn: string,
+  matchValue: string
+): Promise<{ error: string | null }> {
+  let nextPayload = stripPayload({ ...payload });
+  let attempts = 0;
+
+  while (attempts < 8) {
+    const { error } = await admin.from(table).update(nextPayload).eq(matchColumn, matchValue);
+    if (!error) return { error: null };
+
+    const missingColumn = parseMissingColumnFromError(error.message);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return { error: error.message };
+    }
+
+    nextPayload = stripMissingColumn(nextPayload, missingColumn);
+    attempts += 1;
+  }
+
+  return { error: "Failed to update ITC record after removing unsupported columns." };
+}
+
+async function upsertWithMissingColumnFallback(
+  admin: SupabaseClient,
+  table: string,
+  payload: Record<string, unknown>,
+  onConflict: string
+): Promise<{ error: string | null }> {
+  let nextPayload = stripPayload({ ...payload });
+  let attempts = 0;
+
+  while (attempts < 8) {
+    const { error } = await admin.from(table).upsert(nextPayload, { onConflict });
+    if (!error) return { error: null };
+
+    const missingColumn = parseMissingColumnFromError(error.message);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return { error: error.message };
+    }
+
+    nextPayload = stripMissingColumn(nextPayload, missingColumn);
+    attempts += 1;
+  }
+
+  return { error: "Failed to save checklist entry after removing unsupported columns." };
 }
 
 export interface WorkerItcPlanRow {
@@ -69,66 +135,118 @@ export async function fetchWorkerItcPlanAdmin(
   admin: SupabaseClient,
   projectId: string
 ): Promise<{ plan: WorkerItcPlanRow | null; error: string | null }> {
-  const { data: planRow, error: planError } = await admin
-    .from("project_itc_plans")
-    .select("*")
-    .eq("project_id", projectId)
-    .eq("is_active", true)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  try {
+    const activeQuery = await admin
+      .from("project_itc_plans")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (planError) return { plan: null, error: planError.message };
+    let planRow = activeQuery.data;
+    let planError = activeQuery.error;
 
-  if (planRow) {
+    if (planError) {
+      if (isSchemaCacheColumnError(planError.message, "is_active")) {
+        const fallbackQuery = await admin
+          .from("project_itc_plans")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        planRow = fallbackQuery.data;
+        planError = fallbackQuery.error;
+
+        if (
+          planRow &&
+          "is_active" in planRow &&
+          (planRow as { is_active?: boolean }).is_active === false
+        ) {
+          planRow = null;
+        }
+      } else if (isMissingTableError(planError.message, "project_itc_plans")) {
+        planRow = null;
+        planError = null;
+      } else {
+        return { plan: null, error: planError.message };
+      }
+    }
+
+    if (planError) {
+      return { plan: null, error: planError.message };
+    }
+
+    if (planRow) {
+      const record = planRow as Record<string, unknown>;
+      return {
+        plan: {
+          id: String(record.id),
+          project_id: String(record.project_id),
+          plan_name: String(record.plan_name ?? "Floorplan"),
+          image_url: String(record.image_url),
+          is_active: record.is_active !== false,
+        },
+        error: null,
+      };
+    }
+
+    const { data: drawingRow, error: drawingError } = await admin
+      .from("itc_project_drawings")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (drawingError) {
+      if (isMissingTableError(drawingError.message, "itc_project_drawings")) {
+        return { plan: null, error: null };
+      }
+      return { plan: null, error: drawingError.message };
+    }
+    if (!drawingRow?.file_url) return { plan: null, error: null };
+
     return {
       plan: {
-        id: String(planRow.id),
-        project_id: String(planRow.project_id),
-        plan_name: String(planRow.plan_name ?? "Floorplan"),
-        image_url: String(planRow.image_url),
-        is_active: planRow.is_active === true,
+        id: String(drawingRow.id),
+        project_id: projectId,
+        plan_name: String(drawingRow.file_name ?? "Floorplan"),
+        image_url: String(drawingRow.file_url),
+        is_active: true,
       },
       error: null,
     };
+  } catch (error) {
+    return {
+      plan: null,
+      error: error instanceof Error ? error.message : "Failed to load ITC floorplan.",
+    };
   }
-
-  const { data: drawingRow, error: drawingError } = await admin
-    .from("itc_project_drawings")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (drawingError) return { plan: null, error: drawingError.message };
-  if (!drawingRow?.file_url) return { plan: null, error: null };
-
-  return {
-    plan: {
-      id: String(drawingRow.id),
-      project_id: projectId,
-      plan_name: String(drawingRow.file_name ?? "Floorplan"),
-      image_url: String(drawingRow.file_url),
-      is_active: true,
-    },
-    error: null,
-  };
 }
 
 export async function fetchWorkerItcRegisterAdmin(
   admin: SupabaseClient,
   projectId: string
 ): Promise<{ itcs: WorkerItcRegisterRow[]; error: string | null }> {
-  const { data, error } = await admin
-    .from("project_itcs")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("itc_number", { ascending: true });
+  try {
+    const { data, error } = await admin
+      .from("project_itcs")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("itc_number", { ascending: true });
 
-  if (error) return { itcs: [], error: error.message };
+    if (error) {
+      if (isMissingTableError(error.message, "project_itcs")) {
+        return { itcs: [], error: null };
+      }
+      return { itcs: [], error: error.message };
+    }
 
-  const itcs = (data ?? []).map((row) => {
+    const itcs = (data ?? []).map((row) => {
     const record = row as Record<string, unknown>;
     const start = record.start_location ? String(record.start_location) : "";
     const end = record.end_location ? String(record.end_location) : "";
@@ -164,7 +282,13 @@ export async function fetchWorkerItcRegisterAdmin(
     } satisfies WorkerItcRegisterRow;
   });
 
-  return { itcs, error: null };
+    return { itcs, error: null };
+  } catch (error) {
+    return {
+      itcs: [],
+      error: error instanceof Error ? error.message : "Failed to load ITC register.",
+    };
+  }
 }
 
 export async function fetchWorkerItcDetailAdmin(
@@ -175,24 +299,39 @@ export async function fetchWorkerItcDetailAdmin(
   entries: WorkerItcChecklistEntryRow[];
   error: string | null;
 }> {
-  const { data: itcRow, error: itcError } = await admin
-    .from("project_itcs")
-    .select("*")
-    .eq("id", itcId)
-    .maybeSingle();
+  try {
+    const { data: itcRow, error: itcError } = await admin
+      .from("project_itcs")
+      .select("*")
+      .eq("id", itcId)
+      .maybeSingle();
 
-  if (itcError) return { itc: null, entries: [], error: itcError.message };
-  if (!itcRow) return { itc: null, entries: [], error: "ITC not found." };
+    if (itcError) {
+      if (isMissingTableError(itcError.message, "project_itcs")) {
+        return { itc: null, entries: [], error: "ITC register is not available." };
+      }
+      return { itc: null, entries: [], error: itcError.message };
+    }
+    if (!itcRow) return { itc: null, entries: [], error: "ITC not found." };
 
-  const { data: entryRows, error: entryError } = await admin
-    .from("itc_checklist_entries")
-    .select("*")
-    .eq("itc_id", itcId)
-    .order("sort_order");
+    const { data: entryRows, error: entryError } = await admin
+      .from("itc_checklist_entries")
+      .select("*")
+      .eq("itc_id", itcId)
+      .order("sort_order");
 
-  if (entryError) return { itc: null, entries: [], error: entryError.message };
+    const stored = new Map<string, Record<string, unknown>>();
+    if (entryError) {
+      if (!isMissingTableError(entryError.message, "itc_checklist_entries")) {
+        return { itc: null, entries: [], error: entryError.message };
+      }
+    } else {
+      for (const row of entryRows ?? []) {
+        stored.set(String(row.item_key), row as Record<string, unknown>);
+      }
+    }
 
-  const record = itcRow as Record<string, unknown>;
+    const record = itcRow as Record<string, unknown>;
   const start = record.start_location ? String(record.start_location) : "";
   const end = record.end_location ? String(record.end_location) : "";
   const scope = start && end ? `${start} → ${end}` : start || end || null;
@@ -222,10 +361,6 @@ export async function fetchWorkerItcDetailAdmin(
     completed_by: record.completed_by ? String(record.completed_by) : null,
     completed_at: record.completed_at ? String(record.completed_at) : null,
   };
-
-  const stored = new Map(
-    (entryRows ?? []).map((row) => [String(row.item_key), row as Record<string, unknown>])
-  );
 
   const entries: WorkerItcChecklistEntryRow[] = WORKER_ITC_CHECKLIST_TEMPLATE.map(
     (template) => {
@@ -264,7 +399,14 @@ export async function fetchWorkerItcDetailAdmin(
     }
   );
 
-  return { itc, entries, error: null };
+    return { itc, entries, error: null };
+  } catch (error) {
+    return {
+      itc: null,
+      entries: [],
+      error: error instanceof Error ? error.message : "Failed to load ITC detail.",
+    };
+  }
 }
 
 export interface SaveChecklistItemInput {
@@ -286,77 +428,99 @@ export async function saveWorkerItcChecklistAdmin(
     items: SaveChecklistItemInput[];
   }
 ): Promise<{ error: string | null }> {
-  const now = new Date().toISOString();
+  try {
+    const now = new Date().toISOString();
 
-  for (const item of input.items) {
-    const payload = stripPayload({
-      itc_id: input.itcId,
-      item_key: item.item_key,
-      item_label: item.item_label,
-      is_mandatory: item.is_mandatory ?? true,
-      is_checked: item.is_checked ?? false,
-      notes: item.notes ?? null,
-      photo_url: item.photo_url ?? null,
-      worker_id: input.workerId,
-      worker_name: input.workerName.trim(),
-      sort_order: item.sort_order ?? 0,
-      updated_at: now,
-    });
+    for (const item of input.items) {
+      const payload = {
+        itc_id: input.itcId,
+        item_key: item.item_key,
+        item_label: item.item_label,
+        is_mandatory: item.is_mandatory ?? true,
+        is_checked: item.is_checked ?? false,
+        notes: item.notes ?? null,
+        photo_url: item.photo_url ?? null,
+        worker_id: input.workerId,
+        worker_name: input.workerName.trim(),
+        sort_order: item.sort_order ?? 0,
+        updated_at: now,
+      };
 
-    const { error } = await admin
-      .from("itc_checklist_entries")
-      .upsert(payload, { onConflict: "itc_id,item_key" });
+      const { error } = await upsertWithMissingColumnFallback(
+        admin,
+        "itc_checklist_entries",
+        payload,
+        "itc_id,item_key"
+      );
 
-    if (error) return { error: error.message };
-  }
+      if (error) {
+        if (isMissingTableError(error, "itc_checklist_entries")) {
+          return { error: "ITC checklist storage is not available yet." };
+        }
+        return { error };
+      }
+    }
 
-  const { error: statusError } = await admin
-    .from("project_itcs")
-    .update(
-      stripPayload({
+    const statusUpdate = await updateWithMissingColumnFallback(
+      admin,
+      "project_itcs",
+      {
         status: "in_progress",
         updated_at: now,
-      })
-    )
-    .eq("id", input.itcId)
-    .in("status", ["not_started", "ongoing", "issue", "in_progress"]);
+      },
+      "id",
+      input.itcId
+    );
 
-  if (statusError) return { error: statusError.message };
-  return { error: null };
+    if (statusUpdate.error && !isMissingTableError(statusUpdate.error, "project_itcs")) {
+      return statusUpdate;
+    }
+
+    return { error: null };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to save ITC checklist.",
+    };
+  }
 }
 
 export async function completeWorkerItcAdmin(
   admin: SupabaseClient,
   input: { itcId: string; workerId: string }
 ): Promise<{ error: string | null }> {
-  const { entries, error: fetchError } = await fetchWorkerItcDetailAdmin(admin, input.itcId);
-  if (fetchError) return { error: fetchError };
+  try {
+    const { entries, error: fetchError } = await fetchWorkerItcDetailAdmin(admin, input.itcId);
+    if (fetchError) return { error: fetchError };
 
-  const incompleteMandatory = entries.filter(
-    (entry) => entry.is_mandatory && !entry.is_checked
-  );
+    const incompleteMandatory = entries.filter(
+      (entry) => entry.is_mandatory && !entry.is_checked
+    );
 
-  if (incompleteMandatory.length > 0) {
-    return {
-      error: `Complete all mandatory checklist items before finishing (${incompleteMandatory.length} remaining).`,
-    };
-  }
+    if (incompleteMandatory.length > 0) {
+      return {
+        error: `Complete all mandatory checklist items before finishing (${incompleteMandatory.length} remaining).`,
+      };
+    }
 
-  const now = new Date().toISOString();
-  const { error } = await admin
-    .from("project_itcs")
-    .update(
-      stripPayload({
+    const now = new Date().toISOString();
+    return await updateWithMissingColumnFallback(
+      admin,
+      "project_itcs",
+      {
         status: "completed",
         progress_percent: 100,
         completed_by: input.workerId,
         completed_at: now,
         updated_at: now,
-      })
-    )
-    .eq("id", input.itcId);
-
-  return { error: error?.message ?? null };
+      },
+      "id",
+      input.itcId
+    );
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to complete ITC.",
+    };
+  }
 }
 
 export async function uploadWorkerItcChecklistPhotoAdmin(

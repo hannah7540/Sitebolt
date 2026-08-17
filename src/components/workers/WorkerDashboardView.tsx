@@ -84,6 +84,15 @@ import {
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
+/** Widgets that span the full grid width on the worker profile dashboard. */
+const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
+  "assigned_projects",
+  "swms",
+  "plant_prestarts",
+  "forms_hub",
+  "itcs",
+]);
+
 /** Widgets relocated into the Forms sub-dashboard — hidden from the main grid. */
 const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
   "prestart",
@@ -697,6 +706,7 @@ export default function WorkerDashboardView({
         <WorkerItcsWidget
           workerId={worker?.id ?? effectiveWorkerId}
           projectId={selectedProjectId}
+          layoutEditMode={layout.editMode}
         />
       );
     }
@@ -1005,11 +1015,7 @@ export default function WorkerDashboardView({
                     layout.toggleWidgetVisibility(widget.id, visible)
                   }
                   className={
-                    widget.id === "assigned_projects" ||
-                    widget.id === "swms" ||
-                    widget.id === "plant_prestarts" ||
-                    widget.id === "forms_hub" ||
-                    widget.id === "itcs"
+                    MY_PROFILE_FULL_WIDTH_WIDGET_IDS.has(widget.id)
                       ? "sm:col-span-2"
                       : undefined
                   }

@@ -45,14 +45,23 @@ export async function POST(
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await completeWorkerItcAdmin(admin, {
-    itcId: itcId.trim(),
-    workerId: body.workerId.trim(),
-  });
+  try {
+    const result = await completeWorkerItcAdmin(admin, {
+      itcId: itcId.trim(),
+      workerId: body.workerId.trim(),
+    });
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to complete ITC.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ ok: true });
 }

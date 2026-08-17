@@ -77,7 +77,7 @@ export function useDashboardLayout({
 
   const enterEditMode = () => {
     if (!canCustomize) return;
-    setDraftLayout(layout);
+    setDraftLayout(normalizeWidgetOrder(layout, defaults));
     setEditMode(true);
     setMessage(null);
   };
@@ -110,8 +110,11 @@ export function useDashboardLayout({
   };
 
   const saveLayout = async () => {
+    const normalizedDraft = normalizeWidgetOrder(draftLayout, defaults);
+
     if (!userId) {
-      setLayout(draftLayout);
+      setLayout(normalizedDraft);
+      setDraftLayout(normalizedDraft);
       setEditMode(false);
       setMessage("Layout saved locally.");
       return;
@@ -124,7 +127,7 @@ export function useDashboardLayout({
       role,
       dashboard_type: dashboardType,
       project_id: projectId,
-      widget_order: draftLayout,
+      widget_order: normalizedDraft,
     });
     setSaving(false);
 
@@ -133,7 +136,8 @@ export function useDashboardLayout({
       return;
     }
 
-    setLayout(draftLayout);
+    setLayout(normalizedDraft);
+    setDraftLayout(normalizedDraft);
     setEditMode(false);
     setMessage("Layout saved.");
   };

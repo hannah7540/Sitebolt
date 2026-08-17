@@ -34,11 +34,20 @@ export async function GET(
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await fetchWorkerItcDetailAdmin(admin, itcId.trim());
+  try {
+    const result = await fetchWorkerItcDetailAdmin(admin, itcId.trim());
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ itc: result.itc, entries: result.entries });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to load ITC detail.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ itc: result.itc, entries: result.entries });
 }

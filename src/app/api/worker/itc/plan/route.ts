@@ -31,11 +31,21 @@ export async function GET(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await fetchWorkerItcPlanAdmin(admin, projectId);
+  try {
+    const result = await fetchWorkerItcPlanAdmin(admin, projectId);
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ plan: result.plan });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to load ITC floorplan.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ plan: result.plan });
 }

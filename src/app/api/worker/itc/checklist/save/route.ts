@@ -53,16 +53,26 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await saveWorkerItcChecklistAdmin(admin, {
-    itcId: body.itcId.trim(),
-    workerId: body.workerId.trim(),
-    workerName: body.workerName.trim(),
-    items: body.items,
-  });
+  try {
+    const result = await saveWorkerItcChecklistAdmin(admin, {
+      itcId: body.itcId.trim(),
+      workerId: body.workerId.trim(),
+      workerName: body.workerName.trim(),
+      items: body.items,
+    });
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to save ITC checklist.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ ok: true });
 }
