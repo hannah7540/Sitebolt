@@ -5,6 +5,8 @@ export interface SendEmailInput {
   subject: string;
   html: string;
   text?: string;
+  replyTo?: string;
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {
@@ -48,6 +50,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         subject: input.subject,
         html: input.html,
         text: input.text,
+        reply_to: input.replyTo,
+        headers: input.headers,
       }),
     });
 

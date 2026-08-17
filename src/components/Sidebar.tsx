@@ -18,6 +18,7 @@ import {
   UserPlus,
   LogOut,
   KeyRound,
+  Mail,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -33,6 +34,7 @@ import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
   canAccessAccountsArea,
+  canAccessEmailsModule,
   canAccessPayRules,
   canManageAdministration,
   canManageOrganisation,
@@ -492,6 +494,7 @@ export default function Sidebar({
     pathname.startsWith("/worker-dashboard");
   const showOrganisation = canManageOrganisation(sessionRole);
   const showAdministration = canManageAdministration(sessionRole);
+  const showEmails = canAccessEmailsModule(sessionRole);
   const showSecurity = canManageSecuritySettings(sessionRole);
   const accountsMenu = useMemo(
     () => buildAccountsMenu(sessionRole, accountsAccessRole, canAccessAccounts),
@@ -597,6 +600,8 @@ export default function Sidebar({
           selectedProjectId={effectiveSelectedProjectId}
           onNavigate={onNavigate}
         />
+
+        {showEmails ? <EmailsSection pathname={pathname} /> : null}
 
         {showAdministration && (
           <AdministrationSection
@@ -794,6 +799,21 @@ function AccountsSection({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmailsSection({ pathname }: { pathname: string | null }) {
+  const isActive = pathname === "/emails" || pathname?.startsWith("/emails/");
+
+  return (
+    <div className="border-b border-slate-200 pb-3">
+      <RouteNavLink
+        label="EMAIL's"
+        href="/emails"
+        icon={Mail}
+        active={isActive}
+      />
     </div>
   );
 }

@@ -117,6 +117,11 @@ export function canManageSecuritySettings(role: SecurityRole): boolean {
   return role === "owner" || role === "full_access";
 }
 
+/** Owner and Full Access can use the EMAIL's communication module. */
+export function canAccessEmailsModule(role: SecurityRole): boolean {
+  return canManageSecuritySettings(role);
+}
+
 /** Owner and Full Access can assign worker security roles from the directory. */
 export function canManageWorkerSecurityRole(role: SecurityRole): boolean {
   return canManageSecuritySettings(role);

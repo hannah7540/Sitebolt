@@ -65,6 +65,14 @@ export function isAddTimesheetsPath(pathname: string | null | undefined): boolea
   return Boolean(pathname?.startsWith("/accounts/add-timesheets"));
 }
 
+export function isEmailsPath(pathname: string | null | undefined): boolean {
+  return Boolean(pathname?.startsWith("/emails"));
+}
+
+export function canAccessEmailsRoute(role: SecurityRole): boolean {
+  return role === "owner" || role === "full_access";
+}
+
 export function filterProjectsForRole(
   role: SecurityRole,
   projects: DbProject[],

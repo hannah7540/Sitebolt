@@ -28,6 +28,7 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
   canAccessAccountsArea,
   canAccessAdminConsole,
+  canAccessEmailsModule,
   canAccessPayRules,
   canAddAccountsTimesheets,
   canManageAccountsTimesheets,
@@ -39,6 +40,7 @@ import {
 import {
   canAccessOrganisationRoute,
   filterProjectsForRole,
+  isEmailsPath,
   isOrganisationPath,
   isPayRulesPath,
   isTimesheetsPath,
@@ -62,6 +64,7 @@ interface AdminConsoleShellProps {
   requireAccountsAccess?: boolean;
   requireOrganisationAccess?: boolean;
   requirePayRulesAccess?: boolean;
+  requireEmailsAccess?: boolean;
 }
 
 export default function AdminConsoleShell({
@@ -69,6 +72,7 @@ export default function AdminConsoleShell({
   requireAccountsAccess = false,
   requireOrganisationAccess = false,
   requirePayRulesAccess = false,
+  requireEmailsAccess = false,
 }: AdminConsoleShellProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -226,6 +230,12 @@ export default function AdminConsoleShell({
       return;
     }
 
+    const emailsRoute = requireEmailsAccess || isEmailsPath(pathname);
+    if (emailsRoute && !canAccessEmailsModule(sessionRole)) {
+      router.replace("/?access=emails_denied");
+      return;
+    }
+
     setAccessDenied(null);
   }, [
     sessionReady,
@@ -236,6 +246,7 @@ export default function AdminConsoleShell({
     requireAccountsAccess,
     requireOrganisationAccess,
     requirePayRulesAccess,
+    requireEmailsAccess,
     pathname,
     router,
   ]);

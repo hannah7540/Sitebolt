@@ -218,6 +218,7 @@ function HomeConsole() {
   );
   const activeTab = consoleRoute?.view ?? "dashboard";
   const openAddFromUrl = readConsoleOpenAdd(searchParams);
+  const emailsAccessDenied = searchParams.get("access") === "emails_denied";
   const hideFinancialFields = !canViewFinancialFields(sessionRole);
   const assignPayRules = canAssignPayRules(sessionRole);
   const manageWorkerRoles = canManageSecuritySettings(sessionRole);
@@ -416,6 +417,12 @@ function HomeConsole() {
             </>
           ) : (
             <div className="flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">
+          {emailsAccessDenied ? (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              The EMAIL&apos;s module is restricted to Owner and Full Access users.
+            </div>
+          ) : null}
+
           {error && (
             <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               {error}
