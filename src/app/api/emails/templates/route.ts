@@ -25,21 +25,32 @@ export async function POST(request: Request) {
   const auth = await requireEmailsApiAccess();
   if (!auth.ok) return auth.response;
 
-  let body: SaveEmailTemplateInput;
   try {
-    body = (await request.json()) as SaveEmailTemplateInput;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
+    let body: SaveEmailTemplateInput;
+    try {
+      body = (await request.json()) as SaveEmailTemplateInput;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
 
-  const result = await saveEmailTemplateAdmin(auth.admin, {
-    ...body,
-    created_by: auth.workerId,
-    created_by_name: auth.workerName,
-  });
+    const result = await saveEmailTemplateAdmin(auth.admin, {
+      ...body,
+      created_by: auth.workerId,
+      created_by_name: auth.workerName,
+    });
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      console.error("[POST /api/emails/templates]", result.error);
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    return NextResponse.json({ template: result.template });
+  } catch (error) {
+    console.error("[POST /api/emails/templates]", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to save template.",
+      },
+      { status: 500 }
+    );
   }
-  return NextResponse.json({ template: result.template });
 }

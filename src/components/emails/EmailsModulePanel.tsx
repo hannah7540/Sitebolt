@@ -400,6 +400,17 @@ export default function EmailsModulePanel() {
                       : "Owner"
                   }
                   onRefresh={loadData}
+                  onSaved={(template) => {
+                    setTemplates((current) => {
+                      const existingIndex = current.findIndex((row) => row.id === template.id);
+                      if (existingIndex >= 0) {
+                        const next = [...current];
+                        next[existingIndex] = template;
+                        return next.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+                      }
+                      return [template, ...current];
+                    });
+                  }}
                   onUseInCompose={(template) => {
                     setComposePrefillTemplate(template);
                     setComposeOpen(true);

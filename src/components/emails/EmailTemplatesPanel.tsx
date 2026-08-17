@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
 import type { EmailTemplateRow, SaveEmailTemplateInput } from "@/lib/email-module-types";
 import {
   EMAIL_TEMPLATE_CATEGORIES,
@@ -36,6 +38,7 @@ interface EmailTemplatesPanelProps {
   onRefresh: () => Promise<void>;
   onUseInCompose: (template: EmailTemplateRow) => void;
   onDelete: (template: EmailTemplateRow) => Promise<void>;
+  onSaved?: (template: EmailTemplateRow) => void;
 }
 
 export default function EmailTemplatesPanel({
@@ -46,10 +49,12 @@ export default function EmailTemplatesPanel({
   onRefresh,
   onUseInCompose,
   onDelete,
+  onSaved,
 }: EmailTemplatesPanelProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<EmailTemplateRow | null>(null);
   const [localSaving, setLocalSaving] = useState(false);
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   const openCreate = () => {
     setEditing(null);
@@ -63,12 +68,29 @@ export default function EmailTemplatesPanel({
 
   const handleSave = async (input: SaveEmailTemplateInput) => {
     setLocalSaving(true);
-    const result = await saveEmailTemplate(input, editing?.id ?? null);
-    setLocalSaving(false);
-    if (!result.error) {
+    try {
+      const result = await saveEmailTemplate(input, editing?.id ?? null);
+      if (result.error) {
+        console.error("[EmailTemplatesPanel] Failed to save template:", result.error);
+        showError(result.error || "Failed to save template");
+        return;
+      }
+
+      if (result.template) {
+        onSaved?.(result.template);
+      }
+
+      showSuccess("Template saved successfully.");
       setModalOpen(false);
       setEditing(null);
       await onRefresh();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save template";
+      console.error("[EmailTemplatesPanel] Failed to save template:", error);
+      showError(message);
+    } finally {
+      setLocalSaving(false);
     }
   };
 
@@ -174,7 +196,12 @@ export default function EmailTemplatesPanel({
             setEditing(null);
           }}
           onSave={handleSave}
+          onValidationError={showError}
         />
+      ) : null}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
     </div>
   );
@@ -187,6 +214,7 @@ function TemplateEditorModal({
   adminName,
   onClose,
   onSave,
+  onValidationError,
 }: {
   template: EmailTemplateRow | null;
   saving: boolean;
@@ -194,6 +222,7 @@ function TemplateEditorModal({
   adminName: string;
   onClose: () => void;
   onSave: (input: SaveEmailTemplateInput) => Promise<void>;
+  onValidationError: (message: string) => void;
 }) {
   const [name, setName] = useState(template?.name ?? "");
   const [subject, setSubject] = useState(template?.subject ?? "");
@@ -204,6 +233,29 @@ function TemplateEditorModal({
 
   const insertPlaceholder = (token: string) => {
     setBody((current) => `${current}${current.endsWith(" ") || !current ? "" : " "}${token}`);
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedSubject = subject.trim();
+    const trimmedBody = body.trim();
+    const trimmedName = name.trim();
+
+    if (!trimmedSubject || !trimmedBody) {
+      onValidationError("Please fill in Title, Subject, and Body");
+      return;
+    }
+
+    void onSave({
+      name: trimmedName || trimmedSubject,
+      subject: trimmedSubject,
+      category: category.trim() || "General",
+      body_html: editorTextToHtml(trimmedBody),
+      body_text: trimmedBody,
+      created_by: adminWorkerId,
+      created_by_name: adminName,
+    });
   };
 
   return (
@@ -218,6 +270,7 @@ function TemplateEditorModal({
           </button>
         </div>
 
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <div className="space-y-4 overflow-y-auto px-5 py-4">
           <div>
             <label className={labelClass}>Template Title / Name</label>
@@ -290,25 +343,15 @@ function TemplateEditorModal({
             Cancel
           </button>
           <button
-            type="button"
-            disabled={saving || !name.trim() || !subject.trim()}
-            onClick={() =>
-              void onSave({
-                name: name.trim(),
-                subject: subject.trim(),
-                category,
-                body_html: editorTextToHtml(body),
-                body_text: body,
-                created_by: adminWorkerId,
-                created_by_name: adminName,
-              })
-            }
+            type="submit"
+            disabled={saving}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save Template
           </button>
         </div>
+        </form>
       </div>
     </div>
   );

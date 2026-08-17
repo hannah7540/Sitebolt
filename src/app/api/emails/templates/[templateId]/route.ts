@@ -17,19 +17,30 @@ export async function PATCH(
   const auth = await requireEmailsApiAccess();
   if (!auth.ok) return auth.response;
 
-  const { templateId } = await context.params;
-  let body: SaveEmailTemplateInput;
   try {
-    body = (await request.json()) as SaveEmailTemplateInput;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
+    const { templateId } = await context.params;
+    let body: SaveEmailTemplateInput;
+    try {
+      body = (await request.json()) as SaveEmailTemplateInput;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
 
-  const result = await saveEmailTemplateAdmin(auth.admin, body, templateId.trim());
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    const result = await saveEmailTemplateAdmin(auth.admin, body, templateId.trim());
+    if (result.error) {
+      console.error("[PATCH /api/emails/templates]", result.error);
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    return NextResponse.json({ template: result.template });
+  } catch (error) {
+    console.error("[PATCH /api/emails/templates]", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to save template.",
+      },
+      { status: 500 }
+    );
   }
-  return NextResponse.json({ template: result.template });
 }
 
 export async function DELETE(

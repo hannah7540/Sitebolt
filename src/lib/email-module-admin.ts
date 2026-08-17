@@ -256,39 +256,75 @@ export async function saveEmailTemplateAdmin(
   input: SaveEmailTemplateInput,
   templateId?: string | null
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
-  const now = new Date().toISOString();
-  const payload = {
-    name: input.name.trim(),
-    subject: input.subject.trim(),
-    body_html: input.body_html,
-    body_text: input.body_text ?? htmlToPlainText(input.body_html),
-    category: input.category?.trim() || "General",
-    created_by: input.created_by ?? null,
-    created_by_name: input.created_by_name ?? null,
-    updated_at: now,
-  };
+  try {
+    const subject = input.subject?.trim() ?? "";
+    const bodyHtml = input.body_html?.trim() ?? "";
+    const name = input.name?.trim() || subject;
 
-  if (templateId) {
-    const { data, error } = await admin
-      .from("email_templates")
-      .update(payload)
-      .eq("id", templateId)
-      .select("*")
-      .maybeSingle();
-    if (error) return { template: null, error: error.message };
+    if (!subject) {
+      return { template: null, error: "Subject is required." };
+    }
+    if (!bodyHtml) {
+      return { template: null, error: "Body is required." };
+    }
+
+    const now = new Date().toISOString();
+    const payload: Record<string, unknown> = {
+      name,
+      subject,
+      body_html: bodyHtml,
+      body_text: input.body_text?.trim() || htmlToPlainText(bodyHtml),
+      category: input.category?.trim() || "General",
+      created_by: input.created_by ?? null,
+      created_by_name: input.created_by_name ?? null,
+      updated_at: now,
+    };
+
+    const writeTemplate = async (writePayload: Record<string, unknown>) => {
+      if (templateId) {
+        return admin
+          .from("email_templates")
+          .update(writePayload)
+          .eq("id", templateId)
+          .select("*")
+          .maybeSingle();
+      }
+
+      return admin.from("email_templates").insert(writePayload).select("*").single();
+    };
+
+    let { data, error } = await writeTemplate(payload);
+
+    if (
+      error &&
+      payload.category &&
+      (error.message.toLowerCase().includes("category") ||
+        error.message.toLowerCase().includes("schema cache"))
+    ) {
+      const { category: _category, ...fallbackPayload } = payload;
+      ({ data, error } = await writeTemplate(fallbackPayload));
+    }
+
+    if (error) {
+      if (isMissingTableError(error.message, "email_templates")) {
+        return {
+          template: null,
+          error: "Email templates table is not available. Apply migration 116.",
+        };
+      }
+      return { template: null, error: error.message };
+    }
+
     return data
       ? { template: normalizeTemplate(data as Record<string, unknown>), error: null }
-      : { template: null, error: "Template not found." };
+      : { template: null, error: templateId ? "Template not found." : "Failed to save template." };
+  } catch (error) {
+    console.error("[saveEmailTemplateAdmin] Failed to save template:", error);
+    return {
+      template: null,
+      error: error instanceof Error ? error.message : "Failed to save template.",
+    };
   }
-
-  const { data, error } = await admin
-    .from("email_templates")
-    .insert(payload)
-    .select("*")
-    .single();
-
-  if (error) return { template: null, error: error.message };
-  return { template: normalizeTemplate(data as Record<string, unknown>), error: null };
 }
 
 export async function deleteEmailTemplateAdmin(
