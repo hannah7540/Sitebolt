@@ -27,13 +27,11 @@ export interface EmailTargetConfig {
 
 export interface EmailTemplateRow {
   id: string;
-  name: string;
+  title: string;
   subject: string;
-  body_html: string;
-  body_text: string | null;
+  body: string;
   category: string;
   created_by: string | null;
-  created_by_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -97,13 +95,11 @@ export interface ComposeEmailInput {
 }
 
 export interface SaveEmailTemplateInput {
-  name: string;
+  title: string;
   subject: string;
-  body_html: string;
-  body_text?: string | null;
+  body: string;
   category?: string;
   created_by?: string | null;
-  created_by_name?: string | null;
 }
 
 export interface InboundEmailAttachmentInput {

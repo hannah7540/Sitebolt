@@ -65,10 +65,9 @@ export async function saveEmailTemplate(
   templateId?: string | null
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
   const payload: SaveEmailTemplateInput = {
-    name: input.name.trim(),
+    title: input.title.trim(),
     subject: input.subject.trim(),
-    body_html: input.body_html.trim(),
-    ...(input.body_text?.trim() ? { body_text: input.body_text.trim() } : {}),
+    body: input.body.trim(),
     ...(input.category?.trim() ? { category: input.category.trim() } : {}),
   };
 

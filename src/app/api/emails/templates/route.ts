@@ -33,11 +33,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
-    const result = await saveEmailTemplateAdmin(auth.admin, {
-      ...body,
-      created_by: auth.workerId,
-      created_by_name: auth.workerName,
-    });
+  const result = await saveEmailTemplateAdmin(auth.admin, {
+    ...body,
+    created_by: auth.workerId,
+  });
 
     if (result.error) {
       console.error("[POST /api/emails/templates]", result.error);

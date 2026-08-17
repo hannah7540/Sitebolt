@@ -1,18 +1,5 @@
--- SiteBolt EMAIL's communication module: templates, messages, threading, scheduling
-
-CREATE TABLE IF NOT EXISTS email_templates (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  subject text NOT NULL DEFAULT '',
-  body_html text NOT NULL DEFAULT '',
-  body_text text,
-  created_by text,
-  created_by_name text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_email_templates_name ON email_templates(name);
+-- SiteBolt EMAIL's communication module: messages, threading, scheduling
+-- (email_templates is created in 116_email_templates.sql)
 
 CREATE TABLE IF NOT EXISTS email_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,15 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_email_messages_status ON email_messages(status, s
 CREATE INDEX IF NOT EXISTS idx_email_messages_unread ON email_messages(direction, is_read)
   WHERE direction = 'inbound';
 
-ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_messages ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Allow public read email_templates" ON email_templates;
-CREATE POLICY "Allow public read email_templates"
-  ON email_templates FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public write email_templates" ON email_templates;
-CREATE POLICY "Allow public write email_templates"
-  ON email_templates FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow public read email_messages" ON email_messages;
 CREATE POLICY "Allow public read email_messages"
@@ -78,5 +57,4 @@ DROP POLICY IF EXISTS "Allow public write email_messages" ON email_messages;
 CREATE POLICY "Allow public write email_messages"
   ON email_messages FOR ALL USING (true) WITH CHECK (true);
 
-COMMENT ON TABLE email_templates IS 'Reusable email templates for the EMAILs module';
 COMMENT ON TABLE email_messages IS 'Outbound/inbound email messages with scheduling and threading';

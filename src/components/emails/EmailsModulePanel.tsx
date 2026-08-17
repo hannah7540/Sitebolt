@@ -220,7 +220,7 @@ export default function EmailsModulePanel() {
   };
 
   const handleDeleteTemplate = async (template: EmailTemplateRow) => {
-    if (!window.confirm(`Delete template "${template.name}"?`)) return;
+    if (!window.confirm(`Delete template "${template.title}"?`)) return;
     setSaving(true);
     await deleteEmailTemplate(template.id);
     setSaving(false);
@@ -703,9 +703,9 @@ function ComposeEmailModal({
   onSaved: () => Promise<void>;
   onSubmit: (input: ComposeEmailInput) => Promise<void>;
   onSaveTemplate: (input: {
-    name: string;
+    title: string;
     subject: string;
-    body_html: string;
+    body: string;
   }) => Promise<void>;
 }) {
   const [targetMode, setTargetMode] = useState<EmailTargetMode>("all_workers");
@@ -715,7 +715,7 @@ function ComposeEmailModal({
   const [templateId, setTemplateId] = useState(initialTemplate?.id ?? "");
   const [subject, setSubject] = useState(initialTemplate?.subject ?? "");
   const [messageBody, setMessageBody] = useState(
-    initialTemplate?.body_html?.replace(/<br\s*\/?>/gi, "\n") ?? ""
+    initialTemplate?.body?.replace(/<br\s*\/?>/gi, "\n") ?? ""
   );
   const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
   const [scheduledFor, setScheduledFor] = useState("");
@@ -729,7 +729,7 @@ function ComposeEmailModal({
     const template = templates.find((row) => row.id === templateId);
     if (!template) return;
     setSubject(template.subject);
-    setMessageBody(template.body_html.replace(/<br\s*\/?>/gi, "\n"));
+    setMessageBody(template.body.replace(/<br\s*\/?>/gi, "\n"));
   }, [templateId, templates]);
 
   const buildBodyHtml = () => {
@@ -880,7 +880,7 @@ function ComposeEmailModal({
               <option value="">No template</option>
               {templates.map((template) => (
                 <option key={template.id} value={template.id}>
-                  {template.name}
+                  {template.title}
                 </option>
               ))}
             </select>
@@ -997,9 +997,9 @@ function ComposeEmailModal({
                 type="button"
                 onClick={() =>
                   void onSaveTemplate({
-                    name: templateName.trim() || subject.trim() || "Untitled template",
+                    title: templateName.trim() || subject.trim() || "Untitled template",
                     subject,
-                    body_html: buildBodyHtml(),
+                    body: buildBodyHtml(),
                   })
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"

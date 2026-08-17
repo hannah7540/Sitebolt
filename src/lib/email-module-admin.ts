@@ -63,16 +63,22 @@ function parseTargetConfig(value: unknown): EmailTargetConfig {
   };
 }
 
+function normalizeTemplateCategory(value: unknown): string {
+  const raw = String(value ?? "general").trim();
+  if (!raw) return "general";
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
 function normalizeTemplate(row: Record<string, unknown>): EmailTemplateRow {
+  const title = String(row.title ?? row.name ?? "");
+  const body = String(row.body ?? row.body_html ?? "");
   return {
     id: String(row.id),
-    name: String(row.name ?? ""),
+    title,
     subject: String(row.subject ?? ""),
-    body_html: String(row.body_html ?? ""),
-    body_text: row.body_text ? String(row.body_text) : null,
-    category: String(row.category ?? "General"),
+    body,
+    category: normalizeTemplateCategory(row.category),
     created_by: row.created_by ? String(row.created_by) : null,
-    created_by_name: row.created_by_name ? String(row.created_by_name) : null,
     created_at: String(row.created_at ?? new Date().toISOString()),
     updated_at: String(row.updated_at ?? new Date().toISOString()),
   };
@@ -258,25 +264,24 @@ export async function saveEmailTemplateAdmin(
 ): Promise<{ template: EmailTemplateRow | null; error: string | null }> {
   try {
     const subject = input.subject?.trim() ?? "";
-    const bodyHtml = input.body_html?.trim() ?? "";
-    const name = input.name?.trim() || subject;
+    const body = input.body?.trim() ?? "";
+    const title = input.title?.trim() || subject;
 
     if (!subject) {
       return { template: null, error: "Subject is required." };
     }
-    if (!bodyHtml) {
+    if (!body) {
       return { template: null, error: "Body is required." };
     }
 
     const now = new Date().toISOString();
+    const category = (input.category?.trim() || "general").toLowerCase();
     const payload: Record<string, unknown> = {
-      name,
+      title,
       subject,
-      body_html: bodyHtml,
-      body_text: input.body_text?.trim() || htmlToPlainText(bodyHtml),
-      category: input.category?.trim() || "General",
+      body,
+      category,
       created_by: input.created_by ?? null,
-      created_by_name: input.created_by_name ?? null,
       updated_at: now,
     };
 
@@ -290,19 +295,26 @@ export async function saveEmailTemplateAdmin(
           .maybeSingle();
       }
 
-      return admin.from("email_templates").insert(writePayload).select("*").single();
+      return admin
+        .from("email_templates")
+        .insert({ ...writePayload, created_at: now })
+        .select("*")
+        .single();
     };
 
     let { data, error } = await writeTemplate(payload);
 
-    if (
-      error &&
-      payload.category &&
-      (error.message.toLowerCase().includes("category") ||
-        error.message.toLowerCase().includes("schema cache"))
-    ) {
-      const { category: _category, ...fallbackPayload } = payload;
-      ({ data, error } = await writeTemplate(fallbackPayload));
+    if (error && isLegacyTemplateColumnError(error.message)) {
+      const legacyPayload: Record<string, unknown> = {
+        name: title,
+        subject,
+        body_html: body,
+        body_text: htmlToPlainText(body),
+        category: normalizeTemplateCategory(category),
+        created_by: input.created_by ?? null,
+        updated_at: now,
+      };
+      ({ data, error } = await writeTemplate(legacyPayload));
     }
 
     if (error) {
@@ -325,6 +337,16 @@ export async function saveEmailTemplateAdmin(
       error: error instanceof Error ? error.message : "Failed to save template.",
     };
   }
+}
+
+function isLegacyTemplateColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("title") ||
+    lower.includes("body") ||
+    lower.includes("schema cache") ||
+    lower.includes("could not find")
+  );
 }
 
 export async function deleteEmailTemplateAdmin(

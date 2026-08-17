@@ -16,11 +16,10 @@ import { cn } from "@/lib/utils";
 
 function buildTemplateSavePayload(input: SaveEmailTemplateInput): SaveEmailTemplateInput {
   return {
-    name: input.name.trim(),
+    title: input.title.trim(),
     subject: input.subject.trim(),
-    body_html: input.body_html.trim(),
-    body_text: input.body_text?.trim() || undefined,
-    category: input.category?.trim() || "General",
+    body: input.body.trim(),
+    category: input.category?.trim() || "general",
   };
 }
 
@@ -142,7 +141,7 @@ export default function EmailTemplatesPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold text-slate-900">{template.name}</h3>
+                      <h3 className="font-semibold text-slate-900">{template.title}</h3>
                       <span
                         className={cn(
                           "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
@@ -154,7 +153,7 @@ export default function EmailTemplatesPanel({
                     </div>
                     <p className="mt-1 text-sm font-medium text-slate-700">{template.subject}</p>
                     <p className="mt-2 line-clamp-3 text-xs text-slate-500">
-                      {bodyPreview(template.body_html)}
+                      {bodyPreview(template.body)}
                     </p>
                   </div>
                 </div>
@@ -225,11 +224,11 @@ function TemplateEditorModal({
   onSave: (input: SaveEmailTemplateInput) => Promise<void>;
   onValidationError: (message: string) => void;
 }) {
-  const [name, setName] = useState(template?.name ?? "");
+  const [title, setTitle] = useState(template?.title ?? "");
   const [subject, setSubject] = useState(template?.subject ?? "");
   const [category, setCategory] = useState(template?.category ?? "General");
   const [body, setBody] = useState(
-    template ? htmlToEditorText(template.body_html) : ""
+    template ? htmlToEditorText(template.body) : ""
   );
 
   const insertPlaceholder = (token: string) => {
@@ -237,21 +236,20 @@ function TemplateEditorModal({
   };
 
   const handleSaveTemplate = () => {
-    const trimmedName = name.trim();
+    const trimmedTitle = title.trim();
     const trimmedSubject = subject.trim();
     const trimmedBody = body.trim();
 
-    if (!trimmedName || !trimmedSubject || !trimmedBody) {
+    if (!trimmedTitle || !trimmedSubject || !trimmedBody) {
       onValidationError("Please provide a Title, Subject, and Body");
       return;
     }
 
     void onSave({
-      name: trimmedName,
+      title: trimmedTitle,
       subject: trimmedSubject,
-      category: category.trim() || "General",
-      body_html: editorTextToHtml(trimmedBody),
-      body_text: trimmedBody,
+      category: category.trim() || "general",
+      body: editorTextToHtml(trimmedBody),
     });
   };
 
@@ -276,8 +274,8 @@ function TemplateEditorModal({
           <div>
             <label className={labelClass}>Template Title / Name</label>
             <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
               placeholder="Weekly Timesheet Reminder"
               className={cn(inputClass, "mt-1")}
             />
