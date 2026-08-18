@@ -13,6 +13,10 @@ export interface IsolatedSignaturePadProps {
 const DISPLAY_HEIGHT_PX = 160;
 const MIN_DISPLAY_WIDTH_PX = 280;
 
+function getDevicePixelRatio(): number {
+  return typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+}
+
 function IsolatedSignaturePad({
   defaultValue = null,
   onCommit,
@@ -22,8 +26,8 @@ function IsolatedSignaturePad({
   const drawingRef = useRef(false);
   const onCommitRef = useRef(onCommit);
   const committedDataUrlRef = useRef<string | null>(null);
-  const sizeInitializedRef = useRef(false);
   const restoringRef = useRef(false);
+  const lastLayoutWidthRef = useRef(0);
 
   useEffect(() => {
     onCommitRef.current = onCommit;
@@ -36,33 +40,10 @@ function IsolatedSignaturePad({
     ctx.lineJoin = "round";
   }, []);
 
-  const initializeCanvasSize = useCallback(
-    (displayWidth: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas || sizeInitializedRef.current) return;
-
-      const width = Math.max(displayWidth, MIN_DISPLAY_WIDTH_PX);
-      const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(DISPLAY_HEIGHT_PX * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${DISPLAY_HEIGHT_PX}px`;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      applyStrokeStyle(ctx);
-      sizeInitializedRef.current = true;
-    },
-    [applyStrokeStyle]
-  );
-
   const restoreFromDataUrl = useCallback(
     (dataUrl: string) => {
       const canvas = canvasRef.current;
-      if (!canvas || !sizeInitializedRef.current) return;
+      if (!canvas) return;
 
       restoringRef.current = true;
       const ctx = canvas.getContext("2d");
@@ -73,6 +54,7 @@ function IsolatedSignaturePad({
 
       const img = new Image();
       img.onload = () => {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         applyStrokeStyle(ctx);
@@ -86,66 +68,95 @@ function IsolatedSignaturePad({
     [applyStrokeStyle]
   );
 
+  const resizeCanvas = useCallback(
+    (displayWidth: number, preserveContent = true) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return false;
+
+      const width = Math.max(displayWidth, MIN_DISPLAY_WIDTH_PX);
+      const height = DISPLAY_HEIGHT_PX;
+      const dpr = getDevicePixelRatio();
+      const previousDataUrl = preserveContent ? committedDataUrlRef.current : null;
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return false;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      applyStrokeStyle(ctx);
+
+      if (previousDataUrl) {
+        restoreFromDataUrl(previousDataUrl);
+      }
+
+      return true;
+    },
+    [applyStrokeStyle, restoreFromDataUrl]
+  );
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const initialize = () => {
-      if (sizeInitializedRef.current) return;
+    const tryInitialResize = () => {
       const width = container.clientWidth;
       if (width <= 0) return;
-
-      initializeCanvasSize(width);
-
+      lastLayoutWidthRef.current = Math.floor(width);
+      resizeCanvas(width, false);
       if (defaultValue) {
         restoreFromDataUrl(defaultValue);
         committedDataUrlRef.current = defaultValue;
       }
     };
 
-    initialize();
+    tryInitialResize();
 
     const observer = new ResizeObserver((entries) => {
-      if (sizeInitializedRef.current) return;
-      const width = entries[0]?.contentRect.width ?? 0;
-      if (width > 0) {
-        initializeCanvasSize(width);
-        if (defaultValue) {
-          restoreFromDataUrl(defaultValue);
-          committedDataUrlRef.current = defaultValue;
-        }
-      }
+      const width = entries[0]?.contentRect.width ?? container.clientWidth;
+      if (width <= 0) return;
+
+      const rounded = Math.floor(width);
+      if (rounded === lastLayoutWidthRef.current) return;
+      lastLayoutWidthRef.current = rounded;
+      resizeCanvas(width, true);
     });
 
     observer.observe(container);
     return () => observer.disconnect();
-  }, [defaultValue, initializeCanvasSize, restoreFromDataUrl]);
+  }, [defaultValue, resizeCanvas, restoreFromDataUrl]);
 
   const getCanvasPoint = useCallback(
-    (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    (clientX: number, clientY: number): { x: number; y: number } | null => {
       const canvas = canvasRef.current;
       if (!canvas) return null;
 
       const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
+      if (rect.width <= 0 || rect.height <= 0) return null;
 
+      return {
+        x: (clientX - rect.left) * (canvas.width / rect.width),
+        y: (clientY - rect.top) * (canvas.height / rect.height),
+      };
+    },
+    []
+  );
+
+  const getPointFromEvent = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
       if ("touches" in event.nativeEvent) {
         const touch =
           event.nativeEvent.touches[0] ?? event.nativeEvent.changedTouches[0];
         if (!touch) return null;
-        return {
-          x: (touch.clientX - rect.left) * scaleX,
-          y: (touch.clientY - rect.top) * scaleY,
-        };
+        return getCanvasPoint(touch.clientX, touch.clientY);
       }
 
-      return {
-        x: (event.nativeEvent.clientX - rect.left) * scaleX,
-        y: (event.nativeEvent.clientY - rect.top) * scaleY,
-      };
+      return getCanvasPoint(event.nativeEvent.clientX, event.nativeEvent.clientY);
     },
-    []
+    [getCanvasPoint]
   );
 
   const commitStroke = useCallback(() => {
@@ -164,14 +175,14 @@ function IsolatedSignaturePad({
 
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      const point = getCanvasPoint(event);
+      const point = getPointFromEvent(event);
       if (!ctx || !point) return;
 
       drawingRef.current = true;
       ctx.beginPath();
       ctx.moveTo(point.x, point.y);
     },
-    [getCanvasPoint]
+    [getPointFromEvent]
   );
 
   const handlePointerMove = useCallback(
@@ -181,20 +192,24 @@ function IsolatedSignaturePad({
 
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      const point = getCanvasPoint(event);
+      const point = getPointFromEvent(event);
       if (!ctx || !point) return;
 
       ctx.lineTo(point.x, point.y);
       ctx.stroke();
     },
-    [getCanvasPoint]
+    [getPointFromEvent]
   );
 
-  const handlePointerEnd = useCallback(() => {
-    if (!drawingRef.current) return;
-    drawingRef.current = false;
-    commitStroke();
-  }, [commitStroke]);
+  const handlePointerEnd = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      event.preventDefault();
+      if (!drawingRef.current) return;
+      drawingRef.current = false;
+      commitStroke();
+    },
+    [commitStroke]
+  );
 
   const handleClear = useCallback(() => {
     const canvas = canvasRef.current;
@@ -209,11 +224,38 @@ function IsolatedSignaturePad({
     onCommitRef.current(null);
   }, [applyStrokeStyle]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const blockTouchScroll = (event: TouchEvent) => {
+      event.preventDefault();
+    };
+
+    const options: AddEventListenerOptions = { passive: false };
+    container.addEventListener("touchstart", blockTouchScroll, options);
+    container.addEventListener("touchmove", blockTouchScroll, options);
+    container.addEventListener("touchend", blockTouchScroll, options);
+    canvas.addEventListener("touchstart", blockTouchScroll, options);
+    canvas.addEventListener("touchmove", blockTouchScroll, options);
+    canvas.addEventListener("touchend", blockTouchScroll, options);
+
+    return () => {
+      container.removeEventListener("touchstart", blockTouchScroll);
+      container.removeEventListener("touchmove", blockTouchScroll);
+      container.removeEventListener("touchend", blockTouchScroll);
+      canvas.removeEventListener("touchstart", blockTouchScroll);
+      canvas.removeEventListener("touchmove", blockTouchScroll);
+      canvas.removeEventListener("touchend", blockTouchScroll);
+    };
+  }, []);
+
   return (
     <div className="space-y-2">
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-lg border border-slate-300 bg-white"
+        className="relative touch-none overflow-hidden rounded-lg border border-slate-300 bg-white"
         style={{ touchAction: "none" }}
       >
         <canvas
@@ -233,7 +275,7 @@ function IsolatedSignaturePad({
       <button
         type="button"
         onClick={handleClear}
-        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"
+        className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-slate-500 hover:text-slate-900 active:scale-95"
       >
         <Eraser className="h-4 w-4" /> Clear signature
       </button>
