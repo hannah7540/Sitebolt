@@ -19,9 +19,63 @@ export type OrganisationRow = Record<string, unknown> & {
   postal_code?: string | null;
   country?: string | null;
   logo_url?: string | null;
+  logo?: string | null;
   company_logo?: string | null;
+  settings?: Record<string, unknown> | null;
   updated_at?: string | null;
 };
+
+function trimOrNull(value: unknown): string | null {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
+function readSettingsLogo(record: OrganisationRow): string | null {
+  const settings = record.settings;
+  if (!settings || typeof settings !== "object") return null;
+  return trimOrNull(settings.logo_url ?? settings.logo);
+}
+
+export function resolveOrganisationLogo(record: OrganisationRow): string | null {
+  return (
+    trimOrNull(record.logo_url) ??
+    trimOrNull(record.logo) ??
+    trimOrNull(record.company_logo) ??
+    readSettingsLogo(record)
+  );
+}
+
+export function resolveOrganisationSuburb(record: OrganisationRow): string {
+  return trimOrNull(record.suburb) ?? trimOrNull(record.city) ?? "";
+}
+
+export function resolveOrganisationStreetAddress(record: OrganisationRow): string {
+  return trimOrNull(record.street_address) ?? trimOrNull(record.address) ?? "";
+}
+
+export function resolveOrganisationPostcode(record: OrganisationRow): string {
+  return trimOrNull(record.postcode) ?? trimOrNull(record.postal_code) ?? "";
+}
+
+export function enrichOrganisationRecord(record: OrganisationRow): OrganisationRow {
+  const logo = resolveOrganisationLogo(record);
+  const suburb = resolveOrganisationSuburb(record);
+  const streetAddress = resolveOrganisationStreetAddress(record);
+  const postcode = resolveOrganisationPostcode(record);
+
+  return {
+    ...record,
+    logo_url: logo,
+    logo,
+    company_logo: logo,
+    address: streetAddress,
+    street_address: streetAddress,
+    suburb,
+    city: trimOrNull(record.city) ?? suburb,
+    postcode,
+    postal_code: trimOrNull(record.postal_code) ?? postcode,
+  };
+}
 
 export function buildDefaultOrganisationRecord(): OrganisationRow {
   return {
@@ -43,6 +97,7 @@ export function buildDefaultOrganisationRecord(): OrganisationRow {
     postal_code: "",
     country: "Australia",
     logo_url: null,
+    logo: null,
     company_logo: null,
     updated_at: new Date().toISOString(),
   };
@@ -50,50 +105,50 @@ export function buildDefaultOrganisationRecord(): OrganisationRow {
 
 export function normalizeOrganisationPayload(
   body: Record<string, unknown>
-): OrganisationRow {
-  const companyName = String(body.company_name ?? body.name ?? "SiteBolt").trim();
-  const address = String(body.address ?? body.street_address ?? "").trim();
-  const suburb = String(body.suburb ?? body.city ?? "").trim();
-  const postcode = String(body.postcode ?? body.postal_code ?? "").trim();
+): Record<string, unknown> {
+  const logo = trimOrNull(body.logo_url ?? body.logo ?? body.logoUrl);
 
   return {
-    name: companyName || "SiteBolt",
-    company_name: companyName || "SiteBolt",
-    trading_name: String(body.trading_name ?? body.tradingName ?? "").trim(),
-    abn: String(body.abn ?? "").trim(),
-    acn: String(body.acn ?? "").trim(),
-    phone: String(body.phone ?? "").trim(),
-    email: String(body.email ?? "").trim(),
-    website: String(body.website ?? "").trim(),
-    address,
-    street_address: String(body.street_address ?? body.address ?? "").trim() || address,
-    suburb,
-    city: String(body.city ?? body.suburb ?? "").trim() || suburb,
-    state: String(body.state ?? "").trim(),
-    postcode,
-    postal_code: String(body.postal_code ?? body.postcode ?? "").trim() || postcode,
-    country: String(body.country ?? "Australia").trim() || "Australia",
-    logo_url: (body.logo_url ?? body.logoUrl ?? null) as string | null,
-    company_logo: (body.logo_url ?? body.logoUrl ?? null) as string | null,
+    name: String(body.company_name ?? body.name ?? "SiteBolt"),
+    company_name: String(body.company_name ?? body.name ?? "SiteBolt"),
+    trading_name: String(body.trading_name ?? body.tradingName ?? ""),
+    abn: String(body.abn ?? ""),
+    acn: String(body.acn ?? ""),
+    phone: String(body.phone ?? ""),
+    email: String(body.email ?? ""),
+    website: String(body.website ?? ""),
+    address: String(body.address ?? body.street_address ?? ""),
+    street_address: String(body.street_address ?? body.address ?? ""),
+    suburb: String(body.suburb ?? body.city ?? ""),
+    city: String(body.city ?? body.suburb ?? ""),
+    state: String(body.state ?? ""),
+    postcode: String(body.postcode ?? body.postal_code ?? ""),
+    postal_code: String(body.postal_code ?? body.postcode ?? ""),
+    country: String(body.country ?? "Australia"),
+    logo_url: logo,
+    logo,
+    company_logo: logo,
     updated_at: new Date().toISOString(),
   };
 }
 
 export function mapOrganisationToForm(record: OrganisationRow) {
+  const enriched = enrichOrganisationRecord(record);
+
   return {
-    id: String(record.id ?? ""),
-    company_name: String(record.company_name ?? record.name ?? "").trim(),
-    trading_name: String(record.trading_name ?? "").trim(),
-    abn: String(record.abn ?? "").trim(),
-    acn: String(record.acn ?? "").trim(),
-    phone: String(record.phone ?? "").trim(),
-    email: String(record.email ?? "").trim(),
-    website: String(record.website ?? "").trim(),
-    address: String(record.address ?? record.street_address ?? "").trim(),
-    suburb: String(record.suburb ?? record.city ?? "").trim(),
-    state: String(record.state ?? "").trim(),
-    postcode: String(record.postcode ?? record.postal_code ?? "").trim(),
-    country: String(record.country ?? "Australia").trim(),
-    logo_url: String(record.logo_url ?? record.company_logo ?? "").trim() || null,
+    id: String(enriched.id ?? ""),
+    company_name: String(enriched.company_name ?? enriched.name ?? "").trim(),
+    trading_name: String(enriched.trading_name ?? "").trim(),
+    abn: String(enriched.abn ?? "").trim(),
+    acn: String(enriched.acn ?? "").trim(),
+    phone: String(enriched.phone ?? "").trim(),
+    email: String(enriched.email ?? "").trim(),
+    website: String(enriched.website ?? "").trim(),
+    address: resolveOrganisationStreetAddress(enriched),
+    suburb: resolveOrganisationSuburb(enriched),
+    state: String(enriched.state ?? "").trim(),
+    postcode: resolveOrganisationPostcode(enriched),
+    country: String(enriched.country ?? "Australia").trim(),
+    logo_url: resolveOrganisationLogo(enriched),
   };
 }

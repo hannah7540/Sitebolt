@@ -6,6 +6,7 @@ import { canManageOrganisation, normalizeSecurityRole } from "@/lib/security-rol
 import {
   buildDefaultOrganisationRecord,
   DEFAULT_ORGANISATION_ID,
+  enrichOrganisationRecord,
   normalizeOrganisationPayload,
   type OrganisationRow,
 } from "@/lib/organisation-api";
@@ -72,7 +73,7 @@ async function fetchOrCreateOrganisation(
   }
 
   if (existing) {
-    return { data: existing as OrganisationRow, error: null };
+    return { data: enrichOrganisationRecord(existing as OrganisationRow), error: null };
   }
 
   const defaultRecord = buildDefaultOrganisationRecord();
@@ -86,7 +87,7 @@ async function fetchOrCreateOrganisation(
     return { data: null, error: insertError.message };
   }
 
-  return { data: inserted as OrganisationRow, error: null };
+  return { data: enrichOrganisationRecord(inserted as OrganisationRow), error: null };
 }
 
 async function saveOrganisation(
@@ -112,7 +113,7 @@ async function saveOrganisation(
     if (error) {
       return { data: null, error: error.message };
     }
-    return { data: data as OrganisationRow, error: null };
+    return { data: enrichOrganisationRecord(data as OrganisationRow), error: null };
   }
 
   const { data, error } = await admin
@@ -127,7 +128,7 @@ async function saveOrganisation(
     return { data: null, error: error.message };
   }
 
-  return { data: data as OrganisationRow, error: null };
+  return { data: enrichOrganisationRecord(data as OrganisationRow), error: null };
 }
 
 export async function GET() {

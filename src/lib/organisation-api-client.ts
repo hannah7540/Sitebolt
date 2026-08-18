@@ -60,11 +60,15 @@ export async function saveOrganisationToApi(input: {
   email?: string;
   website?: string;
   address?: string;
+  street_address?: string;
   suburb?: string;
+  city?: string;
   state?: string;
   postcode?: string;
+  postal_code?: string;
   country?: string;
   logo_url?: string | null;
+  logo?: string | null;
 }): Promise<{ organisation: OrganisationFormRecord | null; error: string | null }> {
   const response = await fetch("/api/organisation", {
     method: "POST",

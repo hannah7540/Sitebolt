@@ -1,34 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, Save } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Building2, ImagePlus, Loader2, Save, Trash2 } from "lucide-react";
 import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvider";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
+import {
+  isAllowedCompanyLogoFile,
+  uploadCompanyLogo,
+} from "@/lib/company-asset-upload";
 import {
   fetchOrganisationFromApi,
   saveOrganisationToApi,
   type OrganisationFormRecord,
 } from "@/lib/organisation-api-client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
-import CompanyLogoPanel from "./CompanyLogoPanel";
+import { cn } from "@/lib/utils";
 
-function applyOrganisationToForm(record: OrganisationFormRecord) {
-  return {
-    companyName: record.company_name,
-    tradingName: record.trading_name,
-    abn: record.abn,
-    acn: record.acn,
-    phone: record.phone,
-    email: record.email,
-    address: record.address,
-    suburb: record.suburb,
-    state: record.state,
-    postcode: record.postcode,
-  };
-}
-
-function applyFormValues(
+function applyOrganisationRecord(
   record: OrganisationFormRecord,
   setters: {
     setProfileId: (value: string) => void;
@@ -38,29 +27,36 @@ function applyFormValues(
     setAcn: (value: string) => void;
     setPhone: (value: string) => void;
     setEmail: (value: string) => void;
+    setWebsite: (value: string) => void;
     setAddress: (value: string) => void;
     setSuburb: (value: string) => void;
     setState: (value: string) => void;
     setPostcode: (value: string) => void;
+    setCountry: (value: string) => void;
+    setLogoUrl: (value: string | null) => void;
   }
 ) {
   setters.setProfileId(record.id);
-  const values = applyOrganisationToForm(record);
-  setters.setCompanyName(values.companyName);
-  setters.setTradingName(values.tradingName);
-  setters.setAbn(values.abn);
-  setters.setAcn(values.acn);
-  setters.setPhone(values.phone);
-  setters.setEmail(values.email);
-  setters.setAddress(values.address);
-  setters.setSuburb(values.suburb);
-  setters.setState(values.state);
-  setters.setPostcode(values.postcode);
+  setters.setCompanyName(record.company_name);
+  setters.setTradingName(record.trading_name);
+  setters.setAbn(record.abn);
+  setters.setAcn(record.acn);
+  setters.setPhone(record.phone);
+  setters.setEmail(record.email);
+  setters.setWebsite(record.website);
+  setters.setAddress(record.address);
+  setters.setSuburb(record.suburb);
+  setters.setState(record.state);
+  setters.setPostcode(record.postcode);
+  setters.setCountry(record.country);
+  setters.setLogoUrl(record.logo_url);
 }
 
 export default function CompanyInformationPanel() {
   const { refreshBranding } = useCompanyBranding();
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [profileId, setProfileId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState("");
   const [tradingName, setTradingName] = useState("");
@@ -68,13 +64,72 @@ export default function CompanyInformationPanel() {
   const [acn, setAcn] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState("");
   const [address, setAddress] = useState("");
   const [suburb, setSuburb] = useState("");
   const [state, setState] = useState("");
   const [postcode, setPostcode] = useState("");
+  const [country, setCountry] = useState("Australia");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [removingLogo, setRemovingLogo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const formSetters = {
+    setProfileId,
+    setCompanyName,
+    setTradingName,
+    setAbn,
+    setAcn,
+    setPhone,
+    setEmail,
+    setWebsite,
+    setAddress,
+    setSuburb,
+    setState,
+    setPostcode,
+    setCountry,
+    setLogoUrl,
+  };
+
+  const buildPayload = useCallback(
+    (overrides?: { logo_url?: string | null }) => ({
+      company_name: companyName,
+      trading_name: tradingName,
+      abn,
+      acn,
+      phone,
+      email,
+      website,
+      address,
+      street_address: address,
+      suburb,
+      city: suburb,
+      state,
+      postcode,
+      postal_code: postcode,
+      country,
+      logo_url: overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl,
+    }),
+    [
+      companyName,
+      tradingName,
+      abn,
+      acn,
+      phone,
+      email,
+      website,
+      address,
+      suburb,
+      state,
+      postcode,
+      country,
+      logoUrl,
+    ]
+  );
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -85,19 +140,7 @@ export default function CompanyInformationPanel() {
         throw new Error(loadError);
       }
       if (organisation) {
-        applyFormValues(organisation, {
-          setProfileId,
-          setCompanyName,
-          setTradingName,
-          setAbn,
-          setAcn,
-          setPhone,
-          setEmail,
-          setAddress,
-          setSuburb,
-          setState,
-          setPostcode,
-        });
+        applyOrganisationRecord(organisation, formSetters);
       }
     } catch (cause) {
       const message =
@@ -113,48 +156,26 @@ export default function CompanyInformationPanel() {
     void loadProfile();
   }, [loadProfile]);
 
+  const persistOrganisation = async (payload: ReturnType<typeof buildPayload>) => {
+    const { organisation, error: saveError } = await saveOrganisationToApi(payload);
+    if (saveError) {
+      throw new Error(saveError);
+    }
+    if (!organisation) {
+      throw new Error("Failed to save organisation details");
+    }
+    applyOrganisationRecord(organisation, formSetters);
+    await refreshBranding();
+    return organisation;
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
 
     try {
-      const { organisation, error: saveError } = await saveOrganisationToApi({
-        company_name: companyName,
-        trading_name: tradingName,
-        abn,
-        acn,
-        phone,
-        email,
-        address,
-        suburb,
-        state,
-        postcode,
-      });
-
-      if (saveError) {
-        throw new Error(saveError);
-      }
-
-      if (!organisation) {
-        throw new Error("Failed to save organisation details");
-      }
-
-      applyFormValues(organisation, {
-        setProfileId,
-        setCompanyName,
-        setTradingName,
-        setAbn,
-        setAcn,
-        setPhone,
-        setEmail,
-        setAddress,
-        setSuburb,
-        setState,
-        setPostcode,
-      });
-
-      await refreshBranding();
+      await persistOrganisation(buildPayload());
       showSuccess("Organisation details saved successfully");
     } catch (cause) {
       const message =
@@ -163,6 +184,55 @@ export default function CompanyInformationPanel() {
       showError(message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!isAllowedCompanyLogoFile(file)) {
+      showError("Please upload a PNG, JPG, or SVG image.");
+      return;
+    }
+
+    setUploadingLogo(true);
+    setError(null);
+
+    try {
+      const path = `logos/company-logo-${Date.now()}`;
+      const { url, error: uploadError } = await uploadCompanyLogo(file, path);
+      if (uploadError || !url) {
+        throw new Error(uploadError ?? "Logo upload failed.");
+      }
+
+      setLogoUrl(url);
+      await persistOrganisation(buildPayload({ logo_url: url }));
+      showSuccess("Company logo saved successfully");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Logo upload failed.";
+      setError(message);
+      showError(message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    setRemovingLogo(true);
+    setError(null);
+
+    try {
+      setLogoUrl(null);
+      await persistOrganisation(buildPayload({ logo_url: null }));
+      showSuccess("Company logo removed");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Failed to remove logo.";
+      setError(message);
+      showError(message);
+    } finally {
+      setRemovingLogo(false);
     }
   };
 
@@ -184,109 +254,221 @@ export default function CompanyInformationPanel() {
         Organisation details used across SiteBolt documents and dashboards.
       </p>
 
-      <form onSubmit={handleSave} className={`max-w-3xl space-y-4 p-6 ${cardClass}`}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block space-y-1 md:col-span-2">
-            <span className={labelClass}>Company name</span>
-            <input
-              className={inputClass}
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              required
-            />
-          </label>
+      <form onSubmit={handleSave} className="max-w-3xl space-y-6">
+        <section className={`space-y-4 p-6 ${cardClass}`}>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Company Logo & Branding</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Upload your organisation logo for headers, safety forms, and printed site packs.
+            </p>
+          </div>
 
-          <label className="block space-y-1 md:col-span-2">
-            <span className={labelClass}>Trading name</span>
-            <input
-              className={inputClass}
-              value={tradingName}
-              onChange={(e) => setTradingName(e.target.value)}
-              placeholder="Optional trading or brand name"
-            />
-          </label>
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex h-28 w-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
+              {uploadingLogo ? (
+                <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
+              ) : logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt={`${companyName || "Company"} logo preview`}
+                  className="max-h-full max-w-full object-contain"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-slate-400">
+                  <Building2 className="h-8 w-8" />
+                  <span className="text-xs">No logo uploaded</span>
+                </div>
+              )}
+            </div>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>ABN</span>
-            <input
-              className={inputClass}
-              value={abn}
-              onChange={(e) => setAbn(e.target.value)}
-              placeholder="12 345 678 901"
-            />
-          </label>
+            <div className="flex flex-col gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
+              <button
+                type="button"
+                disabled={uploadingLogo || removingLogo || saving}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {uploadingLogo ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-4 w-4" />
+                )}
+                Upload Logo
+              </button>
+              {logoUrl ? (
+                <button
+                  type="button"
+                  disabled={uploadingLogo || removingLogo || saving}
+                  onClick={() => void handleRemoveLogo()}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  )}
+                >
+                  {removingLogo ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Remove Logo
+                </button>
+              ) : null}
+            </div>
+          </div>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>ACN</span>
-            <input
-              className={inputClass}
-              value={acn}
-              onChange={(e) => setAcn(e.target.value)}
-              placeholder="123 456 789"
-            />
-          </label>
+          <p className={labelClass}>
+            Stored in Supabase bucket: <span className="font-medium">company-assets</span>
+          </p>
+        </section>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>Phone</span>
-            <input
-              className={inputClass}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="tel"
-              autoComplete="tel"
-            />
-          </label>
+        <section className={`space-y-4 p-6 ${cardClass}`}>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Company Details</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Legal and contact information shown on documents and dashboards.
+            </p>
+          </div>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>Email</span>
-            <input
-              className={inputClass}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-            />
-          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-1 md:col-span-2">
+              <span className={labelClass}>Company name</span>
+              <input
+                className={inputClass}
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                required
+              />
+            </label>
 
-          <label className="block space-y-1 md:col-span-2">
-            <span className={labelClass}>Address</span>
-            <input
-              className={inputClass}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Street address"
-            />
-          </label>
+            <label className="block space-y-1 md:col-span-2">
+              <span className={labelClass}>Trading name</span>
+              <input
+                className={inputClass}
+                value={tradingName}
+                onChange={(e) => setTradingName(e.target.value)}
+                placeholder="Optional trading or brand name"
+              />
+            </label>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>Suburb</span>
-            <input
-              className={inputClass}
-              value={suburb}
-              onChange={(e) => setSuburb(e.target.value)}
-            />
-          </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>ABN</span>
+              <input
+                className={inputClass}
+                value={abn}
+                onChange={(e) => setAbn(e.target.value)}
+                placeholder="12 345 678 901"
+              />
+            </label>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>State</span>
-            <input
-              className={inputClass}
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              placeholder="NSW"
-            />
-          </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>ACN</span>
+              <input
+                className={inputClass}
+                value={acn}
+                onChange={(e) => setAcn(e.target.value)}
+                placeholder="123 456 789"
+              />
+            </label>
 
-          <label className="block space-y-1">
-            <span className={labelClass}>Postcode</span>
-            <input
-              className={inputClass}
-              value={postcode}
-              onChange={(e) => setPostcode(e.target.value)}
-              inputMode="numeric"
-            />
-          </label>
-        </div>
+            <label className="block space-y-1">
+              <span className={labelClass}>Phone</span>
+              <input
+                className={inputClass}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>Email</span>
+              <input
+                className={inputClass}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </label>
+
+            <label className="block space-y-1 md:col-span-2">
+              <span className={labelClass}>Website</span>
+              <input
+                className={inputClass}
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://www.example.com.au"
+                inputMode="url"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className={`space-y-4 p-6 ${cardClass}`}>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Business Address</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Primary business address used on compliance documents.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-1 md:col-span-2">
+              <span className={labelClass}>Street address</span>
+              <input
+                className={inputClass}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Street address"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>Suburb</span>
+              <input
+                className={inputClass}
+                value={suburb}
+                onChange={(e) => setSuburb(e.target.value)}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>State</span>
+              <input
+                className={inputClass}
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                placeholder="NSW"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>Postcode</span>
+              <input
+                className={inputClass}
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>Country</span>
+              <input
+                className={inputClass}
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+              />
+            </label>
+          </div>
+        </section>
 
         {profileId ? (
           <p className="text-xs text-slate-400">Record ID: {profileId}</p>
@@ -300,7 +482,7 @@ export default function CompanyInformationPanel() {
 
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || uploadingLogo || removingLogo}
           aria-busy={saving}
           className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -309,11 +491,9 @@ export default function CompanyInformationPanel() {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save Company Profile
+          Save Organisation Details
         </button>
       </form>
-
-      <CompanyLogoPanel />
 
       {toast ? (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
