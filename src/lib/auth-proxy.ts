@@ -14,6 +14,11 @@ import {
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
 import {
+  NATIVE_APP_COOKIE,
+  resolveNativeWorkerDashboardPath,
+  shouldRedirectNativePath,
+} from "@/lib/native-app-paths";
+import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
   fetchWorkerAccessRevokedForAuthUser,
 } from "@/lib/worker-revocation";
@@ -242,7 +247,17 @@ async function resolveAuthContext(
   };
 }
 
-function resolveAuthenticatedHomePath(context: AuthContext): string {
+function isNativeAppRequest(request: NextRequest): boolean {
+  return request.cookies.get(NATIVE_APP_COOKIE)?.value === "1";
+}
+
+function resolveAuthenticatedHomePath(
+  context: AuthContext,
+  request: NextRequest
+): string {
+  if (isNativeAppRequest(request)) {
+    return resolveNativeWorkerDashboardPath(context.workerId);
+  }
   return resolveDefaultLandingPathForRole(context.role, context.workerId);
 }
 
@@ -333,8 +348,13 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       const nextParam =
         request.nextUrl.searchParams.get("next") ??
         request.nextUrl.searchParams.get("redirect_to");
-      const destination =
-        nextParam?.startsWith("/") ? nextParam : resolveAuthenticatedHomePath(context);
+      let destination =
+        nextParam?.startsWith("/")
+          ? nextParam
+          : resolveAuthenticatedHomePath(context, request);
+      if (isNativeAppRequest(request) && shouldRedirectNativePath(destination)) {
+        destination = resolveNativeWorkerDashboardPath(context.workerId);
+      }
       return redirectWithCookies(request, destination, sessionResponse);
     }
     return sessionResponse;
@@ -342,6 +362,18 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
 
   if (isPublicPath(pathname)) {
     return sessionResponse;
+  }
+
+  if (
+    context.user &&
+    isNativeAppRequest(request) &&
+    shouldRedirectNativePath(pathname)
+  ) {
+    return redirectWithCookies(
+      request,
+      resolveNativeWorkerDashboardPath(context.workerId),
+      sessionResponse
+    );
   }
 
   if (requiresAuthentication(pathname) && !context.user) {

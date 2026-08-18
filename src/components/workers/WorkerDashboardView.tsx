@@ -81,6 +81,7 @@ import {
   normalizeSecurityRole,
   type SecurityRole,
 } from "@/lib/security-roles";
+import { isNativeMobileApp } from "@/lib/native-app";
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
@@ -233,7 +234,8 @@ export default function WorkerDashboardView({
     () => sessionRole ?? normalizeSecurityRole(worker?.security_role),
     [sessionRole, worker?.security_role]
   );
-  const canCustomize = canCustomizeDashboardLayout(resolvedRole);
+  const canCustomize =
+    canCustomizeDashboardLayout(resolvedRole) && !isNativeMobileApp();
   const layout = useDashboardLayout({
     userId: effectiveWorkerId,
     role: resolvedRole,
@@ -848,7 +850,7 @@ export default function WorkerDashboardView({
   }
 
   const ticketStatus = worker ? getWorkerTicketStatus(worker, vocs) : "unknown";
-  const showAdminNav = showAdminSwitch && !embedded;
+  const showAdminNav = showAdminSwitch && !embedded && !isNativeMobileApp();
   const profileName = worker ? getWorkerDisplayName(worker, "Worker Profile") : "Worker Profile";
   const profileStatus = worker?.status ?? "pending_induction";
   const isProfileLoading = (loading || resolvingWorker) && !worker;

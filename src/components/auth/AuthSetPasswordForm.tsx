@@ -10,6 +10,7 @@ import {
   resolvePostAuthPathForUser,
 } from "@/lib/auth-profile";
 import { isGeneralWorkerRole, resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import { resolvePostLoginPath } from "@/lib/native-app";
 import { WORKER_ONBOARDING_PATH } from "@/lib/worker-onboarding";
 import {
   passwordRequirementsLabel,
@@ -265,7 +266,12 @@ export default function AuthSetPasswordForm({
           const bound = await bindAuthSessionForUser(user);
           nextPath = isGeneralWorkerRole(bound.role)
             ? WORKER_ONBOARDING_PATH
-            : resolveDefaultLandingPathForRole(bound.role, bound.workerId);
+            : resolvePostLoginPath(bound.role, bound.workerId, {
+                defaultPath: resolveDefaultLandingPathForRole(
+                  bound.role,
+                  bound.workerId
+                ),
+              });
         } else {
           nextPath = await resolvePostAuthPathForUser(user);
         }

@@ -10,6 +10,7 @@ import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { resolvePostLoginPath } from "@/lib/native-app";
 import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
@@ -93,8 +94,10 @@ function LoginPageContent() {
         return;
       }
 
-      const targetPath =
-        returnPath ?? resolveDefaultLandingPathForRole(bound.role, bound.workerId);
+      const targetPath = resolvePostLoginPath(bound.role, bound.workerId, {
+        returnPath,
+        defaultPath: resolveDefaultLandingPathForRole(bound.role, bound.workerId),
+      });
 
       redirectAfterLogin(targetPath);
     } catch (cause) {
@@ -124,8 +127,13 @@ function LoginPageContent() {
       if (!cancelled) {
         if (bound.ok) {
           redirectAfterLogin(
-            returnPath ??
-              resolveDefaultLandingPathForRole(bound.role, bound.workerId)
+            resolvePostLoginPath(bound.role, bound.workerId, {
+              returnPath,
+              defaultPath: resolveDefaultLandingPathForRole(
+                bound.role,
+                bound.workerId
+              ),
+            })
           );
         } else {
           await supabase.auth.signOut();

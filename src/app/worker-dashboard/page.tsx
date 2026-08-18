@@ -13,6 +13,7 @@ import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
 import { cardClass } from "@/lib/ui-classes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { isNativeMobileApp } from "@/lib/native-app";
 import {
   canAccessAdminConsole,
   normalizeSecurityRole,
@@ -68,7 +69,8 @@ function WorkerDashboardContent() {
           sessionWorker &&
           canAccessAdminConsole(sessionRole) &&
           !fromAdmin &&
-          !queryWorkerId
+          !queryWorkerId &&
+          !isNativeMobileApp()
         ) {
           router.replace("/");
           return;
@@ -125,7 +127,7 @@ function WorkerDashboardContent() {
   }, [queryWorkerId, fromAdmin, router]);
 
   const showAdminSwitch =
-    fromAdmin || (!!workerId && getAdminWorkerId() === workerId);
+    !isNativeMobileApp() && (fromAdmin || (!!workerId && getAdminWorkerId() === workerId));
 
   if (pickerLoading && !workerId) {
     return (
