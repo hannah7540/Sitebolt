@@ -1,6 +1,9 @@
 "use client";
 
+import { useCallback } from "react";
 import { X } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import type { WorkerTimesheet } from "@/lib/supabase";
 import {
   formatTimeDisplay,
@@ -32,6 +35,13 @@ export default function WorkerTimesheetHistoryDrawer({
   timesheets,
   onClose,
 }: WorkerTimesheetHistoryDrawerProps) {
+  const handleBack = useCallback(() => {
+    onClose();
+    return true;
+  }, [onClose]);
+
+  useMobileBackHandler(handleBack, true);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
       <button
@@ -41,7 +51,7 @@ export default function WorkerTimesheetHistoryDrawer({
         onClick={onClose}
       />
       <div className="flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl">
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
+        <div className="mobile-safe-area-top flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Past Timesheets</h2>
             <p className="mt-0.5 text-sm text-slate-500">
@@ -58,7 +68,7 @@ export default function WorkerTimesheetHistoryDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="worker-mobile-content-pad flex-1 overflow-y-auto p-4 lg:pb-4">
           {timesheets.length === 0 ? (
             <p className="text-center text-sm text-slate-500">
               No timesheet submissions yet.
@@ -111,6 +121,13 @@ export default function WorkerTimesheetHistoryDrawer({
             </ul>
           )}
         </div>
+
+        <WorkerMobileBackButton
+          label="Back to Dashboard"
+          onClick={onClose}
+          alwaysVisible
+          className="z-[60]"
+        />
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ interface WorkerMobileBackButtonProps {
   label: string;
   onClick: () => void;
   className?: string;
+  /** Show on large screens too (default: mobile / native only). */
+  alwaysVisible?: boolean;
 }
 
 /**
@@ -17,11 +19,13 @@ export default function WorkerMobileBackButton({
   label,
   onClick,
   className,
+  alwaysVisible = false,
 }: WorkerMobileBackButtonProps) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed inset-x-0 bottom-0 z-50 lg:hidden",
+        "pointer-events-none fixed inset-x-0 bottom-0 z-50",
+        !alwaysVisible && "lg:hidden",
         className
       )}
       aria-hidden={false}
