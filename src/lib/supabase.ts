@@ -3448,6 +3448,7 @@ function buildSwmsInsertPayload(input: {
   title: string;
   documentDate?: string | null;
   uploadedUrl: string;
+  fileName?: string | null;
   projectId?: string | null;
   swmsScope?: SwmsScope;
   version?: string;
@@ -3464,6 +3465,7 @@ function buildSwmsInsertPayload(input: {
     date: selectedDate,
     doc_url: input.uploadedUrl,
     file_url: input.uploadedUrl,
+    document_url: input.uploadedUrl,
     is_archived: false,
     status: "Active",
     swms_scope: scope,
@@ -3483,11 +3485,18 @@ function buildSwmsInsertPayload(input: {
     payload.previous_version_id = previousVersionId;
   }
 
+  const fileName = nullIfBlank(input.fileName);
+  if (fileName) {
+    payload.file_name = fileName;
+  }
+
   return payload;
 }
 
 const SWMS_OPTIONAL_INSERT_COLUMNS = [
   "doc_url",
+  "document_url",
+  "file_name",
   "issue_date",
   "date",
   "is_archived",
@@ -3688,6 +3697,7 @@ export async function insertSwmsDocumentRecord(input: {
   title: string;
   documentDate?: string | null;
   uploadedUrl: string;
+  fileName?: string | null;
   projectId?: string | null;
   swmsScope?: SwmsScope;
   version?: string;
@@ -3804,6 +3814,7 @@ export interface SwmsAssignmentRecord {
   status: SwmsAssignmentStatus;
   signature_url: string | null;
   signed_at: string | null;
+  acknowledged_risks?: boolean | null;
   created_at?: string;
 }
 
@@ -3823,6 +3834,7 @@ type RawSwmsAssignmentRecord = Record<string, unknown> & {
   status?: string | null;
   signature_url?: string | null;
   signed_at?: string | null;
+  acknowledged_risks?: boolean | null;
   created_at?: string;
 };
 
@@ -4188,6 +4200,7 @@ export async function updateSwmsDocumentFields(
   if (fields.uploadedUrl !== undefined) {
     payload.doc_url = fields.uploadedUrl;
     payload.file_url = fields.uploadedUrl;
+    payload.document_url = fields.uploadedUrl;
   }
 
   const tables: SwmsDocumentTable[] = ["swms_documents", "swms"];
@@ -4290,6 +4303,7 @@ export async function fetchSwmsAssignmentRecordByToken(
 export async function signSwmsAssignmentRecord(input: {
   token: string;
   signatureUrl: string;
+  acknowledgedRisks?: boolean;
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured." };
@@ -4300,27 +4314,50 @@ export async function signSwmsAssignmentRecord(input: {
     return { error: "Signing token is required." };
   }
 
-  const updatePayload = {
+  const updatePayload: Record<string, string | boolean> = {
     status: "Signed",
     signature_url: input.signatureUrl,
     signed_at: new Date().toISOString(),
   };
 
-  let { error } = await supabase
-    .from("swms_assignments")
-    .update(updatePayload)
-    .or(buildSwmsTokenOrFilter(trimmedToken))
-    .eq("status", "Pending");
-
-  if (error && isMissingSwmsTokenColumnError(error.message)) {
-    ({ error } = await supabase
-      .from("swms_assignments")
-      .update(updatePayload)
-      .eq("signing_token", trimmedToken)
-      .eq("status", "Pending"));
+  if (input.acknowledgedRisks === true) {
+    updatePayload.acknowledged_risks = true;
   }
 
-  return { error: error?.message ?? null };
+  let currentPayload: Record<string, string | boolean> = { ...updatePayload };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let { error } = await supabase
+      .from("swms_assignments")
+      .update(currentPayload)
+      .or(buildSwmsTokenOrFilter(trimmedToken))
+      .eq("status", "Pending");
+
+    if (error && isMissingSwmsTokenColumnError(error.message)) {
+      ({ error } = await supabase
+        .from("swms_assignments")
+        .update(currentPayload)
+        .eq("signing_token", trimmedToken)
+        .eq("status", "Pending"));
+    }
+
+    if (!error) {
+      return { error: null };
+    }
+
+    if (
+      "acknowledged_risks" in currentPayload &&
+      isMissingSwmsColumnError(error.message, "acknowledged_risks")
+    ) {
+      const { acknowledged_risks: _removed, ...rest } = currentPayload;
+      currentPayload = rest;
+      continue;
+    }
+
+    return { error: error.message };
+  }
+
+  return { error: "Failed to sign SWMS assignment." };
 }
 
 const SWMS_OPTIONAL_ARCHIVE_COLUMNS = ["is_archived", "status"] as const;

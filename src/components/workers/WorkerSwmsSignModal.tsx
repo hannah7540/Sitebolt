@@ -7,11 +7,12 @@ import {
   getSwmsAssigneeName,
   getSwmsDocumentUrl,
   getSwmsSigningToken,
-  signSwmsAssignment,
+  formatSwmsVersionLabel,
+  resolveSwmsScope,
   type SwmsAssignment,
   type SwmsDocument,
 } from "@/lib/swms";
-import { uploadSiteFormSignature } from "@/lib/site-form-upload";
+import { uploadSwmsSignature } from "@/lib/swms-signature-upload";
 import { modalOverlayClass, modalClass, sectionClass } from "@/lib/ui-classes";
 
 interface WorkerSwmsSignModalProps {
@@ -20,18 +21,29 @@ interface WorkerSwmsSignModalProps {
   onSigned: () => void;
 }
 
+function formatSwmsCategory(scope: string | null | undefined): string {
+  return scope === "site_specific" ? "Site-Specific" : "Company";
+}
+
 export default function WorkerSwmsSignModal({
   assignment,
   onClose,
   onSigned,
 }: WorkerSwmsSignModalProps) {
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [acknowledgedRisks, setAcknowledgedRisks] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSign = async () => {
     if (assignment.status === "Signed") {
       onClose();
+      return;
+    }
+    if (!acknowledgedRisks) {
+      setError(
+        "You must confirm that you have read, understood, and agree to comply with this SWMS."
+      );
       return;
     }
     if (!signatureDataUrl) {
@@ -50,23 +62,29 @@ export default function WorkerSwmsSignModal({
     }
 
     try {
-      const signatureUrl = await uploadSiteFormSignature(
+      const { url: signatureUrl, error: uploadError } = await uploadSwmsSignature(
         signatureDataUrl,
-        `swms/signatures/${signingToken}.png`
+        signingToken
       );
       if (!signatureUrl) {
-        setError("Signature upload failed.");
+        setError(uploadError ?? "Signature upload failed.");
         setSaving(false);
         return;
       }
 
-      const { error: signError } = await signSwmsAssignment({
-        token: signingToken,
-        signatureUrl,
+      const response = await fetch("/api/worker/swms/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: signingToken,
+          signature_url: signatureUrl,
+          acknowledged_risks: true,
+        }),
       });
 
-      if (signError) {
-        setError(signError);
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setError(payload.error ?? "Failed to sign SWMS.");
         setSaving(false);
         return;
       }
@@ -81,6 +99,8 @@ export default function WorkerSwmsSignModal({
   const swms = assignment.swms;
   const swmsDocumentUrl = getSwmsDocumentUrl(swms);
   const assigneeName = getSwmsAssigneeName(assignment);
+  const category = formatSwmsCategory(resolveSwmsScope(swms));
+  const version = formatSwmsVersionLabel(swms?.version);
 
   return (
     <div className={modalOverlayClass} onClick={onClose}>
@@ -94,7 +114,7 @@ export default function WorkerSwmsSignModal({
               {swms?.title ?? "SWMS Document"}
             </h2>
             <p className="text-sm text-slate-500">
-              Assigned to {assigneeName} · {assignment.status}
+              {version} · {category} · Assigned to {assigneeName}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
@@ -115,7 +135,7 @@ export default function WorkerSwmsSignModal({
               rel="noreferrer"
               className="mt-2 inline-block text-sm font-medium text-orange-600 hover:underline"
             >
-              Open PDF in new tab
+              Open Document in New Tab
             </a>
           </div>
         ) : null}
@@ -131,12 +151,27 @@ export default function WorkerSwmsSignModal({
             />
           </div>
         ) : (
-          <div className={sectionClass}>
-            <p className="mb-2 text-sm font-semibold text-slate-900">
-              Digital signature *
-            </p>
-            <SignatureCanvas onChange={setSignatureDataUrl} />
-          </div>
+          <>
+            <label className="mb-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-800">
+              <input
+                type="checkbox"
+                checked={acknowledgedRisks}
+                onChange={(event) => setAcknowledgedRisks(event.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                I have read, understood, and agree to comply with this SWMS and its
+                control measures.
+              </span>
+            </label>
+
+            <div className={sectionClass}>
+              <p className="mb-2 text-sm font-semibold text-slate-900">
+                Digital signature *
+              </p>
+              <SignatureCanvas onChange={setSignatureDataUrl} />
+            </div>
+          </>
         )}
 
         {error && (
@@ -161,7 +196,7 @@ export default function WorkerSwmsSignModal({
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Mark as Signed
+              Sign & Submit SWMS
             </button>
           ) : null}
         </div>

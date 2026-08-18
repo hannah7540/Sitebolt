@@ -1,64 +1,86 @@
 import { supabase } from "./supabase";
 
-const SWMS_UPLOAD_BUCKETS = [
+const SWMS_BUCKET = "swms-documents";
+
+const SWMS_UPLOAD_FALLBACK_BUCKETS = [
   "site-form-uploads",
-  "swms-documents",
   "worker-documents",
   "worker-docs",
 ] as const;
 
+/** Sanitize storage object keys for Supabase/S3 (no spaces or illegal characters). */
+export function sanitizeStorageKey(rawName: string): string {
+  const ext = rawName.split(".").pop() || "pdf";
+  const base = rawName
+    .replace(/\.[^/.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+  const safeBase = base || "document";
+  return `swms-${Date.now()}-${safeBase}.${ext}`;
+}
+
 async function uploadSwmsPdfToBucket(
   bucket: string,
   file: File,
-  path: string
+  fileKey: string
 ): Promise<{ url: string | null; error: string | null }> {
   const { error: uploadError } = await supabase.storage
     .from(bucket)
-    .upload(path, file, {
+    .upload(fileKey, file, {
+      cacheControl: "3600",
       upsert: true,
       contentType: "application/pdf",
     });
 
   if (uploadError) {
-    return { url: null, error: uploadError.message };
+    console.error("Storage upload error:", uploadError);
+    return { url: null, error: uploadError.message || "Failed to upload SWMS document" };
   }
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  const { data } = supabase.storage.from(bucket).getPublicUrl(fileKey);
   return { url: data.publicUrl, error: null };
 }
 
 export async function uploadSwmsPdf(
   file: File,
-  path: string
-): Promise<{ url: string | null; error: string | null; bucket?: string }> {
+  path?: string
+): Promise<{ url: string | null; error: string | null; bucket?: string; fileKey?: string }> {
   const lowerName = file.name.toLowerCase();
-  const isPdf =
-    file.type === "application/pdf" || lowerName.endsWith(".pdf");
+  const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
 
   if (!isPdf) {
     return { url: null, error: "SWMS file must be a PDF." };
   }
 
-  const fullPath = path.includes(".pdf") ? path : `${path}.pdf`;
+  const fileKey = path?.trim() ? path.replace(/^\/+/, "") : sanitizeStorageKey(file.name);
   const bucketErrors: string[] = [];
 
   try {
-    for (const bucket of SWMS_UPLOAD_BUCKETS) {
+    const primary = await uploadSwmsPdfToBucket(SWMS_BUCKET, file, fileKey);
+    if (primary.url) {
+      return { url: primary.url, error: null, bucket: SWMS_BUCKET, fileKey };
+    }
+    if (primary.error) {
+      bucketErrors.push(`${SWMS_BUCKET}: ${primary.error}`);
+    }
+
+    for (const bucket of SWMS_UPLOAD_FALLBACK_BUCKETS) {
       try {
-        const { url, error } = await uploadSwmsPdfToBucket(bucket, file, fullPath);
+        const { url, error } = await uploadSwmsPdfToBucket(bucket, file, fileKey);
         if (url) {
-          console.info(`SWMS PDF uploaded to bucket "${bucket}": ${fullPath}`);
-          return { url, error: null, bucket };
+          console.info(`SWMS PDF uploaded to fallback bucket "${bucket}": ${fileKey}`);
+          return { url, error: null, bucket, fileKey };
         }
 
         const message = error ?? "Unknown storage error";
         bucketErrors.push(`${bucket}: ${message}`);
-        console.warn(`SWMS PDF upload failed for bucket "${bucket}":`, message);
       } catch (bucketError) {
         const message =
           bucketError instanceof Error ? bucketError.message : "Upload failed";
         bucketErrors.push(`${bucket}: ${message}`);
-        console.warn(`SWMS PDF upload threw for bucket "${bucket}":`, bucketError);
       }
     }
 

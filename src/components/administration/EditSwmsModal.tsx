@@ -43,9 +43,7 @@ export default function EditSwmsModal({
     try {
       let fileUrl: string | undefined;
       if (file) {
-        const stamp = Date.now();
-        const uploadPath = `swms/${stamp}-${title.trim().replace(/\s+/g, "-").toLowerCase()}`;
-        const { url, error: uploadError } = await uploadSwmsPdf(file, uploadPath);
+        const { url, error: uploadError } = await uploadSwmsPdf(file);
         if (uploadError || !url) {
           setError(uploadError ?? "PDF upload failed.");
           return;

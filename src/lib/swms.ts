@@ -332,6 +332,7 @@ export async function createSwmsDocument(input: {
   title: string;
   documentDate?: string | null;
   fileUrl: string;
+  fileName?: string | null;
   workerAssignments?: Array<{ id: string; name: string }>;
   subcontractorAssignments?: Array<{ id: string; name: string }>;
   projectId?: string | null;
@@ -352,6 +353,7 @@ export async function createSwmsDocument(input: {
       title: input.title,
       documentDate: input.documentDate,
       uploadedUrl: input.fileUrl,
+      fileName: input.fileName,
       projectId: input.projectId,
       swmsScope: scope,
       version: input.version,
@@ -411,6 +413,7 @@ export async function createCompanySwmsDocument(input: {
   title: string;
   documentDate?: string | null;
   fileUrl: string;
+  fileName?: string | null;
 }): Promise<{ error: string | null; document: SwmsDocumentSummary | null }> {
   return createSwmsDocument({
     ...input,
@@ -643,6 +646,7 @@ export async function fetchSwmsAssignmentByToken(
 export async function signSwmsAssignment(input: {
   token: string;
   signatureUrl: string;
+  acknowledgedRisks?: boolean;
 }): Promise<{ error: string | null }> {
   return signSwmsAssignmentRecord(input);
 }
