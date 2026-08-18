@@ -1,10 +1,7 @@
-name: iOS Build & TestFlight
+name: iOS Cloud Build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 concurrency:
   group: ios-build-${{ github.ref }}
