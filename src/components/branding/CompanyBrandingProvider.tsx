@@ -8,8 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { fetchCompanyProfile } from "@/lib/supabase";
-import { resolveCompanyLogoUrl } from "@/lib/company-profile-service";
+import { fetchOrganisationFromApi } from "@/lib/organisation-api-client";
 
 interface CompanyBrandingContextValue {
   logoUrl: string | null;
@@ -37,10 +36,14 @@ export function CompanyBrandingProvider({
   const refreshBranding = useCallback(async () => {
     setLoading(true);
     try {
-      const profile = await fetchCompanyProfile();
-      const resolvedLogo = profile?.logo_url?.trim() || resolveCompanyLogoUrl(profile);
+      const { organisation, error } = await fetchOrganisationFromApi();
+      if (error) {
+        console.error("Failed to refresh organisation branding:", error);
+        return;
+      }
+      const resolvedLogo = organisation?.logo_url?.trim() || "";
       setLogoUrl(resolvedLogo || null);
-      setCompanyName(profile?.company_name?.trim() || "SiteBolt");
+      setCompanyName(organisation?.company_name?.trim() || "SiteBolt");
     } finally {
       setLoading(false);
     }

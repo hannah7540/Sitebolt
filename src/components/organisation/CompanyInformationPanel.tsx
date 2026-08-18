@@ -6,26 +6,56 @@ import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvide
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
-  fetchCompanyProfile,
-  upsertCompanyProfile,
-  type CompanyProfile,
-} from "@/lib/supabase";
+  fetchOrganisationFromApi,
+  saveOrganisationToApi,
+  type OrganisationFormRecord,
+} from "@/lib/organisation-api-client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import CompanyLogoPanel from "./CompanyLogoPanel";
 
-function applyProfileToForm(profile: CompanyProfile) {
+function applyOrganisationToForm(record: OrganisationFormRecord) {
   return {
-    companyName: profile.company_name ?? "",
-    tradingName: profile.trading_name ?? "",
-    abn: profile.abn ?? "",
-    acn: profile.acn ?? "",
-    phone: profile.phone ?? "",
-    email: profile.email ?? "",
-    address: profile.address ?? "",
-    suburb: profile.suburb ?? "",
-    state: profile.state ?? "",
-    postcode: profile.postcode ?? "",
+    companyName: record.company_name,
+    tradingName: record.trading_name,
+    abn: record.abn,
+    acn: record.acn,
+    phone: record.phone,
+    email: record.email,
+    address: record.address,
+    suburb: record.suburb,
+    state: record.state,
+    postcode: record.postcode,
   };
+}
+
+function applyFormValues(
+  record: OrganisationFormRecord,
+  setters: {
+    setProfileId: (value: string) => void;
+    setCompanyName: (value: string) => void;
+    setTradingName: (value: string) => void;
+    setAbn: (value: string) => void;
+    setAcn: (value: string) => void;
+    setPhone: (value: string) => void;
+    setEmail: (value: string) => void;
+    setAddress: (value: string) => void;
+    setSuburb: (value: string) => void;
+    setState: (value: string) => void;
+    setPostcode: (value: string) => void;
+  }
+) {
+  setters.setProfileId(record.id);
+  const values = applyOrganisationToForm(record);
+  setters.setCompanyName(values.companyName);
+  setters.setTradingName(values.tradingName);
+  setters.setAbn(values.abn);
+  setters.setAcn(values.acn);
+  setters.setPhone(values.phone);
+  setters.setEmail(values.email);
+  setters.setAddress(values.address);
+  setters.setSuburb(values.suburb);
+  setters.setState(values.state);
+  setters.setPostcode(values.postcode);
 }
 
 export default function CompanyInformationPanel() {
@@ -50,20 +80,24 @@ export default function CompanyInformationPanel() {
     setLoading(true);
     setError(null);
     try {
-      const profile = await fetchCompanyProfile();
-      if (profile) {
-        setProfileId(profile.id);
-        const values = applyProfileToForm(profile);
-        setCompanyName(values.companyName);
-        setTradingName(values.tradingName);
-        setAbn(values.abn);
-        setAcn(values.acn);
-        setPhone(values.phone);
-        setEmail(values.email);
-        setAddress(values.address);
-        setSuburb(values.suburb);
-        setState(values.state);
-        setPostcode(values.postcode);
+      const { organisation, error: loadError } = await fetchOrganisationFromApi();
+      if (loadError) {
+        throw new Error(loadError);
+      }
+      if (organisation) {
+        applyFormValues(organisation, {
+          setProfileId,
+          setCompanyName,
+          setTradingName,
+          setAbn,
+          setAcn,
+          setPhone,
+          setEmail,
+          setAddress,
+          setSuburb,
+          setState,
+          setPostcode,
+        });
       }
     } catch (cause) {
       const message =
@@ -85,7 +119,7 @@ export default function CompanyInformationPanel() {
     setError(null);
 
     try {
-      const { profile, error: saveError } = await upsertCompanyProfile({
+      const { organisation, error: saveError } = await saveOrganisationToApi({
         company_name: companyName,
         trading_name: tradingName,
         abn,
@@ -102,28 +136,29 @@ export default function CompanyInformationPanel() {
         throw new Error(saveError);
       }
 
-      if (!profile) {
-        throw new Error("Failed to save changes");
+      if (!organisation) {
+        throw new Error("Failed to save organisation details");
       }
 
-      setProfileId(profile.id);
-      const values = applyProfileToForm(profile);
-      setCompanyName(values.companyName);
-      setTradingName(values.tradingName);
-      setAbn(values.abn);
-      setAcn(values.acn);
-      setPhone(values.phone);
-      setEmail(values.email);
-      setAddress(values.address);
-      setSuburb(values.suburb);
-      setState(values.state);
-      setPostcode(values.postcode);
+      applyFormValues(organisation, {
+        setProfileId,
+        setCompanyName,
+        setTradingName,
+        setAbn,
+        setAcn,
+        setPhone,
+        setEmail,
+        setAddress,
+        setSuburb,
+        setState,
+        setPostcode,
+      });
 
       await refreshBranding();
       showSuccess("Organisation details saved successfully");
     } catch (cause) {
       const message =
-        cause instanceof Error ? cause.message : "Failed to save changes";
+        cause instanceof Error ? cause.message : "Failed to save organisation details";
       setError(message);
       showError(message);
     } finally {
