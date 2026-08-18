@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, ExternalLink, Loader2 } from "lucide-react";
+import { Plus, ExternalLink, Loader2, Pencil } from "lucide-react";
 import {
-  fetchCompanyInsurances,
-  insertCompanyInsurance,
-  type CompanyInsurance,
-} from "@/lib/supabase";
+  fetchCompanyInsurancesFromApi,
+  saveCompanyInsuranceToApi,
+  type CompanyInsuranceFormRecord,
+} from "@/lib/organisation-insurances-api-client";
+import { formatInsuranceDateRange } from "@/lib/organisation-insurances-api";
 import {
   formatInsuranceRegionBadges,
   getInsuranceExpiryStatus,
@@ -15,7 +16,7 @@ import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 
-function InsuranceRegionBadges({ item }: { item: CompanyInsurance }) {
+function InsuranceRegionBadges({ item }: { item: CompanyInsuranceFormRecord }) {
   const badges = formatInsuranceRegionBadges(item);
 
   if (badges.length === 0) {
@@ -49,19 +50,31 @@ function InsuranceRegionBadges({ item }: { item: CompanyInsurance }) {
 }
 
 export default function InsurancesPanel() {
-  const [insurances, setInsurances] = useState<CompanyInsurance[]>([]);
+  const [insurances, setInsurances] = useState<CompanyInsuranceFormRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingInsurance, setEditingInsurance] =
+    useState<CompanyInsuranceFormRecord | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setInsurances(await fetchCompanyInsurances());
+    setLoadError(null);
+    const { insurances: rows, error } = await fetchCompanyInsurancesFromApi();
+    if (error) {
+      setLoadError(error);
+      setInsurances([]);
+    } else {
+      setInsurances(rows);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const modalOpen = showAdd || editingInsurance !== null;
 
   return (
     <div>
@@ -71,12 +84,15 @@ export default function InsurancesPanel() {
             Company <span className="text-orange-500">Insurances</span>
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Track policy expiry and upload certificates.
+            Track policy start dates, expiry, and upload certificates.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => setShowAdd(true)}
+          onClick={() => {
+            setEditingInsurance(null);
+            setShowAdd(true);
+          }}
           className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
         >
           <Plus className="h-4 w-4" />
@@ -89,6 +105,8 @@ export default function InsurancesPanel() {
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
           Loading insurances…
         </div>
+      ) : loadError ? (
+        <p className={`p-6 text-sm text-red-700 ${cardClass}`}>{loadError}</p>
       ) : insurances.length === 0 ? (
         <p className={`p-6 text-sm text-slate-500 ${cardClass}`}>
           No insurance policies recorded yet.
@@ -101,14 +119,27 @@ export default function InsurancesPanel() {
               <li key={item.id} className={cn(cardClass, "p-4")}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1 space-y-2">
-                    <p className="font-semibold text-slate-900">
-                      {item.insurance_type}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-900">
+                        {item.insurance_type}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAdd(false);
+                          setEditingInsurance(item);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-orange-700"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </button>
+                    </div>
                     <p className="text-sm text-slate-500">
                       Policy: {item.policy_number ?? "—"}
                     </p>
-                    <p className="text-sm text-slate-500">
-                      Expires: {item.expiry_date ?? "Not set"}
+                    <p className="text-sm text-slate-600">
+                      {formatInsuranceDateRange(item)}
                     </p>
                     <InsuranceRegionBadges item={item} />
                   </div>
@@ -138,13 +169,17 @@ export default function InsurancesPanel() {
         </ul>
       )}
 
-      {showAdd && (
+      {modalOpen && (
         <InsuranceFormModal
-          onClose={() => setShowAdd(false)}
+          insurance={editingInsurance}
+          onClose={() => {
+            setShowAdd(false);
+            setEditingInsurance(null);
+          }}
           onSaved={async (input) => {
-            const result = await insertCompanyInsurance(input);
-            if (!result.error) await load();
-            return result;
+            const { error } = await saveCompanyInsuranceToApi(input);
+            if (!error) await load();
+            return { error };
           }}
         />
       )}

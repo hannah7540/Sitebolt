@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import InsuranceRegionSelector from "@/components/organisation/InsuranceRegionSelector";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
+import type { CompanyInsuranceFormRecord } from "@/lib/organisation-insurances-api-client";
 import {
   ALL_INSURANCE_REGIONS,
   INSURANCE_TYPES,
@@ -20,10 +21,14 @@ import {
 } from "@/lib/ui-classes";
 
 interface InsuranceFormModalProps {
+  insurance?: CompanyInsuranceFormRecord | null;
   onClose: () => void;
   onSaved: (input: {
+    id?: string;
     insurance_type: string;
     policy_number: string;
+    date_obtained: string;
+    start_date: string;
     expiry_date: string;
     document_url: string | null;
     all_states: boolean;
@@ -32,17 +37,35 @@ interface InsuranceFormModalProps {
 }
 
 export default function InsuranceFormModal({
+  insurance,
   onClose,
   onSaved,
 }: InsuranceFormModalProps) {
+  const isEditing = Boolean(insurance?.id);
+
   const [insuranceType, setInsuranceType] = useState<string>(INSURANCE_TYPES[0]);
   const [policyNumber, setPolicyNumber] = useState("");
+  const [startDate, setStartDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [allRegions, setAllRegions] = useState(false);
   const [selectedRegions, setSelectedRegions] = useState<InsuranceRegion[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!insurance) return;
+    setInsuranceType(insurance.insurance_type || INSURANCE_TYPES[0]);
+    setPolicyNumber(insurance.policy_number ?? "");
+    setStartDate(insurance.date_obtained ?? insurance.start_date ?? "");
+    setExpiryDate(insurance.expiry_date ?? "");
+    setAllRegions(Boolean(insurance.all_states));
+    setSelectedRegions(
+      insurance.all_states
+        ? [...ALL_INSURANCE_REGIONS]
+        : normalizeInsuranceRegions(insurance.states)
+    );
+  }, [insurance]);
 
   const handleAllRegionsChange = (checked: boolean) => {
     setAllRegions(checked);
@@ -62,6 +85,24 @@ export default function InsuranceFormModal({
     setSaving(true);
     setError(null);
 
+    if (!startDate.trim()) {
+      setSaving(false);
+      setError("Start date is required.");
+      return;
+    }
+
+    if (!expiryDate.trim()) {
+      setSaving(false);
+      setError("Expiry date is required.");
+      return;
+    }
+
+    if (startDate > expiryDate) {
+      setSaving(false);
+      setError("Start date must be on or before the expiry date.");
+      return;
+    }
+
     const regionPayload = buildInsuranceRegionSavePayload({
       allStates: allRegions,
       selectedStates: selectedRegions,
@@ -73,7 +114,7 @@ export default function InsuranceFormModal({
       return;
     }
 
-    let documentUrl: string | null = null;
+    let documentUrl: string | null = insurance?.document_url ?? null;
     if (docFile) {
       documentUrl = await uploadWorkerDocumentSafe(
         docFile,
@@ -87,8 +128,11 @@ export default function InsuranceFormModal({
     }
 
     const result = await onSaved({
+      id: insurance?.id,
       insurance_type: insuranceType,
       policy_number: policyNumber,
+      date_obtained: startDate,
+      start_date: startDate,
       expiry_date: expiryDate,
       document_url: documentUrl,
       all_states: regionPayload.all_states,
@@ -107,7 +151,9 @@ export default function InsuranceFormModal({
     <div className={modalOverlayClass} onClick={onClose}>
       <div className={`${modalClass} max-w-md`} onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
-          <h2 className="text-lg font-bold text-slate-900">Add Insurance</h2>
+          <h2 className="text-lg font-bold text-slate-900">
+            {isEditing ? "Edit Insurance" : "Add Insurance"}
+          </h2>
           <button type="button" onClick={onClose} aria-label="Close">
             <X className="h-5 w-5 text-slate-400" />
           </button>
@@ -136,15 +182,31 @@ export default function InsuranceFormModal({
               onChange={(e) => setPolicyNumber(e.target.value)}
             />
           </label>
-          <label className="block space-y-1">
-            <span className={labelClass}>Expiry date</span>
-            <input
-              type="date"
-              className={inputClass}
-              value={expiryDate}
-              onChange={(e) => setExpiryDate(e.target.value)}
-            />
-          </label>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className={labelClass}>Start Date / Date Obtained</span>
+              <input
+                type="date"
+                name="start_date"
+                className={inputClass}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>Expiry Date</span>
+              <input
+                type="date"
+                name="expiry_date"
+                className={inputClass}
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                required
+              />
+            </label>
+          </div>
 
           <InsuranceRegionSelector
             allRegions={allRegions}
@@ -172,7 +234,7 @@ export default function InsuranceFormModal({
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save Insurance
+            {isEditing ? "Save Changes" : "Save Insurance"}
           </button>
         </form>
       </div>

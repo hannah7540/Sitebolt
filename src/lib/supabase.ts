@@ -2637,6 +2637,8 @@ export interface CompanyInsurance {
   insurance_type: string;
   policy_number: string | null;
   insurer?: string | null;
+  date_obtained?: string | null;
+  start_date?: string | null;
   expiry_date: string | null;
   document_url: string | null;
   all_states?: boolean | null;
@@ -2694,15 +2696,20 @@ export async function fetchCompanyInsurances(): Promise<CompanyInsurance[]> {
 export async function insertCompanyInsurance(input: {
   insurance_type: string;
   policy_number?: string | null;
+  date_obtained?: string | null;
+  start_date?: string | null;
   expiry_date?: string | null;
   document_url?: string | null;
   all_states?: boolean;
   states?: string[] | null;
 }): Promise<{ error: string | null }> {
+  const startDate = input.date_obtained ?? input.start_date ?? null;
   const { error } = await supabase.from("company_insurances").insert([
     {
       insurance_type: input.insurance_type,
       policy_number: input.policy_number?.trim() || null,
+      date_obtained: startDate,
+      start_date: startDate,
       expiry_date: input.expiry_date || null,
       document_url: input.document_url ?? null,
       all_states: input.all_states ?? false,
