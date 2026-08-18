@@ -7,7 +7,10 @@ import {
   saveCompanyInsuranceToApi,
   type CompanyInsuranceFormRecord,
 } from "@/lib/organisation-insurances-api-client";
-import { formatInsuranceDateRange } from "@/lib/organisation-insurances-api";
+import {
+  formatInsuranceDateRange,
+  resolveInsuranceDisplayType,
+} from "@/lib/organisation-insurances-api";
 import {
   formatInsuranceRegionBadges,
   getInsuranceExpiryStatus,
@@ -84,7 +87,7 @@ export default function InsurancesPanel() {
             Company <span className="text-orange-500">Insurances</span>
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Track policy start dates, expiry, and upload certificates.
+            Track policy start dates, expiry, regions, and upload certificates.
           </p>
         </div>
         <button
@@ -115,13 +118,14 @@ export default function InsurancesPanel() {
         <ul className="space-y-3">
           {insurances.map((item) => {
             const expiry = getInsuranceExpiryStatus(item.expiry_date);
+            const fileUrl = item.file_url ?? item.document_url;
             return (
               <li key={item.id} className={cn(cardClass, "p-4")}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-slate-900">
-                        {item.insurance_type}
+                        {resolveInsuranceDisplayType(item)}
                       </p>
                       <button
                         type="button"
@@ -136,8 +140,13 @@ export default function InsurancesPanel() {
                       </button>
                     </div>
                     <p className="text-sm text-slate-500">
-                      Policy: {item.policy_number ?? "—"}
+                      Policy: {item.policy_number || "—"}
                     </p>
+                    {item.provider ? (
+                      <p className="text-sm text-slate-500">
+                        Provider: {item.provider}
+                      </p>
+                    ) : null}
                     <p className="text-sm text-slate-600">
                       {formatInsuranceDateRange(item)}
                     </p>
@@ -152,17 +161,17 @@ export default function InsurancesPanel() {
                     {expiry.label}
                   </span>
                 </div>
-                {item.document_url && (
+                {fileUrl ? (
                   <a
-                    href={item.document_url}
+                    href={fileUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-2 inline-flex items-center gap-1 text-xs text-orange-600 hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
-                    View document
+                    {item.file_name ? `View ${item.file_name}` : "View document"}
                   </a>
-                )}
+                ) : null}
               </li>
             );
           })}

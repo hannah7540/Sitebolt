@@ -64,11 +64,12 @@ export function buildInsuranceRegionSavePayload(input: {
 }
 
 export const INSURANCE_TYPES = [
-  "Workers Comp",
-  "Public Liability",
-  "Plant Insurance",
-  "Other",
+  "Public Liability Insurance",
+  "Worker Compensation Insurance",
+  "Other Insurance",
 ] as const;
+
+export const OTHER_INSURANCE_TYPE = "Other Insurance" as const;
 
 export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 

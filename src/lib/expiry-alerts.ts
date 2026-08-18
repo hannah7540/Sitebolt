@@ -158,7 +158,7 @@ export function collectInsuranceExpiries(
         entityKey: buildInsuranceEntityKey(row.id, expiryDate),
         policyName: row.insurance_type,
         policyNumber: row.policy_number,
-        insurer: row.insurer ?? null,
+        insurer: row.provider ?? row.insurer ?? null,
         expiryDate,
         daysRemaining: daysUntil(row.expiry_date)!,
       };

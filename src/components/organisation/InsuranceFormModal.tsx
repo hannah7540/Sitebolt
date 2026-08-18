@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import InsuranceRegionSelector from "@/components/organisation/InsuranceRegionSelector";
-import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
+import { uploadInsuranceDocument } from "@/lib/insurance-document-upload";
 import type { CompanyInsuranceFormRecord } from "@/lib/organisation-insurances-api-client";
 import {
   ALL_INSURANCE_REGIONS,
   INSURANCE_TYPES,
+  OTHER_INSURANCE_TYPE,
   buildInsuranceRegionSavePayload,
   normalizeInsuranceRegions,
   type InsuranceRegion,
@@ -26,11 +27,14 @@ interface InsuranceFormModalProps {
   onSaved: (input: {
     id?: string;
     insurance_type: string;
+    custom_type_name: string | null;
     policy_number: string;
+    provider: string;
     date_obtained: string;
     start_date: string;
     expiry_date: string;
-    document_url: string | null;
+    file_url: string | null;
+    file_name: string | null;
     all_states: boolean;
     states: InsuranceRegion[];
   }) => Promise<{ error: string | null }>;
@@ -44,7 +48,9 @@ export default function InsuranceFormModal({
   const isEditing = Boolean(insurance?.id);
 
   const [insuranceType, setInsuranceType] = useState<string>(INSURANCE_TYPES[0]);
+  const [customTypeName, setCustomTypeName] = useState("");
   const [policyNumber, setPolicyNumber] = useState("");
+  const [provider, setProvider] = useState("");
   const [startDate, setStartDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -56,7 +62,9 @@ export default function InsuranceFormModal({
   useEffect(() => {
     if (!insurance) return;
     setInsuranceType(insurance.insurance_type || INSURANCE_TYPES[0]);
+    setCustomTypeName(insurance.custom_type_name ?? "");
     setPolicyNumber(insurance.policy_number ?? "");
+    setProvider(insurance.provider ?? "");
     setStartDate(insurance.date_obtained ?? insurance.start_date ?? "");
     setExpiryDate(insurance.expiry_date ?? "");
     setAllRegions(Boolean(insurance.all_states));
@@ -103,6 +111,12 @@ export default function InsuranceFormModal({
       return;
     }
 
+    if (insuranceType === OTHER_INSURANCE_TYPE && !customTypeName.trim()) {
+      setSaving(false);
+      setError("Please enter a custom insurance type name.");
+      return;
+    }
+
     const regionPayload = buildInsuranceRegionSavePayload({
       allStates: allRegions,
       selectedStates: selectedRegions,
@@ -114,27 +128,31 @@ export default function InsuranceFormModal({
       return;
     }
 
-    let documentUrl: string | null = insurance?.document_url ?? null;
+    let fileUrl: string | null = insurance?.file_url ?? insurance?.document_url ?? null;
+    let fileName: string | null = insurance?.file_name ?? null;
     if (docFile) {
-      documentUrl = await uploadWorkerDocumentSafe(
-        docFile,
-        `company-insurance/${Date.now()}-${insuranceType.replace(/\s+/g, "-")}`
-      );
-      if (!documentUrl) {
+      const upload = await uploadInsuranceDocument(docFile);
+      if (upload.error || !upload.url) {
         setSaving(false);
-        setError("Failed to upload insurance document.");
+        setError(upload.error ?? "Failed to upload insurance document.");
         return;
       }
+      fileUrl = upload.url;
+      fileName = upload.fileName;
     }
 
     const result = await onSaved({
       id: insurance?.id,
       insurance_type: insuranceType,
+      custom_type_name:
+        insuranceType === OTHER_INSURANCE_TYPE ? customTypeName.trim() : null,
       policy_number: policyNumber,
+      provider,
       date_obtained: startDate,
       start_date: startDate,
       expiry_date: expiryDate,
-      document_url: documentUrl,
+      file_url: fileUrl,
+      file_name: fileName,
       all_states: regionPayload.all_states,
       states: normalizeInsuranceRegions(regionPayload.states),
     });
@@ -161,7 +179,7 @@ export default function InsuranceFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <label className="block space-y-1">
-            <span className={labelClass}>Policy type</span>
+            <span className={labelClass}>Insurance type</span>
             <select
               className={inputClass}
               value={insuranceType}
@@ -174,12 +192,36 @@ export default function InsuranceFormModal({
               ))}
             </select>
           </label>
+
+          {insuranceType === OTHER_INSURANCE_TYPE ? (
+            <label className="block space-y-1">
+              <span className={labelClass}>Custom insurance type</span>
+              <input
+                className={inputClass}
+                value={customTypeName}
+                onChange={(e) => setCustomTypeName(e.target.value)}
+                placeholder="Describe the insurance type"
+                required
+              />
+            </label>
+          ) : null}
+
           <label className="block space-y-1">
             <span className={labelClass}>Policy number</span>
             <input
               className={inputClass}
               value={policyNumber}
               onChange={(e) => setPolicyNumber(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className={labelClass}>Provider / insurer</span>
+            <input
+              className={inputClass}
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              placeholder="Insurance provider name"
             />
           </label>
 

@@ -2635,16 +2635,21 @@ export interface CompanyProfile {
 export interface CompanyInsurance {
   id: string;
   insurance_type: string;
+  custom_type_name?: string | null;
   policy_number: string | null;
+  provider?: string | null;
   insurer?: string | null;
   date_obtained?: string | null;
   start_date?: string | null;
   expiry_date: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
   document_url: string | null;
   all_states?: boolean | null;
   states?: string[] | null;
-  created_at?: string;
-  updated_at?: string;
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
@@ -2678,6 +2683,8 @@ export async function updateCompanyLogoUrl(
 export async function fetchCompanyInsurances(): Promise<CompanyInsurance[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const { mapCompanyInsuranceResponse } = await import("./organisation-insurances-api");
+
   const { data, error } = await supabase
     .from("company_insurances")
     .select("*")
@@ -2690,7 +2697,7 @@ export async function fetchCompanyInsurances(): Promise<CompanyInsurance[]> {
     return [];
   }
 
-  return (data ?? []) as CompanyInsurance[];
+  return (data ?? []).map((row) => mapCompanyInsuranceResponse(row));
 }
 
 export async function insertCompanyInsurance(input: {

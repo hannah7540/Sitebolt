@@ -43,11 +43,16 @@ export async function fetchCompanyInsurancesFromApi(): Promise<{
 export async function saveCompanyInsuranceToApi(input: {
   id?: string;
   insurance_type: string;
+  custom_type_name?: string | null;
   policy_number?: string | null;
+  provider?: string | null;
   date_obtained?: string | null;
   start_date?: string | null;
   expiry_date?: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
   document_url?: string | null;
+  notes?: string | null;
   all_states?: boolean;
   states?: string[];
 }): Promise<{ insurance: CompanyInsuranceFormRecord | null; error: string | null }> {
@@ -65,4 +70,16 @@ export async function saveCompanyInsuranceToApi(input: {
   }
 
   return { insurance: result.data, error: null };
+}
+
+export async function deleteCompanyInsuranceFromApi(
+  id: string
+): Promise<{ error: string | null }> {
+  const response = await fetch("/api/organisation/insurances", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  const result = await readJson<{ id: string }>(response);
+  return { error: result.error };
 }

@@ -4,9 +4,12 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { canManageOrganisation, normalizeSecurityRole } from "@/lib/security-roles";
 import {
-  INSURANCE_SELECT_FIELDS,
+  deleteInsuranceRecords,
+  insertInsuranceRecords,
+  listInsuranceRecords,
   mapCompanyInsuranceResponse,
   normalizeCompanyInsuranceSavePayload,
+  updateInsuranceRecords,
   type CompanyInsuranceRow,
 } from "@/lib/organisation-insurances-api";
 
@@ -68,18 +71,14 @@ export async function GET() {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
-      .from("company_insurances")
-      .select(INSURANCE_SELECT_FIELDS)
-      .order("expiry_date", { ascending: true, nullsFirst: false });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const result = await listInsuranceRecords(admin);
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      data: (data ?? []).map((row) =>
+      data: result.data.map((row) =>
         mapCompanyInsuranceResponse(row as CompanyInsuranceRow)
       ),
     });
@@ -121,37 +120,21 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
       return NextResponse.json({ error: "Insurance id is required." }, { status: 400 });
     }
 
-    if (method === "PUT") {
-      const { data, error } = await auth.admin
-        .from("company_insurances")
-        .update(payload)
-        .eq("id", id)
-        .select(INSURANCE_SELECT_FIELDS)
-        .single();
+    const result =
+      method === "PUT"
+        ? await updateInsuranceRecords(auth.admin, id, payload)
+        : await insertInsuranceRecords(auth.admin, payload);
 
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-
-      return NextResponse.json({
-        success: true,
-        data: mapCompanyInsuranceResponse(data as CompanyInsuranceRow),
-      });
-    }
-
-    const { data, error } = await auth.admin
-      .from("company_insurances")
-      .insert([payload])
-      .select(INSURANCE_SELECT_FIELDS)
-      .single();
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (result.error || !result.data) {
+      return NextResponse.json(
+        { error: result.error ?? "Failed to save insurance policy." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      data: mapCompanyInsuranceResponse(data as CompanyInsuranceRow),
+      data: mapCompanyInsuranceResponse(result.data as CompanyInsuranceRow),
     });
   } catch (error) {
     return NextResponse.json(
@@ -169,4 +152,31 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   return handleSave(request, "PUT");
+}
+
+export async function DELETE(request: Request) {
+  const auth = await requireOrganisationWriteAccess();
+  if (!auth.ok) return auth.response;
+
+  try {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = String(body.id ?? new URL(request.url).searchParams.get("id") ?? "").trim();
+    if (!id) {
+      return NextResponse.json({ error: "Insurance id is required." }, { status: 400 });
+    }
+
+    const result = await deleteInsuranceRecords(auth.admin, id);
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, data: { id } });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to delete insurance.",
+      },
+      { status: 500 }
+    );
+  }
 }
