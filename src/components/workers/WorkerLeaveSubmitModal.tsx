@@ -99,34 +99,43 @@ export default function WorkerLeaveSubmitModal({
     }
 
     setSaving(true);
-    const signatureUrl = await uploadWorkerSignature(
-      signature,
-      `leave/${worker.id}/${Date.now()}-signature`
-    );
+    setError(null);
 
-    const sanitizedLeaveType = sanitizeLeaveType(leaveType);
+    try {
+      const signatureUrl = await uploadWorkerSignature(
+        signature,
+        `leave/${worker.id}/${Date.now()}-signature`
+      );
+      if (!signatureUrl) {
+        throw new Error("Failed to upload signature.");
+      }
 
-    const { error: submitError } = await submitLeaveRequest({
-      workerId: worker.id,
-      worker,
-      workerName: resolveWorkerName(worker),
-      projectId: resolvedProjectId,
-      firstDate: formatDateOnly(firstDate),
-      lastDate: formatDateOnly(lastDate),
-      numberOfDays: days,
-      reason: reason.trim(),
-      signatureUrl,
-      leaveType: sanitizedLeaveType,
-    });
-    setSaving(false);
+      const sanitizedLeaveType = sanitizeLeaveType(leaveType);
 
-    if (submitError) {
-      setError(submitError);
-      return;
+      const { error: submitError } = await submitLeaveRequest({
+        workerId: worker.id,
+        worker,
+        workerName: resolveWorkerName(worker),
+        projectId: resolvedProjectId,
+        firstDate: formatDateOnly(firstDate),
+        lastDate: formatDateOnly(lastDate),
+        numberOfDays: days,
+        reason: reason.trim(),
+        signatureUrl,
+        leaveType: sanitizedLeaveType,
+      });
+
+      if (submitError) {
+        throw new Error(submitError);
+      }
+
+      onSubmitted();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to submit leave request.");
+    } finally {
+      setSaving(false);
     }
-
-    onSubmitted();
-    onClose();
   };
 
   return (

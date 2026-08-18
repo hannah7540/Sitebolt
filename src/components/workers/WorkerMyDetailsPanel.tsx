@@ -198,12 +198,30 @@ export default function WorkerMyDetailsPanel({
     setError(null);
 
     try {
-      const [whiteCardUrl, silicaUrl] = await Promise.all([
-        docUrls.white_card ??
-          uploadWorkerDocumentSafe(docs.white_card, `${uploadPrefix}/white-card`),
-        docUrls.silica_cert ??
-          uploadWorkerDocumentSafe(docs.silica_cert, `${uploadPrefix}/silica-cert`),
-      ]);
+      let whiteCardUrl = docUrls.white_card ?? worker.white_card_photo_url ?? null;
+      let silicaUrl = docUrls.silica_cert ?? worker.silica_cert_photo_url ?? null;
+
+      if (docs.white_card) {
+        const uploaded = await uploadWorkerDocumentSafe(
+          docs.white_card,
+          `${uploadPrefix}/white-card`
+        );
+        if (!uploaded) {
+          throw new Error("Failed to upload white card photo.");
+        }
+        whiteCardUrl = uploaded;
+      }
+
+      if (docs.silica_cert) {
+        const uploaded = await uploadWorkerDocumentSafe(
+          docs.silica_cert,
+          `${uploadPrefix}/silica-cert`
+        );
+        if (!uploaded) {
+          throw new Error("Failed to upload silica certificate photo.");
+        }
+        silicaUrl = uploaded;
+      }
 
       const { error: updateError } = await updateWorker(worker.id, {
         first_name: firstName.trim(),
@@ -240,20 +258,23 @@ export default function WorkerMyDetailsPanel({
         const prepared = await Promise.all(
           vocItems.map(async (voc, i) => {
             const vocType = getVocDisplayTitle(voc);
+            let documentUrl = voc.document_url ?? null;
+            if (!documentUrl && voc.file) {
+              documentUrl = await uploadWorkerDocumentSafe(
+                voc.file,
+                `${uploadPrefix}/vocs/${i}-${vocType.replace(/[^a-z0-9]/gi, "_")}`
+              );
+              if (!documentUrl) {
+                throw new Error(`Failed to upload VOC document for ${vocType}.`);
+              }
+            }
             return {
               title: vocType,
               voc_type: vocType,
               issuing_org: voc.issuing_org || null,
               issue_date: nullIfBlankWorkerDate(voc.issue_date),
               expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
-              document_url:
-                voc.document_url ??
-                (voc.file
-                  ? await uploadWorkerDocumentSafe(
-                      voc.file,
-                      `${uploadPrefix}/vocs/${i}-${vocType.replace(/[^a-z0-9]/gi, "_")}`
-                    )
-                  : null),
+              document_url: documentUrl,
             };
           })
         );
@@ -269,11 +290,14 @@ export default function WorkerMyDetailsPanel({
         setNewVocs([]);
       }
 
-      await updateWorkerStatusFromVocs(
+      const { error: statusError } = await updateWorkerStatusFromVocs(
         worker.id,
         worker.drivers_licence_expiry,
         allVocs.map((v) => v.expiry_date)
       );
+      if (statusError) {
+        throw new Error(statusError);
+      }
 
       onSaved({
         ...worker,

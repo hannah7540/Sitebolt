@@ -92,9 +92,7 @@ export default function PayRuleAssignWorkersModal({
       return null;
     }
     if (!lookup.id) {
-      console.warn(
-        `[PayRuleAssignWorkersModal] Unable to resolve pay rule template "${template.name}".`
-      );
+      onError(`Unable to resolve pay rule template "${template.name}".`);
       return null;
     }
     return lookup.id;

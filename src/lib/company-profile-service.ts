@@ -2,14 +2,36 @@ import { isSupabaseConfigured, supabase } from "./supabase";
 
 export type CompanyProfileSource = "company_profile" | "organisations";
 
+export const DEFAULT_COMPANY_PROFILE_ID = "00000000-0000-0000-0000-000000000001";
+
 export interface CompanyProfileRecord {
   id: string;
   company_name: string | null;
+  trading_name: string | null;
   abn: string | null;
+  acn: string | null;
+  phone: string | null;
+  email: string | null;
   address: string | null;
+  suburb: string | null;
+  state: string | null;
+  postcode: string | null;
   logo_url: string | null;
   updated_at?: string;
   source: CompanyProfileSource;
+}
+
+export interface CompanyProfileInput {
+  company_name: string;
+  trading_name?: string;
+  abn?: string;
+  acn?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  suburb?: string;
+  state?: string;
+  postcode?: string;
 }
 
 type ProfileTable = CompanyProfileSource;
@@ -17,9 +39,16 @@ type ProfileTable = CompanyProfileSource;
 type RawProfileRow = Record<string, unknown> & {
   id?: string;
   company_name?: string | null;
+  trading_name?: string | null;
   name?: string | null;
   abn?: string | null;
+  acn?: string | null;
+  phone?: string | null;
+  email?: string | null;
   address?: string | null;
+  suburb?: string | null;
+  state?: string | null;
+  postcode?: string | null;
   logo_url?: string | null;
   company_logo?: string | null;
   updated_at?: string;
@@ -32,6 +61,11 @@ function isMissingTableError(message: string, table: ProfileTable): boolean {
     lower.includes("does not exist") ||
     lower.includes("schema cache")
   );
+}
+
+function trimOrNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 export function resolveCompanyLogoUrl(
@@ -54,13 +88,42 @@ function normalizeProfileRow(
   const logo = resolveCompanyLogoUrl(row);
   return {
     id: String(row.id),
-    company_name: row.company_name?.trim() || row.name?.trim() || null,
-    abn: row.abn?.trim() || null,
-    address: row.address?.trim() || null,
+    company_name: trimOrNull(row.company_name) || trimOrNull(row.name),
+    trading_name: trimOrNull(row.trading_name),
+    abn: trimOrNull(row.abn),
+    acn: trimOrNull(row.acn),
+    phone: trimOrNull(row.phone),
+    email: trimOrNull(row.email),
+    address: trimOrNull(row.address),
+    suburb: trimOrNull(row.suburb),
+    state: trimOrNull(row.state),
+    postcode: trimOrNull(row.postcode),
     logo_url: logo || null,
     updated_at: row.updated_at,
     source,
   };
+}
+
+async function fetchRawProfileRowById(
+  table: ProfileTable,
+  id: string
+): Promise<RawProfileRow | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data, error } = await supabase
+    .from(table)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingTableError(error.message, table)) {
+      console.error(`Failed to fetch ${table} by id:`, error.message);
+    }
+    return null;
+  }
+
+  return (data as RawProfileRow | null) ?? null;
 }
 
 async function fetchRawProfileRow(
@@ -80,12 +143,68 @@ async function fetchRawProfileRow(
   return (data as RawProfileRow | null) ?? null;
 }
 
-export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null> {
+async function resolveExistingProfileTarget(): Promise<{
+  table: ProfileTable;
+  id: string;
+} | null> {
+  const primaryByDefaultId = await fetchRawProfileRowById(
+    "company_profile",
+    DEFAULT_COMPANY_PROFILE_ID
+  );
+  if (primaryByDefaultId?.id) {
+    return { table: "company_profile", id: String(primaryByDefaultId.id) };
+  }
+
   const primaryRow = await fetchRawProfileRow("company_profile");
+  if (primaryRow?.id) {
+    return { table: "company_profile", id: String(primaryRow.id) };
+  }
+
+  const fallbackByDefaultId = await fetchRawProfileRowById(
+    "organisations",
+    DEFAULT_COMPANY_PROFILE_ID
+  );
+  if (fallbackByDefaultId?.id) {
+    return { table: "organisations", id: String(fallbackByDefaultId.id) };
+  }
+
+  const fallbackRow = await fetchRawProfileRow("organisations");
+  if (fallbackRow?.id) {
+    return { table: "organisations", id: String(fallbackRow.id) };
+  }
+
+  return null;
+}
+
+function buildProfilePayload(input: CompanyProfileInput): Record<string, unknown> {
+  return {
+    company_name: input.company_name.trim(),
+    trading_name: trimOrNull(input.trading_name),
+    abn: trimOrNull(input.abn),
+    acn: trimOrNull(input.acn),
+    phone: trimOrNull(input.phone),
+    email: trimOrNull(input.email),
+    address: trimOrNull(input.address),
+    suburb: trimOrNull(input.suburb),
+    state: trimOrNull(input.state),
+    postcode: trimOrNull(input.postcode),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null> {
+  const primaryByDefaultId = await fetchRawProfileRowById(
+    "company_profile",
+    DEFAULT_COMPANY_PROFILE_ID
+  );
+  const primaryRow = primaryByDefaultId ?? (await fetchRawProfileRow("company_profile"));
+
   if (primaryRow?.id) {
     const profile = normalizeProfileRow(primaryRow, "company_profile");
     if (!profile.logo_url) {
-      const fallbackRow = await fetchRawProfileRow("organisations");
+      const fallbackRow =
+        (await fetchRawProfileRowById("organisations", DEFAULT_COMPANY_PROFILE_ID)) ??
+        (await fetchRawProfileRow("organisations"));
       const fallbackLogo = resolveCompanyLogoUrl(fallbackRow);
       if (fallbackLogo) {
         profile.logo_url = fallbackLogo;
@@ -94,7 +213,9 @@ export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null>
     return profile;
   }
 
-  const fallbackRow = await fetchRawProfileRow("organisations");
+  const fallbackRow =
+    (await fetchRawProfileRowById("organisations", DEFAULT_COMPANY_PROFILE_ID)) ??
+    (await fetchRawProfileRow("organisations"));
   if (fallbackRow?.id) {
     return normalizeProfileRow(fallbackRow, "organisations");
   }
@@ -102,62 +223,89 @@ export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null>
   return null;
 }
 
-async function updateProfileRow(
+async function writeProfileRow(
   table: ProfileTable,
   id: string,
   payload: Record<string, unknown>
-): Promise<string | null> {
-  const { error } = await supabase
+): Promise<{ row: RawProfileRow | null; error: string | null }> {
+  const { data, error } = await supabase
     .from(table)
-    .update({
-      ...payload,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+    .update(payload)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
 
-  return error?.message ?? null;
+  if (error) {
+    return { row: null, error: error.message };
+  }
+
+  return { row: (data as RawProfileRow | null) ?? null, error: null };
 }
 
-async function insertProfileRow(
+async function insertProfileRowWithReturn(
   table: ProfileTable,
   payload: Record<string, unknown>
-): Promise<string | null> {
-  const { error } = await supabase.from(table).insert([payload]);
-  return error?.message ?? null;
+): Promise<{ row: RawProfileRow | null; error: string | null }> {
+  const { data, error } = await supabase.from(table).insert([payload]).select("*").maybeSingle();
+
+  if (error) {
+    return { row: null, error: error.message };
+  }
+
+  return { row: (data as RawProfileRow | null) ?? null, error: null };
 }
 
-export async function saveCompanyProfile(input: {
-  company_name: string;
-  abn: string;
-  address: string;
-}): Promise<{ error: string | null }> {
+export async function saveCompanyProfile(input: CompanyProfileInput): Promise<{
+  profile: CompanyProfileRecord | null;
+  error: string | null;
+}> {
   if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
+    return { profile: null, error: "Supabase is not configured." };
   }
 
-  const payload = {
-    company_name: input.company_name.trim(),
-    abn: input.abn.trim(),
-    address: input.address.trim(),
+  const payload = buildProfilePayload(input);
+  const existing = await resolveExistingProfileTarget();
+
+  if (existing) {
+    const { row, error } = await writeProfileRow(existing.table, existing.id, payload);
+    if (error) {
+      return { profile: null, error };
+    }
+    if (!row?.id) {
+      return { profile: null, error: "Company profile update returned no record." };
+    }
+    return { profile: normalizeProfileRow(row, existing.table), error: null };
+  }
+
+  const insertPrimary = await insertProfileRowWithReturn("company_profile", {
+    id: DEFAULT_COMPANY_PROFILE_ID,
+    ...payload,
+  });
+  if (!insertPrimary.error && insertPrimary.row?.id) {
+    return {
+      profile: normalizeProfileRow(insertPrimary.row, "company_profile"),
+      error: null,
+    };
+  }
+
+  const insertFallback = await insertProfileRowWithReturn("organisations", {
+    id: DEFAULT_COMPANY_PROFILE_ID,
+    ...payload,
+  });
+  if (!insertFallback.error && insertFallback.row?.id) {
+    return {
+      profile: normalizeProfileRow(insertFallback.row, "organisations"),
+      error: null,
+    };
+  }
+
+  return {
+    profile: null,
+    error:
+      insertFallback.error ??
+      insertPrimary.error ??
+      "Failed to save company profile.",
   };
-
-  const primaryRow = await fetchRawProfileRow("company_profile");
-  if (primaryRow?.id) {
-    const error = await updateProfileRow("company_profile", String(primaryRow.id), payload);
-    if (!error) return { error: null };
-  }
-
-  const fallbackRow = await fetchRawProfileRow("organisations");
-  if (fallbackRow?.id) {
-    const error = await updateProfileRow("organisations", String(fallbackRow.id), payload);
-    return { error };
-  }
-
-  const insertPrimaryError = await insertProfileRow("company_profile", payload);
-  if (!insertPrimaryError) return { error: null };
-
-  const insertFallbackError = await insertProfileRow("organisations", payload);
-  return { error: insertFallbackError ?? insertPrimaryError };
 }
 
 function buildLogoPayload(logoUrl: string | null): Record<string, string | null> {
@@ -169,42 +317,54 @@ function buildLogoPayload(logoUrl: string | null): Record<string, string | null>
 
 export async function saveCompanyLogoUrl(
   logoUrl: string | null
-): Promise<{ error: string | null }> {
+): Promise<{ profile: CompanyProfileRecord | null; error: string | null }> {
   if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
+    return { profile: null, error: "Supabase is not configured." };
   }
 
   const logoPayload = buildLogoPayload(logoUrl);
+  const existing = await resolveExistingProfileTarget();
 
-  const primaryRow = await fetchRawProfileRow("company_profile");
-  if (primaryRow?.id) {
-    const error = await updateProfileRow(
-      "company_profile",
-      String(primaryRow.id),
-      logoPayload
-    );
-    if (!error) return { error: null };
+  if (existing) {
+    const { row, error } = await writeProfileRow(existing.table, existing.id, logoPayload);
+    if (error) {
+      return { profile: null, error };
+    }
+    if (!row?.id) {
+      return { profile: null, error: "Company logo update returned no record." };
+    }
+    return { profile: normalizeProfileRow(row, existing.table), error: null };
   }
 
-  const fallbackRow = await fetchRawProfileRow("organisations");
-  if (fallbackRow?.id) {
-    const error = await updateProfileRow(
-      "organisations",
-      String(fallbackRow.id),
-      logoPayload
-    );
-    return { error };
-  }
-
-  const insertPrimaryError = await insertProfileRow("company_profile", {
+  const insertPrimary = await insertProfileRowWithReturn("company_profile", {
+    id: DEFAULT_COMPANY_PROFILE_ID,
     company_name: "My Company",
     ...logoPayload,
   });
-  if (!insertPrimaryError) return { error: null };
+  if (!insertPrimary.error && insertPrimary.row?.id) {
+    return {
+      profile: normalizeProfileRow(insertPrimary.row, "company_profile"),
+      error: null,
+    };
+  }
 
-  const insertFallbackError = await insertProfileRow("organisations", {
+  const insertFallback = await insertProfileRowWithReturn("organisations", {
+    id: DEFAULT_COMPANY_PROFILE_ID,
     company_name: "My Company",
     ...logoPayload,
   });
-  return { error: insertFallbackError ?? insertPrimaryError };
+  if (!insertFallback.error && insertFallback.row?.id) {
+    return {
+      profile: normalizeProfileRow(insertFallback.row, "organisations"),
+      error: null,
+    };
+  }
+
+  return {
+    profile: null,
+    error:
+      insertFallback.error ??
+      insertPrimary.error ??
+      "Failed to save company logo.",
+  };
 }

@@ -150,21 +150,26 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
     if (!selectedItcId) return;
     setSaving(true);
     setMessage(null);
-    const result = await updateItcTradeForm({
-      itcId: selectedItcId,
-      payload: tradeFormToItcPayload(discipline, form),
-    });
-    setSaving(false);
-    if (result.error) {
-      setMessage(result.error);
-      return;
+    try {
+      const result = await updateItcTradeForm({
+        itcId: selectedItcId,
+        payload: tradeFormToItcPayload(discipline, form),
+      });
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+      setMessage(
+        formComplete
+          ? "ITC saved."
+          : "Draft saved. Warning: Service data incomplete — you can complete this later."
+      );
+      await load();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to save ITC.");
+    } finally {
+      setSaving(false);
     }
-    setMessage(
-      formComplete
-        ? "ITC saved."
-        : "Draft saved. Warning: Service data incomplete — you can complete this later."
-    );
-    void load();
   };
 
   const handleRedlineUpload = async (file: File) => {

@@ -231,12 +231,19 @@ export default function ItcStepSignoffCard({
   const handleSaveDraft = async () => {
     setLoading(true);
     setMessage(null);
-    const result = await persistDraft();
-    setLoading(false);
-    setMessage(result.error ?? "Draft saved.");
-    if (!result.error) {
+    try {
+      const result = await persistDraft();
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+      setMessage("Draft saved.");
       setSignatureDataUrl(null);
       onUpdated();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to save draft.");
+    } finally {
+      setLoading(false);
     }
   };
 

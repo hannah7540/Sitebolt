@@ -282,11 +282,14 @@ export default function WorkerInductionPortalPage() {
         }
       }
 
-      await updateWorkerStatusFromVocs(
+      const { error: statusError } = await updateWorkerStatusFromVocs(
         workerId,
         nullIfBlankWorkerDate(licenceExpiry),
         preparedVocs.map((v) => v.expiry_date)
       );
+      if (statusError) {
+        throw new Error(statusError);
+      }
 
       setSuccess(true);
     } catch (err) {

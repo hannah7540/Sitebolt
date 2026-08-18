@@ -44,6 +44,11 @@ export default function InsuranceFormModal({
         docFile,
         `company-insurance/${Date.now()}-${insuranceType.replace(/\s+/g, "-")}`
       );
+      if (!documentUrl) {
+        setSaving(false);
+        setError("Failed to upload insurance document.");
+        return;
+      }
     }
 
     const result = await onSaved({

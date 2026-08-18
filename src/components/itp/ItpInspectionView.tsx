@@ -130,13 +130,21 @@ export default function ItpInspectionView({
       setMessage("Hold Points must be cleared before final sign-off.");
       return;
     }
-    const { error } = await updateItpStatus(itpId, "submitted");
-    if (error) {
-      setMessage(error);
-      return;
+    setActionId("submit-itp");
+    setMessage(null);
+    try {
+      const { error } = await updateItpStatus(itpId, "submitted");
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      await loadItp();
+      onUpdated();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to submit ITP.");
+    } finally {
+      setActionId(null);
     }
-    await loadItp();
-    onUpdated();
   };
 
   const handleApproveItp = async () => {
@@ -144,13 +152,21 @@ export default function ItpInspectionView({
       setMessage("Hold Points must be cleared before approval.");
       return;
     }
-    const { error } = await updateItpStatus(itpId, "approved");
-    if (error) {
-      setMessage(error);
-      return;
+    setActionId("approve-itp");
+    setMessage(null);
+    try {
+      const { error } = await updateItpStatus(itpId, "approved");
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      await loadItp();
+      onUpdated();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to approve ITP.");
+    } finally {
+      setActionId(null);
     }
-    await loadItp();
-    onUpdated();
   };
 
   if (loading || !itp) {

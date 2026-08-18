@@ -116,22 +116,28 @@ export default function EmailSignatureModal({ open, onClose, onSaved }: EmailSig
 
     setSaving(true);
     setError(null);
-    const result = await saveEmailSignature({
-      id: signatureId,
-      name: name.trim() || "Email Signature",
-      body_html: bodyHtml,
-      body_text: htmlToPlainText(bodyHtml),
-      make_live: live,
-    });
-    setSaving(false);
 
-    if (result.error) {
-      setError(result.error);
-      return;
+    try {
+      const result = await saveEmailSignature({
+        id: signatureId,
+        name: name.trim() || "Email Signature",
+        body_html: bodyHtml,
+        body_text: htmlToPlainText(bodyHtml),
+        make_live: live,
+      });
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      onSaved(result.signature, live);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to save signature.");
+    } finally {
+      setSaving(false);
     }
-
-    onSaved(result.signature, live);
-    onClose();
   };
 
   if (!open) return null;

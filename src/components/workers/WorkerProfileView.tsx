@@ -399,109 +399,110 @@ function BasicInfoTab({
     setSaving(true);
     setError(null);
 
-    const wasRevoked = isWorkerRevoked(worker);
-    const wantsRevoked = accountStatus === "Revoked";
+    try {
+      const wasRevoked = isWorkerRevoked(worker);
+      const wantsRevoked = accountStatus === "Revoked";
 
-    if (wantsRevoked !== wasRevoked) {
-      const { error: revokeError } = await requestWorkerRevokeAccess(
-        worker.id,
-        wantsRevoked
-      );
-      if (revokeError) {
-        setSaving(false);
-        setError(revokeError);
-        return;
+      if (wantsRevoked !== wasRevoked) {
+        const { error: revokeError } = await requestWorkerRevokeAccess(
+          worker.id,
+          wantsRevoked
+        );
+        if (revokeError) {
+          setError(revokeError);
+          return;
+        }
       }
-    }
 
-    const nextStatus =
-      accountStatus === "Revoked"
-        ? "Revoked"
-        : accountStatus === "pending_induction"
-          ? "pending_induction"
-          : "active";
+      const nextStatus =
+        accountStatus === "Revoked"
+          ? "Revoked"
+          : accountStatus === "pending_induction"
+            ? "pending_induction"
+            : "active";
 
-    const { error: updateError } = await updateWorker(worker.id, {
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      full_name: fullName,
-      email: email.trim(),
-      phone: phone.trim() || null,
-      trade: trade.trim() || null,
-      is_apprentice: isApprentice,
-      has_company_vehicle: hasCompanyVehicle,
-      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
-      state,
-      worker_code: workerCode.trim() || null,
-      employment_type: employmentType.trim() || null,
-      status: nextStatus,
-    });
-
-    if (updateError) {
-      setSaving(false);
-      setError(updateError);
-      return;
-    }
-
-    if (
-      canManageWorkerRoles &&
-      securityRole !== normalizeSecurityRole(worker.security_role)
-    ) {
-      const { error: roleError } = await updateWorkerSecurityRole(worker.id, securityRole);
-      if (roleError) {
-        setSaving(false);
-        setError(roleError);
-        return;
-      }
-    }
-
-    let resolvedPayRuleId =
-      worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
-
-    if (state) {
-      const { templateId } = await assignDefaultPayRuleToWorker(
-        worker.id,
+      const { error: updateError } = await updateWorker(worker.id, {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        full_name: fullName,
+        email: email.trim(),
+        phone: phone.trim() || null,
+        trade: trade.trim() || null,
+        is_apprentice: isApprentice,
+        has_company_vehicle: hasCompanyVehicle,
+        assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
         state,
-        isApprentice
+        worker_code: workerCode.trim() || null,
+        employment_type: employmentType.trim() || null,
+        status: nextStatus,
+      });
+
+      if (updateError) {
+        setError(updateError);
+        return;
+      }
+
+      if (
+        canManageWorkerRoles &&
+        securityRole !== normalizeSecurityRole(worker.security_role)
+      ) {
+        const { error: roleError } = await updateWorkerSecurityRole(worker.id, securityRole);
+        if (roleError) {
+          setError(roleError);
+          return;
+        }
+      }
+
+      let resolvedPayRuleId =
+        worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
+
+      if (state) {
+        const { templateId } = await assignDefaultPayRuleToWorker(
+          worker.id,
+          state,
+          isApprentice
+        );
+        resolvedPayRuleId = templateId ?? resolvedPayRuleId;
+      }
+
+      const { error: assignError } = await setWorkerProjectAssignments(
+        { ...worker, full_name: fullName },
+        projectIds
       );
-      resolvedPayRuleId = templateId ?? resolvedPayRuleId;
+
+      if (assignError) {
+        setError(assignError);
+        return;
+      }
+
+      onSaved({
+        ...worker,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        full_name: fullName,
+        email: email.trim(),
+        phone: phone.trim() || null,
+        trade: trade.trim() || null,
+        is_apprentice: isApprentice,
+        has_company_vehicle: hasCompanyVehicle,
+        assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
+        state,
+        worker_code: workerCode.trim() || null,
+        employment_type: employmentType.trim() || null,
+        status: nextStatus,
+        is_revoked: wantsRevoked,
+        is_archived: wantsRevoked,
+        assigned_project_ids: wantsRevoked ? [] : projectIds,
+        assigned_project_id: wantsRevoked ? null : projectIds[0] ?? null,
+        pay_rule_id: resolvedPayRuleId,
+        pay_rule_template_id: resolvedPayRuleId,
+        security_role: canManageWorkerRoles ? securityRole : worker.security_role,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to save changes");
+    } finally {
+      setSaving(false);
     }
-
-    const { error: assignError } = await setWorkerProjectAssignments(
-      { ...worker, full_name: fullName },
-      projectIds
-    );
-
-    setSaving(false);
-
-    if (assignError) {
-      setError(assignError);
-      return;
-    }
-
-    onSaved({
-      ...worker,
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      full_name: fullName,
-      email: email.trim(),
-      phone: phone.trim() || null,
-      trade: trade.trim() || null,
-      is_apprentice: isApprentice,
-      has_company_vehicle: hasCompanyVehicle,
-      assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
-      state,
-      worker_code: workerCode.trim() || null,
-      employment_type: employmentType.trim() || null,
-      status: nextStatus,
-      is_revoked: wantsRevoked,
-      is_archived: wantsRevoked,
-      assigned_project_ids: wantsRevoked ? [] : projectIds,
-      assigned_project_id: wantsRevoked ? null : projectIds[0] ?? null,
-      pay_rule_id: resolvedPayRuleId,
-      pay_rule_template_id: resolvedPayRuleId,
-      security_role: canManageWorkerRoles ? securityRole : worker.security_role,
-    });
   };
 
   return (
@@ -657,40 +658,47 @@ function CardsVocsTab({
     setSaving(true);
     setError(null);
 
-    const missingPlantVocType = entries.find(
-      (entry) => entry.category === "plant_voc" && !getVocDisplayTitle({
-        voc_type: entry.voc_type,
-        title: entry.ticket_name,
-      })
-    );
-    if (missingPlantVocType) {
+    try {
+      const missingPlantVocType = entries.find(
+        (entry) => entry.category === "plant_voc" && !getVocDisplayTitle({
+          voc_type: entry.voc_type,
+          title: entry.ticket_name,
+        })
+      );
+      if (missingPlantVocType) {
+        setError("Please select a VOC type for each Plant Operations VOC entry.");
+        return;
+      }
+
+      const serialized = serializeCardsVocs(entries);
+      const { error: updateError } = await updateWorker(worker.id, {
+        cards_vocs: serialized,
+      });
+
+      if (updateError) {
+        setError(updateError);
+        return;
+      }
+
+      const { error: statusError } = await updateWorkerStatusFromVocs(
+        worker.id,
+        worker.drivers_licence_expiry,
+        serialized.map((entry) => entry.expiry_date)
+      );
+      if (statusError) {
+        setError(statusError);
+        return;
+      }
+
+      onSaved({
+        ...worker,
+        cards_vocs: serialized,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to save changes");
+    } finally {
       setSaving(false);
-      setError("Please select a VOC type for each Plant Operations VOC entry.");
-      return;
     }
-
-    const serialized = serializeCardsVocs(entries);
-    const { error: updateError } = await updateWorker(worker.id, {
-      cards_vocs: serialized,
-    });
-
-    if (updateError) {
-      setSaving(false);
-      setError(updateError);
-      return;
-    }
-
-    await updateWorkerStatusFromVocs(
-      worker.id,
-      worker.drivers_licence_expiry,
-      serialized.map((entry) => entry.expiry_date)
-    );
-
-    setSaving(false);
-    onSaved({
-      ...worker,
-      cards_vocs: serialized,
-    });
   };
 
   if (loading) {

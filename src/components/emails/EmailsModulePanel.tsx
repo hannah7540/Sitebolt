@@ -601,7 +601,11 @@ export default function EmailsModulePanel() {
             await loadData();
           }}
           onSaveTemplate={async (input) => {
-            await saveEmailTemplate(input);
+            const result = await saveEmailTemplate(input);
+            if (result.error) {
+              showError(result.error);
+              throw new Error(result.error);
+            }
             await loadData();
           }}
           onSubmit={async (input) => {
@@ -629,11 +633,15 @@ export default function EmailsModulePanel() {
         open={signatureOpen}
         onClose={() => setSignatureOpen(false)}
         onSaved={async (signature, madeLive) => {
+          const refreshed = await fetchLiveEmailSignature();
+          if (refreshed.error) {
+            showError(refreshed.error);
+            return;
+          }
+          setLiveSignature(refreshed.signature ?? signature);
           showSuccess(
             madeLive ? "Live email signature updated." : "Signature saved successfully."
           );
-          const refreshed = await fetchLiveEmailSignature();
-          setLiveSignature(refreshed.signature ?? signature);
         }}
       />
 

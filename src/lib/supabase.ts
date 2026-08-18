@@ -1814,12 +1814,13 @@ export async function updateWorkerStatusFromVocs(
   workerId: string,
   licenceExpiry: string | null | undefined,
   vocExpiries: (string | null | undefined)[]
-): Promise<void> {
+): Promise<{ error: string | null }> {
   const status = computeWorkerStatusFromExpiries([
     licenceExpiry,
     ...vocExpiries,
   ]);
-  await supabase.from("workers").update({ status }).eq("id", workerId);
+  const { error } = await supabase.from("workers").update({ status }).eq("id", workerId);
+  return { error: error?.message ?? null };
 }
 
 export async function updateWorker(
@@ -2617,8 +2618,15 @@ export async function rejectLeaveRequest(
 export interface CompanyProfile {
   id: string;
   company_name: string | null;
+  trading_name?: string | null;
   abn: string | null;
+  acn?: string | null;
+  phone?: string | null;
+  email?: string | null;
   address: string | null;
+  suburb?: string | null;
+  state?: string | null;
+  postcode?: string | null;
   logo_url: string | null;
   updated_at?: string;
   source?: "company_profile" | "organisations";
@@ -2642,9 +2650,16 @@ export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
 
 export async function upsertCompanyProfile(input: {
   company_name: string;
-  abn: string;
-  address: string;
-}): Promise<{ error: string | null }> {
+  trading_name?: string;
+  abn?: string;
+  acn?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  suburb?: string;
+  state?: string;
+  postcode?: string;
+}): Promise<{ profile: CompanyProfile | null; error: string | null }> {
   const { saveCompanyProfile } = await import("./company-profile-service");
   return saveCompanyProfile(input);
 }

@@ -60,27 +60,32 @@ export default function ItcMasterSpecPanel({ projectId }: ItcMasterSpecPanelProp
     setSaving(true);
     setMessage(null);
 
-    const result = await saveItcMasterSpec({
-      projectId,
-      discipline: draft.discipline,
-      sub_services: draft.sub_services,
-      zones: draft.zones,
-      pit_numbers: draft.pit_numbers,
-      materials: draft.materials,
-      bedding_cover_specs: draft.bedding_cover_specs,
-      rover_serial_numbers: draft.rover_serial_numbers,
-      rover_operators: draft.rover_operators,
-      service_types: draft.service_types,
-      redline_markup_url: draft.redline_markup_url,
-    });
+    try {
+      const result = await saveItcMasterSpec({
+        projectId,
+        discipline: draft.discipline,
+        sub_services: draft.sub_services,
+        zones: draft.zones,
+        pit_numbers: draft.pit_numbers,
+        materials: draft.materials,
+        bedding_cover_specs: draft.bedding_cover_specs,
+        rover_serial_numbers: draft.rover_serial_numbers,
+        rover_operators: draft.rover_operators,
+        service_types: draft.service_types,
+        redline_markup_url: draft.redline_markup_url,
+      });
 
-    setSaving(false);
-    if (result.error) {
-      setMessage(result.error);
-      return;
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+      setMessage("Master spec saved.");
+      await load();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to save master spec.");
+    } finally {
+      setSaving(false);
     }
-    setMessage("Master spec saved.");
-    void load();
   };
 
   const handleRedlineUpload = async (file: File) => {

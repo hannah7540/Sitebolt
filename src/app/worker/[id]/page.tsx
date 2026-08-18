@@ -139,11 +139,14 @@ export default function WorkerSelfServicePage() {
       const refreshed = await fetchWorkerVocs(worker.id);
       setExistingVocs(refreshed);
       setNewVocs([]);
-      await updateWorkerStatusFromVocs(
+      const { error: statusError } = await updateWorkerStatusFromVocs(
         worker.id,
         worker.drivers_licence_expiry,
         refreshed.map((v) => v.expiry_date)
       );
+      if (statusError) {
+        throw new Error(statusError);
+      }
       setSuccess("Your VOCs have been saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save VOCs.");
