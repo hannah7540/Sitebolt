@@ -91,3 +91,11 @@ body {
 .calendar-scroll-x::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(to right, #f97316, #ea580c);
 }
+
+/* Capacitor / mobile safe-area insets — mobile only; desktop/tablet (lg+) unchanged */
+@media (max-width: 1023px) {
+  .mobile-safe-area-y {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}

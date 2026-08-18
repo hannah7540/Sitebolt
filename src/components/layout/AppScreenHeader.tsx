@@ -25,7 +25,7 @@ export default function AppScreenHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm lg:px-6",
+        "mobile-safe-area-y sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm lg:px-6",
         className
       )}
     >

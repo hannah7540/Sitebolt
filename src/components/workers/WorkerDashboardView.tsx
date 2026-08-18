@@ -855,7 +855,7 @@ export default function WorkerDashboardView({
 
   return (
     <div className={cn("bg-transparent", embedded ? "min-h-full" : "min-h-screen")}>
-      <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <header className="mobile-safe-area-y border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
         <div className="mx-auto flex max-w-lg items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <button
