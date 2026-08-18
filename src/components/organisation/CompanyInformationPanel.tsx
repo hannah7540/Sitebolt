@@ -6,8 +6,8 @@ import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvide
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
-  isAllowedCompanyLogoFile,
-  uploadCompanyLogo,
+  uploadOrganisationLogo,
+  validateOrganisationLogoFile,
 } from "@/lib/company-asset-upload";
 import {
   fetchOrganisationFromApi,
@@ -71,6 +71,10 @@ export default function CompanyInformationPanel() {
   const [postcode, setPostcode] = useState("");
   const [country, setCountry] = useState("Australia");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+  const [logoPreviewVersion, setLogoPreviewVersion] = useState(0);
+  const [logoStorageBucket, setLogoStorageBucket] = useState("organisation-logos");
+  const logoPreviewBlobRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -96,24 +100,29 @@ export default function CompanyInformationPanel() {
   };
 
   const buildPayload = useCallback(
-    (overrides?: { logo_url?: string | null }) => ({
-      company_name: companyName,
-      trading_name: tradingName,
-      abn,
-      acn,
-      phone,
-      email,
-      website,
-      address,
-      street_address: address,
-      suburb,
-      city: suburb,
-      state,
-      postcode,
-      postal_code: postcode,
-      country,
-      logo_url: overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl,
-    }),
+    (overrides?: { logo_url?: string | null }) => {
+      const resolvedLogo =
+        overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl;
+      return {
+        company_name: companyName,
+        trading_name: tradingName,
+        abn,
+        acn,
+        phone,
+        email,
+        website,
+        address,
+        street_address: address,
+        suburb,
+        city: suburb,
+        state,
+        postcode,
+        postal_code: postcode,
+        country,
+        logo_url: resolvedLogo,
+        logo: resolvedLogo,
+      };
+    },
     [
       companyName,
       tradingName,
@@ -141,6 +150,7 @@ export default function CompanyInformationPanel() {
       }
       if (organisation) {
         applyOrganisationRecord(organisation, formSetters);
+        setLogoPreviewVersion((current) => current + 1);
       }
     } catch (cause) {
       const message =
@@ -187,30 +197,67 @@ export default function CompanyInformationPanel() {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (logoPreviewBlobRef.current) {
+        URL.revokeObjectURL(logoPreviewBlobRef.current);
+      }
+    };
+  }, []);
+
+  const setLocalLogoPreview = (file: File) => {
+    if (logoPreviewBlobRef.current) {
+      URL.revokeObjectURL(logoPreviewBlobRef.current);
+    }
+    const blobUrl = URL.createObjectURL(file);
+    logoPreviewBlobRef.current = blobUrl;
+    setLogoPreviewUrl(blobUrl);
+  };
+
+  const clearLocalLogoPreview = () => {
+    if (logoPreviewBlobRef.current) {
+      URL.revokeObjectURL(logoPreviewBlobRef.current);
+      logoPreviewBlobRef.current = null;
+    }
+    setLogoPreviewUrl(null);
+  };
+
+  const displayLogoSrc =
+    logoPreviewUrl ??
+    (logoUrl ? `${logoUrl}${logoUrl.includes("?") ? "&" : "?"}t=${logoPreviewVersion}` : null);
+
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
 
-    if (!isAllowedCompanyLogoFile(file)) {
-      showError("Please upload a PNG, JPG, or SVG image.");
+    const validationError = validateOrganisationLogoFile(file);
+    if (validationError) {
+      showError(validationError);
       return;
     }
 
+    setLocalLogoPreview(file);
     setUploadingLogo(true);
     setError(null);
 
     try {
-      const path = `logos/company-logo-${Date.now()}`;
-      const { url, error: uploadError } = await uploadCompanyLogo(file, path);
+      const { url, error: uploadError, bucket } = await uploadOrganisationLogo(file);
       if (uploadError || !url) {
         throw new Error(uploadError ?? "Logo upload failed.");
       }
 
       setLogoUrl(url);
+      if (bucket) {
+        setLogoStorageBucket(bucket);
+      }
+
       await persistOrganisation(buildPayload({ logo_url: url }));
-      showSuccess("Company logo saved successfully");
+      clearLocalLogoPreview();
+      setLogoPreviewVersion((current) => current + 1);
+      showSuccess("Logo uploaded and saved successfully");
     } catch (cause) {
+      clearLocalLogoPreview();
       const message = cause instanceof Error ? cause.message : "Logo upload failed.";
       setError(message);
       showError(message);
@@ -224,8 +271,10 @@ export default function CompanyInformationPanel() {
     setError(null);
 
     try {
+      clearLocalLogoPreview();
       setLogoUrl(null);
       await persistOrganisation(buildPayload({ logo_url: null }));
+      setLogoPreviewVersion((current) => current + 1);
       showSuccess("Company logo removed");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to remove logo.";
@@ -264,28 +313,34 @@ export default function CompanyInformationPanel() {
           </div>
 
           <div className="flex flex-wrap items-start gap-4">
-            <div className="flex h-28 w-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
-              {uploadingLogo ? (
-                <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
-              ) : logoUrl ? (
+            {displayLogoSrc ? (
+              <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-lg border border-slate-300 bg-slate-50 p-2">
                 <img
-                  src={logoUrl}
-                  alt={`${companyName || "Company"} logo preview`}
+                  src={displayLogoSrc}
+                  alt="Company Logo"
                   className="max-h-full max-w-full object-contain"
+                  onError={() => {
+                    console.error("Failed to load logo image:", displayLogoSrc);
+                  }}
                 />
-              ) : (
-                <div className="flex flex-col items-center gap-1 text-slate-400">
-                  <Building2 className="h-8 w-8" />
-                  <span className="text-xs">No logo uploaded</span>
-                </div>
-              )}
-            </div>
+                {uploadingLogo ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                    <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex h-32 w-32 flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400">
+                <Building2 className="mb-1 h-8 w-8" />
+                <span className="text-xs">No Logo</span>
+              </div>
+            )}
 
             <div className="flex flex-col gap-2">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                accept="image/*,.png,.jpg,.jpeg,.svg,.webp,.gif"
                 className="hidden"
                 onChange={handleLogoUpload}
               />
@@ -302,7 +357,7 @@ export default function CompanyInformationPanel() {
                 )}
                 Upload Logo
               </button>
-              {logoUrl ? (
+              {logoUrl || logoPreviewUrl ? (
                 <button
                   type="button"
                   disabled={uploadingLogo || removingLogo || saving}
@@ -323,7 +378,9 @@ export default function CompanyInformationPanel() {
           </div>
 
           <p className={labelClass}>
-            Stored in Supabase bucket: <span className="font-medium">company-assets</span>
+            Stored in Supabase bucket:{" "}
+            <span className="font-medium">{logoStorageBucket}</span>
+            {logoStorageBucket !== "organisation-logos" ? " (fallback)" : null}
           </p>
         </section>
 
