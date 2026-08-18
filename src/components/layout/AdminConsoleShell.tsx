@@ -390,10 +390,7 @@ export default function AdminConsoleShell({
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <span className="flex-1 text-sm font-semibold text-slate-900">
-              Site<span className="text-orange-500">Bolt</span>
-            </span>
-            <CompanyLogo size="sm" showFallback />
+            <CompanyLogo size="sm" showFallback className="flex-1" />
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">{children}</div>

@@ -22,33 +22,17 @@ function applyOrganisationRecord(
   setters: {
     setProfileId: (value: string) => void;
     setCompanyName: (value: string) => void;
-    setTradingName: (value: string) => void;
     setAbn: (value: string) => void;
-    setAcn: (value: string) => void;
-    setPhone: (value: string) => void;
     setEmail: (value: string) => void;
-    setWebsite: (value: string) => void;
-    setAddress: (value: string) => void;
-    setSuburb: (value: string) => void;
-    setState: (value: string) => void;
-    setPostcode: (value: string) => void;
-    setCountry: (value: string) => void;
+    setPhone: (value: string) => void;
     setLogoUrl: (value: string | null) => void;
   }
 ) {
   setters.setProfileId(record.id);
   setters.setCompanyName(record.company_name);
-  setters.setTradingName(record.trading_name);
   setters.setAbn(record.abn);
-  setters.setAcn(record.acn);
-  setters.setPhone(record.phone);
   setters.setEmail(record.email);
-  setters.setWebsite(record.website);
-  setters.setAddress(record.address);
-  setters.setSuburb(record.suburb);
-  setters.setState(record.state);
-  setters.setPostcode(record.postcode);
-  setters.setCountry(record.country);
+  setters.setPhone(record.phone);
   setters.setLogoUrl(record.logo_url);
 }
 
@@ -56,25 +40,16 @@ export default function CompanyInformationPanel() {
   const { refreshBranding } = useCompanyBranding();
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoPreviewBlobRef = useRef<string | null>(null);
 
   const [profileId, setProfileId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState("");
-  const [tradingName, setTradingName] = useState("");
   const [abn, setAbn] = useState("");
-  const [acn, setAcn] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [website, setWebsite] = useState("");
-  const [address, setAddress] = useState("");
-  const [suburb, setSuburb] = useState("");
-  const [state, setState] = useState("");
-  const [postcode, setPostcode] = useState("");
-  const [country, setCountry] = useState("Australia");
+  const [phone, setPhone] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
-  const [logoPreviewVersion, setLogoPreviewVersion] = useState(0);
-  const [logoStorageBucket, setLogoStorageBucket] = useState("organisation-logos");
-  const logoPreviewBlobRef = useRef<string | null>(null);
+  const [logoBroken, setLogoBroken] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -85,59 +60,21 @@ export default function CompanyInformationPanel() {
   const formSetters = {
     setProfileId,
     setCompanyName,
-    setTradingName,
     setAbn,
-    setAcn,
-    setPhone,
     setEmail,
-    setWebsite,
-    setAddress,
-    setSuburb,
-    setState,
-    setPostcode,
-    setCountry,
+    setPhone,
     setLogoUrl,
   };
 
   const buildPayload = useCallback(
-    (overrides?: { logo_url?: string | null }) => {
-      const resolvedLogo =
-        overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl;
-      return {
-        company_name: companyName,
-        trading_name: tradingName,
-        abn,
-        acn,
-        phone,
-        email,
-        website,
-        address,
-        street_address: address,
-        suburb,
-        city: suburb,
-        state,
-        postcode,
-        postal_code: postcode,
-        country,
-        logo_url: resolvedLogo,
-        logo: resolvedLogo,
-      };
-    },
-    [
-      companyName,
-      tradingName,
-      abn,
-      acn,
-      phone,
-      email,
-      website,
-      address,
-      suburb,
-      state,
-      postcode,
-      country,
-      logoUrl,
-    ]
+    (overrides?: Partial<OrganisationFormRecord>) => ({
+      company_name: overrides?.company_name ?? companyName,
+      abn: overrides?.abn ?? abn,
+      email: overrides?.email ?? email,
+      phone: overrides?.phone ?? phone,
+      logo_url: overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl,
+    }),
+    [companyName, abn, email, phone, logoUrl]
   );
 
   const loadProfile = useCallback(async () => {
@@ -150,7 +87,7 @@ export default function CompanyInformationPanel() {
       }
       if (organisation) {
         applyOrganisationRecord(organisation, formSetters);
-        setLogoPreviewVersion((current) => current + 1);
+        setLogoBroken(false);
       }
     } catch (cause) {
       const message =
@@ -166,6 +103,30 @@ export default function CompanyInformationPanel() {
     void loadProfile();
   }, [loadProfile]);
 
+  useEffect(() => {
+    return () => {
+      if (logoPreviewBlobRef.current) {
+        URL.revokeObjectURL(logoPreviewBlobRef.current);
+      }
+    };
+  }, []);
+
+  const clearLocalLogoPreview = () => {
+    if (logoPreviewBlobRef.current) {
+      URL.revokeObjectURL(logoPreviewBlobRef.current);
+      logoPreviewBlobRef.current = null;
+    }
+    setLogoPreviewUrl(null);
+  };
+
+  const setLocalLogoPreview = (file: File) => {
+    clearLocalLogoPreview();
+    const blobUrl = URL.createObjectURL(file);
+    logoPreviewBlobRef.current = blobUrl;
+    setLogoPreviewUrl(blobUrl);
+    setLogoBroken(false);
+  };
+
   const persistOrganisation = async (payload: ReturnType<typeof buildPayload>) => {
     const { organisation, error: saveError } = await saveOrganisationToApi(payload);
     if (saveError) {
@@ -175,6 +136,7 @@ export default function CompanyInformationPanel() {
       throw new Error("Failed to save organisation details");
     }
     applyOrganisationRecord(organisation, formSetters);
+    setLogoBroken(false);
     await refreshBranding();
     return organisation;
   };
@@ -197,35 +159,6 @@ export default function CompanyInformationPanel() {
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (logoPreviewBlobRef.current) {
-        URL.revokeObjectURL(logoPreviewBlobRef.current);
-      }
-    };
-  }, []);
-
-  const setLocalLogoPreview = (file: File) => {
-    if (logoPreviewBlobRef.current) {
-      URL.revokeObjectURL(logoPreviewBlobRef.current);
-    }
-    const blobUrl = URL.createObjectURL(file);
-    logoPreviewBlobRef.current = blobUrl;
-    setLogoPreviewUrl(blobUrl);
-  };
-
-  const clearLocalLogoPreview = () => {
-    if (logoPreviewBlobRef.current) {
-      URL.revokeObjectURL(logoPreviewBlobRef.current);
-      logoPreviewBlobRef.current = null;
-    }
-    setLogoPreviewUrl(null);
-  };
-
-  const displayLogoSrc =
-    logoPreviewUrl ??
-    (logoUrl ? `${logoUrl}${logoUrl.includes("?") ? "&" : "?"}t=${logoPreviewVersion}` : null);
-
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -242,19 +175,14 @@ export default function CompanyInformationPanel() {
     setError(null);
 
     try {
-      const { url, error: uploadError, bucket } = await uploadOrganisationLogo(file);
+      const { url, error: uploadError } = await uploadOrganisationLogo(file);
       if (uploadError || !url) {
         throw new Error(uploadError ?? "Logo upload failed.");
       }
 
       setLogoUrl(url);
-      if (bucket) {
-        setLogoStorageBucket(bucket);
-      }
-
       await persistOrganisation(buildPayload({ logo_url: url }));
       clearLocalLogoPreview();
-      setLogoPreviewVersion((current) => current + 1);
       showSuccess("Logo uploaded and saved successfully");
     } catch (cause) {
       clearLocalLogoPreview();
@@ -273,8 +201,8 @@ export default function CompanyInformationPanel() {
     try {
       clearLocalLogoPreview();
       setLogoUrl(null);
+      setLogoBroken(false);
       await persistOrganisation(buildPayload({ logo_url: null }));
-      setLogoPreviewVersion((current) => current + 1);
       showSuccess("Company logo removed");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to remove logo.";
@@ -284,6 +212,8 @@ export default function CompanyInformationPanel() {
       setRemovingLogo(false);
     }
   };
+
+  const displayLogoSrc = logoPreviewUrl ?? logoUrl;
 
   if (loading) {
     return (
@@ -300,27 +230,28 @@ export default function CompanyInformationPanel() {
         Company <span className="text-orange-500">Information</span>
       </h1>
       <p className="mb-6 text-sm text-slate-500">
-        Organisation details used across SiteBolt documents and dashboards.
+        Manage your organisation logo and core company details.
       </p>
 
-      <form onSubmit={handleSave} className="max-w-3xl space-y-6">
-        <section className={`space-y-4 p-6 ${cardClass}`}>
+      <form onSubmit={handleSave} className={`max-w-xl space-y-6 p-6 ${cardClass}`}>
+        <div className="space-y-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Company Logo & Branding</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Upload your organisation logo for headers, safety forms, and printed site packs.
+            <h2 className="text-sm font-semibold text-slate-900">Company Logo</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Displayed in the site header, forms, and printable documents.
             </p>
           </div>
 
           <div className="flex flex-wrap items-start gap-4">
-            {displayLogoSrc ? (
+            {displayLogoSrc && !logoBroken ? (
               <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-lg border border-slate-300 bg-slate-50 p-2">
                 <img
                   src={displayLogoSrc}
                   alt="Company Logo"
-                  className="max-h-full max-w-full object-contain"
+                  className="max-h-24 max-w-full object-contain"
                   onError={() => {
                     console.error("Failed to load logo image:", displayLogoSrc);
+                    setLogoBroken(true);
                   }}
                 />
                 {uploadingLogo ? (
@@ -340,7 +271,7 @@ export default function CompanyInformationPanel() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.png,.jpg,.jpeg,.svg,.webp,.gif"
+                accept="image/*"
                 className="hidden"
                 onChange={handleLogoUpload}
               />
@@ -355,7 +286,7 @@ export default function CompanyInformationPanel() {
                 ) : (
                   <ImagePlus className="h-4 w-4" />
                 )}
-                Upload Logo
+                {logoUrl || logoPreviewUrl ? "Change Logo" : "Upload Logo"}
               </button>
               {logoUrl || logoPreviewUrl ? (
                 <button
@@ -376,156 +307,51 @@ export default function CompanyInformationPanel() {
               ) : null}
             </div>
           </div>
+        </div>
 
-          <p className={labelClass}>
-            Stored in Supabase bucket:{" "}
-            <span className="font-medium">{logoStorageBucket}</span>
-            {logoStorageBucket !== "organisation-logos" ? " (fallback)" : null}
-          </p>
-        </section>
+        <div className="space-y-4 border-t border-slate-200 pt-6">
+          <label className="block space-y-1">
+            <span className={labelClass}>Company name</span>
+            <input
+              className={inputClass}
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              required
+            />
+          </label>
 
-        <section className={`space-y-4 p-6 ${cardClass}`}>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Company Details</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Legal and contact information shown on documents and dashboards.
-            </p>
-          </div>
+          <label className="block space-y-1">
+            <span className={labelClass}>ABN</span>
+            <input
+              className={inputClass}
+              value={abn}
+              onChange={(e) => setAbn(e.target.value)}
+              placeholder="12 345 678 901"
+            />
+          </label>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block space-y-1 md:col-span-2">
-              <span className={labelClass}>Company name</span>
-              <input
-                className={inputClass}
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                required
-              />
-            </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>Email address</span>
+            <input
+              className={inputClass}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+          </label>
 
-            <label className="block space-y-1 md:col-span-2">
-              <span className={labelClass}>Trading name</span>
-              <input
-                className={inputClass}
-                value={tradingName}
-                onChange={(e) => setTradingName(e.target.value)}
-                placeholder="Optional trading or brand name"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>ABN</span>
-              <input
-                className={inputClass}
-                value={abn}
-                onChange={(e) => setAbn(e.target.value)}
-                placeholder="12 345 678 901"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>ACN</span>
-              <input
-                className={inputClass}
-                value={acn}
-                onChange={(e) => setAcn(e.target.value)}
-                placeholder="123 456 789"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>Phone</span>
-              <input
-                className={inputClass}
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>Email</span>
-              <input
-                className={inputClass}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
-
-            <label className="block space-y-1 md:col-span-2">
-              <span className={labelClass}>Website</span>
-              <input
-                className={inputClass}
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                placeholder="https://www.example.com.au"
-                inputMode="url"
-              />
-            </label>
-          </div>
-        </section>
-
-        <section className={`space-y-4 p-6 ${cardClass}`}>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Business Address</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Primary business address used on compliance documents.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block space-y-1 md:col-span-2">
-              <span className={labelClass}>Street address</span>
-              <input
-                className={inputClass}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Street address"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>Suburb</span>
-              <input
-                className={inputClass}
-                value={suburb}
-                onChange={(e) => setSuburb(e.target.value)}
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>State</span>
-              <input
-                className={inputClass}
-                value={state}
-                onChange={(e) => setState(e.target.value)}
-                placeholder="NSW"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>Postcode</span>
-              <input
-                className={inputClass}
-                value={postcode}
-                onChange={(e) => setPostcode(e.target.value)}
-                inputMode="numeric"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className={labelClass}>Country</span>
-              <input
-                className={inputClass}
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-              />
-            </label>
-          </div>
-        </section>
+          <label className="block space-y-1">
+            <span className={labelClass}>Phone number</span>
+            <input
+              className={inputClass}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              autoComplete="tel"
+            />
+          </label>
+        </div>
 
         {profileId ? (
           <p className="text-xs text-slate-400">Record ID: {profileId}</p>
@@ -541,14 +367,14 @@ export default function CompanyInformationPanel() {
           type="submit"
           disabled={saving || uploadingLogo || removingLogo}
           aria-busy={saving}
-          className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save Organisation Details
+          Save Changes
         </button>
       </form>
 

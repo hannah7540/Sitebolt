@@ -6,8 +6,9 @@ import { canManageOrganisation, normalizeSecurityRole } from "@/lib/security-rol
 import {
   buildDefaultOrganisationRecord,
   DEFAULT_ORGANISATION_ID,
-  enrichOrganisationRecord,
-  normalizeOrganisationPayload,
+  mapOrganisationResponse,
+  normalizeOrganisationSavePayload,
+  ORGANISATION_SELECT_FIELDS,
   type OrganisationRow,
 } from "@/lib/organisation-api";
 
@@ -15,7 +16,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-async function requireOrganisationApiAccess() {
+async function requireOrganisationWriteAccess() {
   if (!isSupabaseAdminConfigured()) {
     return {
       ok: false as const,
@@ -64,7 +65,7 @@ async function fetchOrCreateOrganisation(
 ): Promise<{ data: OrganisationRow | null; error: string | null }> {
   const { data: existing, error: fetchError } = await admin
     .from("organisations")
-    .select("*")
+    .select(ORGANISATION_SELECT_FIELDS)
     .limit(1)
     .maybeSingle();
 
@@ -73,28 +74,28 @@ async function fetchOrCreateOrganisation(
   }
 
   if (existing) {
-    return { data: enrichOrganisationRecord(existing as OrganisationRow), error: null };
+    return { data: existing as OrganisationRow, error: null };
   }
 
   const defaultRecord = buildDefaultOrganisationRecord();
   const { data: inserted, error: insertError } = await admin
     .from("organisations")
     .insert([defaultRecord])
-    .select("*")
+    .select(ORGANISATION_SELECT_FIELDS)
     .single();
 
   if (insertError) {
     return { data: null, error: insertError.message };
   }
 
-  return { data: enrichOrganisationRecord(inserted as OrganisationRow), error: null };
+  return { data: inserted as OrganisationRow, error: null };
 }
 
 async function saveOrganisation(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   body: Record<string, unknown>
 ): Promise<{ data: OrganisationRow | null; error: string | null }> {
-  const updatePayload = normalizeOrganisationPayload(body);
+  const updatePayload = normalizeOrganisationSavePayload(body);
   const existingResult = await fetchOrCreateOrganisation(admin);
 
   if (existingResult.error) {
@@ -106,21 +107,21 @@ async function saveOrganisation(
     const { data, error } = await admin
       .from("organisations")
       .insert([{ id: DEFAULT_ORGANISATION_ID, ...updatePayload }])
-      .select("*")
+      .select(ORGANISATION_SELECT_FIELDS)
       .single();
 
     console.log("Supabase Organisation Save Result:", data, error);
     if (error) {
       return { data: null, error: error.message };
     }
-    return { data: enrichOrganisationRecord(data as OrganisationRow), error: null };
+    return { data: data as OrganisationRow, error: null };
   }
 
   const { data, error } = await admin
     .from("organisations")
     .update(updatePayload)
     .eq("id", existing.id)
-    .select("*")
+    .select(ORGANISATION_SELECT_FIELDS)
     .single();
 
   console.log("Supabase Organisation Save Result:", data, error);
@@ -128,20 +129,28 @@ async function saveOrganisation(
     return { data: null, error: error.message };
   }
 
-  return { data: enrichOrganisationRecord(data as OrganisationRow), error: null };
+  return { data: data as OrganisationRow, error: null };
 }
 
 export async function GET() {
-  const auth = await requireOrganisationApiAccess();
-  if (!auth.ok) return auth.response;
+  if (!isSupabaseAdminConfigured()) {
+    return NextResponse.json(
+      { error: "Server admin client is not configured." },
+      { status: 503 }
+    );
+  }
 
   try {
-    const result = await fetchOrCreateOrganisation(auth.admin);
+    const admin = createSupabaseAdminClient();
+    const result = await fetchOrCreateOrganisation(admin);
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: result.data });
+    return NextResponse.json({
+      success: true,
+      data: mapOrganisationResponse(result.data as OrganisationRow),
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -153,7 +162,7 @@ export async function GET() {
 }
 
 async function handleSave(request: Request) {
-  const auth = await requireOrganisationApiAccess();
+  const auth = await requireOrganisationWriteAccess();
   if (!auth.ok) return auth.response;
 
   try {
@@ -169,7 +178,10 @@ async function handleSave(request: Request) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: result.data });
+    return NextResponse.json({
+      success: true,
+      data: mapOrganisationResponse(result.data as OrganisationRow),
+    });
   } catch (error) {
     return NextResponse.json(
       {

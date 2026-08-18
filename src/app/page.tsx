@@ -386,10 +386,7 @@ function HomeConsole() {
               >
                 {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
-              <span className="flex-1 text-sm font-semibold text-slate-900">
-                Site<span className="text-orange-500">Bolt</span>
-              </span>
-              <CompanyLogo size="sm" showFallback />
+              <CompanyLogo size="sm" showFallback className="flex-1" />
             </div>
           )}
 

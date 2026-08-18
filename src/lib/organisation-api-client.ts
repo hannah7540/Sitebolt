@@ -1,21 +1,6 @@
-import { mapOrganisationToForm } from "@/lib/organisation-api";
+import { type OrganisationRecord } from "@/lib/organisation-api";
 
-export interface OrganisationFormRecord {
-  id: string;
-  company_name: string;
-  trading_name: string;
-  abn: string;
-  acn: string;
-  phone: string;
-  email: string;
-  website: string;
-  address: string;
-  suburb: string;
-  state: string;
-  postcode: string;
-  country: string;
-  logo_url: string | null;
-}
+export type OrganisationFormRecord = OrganisationRecord;
 
 async function readJson<T>(response: Response): Promise<{ data: T | null; error: string | null }> {
   const payload = (await response.json().catch(() => null)) as
@@ -40,42 +25,27 @@ export async function fetchOrganisationFromApi(): Promise<{
     method: "GET",
     cache: "no-store",
   });
-  const result = await readJson<Record<string, unknown>>(response);
+  const result = await readJson<OrganisationFormRecord>(response);
   if (result.error || !result.data) {
     return { organisation: null, error: result.error ?? "Failed to load organisation." };
   }
 
-  return {
-    organisation: mapOrganisationToForm(result.data) as OrganisationFormRecord,
-    error: null,
-  };
+  return { organisation: result.data, error: null };
 }
 
 export async function saveOrganisationToApi(input: {
   company_name: string;
-  trading_name?: string;
   abn?: string;
-  acn?: string;
-  phone?: string;
   email?: string;
-  website?: string;
-  address?: string;
-  street_address?: string;
-  suburb?: string;
-  city?: string;
-  state?: string;
-  postcode?: string;
-  postal_code?: string;
-  country?: string;
+  phone?: string;
   logo_url?: string | null;
-  logo?: string | null;
 }): Promise<{ organisation: OrganisationFormRecord | null; error: string | null }> {
   const response = await fetch("/api/organisation", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const result = await readJson<Record<string, unknown>>(response);
+  const result = await readJson<OrganisationFormRecord>(response);
   if (result.error || !result.data) {
     return {
       organisation: null,
@@ -83,8 +53,21 @@ export async function saveOrganisationToApi(input: {
     };
   }
 
+  return { organisation: result.data, error: null };
+}
+
+export async function fetchOrganisationBrandingFromApi(): Promise<{
+  company_name: string;
+  logo_url: string | null;
+  error: string | null;
+}> {
+  const { organisation, error } = await fetchOrganisationFromApi();
+  if (error || !organisation) {
+    return { company_name: "SiteBolt", logo_url: null, error };
+  }
   return {
-    organisation: mapOrganisationToForm(result.data) as OrganisationFormRecord,
+    company_name: organisation.company_name || "SiteBolt",
+    logo_url: organisation.logo_url,
     error: null,
   };
 }

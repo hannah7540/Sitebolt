@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import CompanyLogo from "@/components/ui/CompanyLogo";
 import {
   ClipboardList,
   ChevronDown,
@@ -586,12 +587,7 @@ export default function Sidebar({
       </button>
 
       <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500">
-          <HardHat className="h-4 w-4 text-white" />
-        </div>
-        <span className="text-lg font-bold tracking-tight text-slate-900">
-          Site<span className="text-orange-500">Bolt</span>
-        </span>
+        <CompanyLogo size="md" showFallback />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">

@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvider";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,13 @@ const sizeClasses: Record<CompanyLogoSize, string> = {
   md: "h-10 max-w-[120px]",
   lg: "h-12 max-w-[160px]",
   form: "h-14 max-w-[180px]",
+};
+
+const textSizeClasses: Record<CompanyLogoSize, string> = {
+  sm: "text-xs",
+  md: "text-sm",
+  lg: "text-base",
+  form: "text-base",
 };
 
 interface CompanyLogoProps {
@@ -27,8 +34,13 @@ export default function CompanyLogo({
   showFallback = true,
 }: CompanyLogoProps) {
   const { logoUrl, companyName, loading } = useCompanyBranding();
+  const [broken, setBroken] = useState(false);
 
-  if (logoUrl) {
+  useEffect(() => {
+    setBroken(false);
+  }, [logoUrl]);
+
+  if (logoUrl && !broken) {
     return (
       <img
         src={logoUrl}
@@ -39,31 +51,28 @@ export default function CompanyLogo({
           imageClassName,
           className
         )}
+        onError={() => {
+          console.error("Failed to load company logo:", logoUrl);
+          setBroken(true);
+        }}
       />
     );
   }
 
-  if (!showFallback || loading) {
-    return null;
+  if (!showFallback) {
+    return loading ? null : (
+      <span className={cn("font-semibold text-slate-900", textSizeClasses[size], className)}>
+        {companyName}
+      </span>
+    );
   }
 
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-2 text-slate-700",
-        className
-      )}
+    <span
+      className={cn("font-semibold text-slate-900", textSizeClasses[size], className)}
       aria-label={`${companyName} branding`}
     >
-      <Building2 className={cn(size === "sm" ? "h-5 w-5" : "h-6 w-6", "text-orange-500")} />
-      <span
-        className={cn(
-          "font-semibold text-slate-900",
-          size === "sm" ? "text-xs" : "text-sm"
-        )}
-      >
-        {companyName}
-      </span>
-    </div>
+      {companyName}
+    </span>
   );
 }

@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabase";
+import { ORGANISATION_SELECT_FIELDS, resolveOrganisationLogo } from "@/lib/organisation-api";
 
 export type CompanyProfileSource = "company_profile" | "organisations";
 
@@ -193,6 +194,34 @@ function buildProfilePayload(input: CompanyProfileInput): Record<string, unknown
 }
 
 export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data: orgRow, error: orgError } = await supabase
+    .from("organisations")
+    .select(ORGANISATION_SELECT_FIELDS)
+    .limit(1)
+    .maybeSingle();
+
+  if (!orgError && orgRow?.id) {
+    const mapped = orgRow as RawProfileRow;
+    return {
+      id: String(mapped.id),
+      company_name: trimOrNull(mapped.company_name) || trimOrNull(mapped.name),
+      trading_name: null,
+      abn: trimOrNull(mapped.abn),
+      acn: null,
+      phone: trimOrNull(mapped.phone),
+      email: trimOrNull(mapped.email),
+      address: null,
+      suburb: null,
+      state: null,
+      postcode: null,
+      logo_url: resolveOrganisationLogo(mapped) || resolveCompanyLogoUrl(mapped) || null,
+      updated_at: mapped.updated_at,
+      source: "organisations",
+    };
+  }
+
   const primaryByDefaultId = await fetchRawProfileRowById(
     "company_profile",
     DEFAULT_COMPANY_PROFILE_ID
@@ -200,17 +229,7 @@ export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null>
   const primaryRow = primaryByDefaultId ?? (await fetchRawProfileRow("company_profile"));
 
   if (primaryRow?.id) {
-    const profile = normalizeProfileRow(primaryRow, "company_profile");
-    if (!profile.logo_url) {
-      const fallbackRow =
-        (await fetchRawProfileRowById("organisations", DEFAULT_COMPANY_PROFILE_ID)) ??
-        (await fetchRawProfileRow("organisations"));
-      const fallbackLogo = resolveCompanyLogoUrl(fallbackRow);
-      if (fallbackLogo) {
-        profile.logo_url = fallbackLogo;
-      }
-    }
-    return profile;
+    return normalizeProfileRow(primaryRow, "company_profile");
   }
 
   const fallbackRow =
