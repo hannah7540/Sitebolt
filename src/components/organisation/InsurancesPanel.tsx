@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus, ExternalLink, Loader2, Pencil } from "lucide-react";
+import Toast from "@/components/ui/Toast";
 import {
   fetchCompanyInsurancesFromApi,
   saveCompanyInsuranceToApi,
@@ -15,6 +16,7 @@ import {
   formatInsuranceRegionBadges,
   getInsuranceExpiryStatus,
 } from "@/lib/insurance-utils";
+import { useFormToast } from "@/hooks/useFormToast";
 import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
@@ -53,6 +55,7 @@ function InsuranceRegionBadges({ item }: { item: CompanyInsuranceFormRecord }) {
 }
 
 export default function InsurancesPanel() {
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const [insurances, setInsurances] = useState<CompanyInsuranceFormRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -76,6 +79,11 @@ export default function InsurancesPanel() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const closeModal = () => {
+    setShowAdd(false);
+    setEditingInsurance(null);
+  };
 
   const modalOpen = showAdd || editingInsurance !== null;
 
@@ -181,17 +189,31 @@ export default function InsurancesPanel() {
       {modalOpen && (
         <InsuranceFormModal
           insurance={editingInsurance}
-          onClose={() => {
-            setShowAdd(false);
-            setEditingInsurance(null);
-          }}
+          onClose={closeModal}
           onSaved={async (input) => {
-            const { error } = await saveCompanyInsuranceToApi(input);
-            if (!error) await load();
-            return { error };
+            try {
+              const { error } = await saveCompanyInsuranceToApi(input);
+              if (error) {
+                throw new Error(error);
+              }
+              showSuccess("Insurance policy saved successfully");
+              closeModal();
+              await load();
+              return { error: null };
+            } catch (err) {
+              const message =
+                err instanceof Error ? err.message : "Server error saving insurance";
+              console.error(err);
+              showError(`Save error: ${message}`);
+              return { error: message };
+            }
           }}
         />
       )}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+      ) : null}
     </div>
   );
 }

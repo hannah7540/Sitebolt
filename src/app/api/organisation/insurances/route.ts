@@ -8,7 +8,7 @@ import {
   insertInsuranceRecords,
   listInsuranceRecords,
   mapCompanyInsuranceResponse,
-  normalizeCompanyInsuranceSavePayload,
+  sanitizeInsuranceSavePayload,
   updateInsuranceRecords,
   type CompanyInsuranceRow,
 } from "@/lib/organisation-insurances-api";
@@ -22,7 +22,7 @@ async function requireOrganisationWriteAccess() {
     return {
       ok: false as const,
       response: NextResponse.json(
-        { error: "Server admin client is not configured." },
+        { success: false, error: "Server admin client is not configured." },
         { status: 503 }
       ),
     };
@@ -36,7 +36,10 @@ async function requireOrganisationWriteAccess() {
   if (!user) {
     return {
       ok: false as const,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      ),
     };
   }
 
@@ -54,7 +57,10 @@ async function requireOrganisationWriteAccess() {
   if (!canManageOrganisation(role)) {
     return {
       ok: false as const,
-      response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+      response: NextResponse.json(
+        { success: false, error: "Forbidden" },
+        { status: 403 }
+      ),
     };
   }
 
@@ -64,7 +70,7 @@ async function requireOrganisationWriteAccess() {
 export async function GET() {
   if (!isSupabaseAdminConfigured()) {
     return NextResponse.json(
-      { error: "Server admin client is not configured." },
+      { success: false, error: "Server admin client is not configured." },
       { status: 503 }
     );
   }
@@ -73,7 +79,11 @@ export async function GET() {
     const admin = createSupabaseAdminClient();
     const result = await listInsuranceRecords(admin);
     if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      console.error("Insurance Load Error:", result.error);
+      return NextResponse.json(
+        { success: false, error: result.error },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -83,10 +93,11 @@ export async function GET() {
       ),
     });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to load insurances.";
+    console.error("Insurance Load Error:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load insurances.",
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }
@@ -101,33 +112,47 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
     try {
       body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON body." },
+        { status: 400 }
+      );
     }
 
-    const payload = normalizeCompanyInsuranceSavePayload(body);
-    if (!payload.insurance_type) {
-      return NextResponse.json({ error: "Policy type is required." }, { status: 400 });
+    const sanitizedRecord = sanitizeInsuranceSavePayload(body);
+
+    if (!sanitizedRecord.start_date) {
+      return NextResponse.json(
+        { success: false, error: "Start date is required." },
+        { status: 400 }
+      );
     }
-    if (!payload.date_obtained) {
-      return NextResponse.json({ error: "Start date is required." }, { status: 400 });
-    }
-    if (!payload.expiry_date) {
-      return NextResponse.json({ error: "Expiry date is required." }, { status: 400 });
+    if (!sanitizedRecord.expiry_date) {
+      return NextResponse.json(
+        { success: false, error: "Expiry date is required." },
+        { status: 400 }
+      );
     }
 
     const id = method === "PUT" ? String(body.id ?? "").trim() : "";
     if (method === "PUT" && !id) {
-      return NextResponse.json({ error: "Insurance id is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Insurance id is required." },
+        { status: 400 }
+      );
     }
 
     const result =
       method === "PUT"
-        ? await updateInsuranceRecords(auth.admin, id, payload)
-        : await insertInsuranceRecords(auth.admin, payload);
+        ? await updateInsuranceRecords(auth.admin, id, sanitizedRecord)
+        : await insertInsuranceRecords(auth.admin, sanitizedRecord);
 
     if (result.error || !result.data) {
+      console.error("Insurance Save Error:", result.error);
       return NextResponse.json(
-        { error: result.error ?? "Failed to save insurance policy." },
+        {
+          success: false,
+          error: result.error ?? "Failed to save insurance policy.",
+        },
         { status: 500 }
       );
     }
@@ -137,10 +162,11 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
       data: mapCompanyInsuranceResponse(result.data as CompanyInsuranceRow),
     });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to save insurance.";
+    console.error("Insurance Save Error:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to save insurance.",
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }
@@ -162,20 +188,28 @@ export async function DELETE(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const id = String(body.id ?? new URL(request.url).searchParams.get("id") ?? "").trim();
     if (!id) {
-      return NextResponse.json({ error: "Insurance id is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Insurance id is required." },
+        { status: 400 }
+      );
     }
 
     const result = await deleteInsuranceRecords(auth.admin, id);
     if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      console.error("Insurance Delete Error:", result.error);
+      return NextResponse.json(
+        { success: false, error: result.error },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, data: { id } });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to delete insurance.";
+    console.error("Insurance Delete Error:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to delete insurance.",
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }

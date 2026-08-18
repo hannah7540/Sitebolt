@@ -30,9 +30,9 @@ interface InsuranceFormModalProps {
     custom_type_name: string | null;
     policy_number: string;
     provider: string;
-    date_obtained: string;
-    start_date: string;
-    expiry_date: string;
+    date_obtained: string | null;
+    start_date: string | null;
+    expiry_date: string | null;
     file_url: string | null;
     file_name: string | null;
     all_states: boolean;
@@ -148,9 +148,9 @@ export default function InsuranceFormModal({
         insuranceType === OTHER_INSURANCE_TYPE ? customTypeName.trim() : null,
       policy_number: policyNumber,
       provider,
-      date_obtained: startDate,
-      start_date: startDate,
-      expiry_date: expiryDate,
+      date_obtained: startDate.trim() || null,
+      start_date: startDate.trim() || null,
+      expiry_date: expiryDate.trim() || null,
       file_url: fileUrl,
       file_name: fileName,
       all_states: regionPayload.all_states,
@@ -159,7 +159,8 @@ export default function InsuranceFormModal({
 
     setSaving(false);
     if (result.error) {
-      setError(result.error);
+      setError(`Save error: ${result.error}`);
+      console.error(result.error);
       return;
     }
     onClose();
