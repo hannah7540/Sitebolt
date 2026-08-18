@@ -1,4 +1,67 @@
 import { daysUntil, getTicketStatus, getTicketBadgeLabel } from "./worker-utils";
+import {
+  WORKER_STATE_REGION_OPTIONS,
+  type WorkerStateRegion,
+} from "./worker-state-region";
+
+export const INSURANCE_REGION_OPTIONS = WORKER_STATE_REGION_OPTIONS;
+
+export type InsuranceRegion = WorkerStateRegion;
+
+export const ALL_INSURANCE_REGIONS: InsuranceRegion[] = [...INSURANCE_REGION_OPTIONS];
+
+export function normalizeInsuranceRegions(
+  values: string[] | null | undefined
+): InsuranceRegion[] {
+  if (!values?.length) return [];
+  const allowed = new Set<string>(INSURANCE_REGION_OPTIONS);
+  return values
+    .map((value) => value.trim().toUpperCase())
+    .filter((value): value is InsuranceRegion => allowed.has(value));
+}
+
+export function insuranceCoversAllRegions(input: {
+  all_states?: boolean | null;
+  states?: string[] | null;
+}): boolean {
+  if (input.all_states) return true;
+  const normalized = normalizeInsuranceRegions(input.states);
+  return ALL_INSURANCE_REGIONS.every((region) => normalized.includes(region));
+}
+
+export function formatInsuranceRegionLabel(input: {
+  all_states?: boolean | null;
+  states?: string[] | null;
+}): string {
+  if (insuranceCoversAllRegions(input)) {
+    return "All Regions (ACT, NSW, WA, NZ)";
+  }
+  const regions = normalizeInsuranceRegions(input.states);
+  return regions.length > 0 ? regions.join(", ") : "No regions selected";
+}
+
+export function formatInsuranceRegionBadges(input: {
+  all_states?: boolean | null;
+  states?: string[] | null;
+}): string[] {
+  if (insuranceCoversAllRegions(input)) {
+    return ["All Regions (ACT, NSW, WA, NZ)"];
+  }
+  return normalizeInsuranceRegions(input.states);
+}
+
+export function buildInsuranceRegionSavePayload(input: {
+  allStates: boolean;
+  selectedStates: InsuranceRegion[];
+}): { all_states: boolean; states: InsuranceRegion[] } {
+  if (input.allStates) {
+    return { all_states: true, states: [...ALL_INSURANCE_REGIONS] };
+  }
+  return {
+    all_states: false,
+    states: normalizeInsuranceRegions(input.selectedStates),
+  };
+}
 
 export const INSURANCE_TYPES = [
   "Workers Comp",

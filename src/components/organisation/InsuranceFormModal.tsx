@@ -3,8 +3,15 @@
 import { useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import DocumentCapture from "@/components/ui/DocumentCapture";
+import InsuranceRegionSelector from "@/components/organisation/InsuranceRegionSelector";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
-import { INSURANCE_TYPES } from "@/lib/insurance-utils";
+import {
+  ALL_INSURANCE_REGIONS,
+  INSURANCE_TYPES,
+  buildInsuranceRegionSavePayload,
+  normalizeInsuranceRegions,
+  type InsuranceRegion,
+} from "@/lib/insurance-utils";
 import {
   modalOverlayClass,
   modalClass,
@@ -19,6 +26,8 @@ interface InsuranceFormModalProps {
     policy_number: string;
     expiry_date: string;
     document_url: string | null;
+    all_states: boolean;
+    states: InsuranceRegion[];
   }) => Promise<{ error: string | null }>;
 }
 
@@ -30,13 +39,39 @@ export default function InsuranceFormModal({
   const [policyNumber, setPolicyNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
+  const [allRegions, setAllRegions] = useState(false);
+  const [selectedRegions, setSelectedRegions] = useState<InsuranceRegion[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleAllRegionsChange = (checked: boolean) => {
+    setAllRegions(checked);
+    setSelectedRegions(checked ? [...ALL_INSURANCE_REGIONS] : []);
+  };
+
+  const handleToggleRegion = (region: InsuranceRegion) => {
+    setSelectedRegions((current) =>
+      current.includes(region)
+        ? current.filter((value) => value !== region)
+        : [...current, region]
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
+
+    const regionPayload = buildInsuranceRegionSavePayload({
+      allStates: allRegions,
+      selectedStates: selectedRegions,
+    });
+
+    if (!regionPayload.all_states && regionPayload.states.length === 0) {
+      setSaving(false);
+      setError("Select at least one region or choose Applies to All Regions.");
+      return;
+    }
 
     let documentUrl: string | null = null;
     if (docFile) {
@@ -56,6 +91,8 @@ export default function InsuranceFormModal({
       policy_number: policyNumber,
       expiry_date: expiryDate,
       document_url: documentUrl,
+      all_states: regionPayload.all_states,
+      states: normalizeInsuranceRegions(regionPayload.states),
     });
 
     setSaving(false);
@@ -108,6 +145,15 @@ export default function InsuranceFormModal({
               onChange={(e) => setExpiryDate(e.target.value)}
             />
           </label>
+
+          <InsuranceRegionSelector
+            allRegions={allRegions}
+            selectedRegions={selectedRegions}
+            onAllRegionsChange={handleAllRegionsChange}
+            onToggleRegion={handleToggleRegion}
+            disabled={saving}
+          />
+
           <DocumentCapture
             label="Policy document"
             file={docFile}

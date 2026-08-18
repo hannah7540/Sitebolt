@@ -7,10 +7,46 @@ import {
   insertCompanyInsurance,
   type CompanyInsurance,
 } from "@/lib/supabase";
-import { getInsuranceExpiryStatus } from "@/lib/insurance-utils";
+import {
+  formatInsuranceRegionBadges,
+  getInsuranceExpiryStatus,
+} from "@/lib/insurance-utils";
 import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
+
+function InsuranceRegionBadges({ item }: { item: CompanyInsurance }) {
+  const badges = formatInsuranceRegionBadges(item);
+
+  if (badges.length === 0) {
+    return (
+      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+        No regions selected
+      </span>
+    );
+  }
+
+  if (badges.length === 1 && badges[0].startsWith("All Regions")) {
+    return (
+      <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+        {badges[0]}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {badges.map((region) => (
+        <span
+          key={region}
+          className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700"
+        >
+          {region}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function InsurancesPanel() {
   const [insurances, setInsurances] = useState<CompanyInsurance[]>([]);
@@ -64,7 +100,7 @@ export default function InsurancesPanel() {
             return (
               <li key={item.id} className={cn(cardClass, "p-4")}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0 flex-1 space-y-2">
                     <p className="font-semibold text-slate-900">
                       {item.insurance_type}
                     </p>
@@ -74,6 +110,7 @@ export default function InsurancesPanel() {
                     <p className="text-sm text-slate-500">
                       Expires: {item.expiry_date ?? "Not set"}
                     </p>
+                    <InsuranceRegionBadges item={item} />
                   </div>
                   <span
                     className={cn(
