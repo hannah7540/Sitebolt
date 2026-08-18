@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
+import SiteFooter from "@/components/layout/SiteFooter";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser } from "@/lib/auth-profile";
@@ -158,17 +159,21 @@ function LoginPageContent() {
 
   if (showForgotPassword) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <ForgotPasswordForm
-          initialEmail={email}
-          onBackToSignIn={() => setShowForgotPassword(false)}
-        />
+      <div className="flex min-h-screen flex-col bg-slate-50">
+        <div className="flex flex-1 items-center justify-center p-6">
+          <ForgotPasswordForm
+            initialEmail={email}
+            onBackToSignIn={() => setShowForgotPassword(false)}
+          />
+        </div>
+        <SiteFooter />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <div className="flex flex-1 items-center justify-center p-6">
       <div className={cardClass + " w-full max-w-md p-8"}>
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500">
@@ -285,6 +290,8 @@ function LoginPageContent() {
           </Link>
         </p>
       </div>
+      </div>
+      <SiteFooter />
     </div>
   );
 }

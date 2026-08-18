@@ -20,6 +20,7 @@ import {
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
+  "/privacy",
   "/auth/",
   "/accept-invite",
   "/update-password",
@@ -336,6 +337,10 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
         nextParam?.startsWith("/") ? nextParam : resolveAuthenticatedHomePath(context);
       return redirectWithCookies(request, destination, sessionResponse);
     }
+    return sessionResponse;
+  }
+
+  if (isPublicPath(pathname)) {
     return sessionResponse;
   }
 
