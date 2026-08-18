@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, ExternalLink, Loader2, Pencil } from "lucide-react";
+import { Plus, ExternalLink, Loader2, Pencil, Trash2 } from "lucide-react";
 import Toast from "@/components/ui/Toast";
 import {
+  deleteCompanyInsuranceFromApi,
   fetchCompanyInsurancesFromApi,
   saveCompanyInsuranceToApi,
   type CompanyInsuranceFormRecord,
 } from "@/lib/organisation-insurances-api-client";
 import {
-  formatInsuranceDateRange,
+  formatInsuranceDisplayDate,
   resolveInsuranceDisplayType,
 } from "@/lib/organisation-insurances-api";
 import {
@@ -21,31 +22,14 @@ import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 
-function InsuranceRegionBadges({ item }: { item: CompanyInsuranceFormRecord }) {
+function RegionPills({ item }: { item: CompanyInsuranceFormRecord }) {
   const badges = formatInsuranceRegionBadges(item);
-
-  if (badges.length === 0) {
-    return (
-      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-        No regions selected
-      </span>
-    );
-  }
-
-  if (badges.length === 1 && badges[0].startsWith("All Regions")) {
-    return (
-      <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-        {badges[0]}
-      </span>
-    );
-  }
-
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {badges.map((region) => (
         <span
           key={region}
-          className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700"
+          className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
         >
           {region}
         </span>
@@ -61,6 +45,7 @@ export default function InsurancesPanel() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingInsurance, setEditingInsurance] =
     useState<CompanyInsuranceFormRecord | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -77,12 +62,31 @@ export default function InsurancesPanel() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const closeModal = () => {
     setShowAdd(false);
     setEditingInsurance(null);
+  };
+
+  const handleDelete = async (item: CompanyInsuranceFormRecord) => {
+    const label = resolveInsuranceDisplayType(item);
+    if (!window.confirm(`Delete insurance policy "${label}"?`)) return;
+
+    setDeletingId(item.id);
+    try {
+      const { error } = await deleteCompanyInsuranceFromApi(item.id);
+      if (error) throw new Error(error);
+      showSuccess("Insurance policy deleted");
+      await load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete insurance";
+      console.error(err);
+      showError(message);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const modalOpen = showAdd || editingInsurance !== null;
@@ -95,7 +99,7 @@ export default function InsurancesPanel() {
             Company <span className="text-orange-500">Insurances</span>
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Track policy start dates, expiry, regions, and upload certificates.
+            Manage policies, covered regions, dates, and certificates.
           </p>
         </div>
         <button
@@ -123,67 +127,100 @@ export default function InsurancesPanel() {
           No insurance policies recorded yet.
         </p>
       ) : (
-        <ul className="space-y-3">
-          {insurances.map((item) => {
-            const expiry = getInsuranceExpiryStatus(item.expiry_date);
-            const fileUrl = item.file_url ?? item.document_url;
-            return (
-              <li key={item.id} className={cn(cardClass, "p-4")}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-slate-900">
-                        {resolveInsuranceDisplayType(item)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAdd(false);
-                          setEditingInsurance(item);
-                        }}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-orange-700"
+        <div className={cn(cardClass, "overflow-x-auto")}>
+          <table className="min-w-[980px] w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Provider</th>
+                <th className="px-4 py-3">Policy #</th>
+                <th className="px-4 py-3">Regions</th>
+                <th className="px-4 py-3">Start</th>
+                <th className="px-4 py-3">Expiry</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Document</th>
+                <th className="px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {insurances.map((item) => {
+                const expiry = getInsuranceExpiryStatus(item.expiry_date);
+                const fileUrl = item.file_url ?? item.document_url;
+                return (
+                  <tr key={item.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      {resolveInsuranceDisplayType(item)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{item.provider || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.policy_number || "—"}</td>
+                    <td className="px-4 py-3">
+                      <RegionPills item={item} />
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatInsuranceDisplayDate(item.start_date ?? item.date_obtained)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatInsuranceDisplayDate(item.expiry_date)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          "rounded px-2 py-0.5 text-xs font-bold",
+                          expiry.badgeClass
+                        )}
                       >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </button>
-                    </div>
-                    <p className="text-sm text-slate-500">
-                      Policy: {item.policy_number || "—"}
-                    </p>
-                    {item.provider ? (
-                      <p className="text-sm text-slate-500">
-                        Provider: {item.provider}
-                      </p>
-                    ) : null}
-                    <p className="text-sm text-slate-600">
-                      {formatInsuranceDateRange(item)}
-                    </p>
-                    <InsuranceRegionBadges item={item} />
-                  </div>
-                  <span
-                    className={cn(
-                      "rounded px-2 py-0.5 text-xs font-bold",
-                      expiry.badgeClass
-                    )}
-                  >
-                    {expiry.label}
-                  </span>
-                </div>
-                {fileUrl ? (
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-xs text-orange-600 hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    {item.file_name ? `View ${item.file_name}` : "View document"}
-                  </a>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                        {expiry.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {fileUrl ? (
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-orange-600 hover:underline"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          {item.file_name ? item.file_name : "Open"}
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAdd(false);
+                            setEditingInsurance(item);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-orange-700"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingId === item.id}
+                          onClick={() => void handleDelete(item)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === item.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {modalOpen && (
@@ -193,9 +230,7 @@ export default function InsurancesPanel() {
           onSaved={async (input) => {
             try {
               const { error } = await saveCompanyInsuranceToApi(input);
-              if (error) {
-                throw new Error(error);
-              }
+              if (error) throw new Error(error);
               showSuccess("Insurance policy saved successfully");
               closeModal();
               await load();
@@ -204,7 +239,7 @@ export default function InsurancesPanel() {
               const message =
                 err instanceof Error ? err.message : "Server error saving insurance";
               console.error(err);
-              showError(`Save error: ${message}`);
+              showError(message);
               return { error: message };
             }
           }}

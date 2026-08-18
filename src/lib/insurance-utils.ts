@@ -1,4 +1,4 @@
-import { daysUntil, getTicketStatus, getTicketBadgeLabel } from "./worker-utils";
+import { daysUntil, getTicketStatus } from "./worker-utils";
 import {
   WORKER_STATE_REGION_OPTIONS,
   type WorkerStateRegion,
@@ -75,9 +75,18 @@ export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 
 export function getInsuranceExpiryStatus(expiryDate: string | null | undefined) {
   const status = getTicketStatus(expiryDate);
+  const label =
+    status === "valid"
+      ? "Active"
+      : status === "expires_soon"
+        ? "Expiring Soon"
+        : status === "expired"
+          ? "Expired"
+          : "No Expiry Set";
+
   return {
     status,
-    label: getTicketBadgeLabel(status),
+    label,
     badgeClass:
       status === "valid"
         ? "bg-emerald-100 text-emerald-800"

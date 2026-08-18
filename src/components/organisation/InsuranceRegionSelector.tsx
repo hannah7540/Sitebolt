@@ -41,7 +41,7 @@ export default function InsuranceRegionSelector({
           disabled={disabled}
           className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
         />
-        Applies to All Regions
+        Applies to All Regions (ACT, NSW, WA, NZ)
       </label>
 
       <div className="mt-3 flex flex-wrap gap-2">

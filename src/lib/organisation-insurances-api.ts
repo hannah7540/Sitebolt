@@ -5,8 +5,8 @@ import {
   type InsuranceRegion,
 } from "@/lib/insurance-utils";
 
-export const PRIMARY_INSURANCE_TABLE = "company_insurances";
-export const FALLBACK_INSURANCE_TABLE = "organisation_insurances";
+export const PRIMARY_INSURANCE_TABLE = "organisation_insurances";
+export const FALLBACK_INSURANCE_TABLE = "company_insurances";
 
 export const INSURANCE_TABLES = [
   PRIMARY_INSURANCE_TABLE,
@@ -15,30 +15,12 @@ export const INSURANCE_TABLES = [
 
 export type InsuranceTableName = (typeof INSURANCE_TABLES)[number];
 
-export type CompanyInsuranceRow = Record<string, unknown> & {
-  id?: string;
-  insurance_type?: string | null;
-  custom_type_name?: string | null;
-  policy_number?: string | null;
-  provider?: string | null;
-  insurer?: string | null;
-  expiry_date?: string | null;
-  date_obtained?: string | null;
-  start_date?: string | null;
-  file_url?: string | null;
-  file_name?: string | null;
-  document_url?: string | null;
-  notes?: string | null;
-  all_states?: boolean | null;
-  states?: string[] | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
+export type CompanyInsuranceRow = Record<string, unknown>;
 
 export interface CompanyInsuranceRecord {
   id: string;
   insurance_type: string;
-  custom_type_name: string | null;
+  custom_type_name: string;
   policy_number: string;
   provider: string;
   all_states: boolean;
@@ -48,34 +30,32 @@ export interface CompanyInsuranceRecord {
   expiry_date: string | null;
   file_url: string | null;
   file_name: string | null;
-  notes: string | null;
-  /** @deprecated Use file_url */
+  notes: string;
   document_url: string | null;
-  /** @deprecated Use provider */
   insurer: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
 
-function trimOrNull(value: unknown): string | null {
-  const trimmed = String(value ?? "").trim();
+const VALID_REGIONS = new Set<string>(ALL_INSURANCE_REGIONS);
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : String(value ?? "").trim();
+}
+
+function asNullableString(value: unknown): string | null {
+  const trimmed = asString(value);
   return trimmed ? trimmed : null;
 }
 
-function trimOrEmpty(value: unknown): string {
-  return String(value ?? "").trim();
+export function cleanInsuranceDate(value: unknown): string | null {
+  if (value && typeof value === "string" && value.trim() !== "") {
+    return value.trim().split("T")[0] ?? null;
+  }
+  return null;
 }
 
-function normalizeDateOnly(value: unknown): string | null {
-  const trimmed = trimOrNull(value);
-  if (!trimmed) return null;
-  return trimmed.slice(0, 10);
-}
-
-export function isMissingInsuranceTableError(
-  message: string,
-  table?: string
-): boolean {
+export function isMissingInsuranceTableError(message: string, table?: string): boolean {
   const lower = message.toLowerCase();
   if (
     lower.includes("does not exist") ||
@@ -95,283 +75,329 @@ export function isMissingInsuranceColumnError(message: string): boolean {
   );
 }
 
-export function resolveInsuranceStartDate(record: CompanyInsuranceRow): string | null {
+function readStates(record: CompanyInsuranceRow): InsuranceRegion[] {
+  const raw = Array.isArray(record.states)
+    ? record.states
+    : Array.isArray(record.regions)
+      ? record.regions
+      : Array.isArray(record.coverage_states)
+        ? record.coverage_states
+        : [];
+  return normalizeInsuranceRegions(raw.map((value) => String(value)));
+}
+
+function readStartDate(record: CompanyInsuranceRow): string | null {
   return (
-    normalizeDateOnly(record.date_obtained) ??
-    normalizeDateOnly(record.start_date)
+    cleanInsuranceDate(record.start_date) ??
+    cleanInsuranceDate(record.date_obtained) ??
+    cleanInsuranceDate(record.effective_date)
   );
 }
 
-export function resolveInsuranceFileUrl(record: CompanyInsuranceRow): string | null {
-  return trimOrNull(record.file_url) ?? trimOrNull(record.document_url);
+function readExpiryDate(record: CompanyInsuranceRow): string | null {
+  return (
+    cleanInsuranceDate(record.expiry_date) ??
+    cleanInsuranceDate(record.end_date) ??
+    cleanInsuranceDate(record.expiration_date)
+  );
 }
 
-export function resolveInsuranceProvider(record: CompanyInsuranceRow): string {
-  return trimOrEmpty(record.provider) || trimOrEmpty(record.insurer);
+function readFileUrl(record: CompanyInsuranceRow): string | null {
+  return (
+    asNullableString(record.file_url) ??
+    asNullableString(record.document_url) ??
+    asNullableString(record.attachment_url) ??
+    asNullableString(record.url) ??
+    asNullableString(record.doc_url)
+  );
 }
 
-export function resolveInsuranceDisplayType(record: CompanyInsuranceRecord): string {
-  if (
-    record.insurance_type === "Other Insurance" &&
-    record.custom_type_name?.trim()
-  ) {
-    return record.custom_type_name.trim();
-  }
-  return record.insurance_type;
+function readFileName(record: CompanyInsuranceRow): string | null {
+  return (
+    asNullableString(record.file_name) ?? asNullableString(record.document_name)
+  );
+}
+
+function coversAllRegions(states: InsuranceRegion[], allFlag: boolean): boolean {
+  if (allFlag) return true;
+  return ALL_INSURANCE_REGIONS.every((region) => states.includes(region));
 }
 
 export function mapCompanyInsuranceResponse(
   record: CompanyInsuranceRow
 ): CompanyInsuranceRecord {
-  const startDate = resolveInsuranceStartDate(record);
-  const fileUrl = resolveInsuranceFileUrl(record);
-  const provider = resolveInsuranceProvider(record);
-  const states = normalizeInsuranceRegions(
-    Array.isArray(record.states) ? record.states : []
+  const states = readStates(record);
+  const allStates = coversAllRegions(
+    states,
+    Boolean(record.all_states || record.all_regions)
   );
+  const provider =
+    asString(record.provider) ||
+    asString(record.insurer);
+  const fileUrl = readFileUrl(record);
 
   return {
     id: String(record.id ?? ""),
-    insurance_type: trimOrEmpty(record.insurance_type),
-    custom_type_name: trimOrNull(record.custom_type_name),
-    policy_number: trimOrEmpty(record.policy_number),
+    insurance_type:
+      asString(record.insurance_type) ||
+      asString(record.type) ||
+      "Public Liability Insurance",
+    custom_type_name:
+      asString(record.custom_type_name) || asString(record.custom_name),
+    policy_number:
+      asString(record.policy_number) || asString(record.policy_no),
     provider,
-    all_states: Boolean(record.all_states) || insuranceCoversAllRegionsFromStates(states),
-    states: record.all_states ? [...ALL_INSURANCE_REGIONS] : states,
-    start_date: startDate,
-    date_obtained: startDate,
-    expiry_date: normalizeDateOnly(record.expiry_date),
+    all_states: allStates,
+    states: allStates ? [...ALL_INSURANCE_REGIONS] : states,
+    start_date: readStartDate(record),
+    date_obtained: readStartDate(record),
+    expiry_date: readExpiryDate(record),
     file_url: fileUrl,
-    file_name: trimOrNull(record.file_name),
-    notes: trimOrNull(record.notes),
+    file_name: readFileName(record),
+    notes: asString(record.notes),
     document_url: fileUrl,
     insurer: provider || null,
-    created_at: record.created_at ?? null,
-    updated_at: record.updated_at ?? null,
+    created_at: (record.created_at as string | null | undefined) ?? null,
+    updated_at: (record.updated_at as string | null | undefined) ?? null,
   };
 }
 
-function insuranceCoversAllRegionsFromStates(states: InsuranceRegion[]): boolean {
-  return ALL_INSURANCE_REGIONS.every((region) => states.includes(region));
-}
-
-function cleanDate(value: unknown): string | null {
-  if (value && typeof value === "string" && value.trim() !== "") {
-    return value.trim().slice(0, 10);
-  }
-  return null;
-}
-
-function sanitizeStates(value: unknown): InsuranceRegion[] {
-  if (Array.isArray(value)) {
-    return normalizeInsuranceRegions(value);
-  }
-  if (value && typeof value === "string" && value.trim()) {
-    return normalizeInsuranceRegions([value]);
-  }
-  return [];
-}
-
-export function sanitizeInsuranceSavePayload(
+export function buildRecordPayload(
   body: Record<string, unknown>
-): Record<string, string | boolean | string[] | null> {
-  const rawStates = sanitizeStates(body.states);
-  const allStates =
-    Boolean(body.all_states) || insuranceCoversAllRegionsFromStates(rawStates);
-  const startDate = cleanDate(body.start_date ?? body.date_obtained);
-  const expiryDate = cleanDate(body.expiry_date);
-  const fileUrl =
-    body.file_url && typeof body.file_url === "string" && body.file_url.trim()
-      ? body.file_url.trim()
-      : body.document_url &&
-          typeof body.document_url === "string" &&
-          body.document_url.trim()
-        ? body.document_url.trim()
-        : null;
+): Record<string, unknown> {
+  const cleanDate = cleanInsuranceDate;
+  const sDate = cleanDate(body.start_date ?? body.date_obtained ?? body.effective_date);
+  const eDate = cleanDate(body.expiry_date ?? body.end_date ?? body.expiration_date);
+  const fUrl =
+    asNullableString(body.file_url) ??
+    asNullableString(body.document_url) ??
+    asNullableString(body.attachment_url) ??
+    asNullableString(body.url) ??
+    asNullableString(body.doc_url);
+  const fName =
+    asNullableString(body.file_name) ?? asNullableString(body.document_name);
+  const rawStates = Array.isArray(body.states)
+    ? body.states
+    : body.states
+      ? [body.states]
+      : Array.isArray(body.regions)
+        ? body.regions
+        : [];
+  const validStates = rawStates
+    .map((state) => String(state).trim().toUpperCase())
+    .filter((state): state is InsuranceRegion => VALID_REGIONS.has(state));
+  const allStates = Boolean(body.all_states ?? body.all_regions);
+  const resolvedStates = allStates ? [...ALL_INSURANCE_REGIONS] : validStates;
+  const insuranceType =
+    asString(body.insurance_type) ||
+    asString(body.type) ||
+    "Public Liability Insurance";
+  const provider =
+    asString(body.provider) || asString(body.insurer);
 
   return {
-    insurance_type:
-      typeof body.insurance_type === "string" && body.insurance_type.trim()
-        ? body.insurance_type.trim()
-        : "Public Liability Insurance",
-    custom_type_name:
-      body.custom_type_name &&
-      typeof body.custom_type_name === "string" &&
-      body.custom_type_name.trim()
-        ? body.custom_type_name.trim()
-        : null,
-    policy_number:
-      typeof body.policy_number === "string" ? body.policy_number.trim() : "",
-    provider:
-      typeof body.provider === "string"
-        ? body.provider.trim()
-        : typeof body.insurer === "string"
-          ? body.insurer.trim()
-          : "",
+    insurance_type: insuranceType,
+    type: insuranceType,
+    custom_type_name: asNullableString(body.custom_type_name ?? body.custom_name),
+    custom_name: asNullableString(body.custom_type_name ?? body.custom_name),
+    policy_number: asString(body.policy_number ?? body.policy_no),
+    policy_no: asString(body.policy_number ?? body.policy_no),
+    provider,
+    insurer: provider,
     all_states: allStates,
-    states: allStates ? [...ALL_INSURANCE_REGIONS] : rawStates,
-    start_date: startDate,
-    date_obtained: startDate,
-    expiry_date: expiryDate,
-    file_url: fileUrl,
-    file_name:
-      body.file_name && typeof body.file_name === "string" && body.file_name.trim()
-        ? body.file_name.trim()
-        : null,
-    document_url: fileUrl,
-    insurer:
-      typeof body.provider === "string"
-        ? body.provider.trim()
-        : typeof body.insurer === "string"
-          ? body.insurer.trim()
-          : "",
-    notes:
-      body.notes && typeof body.notes === "string" && body.notes.trim()
-        ? body.notes.trim()
-        : null,
+    all_regions: allStates,
+    states: resolvedStates,
+    regions: resolvedStates,
+    coverage_states: resolvedStates,
+    start_date: sDate,
+    date_obtained: sDate,
+    effective_date: sDate,
+    expiry_date: eDate,
+    end_date: eDate,
+    expiration_date: eDate,
+    file_url: fUrl,
+    document_url: fUrl,
+    attachment_url: fUrl,
+    url: fUrl,
+    doc_url: fUrl,
+    file_name: fName,
+    document_name: fName,
+    notes: asNullableString(body.notes),
     updated_at: new Date().toISOString(),
   };
 }
 
-/** @deprecated Use sanitizeInsuranceSavePayload */
-export function normalizeCompanyInsuranceSavePayload(
-  body: Record<string, unknown>
-): Record<string, string | boolean | string[] | null> {
-  return sanitizeInsuranceSavePayload(body);
-}
-
-function buildMinimalCompanyPayload(
-  payload: Record<string, string | boolean | string[] | null>
-): Record<string, unknown> {
+function buildStandardPayload(record: Record<string, unknown>): Record<string, unknown> {
   return {
-    insurance_type: payload.insurance_type,
-    policy_number: payload.policy_number || null,
-    expiry_date: payload.expiry_date,
-    document_url: payload.file_url,
-    updated_at: payload.updated_at,
+    insurance_type: record.insurance_type,
+    custom_type_name: record.custom_type_name,
+    policy_number: record.policy_number || null,
+    provider: record.provider || null,
+    insurer: record.insurer || null,
+    all_states: record.all_states,
+    states: record.states,
+    start_date: record.start_date,
+    date_obtained: record.date_obtained,
+    expiry_date: record.expiry_date,
+    file_url: record.file_url,
+    file_name: record.file_name,
+    document_url: record.document_url,
+    notes: record.notes,
+    updated_at: record.updated_at,
   };
 }
 
-function buildLegacyCompanyPayload(
-  payload: Record<string, string | boolean | string[] | null>
-): Record<string, unknown> {
+function buildLegacyPayload(record: Record<string, unknown>): Record<string, unknown> {
   return {
-    insurance_type: payload.insurance_type,
-    policy_number: payload.policy_number || null,
-    insurer: payload.provider || null,
-    expiry_date: payload.expiry_date,
-    date_obtained: payload.date_obtained,
-    start_date: payload.start_date,
-    document_url: payload.file_url,
-    all_states: payload.all_states,
-    states: payload.states,
-    updated_at: payload.updated_at,
+    insurance_type: record.insurance_type,
+    policy_number: record.policy_number || null,
+    insurer: record.provider || null,
+    expiry_date: record.expiry_date,
+    date_obtained: record.start_date,
+    start_date: record.start_date,
+    document_url: record.file_url,
+    all_states: record.all_states,
+    states: record.states,
+    updated_at: record.updated_at,
   };
 }
 
-function buildExtendedPayload(
-  payload: Record<string, string | boolean | string[] | null>
-): Record<string, unknown> {
-  return { ...payload };
+function buildMinimalPayload(record: Record<string, unknown>): Record<string, unknown> {
+  return {
+    insurance_type: record.insurance_type,
+    policy_number: record.policy_number || null,
+    expiry_date: record.expiry_date,
+    document_url: record.file_url,
+    updated_at: record.updated_at,
+  };
+}
+
+function payloadVariants(
+  record: Record<string, unknown>,
+  table: InsuranceTableName
+): Record<string, unknown>[] {
+  if (table === PRIMARY_INSURANCE_TABLE) {
+    return [
+      record,
+      buildStandardPayload(record),
+      buildLegacyPayload(record),
+      buildMinimalPayload(record),
+    ];
+  }
+  return [
+    buildStandardPayload(record),
+    buildLegacyPayload(record),
+    buildMinimalPayload(record),
+  ];
+}
+
+async function queryTable(
+  admin: SupabaseClient,
+  table: InsuranceTableName
+): Promise<{ data: CompanyInsuranceRow[]; error: string | null }> {
+  const created = await admin
+    .from(table)
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (!created.error) {
+    return { data: (created.data ?? []) as CompanyInsuranceRow[], error: null };
+  }
+
+  if (isMissingInsuranceColumnError(created.error.message)) {
+    const expiry = await admin
+      .from(table)
+      .select("*")
+      .order("expiry_date", { ascending: true, nullsFirst: false });
+    if (!expiry.error) {
+      return { data: (expiry.data ?? []) as CompanyInsuranceRow[], error: null };
+    }
+    if (!isMissingInsuranceTableError(expiry.error.message, table)) {
+      return { data: [], error: expiry.error.message };
+    }
+  }
+
+  if (isMissingInsuranceTableError(created.error.message, table)) {
+    return { data: [], error: created.error.message };
+  }
+
+  return { data: [], error: created.error.message };
 }
 
 export async function listInsuranceRecords(
   admin: SupabaseClient
 ): Promise<{ data: CompanyInsuranceRow[]; error: string | null }> {
   for (const table of INSURANCE_TABLES) {
-    const { data, error } = await admin
-      .from(table)
-      .select("*")
-      .order("expiry_date", { ascending: true, nullsFirst: false });
-
-    if (!error) {
-      return { data: (data ?? []) as CompanyInsuranceRow[], error: null };
+    const result = await queryTable(admin, table);
+    if (result.error && isMissingInsuranceTableError(result.error, table)) {
+      continue;
     }
-
-    if (!isMissingInsuranceTableError(error.message, table)) {
-      return { data: [], error: error.message };
+    if (result.error) {
+      return { data: [], error: result.error };
     }
+    return result;
   }
-
   return { data: [], error: null };
+}
+
+async function syncMirror(
+  admin: SupabaseClient,
+  mirrorTable: InsuranceTableName,
+  id: string,
+  record: Record<string, unknown>
+): Promise<void> {
+  for (const row of payloadVariants(record, mirrorTable)) {
+    const mirrorResult = await admin
+      .from(mirrorTable)
+      .upsert([{ ...row, id }], { onConflict: "id" })
+      .select("*")
+      .maybeSingle();
+    if (!mirrorResult.error) return;
+    if (
+      isMissingInsuranceTableError(mirrorResult.error.message, mirrorTable) ||
+      isMissingInsuranceColumnError(mirrorResult.error.message)
+    ) {
+      continue;
+    }
+    console.warn(`Insurance mirror upsert to ${mirrorTable} failed:`, mirrorResult.error.message);
+    return;
+  }
 }
 
 export async function insertInsuranceRecords(
   admin: SupabaseClient,
-  payload: Record<string, string | boolean | string[] | null>
+  body: Record<string, unknown>
 ): Promise<{ data: CompanyInsuranceRow | null; error: string | null }> {
-  const extended = buildExtendedPayload(payload);
-  const legacy = buildLegacyCompanyPayload(payload);
-  const minimal = buildMinimalCompanyPayload(payload);
+  const record = buildRecordPayload(body);
   let lastError: string | null = null;
 
-  const tryInsert = async (
-    table: InsuranceTableName,
-    row: Record<string, unknown>
-  ) => {
-    return admin.from(table).insert([row]).select("*").single();
-  };
-
-  const attemptPayloads =
-    (table: InsuranceTableName) =>
-      table === PRIMARY_INSURANCE_TABLE
-        ? [legacy, minimal, extended]
-        : [extended, legacy, minimal];
-
   for (const table of INSURANCE_TABLES) {
-    for (const row of attemptPayloads(table)) {
-      const result = await tryInsert(table, row);
-
+    for (const row of payloadVariants(record, table)) {
+      const result = await admin.from(table).insert([row]).select("*").single();
       if (!result.error && result.data) {
         const savedRow = result.data as CompanyInsuranceRow;
-
         const mirrorTable =
           table === PRIMARY_INSURANCE_TABLE
             ? FALLBACK_INSURANCE_TABLE
             : PRIMARY_INSURANCE_TABLE;
-
-        for (const mirrorRow of attemptPayloads(mirrorTable)) {
-          const mirrorResult = await admin
-            .from(mirrorTable)
-            .upsert([{ ...mirrorRow, id: savedRow.id }], { onConflict: "id" })
-            .select("*")
-            .maybeSingle();
-
-          if (!mirrorResult.error) {
-            break;
-          }
-
-          if (
-            !isMissingInsuranceTableError(mirrorResult.error.message, mirrorTable) &&
-            !isMissingInsuranceColumnError(mirrorResult.error.message)
-          ) {
-            console.warn(
-              `Insurance mirror upsert to ${mirrorTable} failed:`,
-              mirrorResult.error.message
-            );
-          }
-        }
-
+        await syncMirror(admin, mirrorTable, String(savedRow.id), record);
         return { data: savedRow, error: null };
       }
 
       if (result.error) {
         console.error("Insurance Save Error:", {
           table,
-          payload: Object.keys(row),
+          keys: Object.keys(row),
           error: result.error.message,
         });
-
         if (isMissingInsuranceTableError(result.error.message, table)) {
           lastError = result.error.message;
           break;
         }
-
         if (isMissingInsuranceColumnError(result.error.message)) {
           lastError = result.error.message;
           continue;
         }
-
         lastError = result.error.message;
       }
     }
@@ -383,30 +409,20 @@ export async function insertInsuranceRecords(
 export async function updateInsuranceRecords(
   admin: SupabaseClient,
   id: string,
-  payload: Record<string, string | boolean | string[] | null>
+  body: Record<string, unknown>
 ): Promise<{ data: CompanyInsuranceRow | null; error: string | null }> {
-  const extended = buildExtendedPayload(payload);
-  const legacy = buildLegacyCompanyPayload(payload);
-  const minimal = buildMinimalCompanyPayload(payload);
+  const record = buildRecordPayload(body);
   let savedRow: CompanyInsuranceRow | null = null;
   let lastError: string | null = null;
 
-  const tryUpdate = async (
-    table: InsuranceTableName,
-    row: Record<string, unknown>
-  ) => {
-    return admin.from(table).update(row).eq("id", id).select("*").maybeSingle();
-  };
-
-  const attemptPayloads =
-    (table: InsuranceTableName) =>
-      table === PRIMARY_INSURANCE_TABLE
-        ? [legacy, minimal, extended]
-        : [extended, legacy, minimal];
-
   for (const table of INSURANCE_TABLES) {
-    for (const row of attemptPayloads(table)) {
-      const result = await tryUpdate(table, row);
+    for (const row of payloadVariants(record, table)) {
+      const result = await admin
+        .from(table)
+        .update(row)
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
 
       if (!result.error && result.data) {
         savedRow = result.data as CompanyInsuranceRow;
@@ -418,41 +434,31 @@ export async function updateInsuranceRecords(
         console.error("Insurance Update Error:", {
           table,
           id,
-          payload: Object.keys(row),
+          keys: Object.keys(row),
           error: result.error.message,
         });
-
-        if (isMissingInsuranceTableError(result.error.message, table)) {
-          break;
-        }
-
+        if (isMissingInsuranceTableError(result.error.message, table)) break;
         if (isMissingInsuranceColumnError(result.error.message)) {
           lastError = result.error.message;
           continue;
         }
-
         if (!result.error.message.toLowerCase().includes("0 rows")) {
           lastError = result.error.message;
         }
       }
     }
+    if (savedRow) break;
   }
 
-  if (savedRow) {
-    for (const table of INSURANCE_TABLES) {
-      for (const row of attemptPayloads(table)) {
-        const mirrorResult = await admin
-          .from(table)
-          .upsert([{ ...row, id }], { onConflict: "id" })
-          .select("*")
-          .maybeSingle();
-        if (!mirrorResult.error) break;
-      }
-    }
-    return { data: savedRow, error: null };
+  if (!savedRow) {
+    return { data: null, error: lastError ?? "Insurance policy not found." };
   }
 
-  return { data: null, error: lastError ?? "Insurance policy not found." };
+  for (const table of INSURANCE_TABLES) {
+    await syncMirror(admin, table, id, record);
+  }
+
+  return { data: savedRow, error: null };
 }
 
 export async function deleteInsuranceRecords(
@@ -463,28 +469,35 @@ export async function deleteInsuranceRecords(
   let lastError: string | null = null;
 
   for (const table of INSURANCE_TABLES) {
-    const { error, count } = await admin.from(table).delete({ count: "exact" }).eq("id", id);
-    if (!error && (count ?? 0) > 0) {
-      deleted = true;
-      continue;
-    }
+    const { error, count } = await admin
+      .from(table)
+      .delete({ count: "exact" })
+      .eq("id", id);
+    if (!error && (count ?? 0) > 0) deleted = true;
     if (error) {
-      if (isMissingInsuranceTableError(error.message, table)) {
-        continue;
-      }
+      if (isMissingInsuranceTableError(error.message, table)) continue;
       lastError = error.message;
+      console.error("Insurance Delete Error:", { table, id, error: error.message });
     }
   }
 
-  if (deleted) {
-    return { error: null };
-  }
+  return deleted ? { error: null } : { error: lastError ?? "Insurance policy not found." };
+}
 
-  return { error: lastError ?? "Insurance policy not found." };
+/** @deprecated Use buildRecordPayload */
+export function sanitizeInsuranceSavePayload(body: Record<string, unknown>) {
+  return buildRecordPayload(body);
+}
+
+export function resolveInsuranceDisplayType(record: CompanyInsuranceRecord): string {
+  if (record.insurance_type === "Other Insurance" && record.custom_type_name.trim()) {
+    return record.custom_type_name.trim();
+  }
+  return record.insurance_type;
 }
 
 export function formatInsuranceDisplayDate(value: string | null | undefined): string {
-  const iso = normalizeDateOnly(value);
+  const iso = cleanInsuranceDate(value);
   if (!iso) return "Not set";
   const [year, month, day] = iso.split("-");
   if (!year || !month || !day) return "Not set";
@@ -492,13 +505,23 @@ export function formatInsuranceDisplayDate(value: string | null | undefined): st
 }
 
 export function formatInsuranceDateRange(input: {
-  date_obtained?: string | null;
   start_date?: string | null;
+  date_obtained?: string | null;
   expiry_date?: string | null;
 }): string {
-  const start = formatInsuranceDisplayDate(
-    resolveInsuranceStartDate(input as CompanyInsuranceRow)
-  );
+  const start = formatInsuranceDisplayDate(input.start_date ?? input.date_obtained);
   const expiry = formatInsuranceDisplayDate(input.expiry_date);
   return `Start: ${start} — Expiry: ${expiry}`;
+}
+
+export function resolveInsuranceStartDate(record: CompanyInsuranceRow): string | null {
+  return readStartDate(record);
+}
+
+export function resolveInsuranceFileUrl(record: CompanyInsuranceRow): string | null {
+  return readFileUrl(record);
+}
+
+export function resolveInsuranceProvider(record: CompanyInsuranceRow): string {
+  return asString(record.provider) || asString(record.insurer);
 }

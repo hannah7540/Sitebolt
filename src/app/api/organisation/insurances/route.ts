@@ -4,11 +4,12 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { canManageOrganisation, normalizeSecurityRole } from "@/lib/security-roles";
 import {
+  buildRecordPayload,
+  cleanInsuranceDate,
   deleteInsuranceRecords,
   insertInsuranceRecords,
   listInsuranceRecords,
   mapCompanyInsuranceResponse,
-  sanitizeInsuranceSavePayload,
   updateInsuranceRecords,
   type CompanyInsuranceRow,
 } from "@/lib/organisation-insurances-api";
@@ -88,18 +89,13 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      data: result.data.map((row) =>
-        mapCompanyInsuranceResponse(row as CompanyInsuranceRow)
-      ),
+      data: result.data.map((row) => mapCompanyInsuranceResponse(row)),
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load insurances.";
     console.error("Insurance Load Error:", error);
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
 
@@ -118,15 +114,20 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
       );
     }
 
-    const sanitizedRecord = sanitizeInsuranceSavePayload(body);
+    const startDate = cleanInsuranceDate(
+      body.start_date ?? body.date_obtained ?? body.effective_date
+    );
+    const expiryDate = cleanInsuranceDate(
+      body.expiry_date ?? body.end_date ?? body.expiration_date
+    );
 
-    if (!sanitizedRecord.start_date) {
+    if (!startDate) {
       return NextResponse.json(
         { success: false, error: "Start date is required." },
         { status: 400 }
       );
     }
-    if (!sanitizedRecord.expiry_date) {
+    if (!expiryDate) {
       return NextResponse.json(
         { success: false, error: "Expiry date is required." },
         { status: 400 }
@@ -143,8 +144,8 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
 
     const result =
       method === "PUT"
-        ? await updateInsuranceRecords(auth.admin, id, sanitizedRecord)
-        : await insertInsuranceRecords(auth.admin, sanitizedRecord);
+        ? await updateInsuranceRecords(auth.admin, id, body)
+        : await insertInsuranceRecords(auth.admin, body);
 
     if (result.error || !result.data) {
       console.error("Insurance Save Error:", result.error);
@@ -157,18 +158,13 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      data: mapCompanyInsuranceResponse(result.data as CompanyInsuranceRow),
-    });
+    const normalized = mapCompanyInsuranceResponse(result.data as CompanyInsuranceRow);
+    return NextResponse.json({ success: true, data: normalized });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to save insurance.";
     console.error("Insurance Save Error:", error);
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
 
@@ -208,9 +204,9 @@ export async function DELETE(request: Request) {
     const message =
       error instanceof Error ? error.message : "Failed to delete insurance.";
     console.error("Insurance Delete Error:", error);
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
+
+// Re-export for tests / tooling that import payload builder from route module
+export { buildRecordPayload };
