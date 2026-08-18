@@ -602,8 +602,6 @@ export default function Sidebar({
           onNavigate={onNavigate}
         />
 
-        {showEmails ? <EmailsSection pathname={pathname} /> : null}
-
         {showAdministration && (
           <AdministrationSection
             activeView={effectiveActiveView}
@@ -617,6 +615,8 @@ export default function Sidebar({
         {showAccounts && accountsMenu ? (
           <AccountsSection menu={accountsMenu} pathname={pathname} />
         ) : null}
+
+        {showEmails ? <EmailsSection pathname={pathname} /> : null}
 
         {showOrganisation && (
           <OrganisationSection
