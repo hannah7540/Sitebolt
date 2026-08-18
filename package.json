@@ -20,6 +20,7 @@
     "seed:test-data": "npx tsx scripts/seed-test-data.ts"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.1",
     "@capacitor/camera": "^8.2.2",
     "@capacitor/core": "^8.5.0",
     "@capacitor/splash-screen": "^8.0.2",

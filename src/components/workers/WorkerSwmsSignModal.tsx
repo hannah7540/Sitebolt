@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2, X } from "lucide-react";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import {
   getSwmsAssigneeName,
@@ -33,6 +34,14 @@ export default function WorkerSwmsSignModal({
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [acknowledgedRisks, setAcknowledgedRisks] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useMobileBackHandler(
+    useCallback(() => {
+      onClose();
+      return true;
+    }, [onClose]),
+    true
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleSign = async () => {

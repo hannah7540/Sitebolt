@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, ArrowRight, X, ZoomIn } from "lucide-react";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import {
   getWorkerItcStatusLabel,
   type WorkerItcRegisterRow,
@@ -41,6 +42,17 @@ export default function WorkerItcPinPreviewModal({
   onAddToItc,
 }: WorkerItcPinPreviewModalProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  const handleHardwareBack = useCallback(() => {
+    if (lightboxUrl) {
+      setLightboxUrl(null);
+      return true;
+    }
+    onClose();
+    return true;
+  }, [lightboxUrl, onClose]);
+
+  useMobileBackHandler(handleHardwareBack, true);
 
   return (
     <>

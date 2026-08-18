@@ -94,8 +94,21 @@ body {
 
 /* Capacitor / mobile safe-area insets — mobile only; desktop/tablet (lg+) unchanged */
 @media (max-width: 1023px) {
+  .mobile-safe-area-top {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+
+  .mobile-safe-area-bottom {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
   .mobile-safe-area-y {
     padding-top: max(12px, env(safe-area-inset-top));
     padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* Reserve space above fixed bottom back buttons + gesture bar */
+  .worker-mobile-content-pad {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
   }
 }

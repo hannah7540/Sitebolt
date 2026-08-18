@@ -82,6 +82,7 @@ import {
   type SecurityRole,
 } from "@/lib/security-roles";
 import { isNativeMobileApp } from "@/lib/native-app";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
@@ -539,6 +540,73 @@ export default function WorkerDashboardView({
     return match?.name ?? getProjectName(selectedProjectId) ?? "Selected project";
   }, [selectedProjectId, grantedProjects]);
 
+  const handleHardwareBack = useCallback(() => {
+    if (activeInductionAssignment) {
+      setActiveInductionAssignment(null);
+      return true;
+    }
+    if (showInductionsModal) {
+      setShowInductionsModal(false);
+      return true;
+    }
+    if (activeSiteForm) {
+      setActiveSiteForm(null);
+      return true;
+    }
+    if (selectedPlantPrestart) {
+      setSelectedPlantPrestart(null);
+      return true;
+    }
+    if (showLeaveSubmit) {
+      setShowLeaveSubmit(false);
+      return true;
+    }
+    if (showTimesheetHistory) {
+      setShowTimesheetHistory(false);
+      return true;
+    }
+    if (showTimesheetSubmit) {
+      setShowTimesheetSubmit(false);
+      return true;
+    }
+    if (showDetails) {
+      setShowDetails(false);
+      return true;
+    }
+    if (showPhotoModal) {
+      setShowPhotoModal(false);
+      return true;
+    }
+    if (showFormsSubDashboard) {
+      setShowFormsSubDashboard(false);
+      return true;
+    }
+    if (showHiddenDrawer) {
+      setShowHiddenDrawer(false);
+      return true;
+    }
+    if (comingSoon) {
+      setComingSoon(null);
+      return true;
+    }
+    return false;
+  }, [
+    activeInductionAssignment,
+    activeSiteForm,
+    comingSoon,
+    selectedPlantPrestart,
+    showDetails,
+    showFormsSubDashboard,
+    showHiddenDrawer,
+    showInductionsModal,
+    showLeaveSubmit,
+    showPhotoModal,
+    showTimesheetHistory,
+    showTimesheetSubmit,
+  ]);
+
+  useMobileBackHandler(handleHardwareBack, true);
+
   const openSiteForm = (formType: SiteFormType) => {
     if (!selectedProjectId) {
       setFormProjectWarning("Select a project before submitting a site safety form.");
@@ -857,7 +925,7 @@ export default function WorkerDashboardView({
 
   return (
     <div className={cn("bg-transparent", embedded ? "min-h-full" : "min-h-screen")}>
-      <header className="mobile-safe-area-y border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <header className="mobile-safe-area-top border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
         <div className="mx-auto flex max-w-lg items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <button

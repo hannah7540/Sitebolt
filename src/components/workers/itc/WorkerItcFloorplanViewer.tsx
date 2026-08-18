@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +12,8 @@ import {
   ZoomOut,
   RotateCcw,
 } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import type { DbProject } from "@/lib/project-resolver";
 import {
   fetchWorkerItcPlan,
@@ -100,6 +101,20 @@ export default function WorkerItcFloorplanViewer({
     return index >= 0 ? index + 1 : null;
   }, [itcs, previewItc]);
 
+  const handleMobileBack = useCallback(() => {
+    if (previewItcId) {
+      setPreviewItcId(null);
+      return true;
+    }
+    if (onBack) {
+      onBack();
+      return true;
+    }
+    return false;
+  }, [onBack, previewItcId]);
+
+  useMobileBackHandler(handleMobileBack, !checklistItcId);
+
   const handleWheel: React.WheelEventHandler<HTMLDivElement> = (event) => {
     event.preventDefault();
     const delta = event.deltaY > 0 ? -0.1 : 0.1;
@@ -161,14 +176,14 @@ export default function WorkerItcFloorplanViewer({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 worker-mobile-content-pad lg:pb-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           {onBack ? (
             <button
               type="button"
               onClick={onBack}
-              className="mb-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-600 hover:text-orange-700"
+              className="mb-2 hidden items-center gap-1 text-sm font-semibold text-orange-600 hover:text-orange-700 lg:inline-flex"
             >
               <ChevronLeft className="h-4 w-4" />
               Back to dashboard
@@ -337,6 +352,10 @@ export default function WorkerItcFloorplanViewer({
             setPreviewItcId(null);
           }}
         />
+      ) : null}
+
+      {onBack ? (
+        <WorkerMobileBackButton label="Back to dashboard" onClick={onBack} />
       ) : null}
     </div>
   );

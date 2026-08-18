@@ -2,6 +2,7 @@
 
 import { CompanyBrandingProvider } from "./CompanyBrandingProvider";
 import NativeAppRouteGuard from "@/components/layout/NativeAppRouteGuard";
+import NativeBackButtonHandler from "@/components/layout/NativeBackButtonHandler";
 
 export default function BrandingRoot({
   children,
@@ -11,6 +12,7 @@ export default function BrandingRoot({
   return (
     <CompanyBrandingProvider>
       <NativeAppRouteGuard />
+      <NativeBackButtonHandler />
       {children}
     </CompanyBrandingProvider>
   );

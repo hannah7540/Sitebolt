@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import WorkerItcFloorplanViewer from "@/components/workers/itc/WorkerItcFloorplanViewer";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
@@ -97,15 +97,18 @@ function WorkerItcContent() {
   }
 
   if (!workerId || grantedProjects.length === 0) {
+    const goDashboard = () => router.push("/worker-dashboard");
+
     return (
-      <div className="mx-auto max-w-lg p-6">
-        <Link
-          href="/worker-dashboard"
-          className="mb-4 inline-flex items-center gap-1 text-sm font-semibold text-orange-600"
+      <div className="mx-auto max-w-lg p-4 mobile-safe-area-top worker-mobile-content-pad">
+        <button
+          type="button"
+          onClick={goDashboard}
+          className="mb-4 hidden text-sm font-semibold text-orange-600 lg:inline-flex"
         >
-          <ChevronLeft className="h-4 w-4" />
-          Back to dashboard
-        </Link>
+          ← Back to dashboard
+        </button>
+        <WorkerMobileBackButton label="Back to dashboard" onClick={goDashboard} />
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           No assigned projects found. Contact your administrator to be linked to a job before
           using ITC&apos;s.
@@ -115,8 +118,8 @@ function WorkerItcContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-5xl p-4 pb-8">
+    <div className="min-h-screen bg-slate-50 mobile-safe-area-top">
+      <div className="mx-auto max-w-5xl p-4">
         <WorkerItcFloorplanViewer
           workerId={workerId}
           workerName={workerName}

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowLeft,
   ChevronRight,
   MessageSquare,
   ShieldCheck,
   Sun,
 } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import type { DbProject } from "@/lib/project-resolver";
 import type { LeaveRequest, Worker } from "@/lib/supabase";
 import type { SiteFormType } from "@/lib/site-forms";
@@ -121,16 +122,28 @@ export default function WorkerFormsSubDashboard({
     setRfiRefreshKey((key) => key + 1);
   };
 
+  const handleMobileBack = useCallback(() => {
+    if (selectedForm) {
+      closeActiveForm();
+      return true;
+    }
+    onBack();
+    return true;
+  }, [onBack, selectedForm]);
+
+  useMobileBackHandler(handleMobileBack, true);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 worker-mobile-content-pad lg:pb-0">
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-orange-600"
+        className="hidden items-center gap-2 text-sm font-semibold text-slate-600 hover:text-orange-600 lg:inline-flex"
       >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Main Dashboard
+        ← Back to Main Dashboard
       </button>
+
+      <WorkerMobileBackButton label="Back to Main Dashboard" onClick={onBack} />
 
       <div>
         <h2 className="text-lg font-bold text-slate-900">Forms & Safety Submissions</h2>

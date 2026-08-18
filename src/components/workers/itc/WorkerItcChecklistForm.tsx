@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, ChevronLeft, Loader2 } from "lucide-react";
+import { Camera, Loader2 } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
+import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import Toast from "@/components/ui/Toast";
 import { getChecklistTemplateItem } from "@/lib/worker-itc-checklist-templates";
 import {
@@ -144,6 +146,13 @@ export default function WorkerItcChecklistForm({
     onCompleted();
   };
 
+  const handleMobileBack = useCallback(() => {
+    onClose();
+    return true;
+  }, [onClose]);
+
+  useMobileBackHandler(handleMobileBack, true);
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-16 text-sm text-slate-500">
@@ -154,15 +163,16 @@ export default function WorkerItcChecklistForm({
   }
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 worker-mobile-content-pad lg:pb-0">
       <button
         type="button"
         onClick={onClose}
-        className="inline-flex items-center gap-1 text-sm font-semibold text-orange-600 hover:text-orange-700"
+        className="hidden items-center gap-1 text-sm font-semibold text-orange-600 hover:text-orange-700 lg:inline-flex"
       >
-        <ChevronLeft className="h-4 w-4" />
-        Back to floorplan
+        ← Back to floorplan
       </button>
+
+      <WorkerMobileBackButton label="Back to floorplan" onClick={onClose} />
 
       <div>
         <h2 className="text-xl font-bold text-slate-900">{itcNumber}</h2>
