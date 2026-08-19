@@ -2,6 +2,7 @@ import {
   cleanInsuranceDate,
   type CompanyInsuranceRecord,
 } from "@/lib/organisation-insurances-api";
+import type { InsuranceDocumentAttachment } from "@/lib/insurance-utils";
 
 export type CompanyInsuranceFormRecord = CompanyInsuranceRecord;
 
@@ -49,17 +50,23 @@ export async function saveCompanyInsuranceToApi(input: {
   expiry_date?: string | null;
   file_url?: string | null;
   file_name?: string | null;
+  documents?: InsuranceDocumentAttachment[];
   document_url?: string | null;
   notes?: string | null;
   all_states?: boolean;
   states?: string[];
 }): Promise<{ insurance: CompanyInsuranceFormRecord | null; error: string | null }> {
+  const documents = Array.isArray(input.documents) ? input.documents : [];
+  const primary = documents[0];
   const payload = {
     ...input,
     start_date: cleanInsuranceDate(input.start_date ?? input.date_obtained),
     date_obtained: cleanInsuranceDate(input.date_obtained ?? input.start_date),
     expiry_date: cleanInsuranceDate(input.expiry_date),
-    file_url: input.file_url ?? input.document_url ?? null,
+    documents,
+    file_url: primary?.url ?? input.file_url ?? input.document_url ?? null,
+    file_name: primary?.name ?? input.file_name ?? null,
+    document_url: primary?.url ?? input.file_url ?? input.document_url ?? null,
     states: Array.isArray(input.states) ? input.states : [],
   };
 

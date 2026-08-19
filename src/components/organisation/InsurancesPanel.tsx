@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, ExternalLink, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Plus, Loader2, Pencil, Trash2 } from "lucide-react";
 import Toast from "@/components/ui/Toast";
 import {
   deleteCompanyInsuranceFromApi,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/insurance-utils";
 import { useFormToast } from "@/hooks/useFormToast";
 import InsuranceFormModal from "./InsuranceFormModal";
+import InsuranceDocumentLinks from "./InsuranceDocumentLinks";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 
@@ -138,14 +139,25 @@ export default function InsurancesPanel() {
                 <th className="px-4 py-3">Start</th>
                 <th className="px-4 py-3">Expiry</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Document</th>
+                <th className="px-4 py-3">Documents</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {insurances.map((item) => {
                 const expiry = getInsuranceExpiryStatus(item.expiry_date);
-                const fileUrl = item.file_url ?? item.document_url;
+                const documents =
+                  item.documents?.length > 0
+                    ? item.documents
+                    : item.file_url ?? item.document_url
+                      ? [
+                          {
+                            name: item.file_name ?? "Policy document",
+                            url: (item.file_url ?? item.document_url) as string,
+                            uploaded_at: item.updated_at ?? new Date().toISOString(),
+                          },
+                        ]
+                      : [];
                 return (
                   <tr key={item.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-slate-900">
@@ -173,19 +185,7 @@ export default function InsurancesPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {fileUrl ? (
-                        <a
-                          href={fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-orange-600 hover:underline"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          {item.file_name ? item.file_name : "Open"}
-                        </a>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
+                      <InsuranceDocumentLinks documents={documents} compact />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

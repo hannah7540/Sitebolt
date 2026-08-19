@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import type { InsuranceDocumentAttachment } from "./insurance-utils";
 
 export const ORGANISATION_INSURANCE_BUCKET = "organisation-insurances";
 export const COMPANY_INSURANCE_BUCKET = "company-insurances";
@@ -83,4 +84,32 @@ export async function uploadInsuranceDocument(file: File): Promise<{
       error: err instanceof Error ? err.message : "Insurance document upload failed.",
     };
   }
+}
+
+export async function uploadInsuranceDocuments(files: File[]): Promise<{
+  documents: InsuranceDocumentAttachment[];
+  errors: string[];
+}> {
+  if (files.length === 0) {
+    return { documents: [], errors: [] };
+  }
+
+  const results = await Promise.all(files.map((file) => uploadInsuranceDocument(file)));
+  const documents: InsuranceDocumentAttachment[] = [];
+  const errors: string[] = [];
+  const uploadedAt = new Date().toISOString();
+
+  for (const result of results) {
+    if (result.error || !result.url) {
+      errors.push(result.error ?? "Upload failed.");
+      continue;
+    }
+    documents.push({
+      name: result.fileName ?? "Policy document",
+      url: result.url,
+      uploaded_at: uploadedAt,
+    });
+  }
+
+  return { documents, errors };
 }

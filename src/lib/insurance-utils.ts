@@ -73,6 +73,18 @@ export const OTHER_INSURANCE_TYPE = "Other Insurance" as const;
 
 export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 
+export interface InsuranceDocumentAttachment {
+  name: string;
+  url: string;
+  uploaded_at: string;
+}
+
+export function formatInsuranceFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function getInsuranceExpiryStatus(expiryDate: string | null | undefined) {
   const status = getTicketStatus(expiryDate);
   const label =

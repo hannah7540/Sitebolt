@@ -28,6 +28,7 @@ import {
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
 import { validateActBreakRequirement } from "./timesheet-act-break-validation";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
+import type { InsuranceDocumentAttachment } from "./insurance-utils";
 import {
   buildProjectScopeOrFilter,
   isMissingScopeColumnError,
@@ -2644,6 +2645,7 @@ export interface CompanyInsurance {
   expiry_date: string | null;
   file_url?: string | null;
   file_name?: string | null;
+  documents?: InsuranceDocumentAttachment[];
   document_url: string | null;
   all_states?: boolean | null;
   states?: string[] | null;

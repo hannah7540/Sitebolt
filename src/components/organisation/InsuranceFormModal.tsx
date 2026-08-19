@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Loader2, FileText, ExternalLink } from "lucide-react";
+import { X, Loader2, FileText, Trash2 } from "lucide-react";
 import InsuranceRegionSelector from "@/components/organisation/InsuranceRegionSelector";
 import {
-  uploadInsuranceDocument,
+  uploadInsuranceDocuments,
   validateInsuranceDocumentFile,
 } from "@/lib/insurance-document-upload";
 import type { CompanyInsuranceFormRecord } from "@/lib/organisation-insurances-api-client";
@@ -13,7 +13,9 @@ import {
   INSURANCE_TYPES,
   OTHER_INSURANCE_TYPE,
   buildInsuranceRegionSavePayload,
+  formatInsuranceFileSize,
   normalizeInsuranceRegions,
+  type InsuranceDocumentAttachment,
   type InsuranceRegion,
 } from "@/lib/insurance-utils";
 import {
@@ -22,6 +24,12 @@ import {
   inputClass,
   labelClass,
 } from "@/lib/ui-classes";
+import InsuranceDocumentLinks from "./InsuranceDocumentLinks";
+
+interface StagedInsuranceFile {
+  id: string;
+  file: File;
+}
 
 interface InsuranceFormModalProps {
   insurance?: CompanyInsuranceFormRecord | null;
@@ -37,9 +45,14 @@ interface InsuranceFormModalProps {
     expiry_date: string | null;
     file_url: string | null;
     file_name: string | null;
+    documents: InsuranceDocumentAttachment[];
     all_states: boolean;
     states: InsuranceRegion[];
   }) => Promise<{ error: string | null }>;
+}
+
+function createStagedId(): string {
+  return `staged-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export default function InsuranceFormModal({
@@ -56,8 +69,8 @@ export default function InsuranceFormModal({
   const [provider, setProvider] = useState("");
   const [startDate, setStartDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [savedDocuments, setSavedDocuments] = useState<InsuranceDocumentAttachment[]>([]);
+  const [stagedFiles, setStagedFiles] = useState<StagedInsuranceFile[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [allRegions, setAllRegions] = useState(false);
   const [selectedRegions, setSelectedRegions] = useState<InsuranceRegion[]>([]);
@@ -72,8 +85,8 @@ export default function InsuranceFormModal({
     setProvider(insurance.provider ?? "");
     setStartDate(insurance.start_date ?? insurance.date_obtained ?? "");
     setExpiryDate(insurance.expiry_date ?? "");
-    setFileUrl(insurance.file_url ?? insurance.document_url ?? null);
-    setFileName(insurance.file_name ?? null);
+    setSavedDocuments(insurance.documents ?? []);
+    setStagedFiles([]);
     setAllRegions(Boolean(insurance.all_states));
     setSelectedRegions(
       insurance.all_states
@@ -95,34 +108,40 @@ export default function InsuranceFormModal({
     );
   };
 
-  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
 
-    const validationError = validateInsuranceDocumentFile(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    const validFiles: StagedInsuranceFile[] = [];
+    const validationErrors: string[] = [];
 
-    setUploadingDoc(true);
-    setError(null);
-    try {
-      const upload = await uploadInsuranceDocument(file);
-      if (upload.error || !upload.url) {
-        throw new Error(upload.error ?? "Failed to upload insurance document.");
+    for (const file of files) {
+      const validationError = validateInsuranceDocumentFile(file);
+      if (validationError) {
+        validationErrors.push(`${file.name}: ${validationError}`);
+        continue;
       }
-      setFileUrl(upload.url);
-      setFileName(upload.fileName);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to upload insurance document.";
-      console.error(err);
-      setError(message);
-    } finally {
-      setUploadingDoc(false);
+      validFiles.push({ id: createStagedId(), file });
     }
+
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(" "));
+    } else {
+      setError(null);
+    }
+
+    if (validFiles.length > 0) {
+      setStagedFiles((current) => [...current, ...validFiles]);
+    }
+  };
+
+  const removeSavedDocument = (url: string) => {
+    setSavedDocuments((current) => current.filter((doc) => doc.url !== url));
+  };
+
+  const removeStagedFile = (id: string) => {
+    setStagedFiles((current) => current.filter((entry) => entry.id !== id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -168,6 +187,36 @@ export default function InsuranceFormModal({
       return;
     }
 
+    let documents = [...savedDocuments];
+
+    if (stagedFiles.length > 0) {
+      setUploadingDoc(true);
+      try {
+        const upload = await uploadInsuranceDocuments(stagedFiles.map((entry) => entry.file));
+        if (upload.errors.length > 0 && upload.documents.length === 0) {
+          throw new Error(upload.errors[0] ?? "Failed to upload insurance documents.");
+        }
+        if (upload.errors.length > 0) {
+          setError(
+            `Some files failed to upload: ${upload.errors.join(" ")}`
+          );
+        }
+        documents = [...documents, ...upload.documents];
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to upload insurance documents.";
+        console.error(err);
+        setError(message);
+        setSaving(false);
+        setUploadingDoc(false);
+        return;
+      } finally {
+        setUploadingDoc(false);
+      }
+    }
+
+    const primary = documents[0] ?? null;
+
     try {
       const result = await onSaved({
         id: insurance?.id,
@@ -179,8 +228,9 @@ export default function InsuranceFormModal({
         date_obtained: normalizedStart,
         start_date: normalizedStart,
         expiry_date: normalizedExpiry,
-        file_url: fileUrl,
-        file_name: fileName,
+        file_url: primary?.url ?? null,
+        file_name: primary?.name ?? null,
+        documents,
         all_states: regionPayload.all_states,
         states: normalizeInsuranceRegions(regionPayload.states),
       });
@@ -198,6 +248,8 @@ export default function InsuranceFormModal({
       setSaving(false);
     }
   };
+
+  const busy = saving || uploadingDoc;
 
   return (
     <div className={modalOverlayClass} onClick={onClose}>
@@ -289,49 +341,101 @@ export default function InsuranceFormModal({
             selectedRegions={selectedRegions}
             onAllRegionsChange={handleAllRegionsChange}
             onToggleRegion={handleToggleRegion}
-            disabled={saving || uploadingDoc}
+            disabled={busy}
           />
 
           <div className="space-y-2">
-            <span className={labelClass}>Document attachment</span>
+            <span className={labelClass}>Policy documents</span>
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg"
                 className="hidden"
-                onChange={handleFileSelected}
+                onChange={handleFilesSelected}
               />
               <button
                 type="button"
-                disabled={saving || uploadingDoc}
+                disabled={busy}
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100 disabled:opacity-50"
+                className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100 active:scale-95 disabled:opacity-50"
               >
                 {uploadingDoc ? (
                   <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
                 ) : (
                   <FileText className="h-4 w-4 text-orange-500" />
                 )}
-                {uploadingDoc ? "Uploading…" : "Upload document"}
+                {uploadingDoc ? "Uploading…" : "Add documents"}
               </button>
               <p className="mt-2 text-xs text-slate-500">
-                PDF, PNG, JPG, JPEG, or DOCX up to 20MB.
+                Select one or more PDF, PNG, JPG, JPEG, or DOCX files up to 20MB each.
+                New files upload when you save the policy.
               </p>
-              {fileName ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
-                  <span className="font-medium">{fileName}</span>
-                  {fileUrl ? (
-                    <a
-                      href={fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-orange-600 hover:underline"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Preview / download
-                    </a>
-                  ) : null}
+
+              {savedDocuments.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Attached documents
+                  </p>
+                  <ul className="space-y-2">
+                    {savedDocuments.map((doc) => (
+                      <li
+                        key={doc.url}
+                        className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-800">
+                            {doc.name}
+                          </p>
+                          <InsuranceDocumentLinks documents={[doc]} compact />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeSavedDocument(doc.url)}
+                          disabled={busy}
+                          className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                          aria-label={`Remove ${doc.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {stagedFiles.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Ready to upload on save
+                  </p>
+                  <ul className="space-y-2">
+                    {stagedFiles.map((entry) => (
+                      <li
+                        key={entry.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-800">
+                            {entry.file.name}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {formatInsuranceFileSize(entry.file.size)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeStagedFile(entry.id)}
+                          disabled={busy}
+                          className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                          aria-label={`Remove ${entry.file.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
             </div>
@@ -345,10 +449,10 @@ export default function InsuranceFormModal({
 
           <button
             type="submit"
-            disabled={saving || uploadingDoc}
+            disabled={busy}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
             {isEditing ? "Save Changes" : "Save Insurance"}
           </button>
         </form>

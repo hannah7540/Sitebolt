@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ALL_INSURANCE_REGIONS,
   normalizeInsuranceRegions,
+  type InsuranceDocumentAttachment,
   type InsuranceRegion,
 } from "@/lib/insurance-utils";
 
@@ -30,6 +31,7 @@ export interface CompanyInsuranceRecord {
   expiry_date: string | null;
   file_url: string | null;
   file_name: string | null;
+  documents: InsuranceDocumentAttachment[];
   notes: string;
   document_url: string | null;
   insurer: string | null;
@@ -118,6 +120,91 @@ function readFileName(record: CompanyInsuranceRow): string | null {
   );
 }
 
+function normalizeDocumentEntry(value: unknown): InsuranceDocumentAttachment | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const url =
+    asNullableString(row.url) ??
+    asNullableString(row.file_url) ??
+    asNullableString(row.document_url);
+  if (!url) return null;
+  const name =
+    asNullableString(row.name) ??
+    asNullableString(row.file_name) ??
+    asNullableString(row.document_name) ??
+    "Policy document";
+  const uploadedAt =
+    asNullableString(row.uploaded_at) ??
+    asNullableString(row.uploadedAt) ??
+    new Date().toISOString();
+  return { name, url, uploaded_at: uploadedAt };
+}
+
+export function readInsuranceDocuments(
+  record: CompanyInsuranceRow
+): InsuranceDocumentAttachment[] {
+  const raw = record.documents;
+  let parsed: unknown[] = [];
+
+  if (Array.isArray(raw)) {
+    parsed = raw;
+  } else if (typeof raw === "string" && raw.trim()) {
+    try {
+      const json = JSON.parse(raw) as unknown;
+      if (Array.isArray(json)) parsed = json;
+    } catch {
+      parsed = [];
+    }
+  }
+
+  const documents = parsed
+    .map((entry) => normalizeDocumentEntry(entry))
+    .filter((entry): entry is InsuranceDocumentAttachment => entry !== null);
+
+  if (documents.length > 0) {
+    return documents;
+  }
+
+  const legacyUrl = readFileUrl(record);
+  if (!legacyUrl) return [];
+
+  return [
+    {
+      name: readFileName(record) ?? "Policy document",
+      url: legacyUrl,
+      uploaded_at:
+        asNullableString(record.updated_at) ??
+        asNullableString(record.created_at) ??
+        new Date().toISOString(),
+    },
+  ];
+}
+
+function readDocumentsFromBody(body: Record<string, unknown>): InsuranceDocumentAttachment[] {
+  const raw = body.documents;
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => normalizeDocumentEntry(entry))
+      .filter((entry): entry is InsuranceDocumentAttachment => entry !== null);
+  }
+  return [];
+}
+
+function syncLegacyFileFields(
+  documents: InsuranceDocumentAttachment[],
+  fallbackUrl: string | null,
+  fallbackName: string | null
+): { file_url: string | null; file_name: string | null; document_url: string | null } {
+  const primary = documents[0];
+  const fileUrl = primary?.url ?? fallbackUrl;
+  const fileName = primary?.name ?? fallbackName;
+  return {
+    file_url: fileUrl,
+    file_name: fileName,
+    document_url: fileUrl,
+  };
+}
+
 function coversAllRegions(states: InsuranceRegion[], allFlag: boolean): boolean {
   if (allFlag) return true;
   return ALL_INSURANCE_REGIONS.every((region) => states.includes(region));
@@ -135,6 +222,8 @@ export function mapCompanyInsuranceResponse(
     asString(record.provider) ||
     asString(record.insurer);
   const fileUrl = readFileUrl(record);
+  const documents = readInsuranceDocuments(record);
+  const primary = documents[0];
 
   return {
     id: String(record.id ?? ""),
@@ -152,10 +241,11 @@ export function mapCompanyInsuranceResponse(
     start_date: readStartDate(record),
     date_obtained: readStartDate(record),
     expiry_date: readExpiryDate(record),
-    file_url: fileUrl,
-    file_name: readFileName(record),
+    file_url: primary?.url ?? fileUrl,
+    file_name: primary?.name ?? readFileName(record),
+    documents,
     notes: asString(record.notes),
-    document_url: fileUrl,
+    document_url: primary?.url ?? fileUrl,
     insurer: provider || null,
     created_at: (record.created_at as string | null | undefined) ?? null,
     updated_at: (record.updated_at as string | null | undefined) ?? null,
@@ -176,6 +266,20 @@ export function buildRecordPayload(
     asNullableString(body.doc_url);
   const fName =
     asNullableString(body.file_name) ?? asNullableString(body.document_name);
+  const bodyDocuments = readDocumentsFromBody(body);
+  const documents =
+    bodyDocuments.length > 0
+      ? bodyDocuments
+      : fUrl
+        ? [
+            {
+              name: fName ?? "Policy document",
+              url: fUrl,
+              uploaded_at: new Date().toISOString(),
+            },
+          ]
+        : [];
+  const legacyFields = syncLegacyFileFields(documents, fUrl, fName);
   const rawStates = Array.isArray(body.states)
     ? body.states
     : body.states
@@ -215,13 +319,14 @@ export function buildRecordPayload(
     expiry_date: eDate,
     end_date: eDate,
     expiration_date: eDate,
-    file_url: fUrl,
-    document_url: fUrl,
-    attachment_url: fUrl,
-    url: fUrl,
-    doc_url: fUrl,
-    file_name: fName,
-    document_name: fName,
+    documents,
+    file_url: legacyFields.file_url,
+    document_url: legacyFields.document_url,
+    attachment_url: legacyFields.file_url,
+    url: legacyFields.file_url,
+    doc_url: legacyFields.file_url,
+    file_name: legacyFields.file_name,
+    document_name: legacyFields.file_name,
     notes: asNullableString(body.notes),
     updated_at: new Date().toISOString(),
   };
@@ -241,6 +346,7 @@ function buildStandardPayload(record: Record<string, unknown>): Record<string, u
     expiry_date: record.expiry_date,
     file_url: record.file_url,
     file_name: record.file_name,
+    documents: record.documents,
     document_url: record.document_url,
     notes: record.notes,
     updated_at: record.updated_at,
