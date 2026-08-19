@@ -1,12 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
-import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
+import { useCallback, useEffect, useState } from "react";
 import PlantAdminPanel from "@/components/plant/PlantAdminPanel";
 import { fetchPlant, type PlantAsset } from "@/lib/supabase";
 
-function OrganisationPlantContent() {
+export default function OrganisationPlantPage() {
   const [plant, setPlant] = useState<PlantAsset[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,22 +27,5 @@ function OrganisationPlantContent() {
 
   return (
     <PlantAdminPanel plant={plant} loading={loading} onRefresh={() => void loadPlant()} />
-  );
-}
-
-export default function OrganisationPlantPage() {
-  return (
-    <AdminConsoleShell requireOrganisationAccess>
-      <Suspense
-        fallback={
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-            Loading plant…
-          </div>
-        }
-      >
-        <OrganisationPlantContent />
-      </Suspense>
-    </AdminConsoleShell>
   );
 }

@@ -220,15 +220,7 @@ export default function CompanyInformationPanel() {
   };
 
   const displayLogoSrc = logoPreviewUrl ?? logoUrl;
-
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-        Loading company profile…
-      </div>
-    );
-  }
+  const formDisabled = loading || uploadingLogo || removingLogo;
 
   return (
     <div>
@@ -240,6 +232,13 @@ export default function CompanyInformationPanel() {
       </p>
 
       <form onSubmit={handleSave} className={`max-w-xl space-y-6 p-6 ${cardClass}`}>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+            Loading company profile…
+          </div>
+        ) : null}
+
         <div className="space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Company Logo</h2>
@@ -283,7 +282,7 @@ export default function CompanyInformationPanel() {
               />
               <button
                 type="button"
-                disabled={uploadingLogo || removingLogo || saving}
+                disabled={formDisabled || saving}
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -297,7 +296,7 @@ export default function CompanyInformationPanel() {
               {logoUrl || logoPreviewUrl ? (
                 <button
                   type="button"
-                  disabled={uploadingLogo || removingLogo || saving}
+                  disabled={formDisabled || saving}
                   onClick={() => void handleRemoveLogo()}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -322,6 +321,7 @@ export default function CompanyInformationPanel() {
               className={inputClass}
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
+              disabled={formDisabled}
               required
             />
           </label>
@@ -332,6 +332,7 @@ export default function CompanyInformationPanel() {
               className={inputClass}
               value={abn}
               onChange={(e) => setAbn(e.target.value)}
+              disabled={formDisabled}
               placeholder="12 345 678 901"
             />
           </label>
@@ -343,6 +344,7 @@ export default function CompanyInformationPanel() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={formDisabled}
               autoComplete="email"
             />
           </label>
@@ -353,6 +355,7 @@ export default function CompanyInformationPanel() {
               className={inputClass}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              disabled={formDisabled}
               inputMode="tel"
               autoComplete="tel"
             />
@@ -364,6 +367,7 @@ export default function CompanyInformationPanel() {
               className={inputClass}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              disabled={formDisabled}
               placeholder="e.g. 123 Construction Way, Sydney NSW 2000"
               autoComplete="street-address"
             />
@@ -382,7 +386,7 @@ export default function CompanyInformationPanel() {
 
         <button
           type="submit"
-          disabled={saving || uploadingLogo || removingLogo}
+          disabled={loading || saving || uploadingLogo || removingLogo}
           aria-busy={saving}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
         >

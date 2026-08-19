@@ -48,6 +48,7 @@ import {
 } from "@/lib/security-roles";
 import { filterProjectsForRole } from "@/lib/rbac-guards";
 import { parseConsoleRoute } from "@/lib/console-nav-routes";
+import { resolveOrganisationActiveView, isOrganisationNavActive } from "@/lib/organisation-nav-routes";
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
@@ -75,7 +76,9 @@ export type ActiveView =
   | "org-workers"
   | "org-plant"
   | "org-assets"
-  | "org-security";
+  | "org-security"
+  | "org-fleet"
+  | "org-alerts";
 
 export interface NavigateOptions {
   openAdd?: boolean;
@@ -544,17 +547,17 @@ export default function Sidebar({
 
   const organisationItems: SubItem[] = useMemo(
     () => [
-      { label: "Profile Dashboard", view: "org-dashboard" },
-      { label: "Company Information", view: "org-company" },
-      { label: "Insurances", view: "org-insurances" },
-      { label: "Projects", view: "org-projects" },
-      { label: "Workers", view: "org-workers" },
-      { label: "Plant", view: "org-plant" },
+      { label: "Profile Dashboard", href: "/organisation/dashboard" },
+      { label: "Company Information", href: "/organisation/company" },
+      { label: "Insurances", href: "/organisation/insurances" },
+      { label: "Projects", href: "/organisation/projects" },
+      { label: "Workers", href: "/organisation/workers" },
+      { label: "Plant", href: "/organisation/plant" },
       { label: "Fleet", href: "/organisation/fleet" },
       { label: "Alerts", href: "/organisation/alerts", badge: complianceAlertCount },
-      { label: "Assets", view: "org-assets" },
+      { label: "Assets", href: "/organisation/assets" },
       ...(showSecurity
-        ? [{ label: "Security Settings", view: "org-security" as const }]
+        ? [{ label: "Security Settings", href: "/organisation/security" }]
         : []),
     ],
     [complianceAlertCount, showSecurity]
@@ -1034,30 +1037,16 @@ function OrganisationSection({
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
       </button>
       {open && (
-        <div className="space-y-1 px-2">
-          {items.map((item) =>
-            item.href ? (
-              <RouteNavLink
-                key={item.label}
-                label={item.label}
-                href={item.href}
-                badge={item.badge}
-                active={
-                  pathname === item.href || pathname?.startsWith(`${item.href}/`)
-                }
-              />
-            ) : (
-              <NavLink
-                key={item.label}
-                label={item.label}
-                badge={item.badge}
-                active={item.view === activeView}
-                onClick={
-                  item.view ? () => onNavigate(item.view!) : undefined
-                }
-              />
-            )
-          )}
+        <div className="relative z-30 space-y-1 px-2">
+          {items.map((item) => (
+            <RouteNavLink
+              key={item.label}
+              label={item.label}
+              href={item.href ?? "/organisation/dashboard"}
+              badge={item.badge}
+              active={isOrganisationNavActive(pathname, item.href ?? "")}
+            />
+          ))}
         </div>
       )}
     </div>

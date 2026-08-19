@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Menu, X } from "lucide-react";
 import Sidebar, { type ActiveView } from "@/components/Sidebar";
@@ -56,6 +56,7 @@ import {
   buildConsoleNavHref,
   parseConsoleRoute,
 } from "@/lib/console-nav-routes";
+import { resolveOrganisationActiveView } from "@/lib/organisation-nav-routes";
 import type { NavigateOptions } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 
@@ -252,8 +253,13 @@ export default function AdminConsoleShell({
   ]);
 
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
-  const sidebarActiveView =
-    parseConsoleRoute(pathname, null)?.view ?? routeContext?.view ?? "dashboard";
+  const sidebarActiveView = useMemo(() => {
+    const organisationView = resolveOrganisationActiveView(pathname);
+    if (organisationView) return organisationView;
+    return (
+      parseConsoleRoute(pathname, null)?.view ?? routeContext?.view ?? "dashboard"
+    );
+  }, [pathname, routeContext?.view]);
 
   const handleNavigate = (view: ActiveView, options?: NavigateOptions) => {
     setSidebarOpen(false);
@@ -354,23 +360,29 @@ export default function AdminConsoleShell({
         <div
           className={cn(
             "fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 lg:static lg:translate-x-0",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           )}
         >
-          <Sidebar
-            activeView={sidebarActiveView}
-            projects={sidebarProjects}
-            assignedProjectIds={assignedProjectIds}
-            selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
-            sessionRole={sessionRole}
-            accountsAccessRole={accountsAccessRole}
-            canAccessAccounts={canAccessAccounts}
-            permissionsLoading={loading}
-            onNavigate={handleNavigate}
-            profileName={adminProfileName}
-            profileWorkerId={adminWorkerId}
-            onOpenProfile={handleOpenProfile}
-          />
+          <Suspense
+            fallback={
+              <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-80" />
+            }
+          >
+            <Sidebar
+              activeView={sidebarActiveView}
+              projects={sidebarProjects}
+              assignedProjectIds={assignedProjectIds}
+              selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
+              sessionRole={sessionRole}
+              accountsAccessRole={accountsAccessRole}
+              canAccessAccounts={canAccessAccounts}
+              permissionsLoading={loading}
+              onNavigate={handleNavigate}
+              profileName={adminProfileName}
+              profileWorkerId={adminWorkerId}
+              onOpenProfile={handleOpenProfile}
+            />
+          </Suspense>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -393,7 +405,9 @@ export default function AdminConsoleShell({
             <CompanyLogo size="sm" showFallback className="flex-1" />
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">{children}</div>
+          <div className="relative z-0 flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">
+            {children}
+          </div>
         </div>
       </div>
     </AdminConsoleProvider>

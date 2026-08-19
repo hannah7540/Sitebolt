@@ -5,6 +5,7 @@ import {
   PROJECT_VIEWS,
 } from "@/lib/rbac-guards";
 import { getProjectViewPath, parseProjectRoute } from "@/lib/project-nav-routes";
+import { ORGANISATION_NAV_ITEMS } from "@/lib/organisation-nav-routes";
 
 export const CONSOLE_VIEW_SEARCH_PARAM = "view";
 export const CONSOLE_OPEN_ADD_SEARCH_PARAM = "openAdd";
@@ -57,11 +58,20 @@ export interface ConsoleNavOptions {
   openAdd?: boolean;
 }
 
+const ORGANISATION_ROUTE_BY_VIEW = new Map<ActiveView, string>(
+  ORGANISATION_NAV_ITEMS.map((item) => [item.view, item.href])
+);
+
 /** Build a bookmarkable URL for sidebar / tab navigation. */
 export function buildConsoleNavHref(
   view: ActiveView,
   options: ConsoleNavOptions = {}
 ): string {
+  const dedicatedOrganisationRoute = ORGANISATION_ROUTE_BY_VIEW.get(view);
+  if (dedicatedOrganisationRoute) {
+    return dedicatedOrganisationRoute;
+  }
+
   const projectId = options.projectId?.trim() || null;
 
   if (projectId && PROJECT_VIEWS.includes(view)) {
