@@ -14,30 +14,13 @@ import {
   resolveInsuranceDisplayType,
 } from "@/lib/organisation-insurances-api";
 import {
-  formatInsuranceRegionBadges,
   getInsuranceExpiryStatus,
+  resolveInsuranceCoverageDisplay,
 } from "@/lib/insurance-utils";
 import { useFormToast } from "@/hooks/useFormToast";
 import InsuranceFormModal from "./InsuranceFormModal";
-import InsuranceDocumentLinks from "./InsuranceDocumentLinks";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
-
-function RegionPills({ item }: { item: CompanyInsuranceFormRecord }) {
-  const badges = formatInsuranceRegionBadges(item);
-  return (
-    <div className="flex flex-wrap gap-1">
-      {badges.map((region) => (
-        <span
-          key={region}
-          className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
-        >
-          {region}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 export default function InsurancesPanel() {
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
@@ -52,14 +35,21 @@ export default function InsurancesPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const { insurances: rows, error } = await fetchCompanyInsurancesFromApi();
-    if (error) {
-      setLoadError(error);
+    try {
+      const { insurances: rows, error } = await fetchCompanyInsurancesFromApi();
+      if (error) {
+        setLoadError(error);
+        setInsurances([]);
+      } else {
+        setInsurances(rows ?? []);
+      }
+    } catch (err) {
+      console.error("Failed to load insurances:", err);
+      setLoadError("Failed to load insurance policies.");
       setInsurances([]);
-    } else {
-      setInsurances(rows);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -71,7 +61,16 @@ export default function InsurancesPanel() {
     setEditingInsurance(null);
   };
 
-  const handleDelete = async (item: CompanyInsuranceFormRecord) => {
+  const openEdit = (item: CompanyInsuranceFormRecord) => {
+    setShowAdd(false);
+    setEditingInsurance(item);
+  };
+
+  const handleDelete = async (
+    item: CompanyInsuranceFormRecord,
+    event?: React.MouseEvent
+  ) => {
+    event?.stopPropagation();
     const label = resolveInsuranceDisplayType(item);
     if (!window.confirm(`Delete insurance policy "${label}"?`)) return;
 
@@ -100,7 +99,7 @@ export default function InsurancesPanel() {
             Company <span className="text-orange-500">Insurances</span>
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage policies, covered regions, dates, and certificates.
+            Manage policies, coverage, expiry dates, and certificates.
           </p>
         </div>
         <button
@@ -129,39 +128,39 @@ export default function InsurancesPanel() {
         </p>
       ) : (
         <div className={cn(cardClass, "overflow-x-auto")}>
-          <table className="min-w-[980px] w-full text-left text-sm">
+          <table className="min-w-[900px] w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Provider</th>
-                <th className="px-4 py-3">Policy #</th>
-                <th className="px-4 py-3">Regions</th>
-                <th className="px-4 py-3">Start</th>
-                <th className="px-4 py-3">Expiry</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Documents</th>
+                <th className="px-4 py-3">Policy Name / Type</th>
+                <th className="px-4 py-3">Insurer</th>
+                <th className="px-4 py-3">Policy Number</th>
+                <th className="px-4 py-3">Coverage</th>
+                <th className="px-4 py-3">Expiry Date</th>
+                <th className="px-4 py-3">Expiry Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {insurances.map((item) => {
-                const expiry = getInsuranceExpiryStatus(item.expiry_date);
-                const documents = item.documents ?? [];
+                const expiry = getInsuranceExpiryStatus(item?.expiry_date);
                 return (
-                  <tr key={item.id} className="border-b border-slate-100 last:border-0">
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-orange-50/50"
+                    onClick={() => openEdit(item)}
+                  >
                     <td className="px-4 py-3 font-medium text-slate-900">
                       {resolveInsuranceDisplayType(item)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{item.provider || "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.policy_number || "—"}</td>
-                    <td className="px-4 py-3">
-                      <RegionPills item={item} />
+                    <td className="px-4 py-3 text-slate-600">{item?.provider?.trim() || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {item?.policy_number?.trim() || "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {formatInsuranceDisplayDate(item.start_date ?? item.date_obtained)}
+                      {resolveInsuranceCoverageDisplay(item)}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {formatInsuranceDisplayDate(item.expiry_date)}
+                      {formatInsuranceDisplayDate(item?.expiry_date)}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -174,25 +173,22 @@ export default function InsurancesPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <InsuranceDocumentLinks documents={documents} compact />
-                    </td>
-                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            setShowAdd(false);
-                            setEditingInsurance(item);
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEdit(item);
                           }}
                           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-orange-700"
                         >
                           <Pencil className="h-3 w-3" />
-                          Edit
+                          View / Edit
                         </button>
                         <button
                           type="button"
                           disabled={deletingId === item.id}
-                          onClick={() => void handleDelete(item)}
+                          onClick={(event) => void handleDelete(item, event)}
                           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                         >
                           {deletingId === item.id ? (

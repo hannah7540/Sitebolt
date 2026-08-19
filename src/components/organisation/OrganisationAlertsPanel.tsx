@@ -8,15 +8,16 @@ import {
   Mail,
   RefreshCw,
   Save,
+  Shield,
   Truck,
   Users,
   Wrench,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import AlertRenewModal from "@/components/organisation/AlertRenewModal";
 import {
   COMPLIANCE_ALERT_FILTER_OPTIONS,
-  fetchComplianceAlerts,
   filterComplianceAlerts,
   getComplianceAlertStatus,
   type ComplianceAlertFilter,
@@ -44,9 +45,18 @@ function categoryLabel(category: ComplianceAlertItem["category"]): string {
       return "Plant Registration";
     case "worker_ticket":
       return "Worker Ticket / License";
+    case "company_insurance":
+      return "Company Insurance";
     default:
       return "Alert";
   }
+}
+
+function insuranceAlertBadgeClass(alert: ComplianceAlertItem): string {
+  if (alert.daysRemaining < 0) {
+    return "border-red-200 bg-red-50 text-red-800";
+  }
+  return "border-amber-200 bg-amber-50 text-amber-900";
 }
 
 function CategoryIcon({ category }: { category: ComplianceAlertItem["category"] }) {
@@ -57,12 +67,15 @@ function CategoryIcon({ category }: { category: ComplianceAlertItem["category"] 
       return <Truck className="h-4 w-4 text-blue-600" />;
     case "plant_registration":
       return <Wrench className="h-4 w-4 text-emerald-600" />;
+    case "company_insurance":
+      return <Shield className="h-4 w-4 text-violet-600" />;
     default:
       return <Users className="h-4 w-4 text-violet-600" />;
   }
 }
 
 export default function OrganisationAlertsPanel() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [runningCheck, setRunningCheck] = useState(false);
@@ -98,13 +111,23 @@ export default function OrganisationAlertsPanel() {
     setError(null);
 
     try {
-      const [summary, settings, workerRows] = await Promise.all([
-        fetchComplianceAlerts(),
+      const [alertsResponse, settings, workerRows] = await Promise.all([
+        fetch("/api/organisation/compliance-alerts", { cache: "no-store" }),
         fetchExpiryAlertSettings(),
         fetchWorkers(),
       ]);
-      setAlerts(summary.alerts);
-      setCounts(summary.counts);
+
+      const alertsPayload = (await alertsResponse.json().catch(() => null)) as {
+        data?: { alerts: ComplianceAlertItem[]; counts: Record<string, number> };
+        error?: string;
+      } | null;
+
+      if (!alertsResponse.ok || !alertsPayload?.data) {
+        throw new Error(alertsPayload?.error ?? "Failed to load compliance alerts.");
+      }
+
+      setAlerts(alertsPayload.data.alerts ?? []);
+      setCounts(alertsPayload.data.counts ?? { all: 0 });
       setWorkers(workerRows);
       setAutomatedEnabled(settings.automated_emails_enabled);
       setSecondaryRecipients(formatSecondaryRecipientsForInput(settings.secondary_recipient_emails));
@@ -181,8 +204,8 @@ export default function OrganisationAlertsPanel() {
           Organisation <span className="text-orange-500">/ Alerts</span>
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Unified compliance alerts for heavy vehicle checks, fleet and plant registrations, and
-          worker tickets.
+          Unified compliance alerts for heavy vehicle checks, fleet and plant registrations,
+          worker tickets, and company insurance policies.
         </p>
       </div>
 
@@ -198,7 +221,7 @@ export default function OrganisationAlertsPanel() {
         </p>
       ) : null}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {COMPLIANCE_ALERT_FILTER_OPTIONS.filter((option) => option.id !== "all").map((option) => (
           <div key={option.id} className={cn("flex items-center gap-4 p-5", cardClass)}>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
@@ -298,20 +321,37 @@ export default function OrganisationAlertsPanel() {
                         <span
                           className={cn(
                             "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                            getComplianceAlertStatus(alert.daysRemaining).badgeClass
+                            alert.category === "company_insurance"
+                              ? insuranceAlertBadgeClass(alert)
+                              : getComplianceAlertStatus(alert.daysRemaining).badgeClass
                           )}
                         >
                           {alert.statusLabel}
                         </span>
                       </td>
                       <td className="px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={() => setRenewAlert(alert)}
-                          className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-                        >
-                          Update / Renew
-                        </button>
+                        {alert.category === "company_insurance" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const href = String(
+                                alert.metadata.navigationHref ?? "/?view=org-insurances"
+                              );
+                              router.push(href);
+                            }}
+                            className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
+                          >
+                            View Policy
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setRenewAlert(alert)}
+                            className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
+                          >
+                            Update / Renew
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

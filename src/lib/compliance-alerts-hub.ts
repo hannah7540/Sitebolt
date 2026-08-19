@@ -21,25 +21,41 @@ import {
 } from "./plant-documents";
 import { daysUntil, getWorkerDisplayName } from "./worker-utils";
 import { fleetDocumentTypeLabel } from "./fleet-utils";
+import {
+  calculateInsuranceDaysRemaining,
+  isWithinInsuranceAlertWindow,
+  INSURANCE_EXPIRY_ALERT_WINDOW_DAYS,
+} from "./insurance-utils";
+import {
+  listInsuranceRecords,
+  mapCompanyInsuranceResponse,
+  resolveInsuranceDisplayType,
+  type CompanyInsuranceRecord,
+} from "./organisation-insurances-api";
+import { buildConsoleNavHref } from "./console-nav-routes";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Alert trigger windows (days before due/expiry). */
 export const HEAVY_VEHICLE_ALERT_WINDOW_DAYS = 56;
 export const FLEET_PLANT_REGISTRATION_ALERT_WINDOW_DAYS = 14;
 export const WORKER_TICKET_ALERT_WINDOW_DAYS = 30;
+export const COMPANY_INSURANCE_ALERT_WINDOW_DAYS = INSURANCE_EXPIRY_ALERT_WINDOW_DAYS;
 
 export type ComplianceAlertFilter =
   | "all"
   | "heavy_vehicle_check"
   | "fleet_plant_registration"
-  | "worker_ticket";
+  | "worker_ticket"
+  | "company_insurance";
 
 export type ComplianceAlertCategory =
   | "heavy_vehicle_check"
   | "fleet_registration"
   | "plant_registration"
-  | "worker_ticket";
+  | "worker_ticket"
+  | "company_insurance";
 
-export type ComplianceAlertSourceType = "worker" | "fleet" | "plant";
+export type ComplianceAlertSourceType = "worker" | "fleet" | "plant" | "insurance";
 
 export interface ComplianceAlertItem {
   id: string;
@@ -250,38 +266,150 @@ export function collectWorkerTicketAlerts(
   return alerts;
 }
 
-export async function fetchComplianceAlerts(): Promise<ComplianceAlertsSummary> {
-  const [workers, vocs, fleet, plant] = await Promise.all([
-    fetchWorkers(),
-    fetchAllWorkerVocs(),
-    fetchOrganizationFleet(),
-    fetchPlant(),
-  ]);
+function getInsuranceAlertPresentation(daysRemaining: number): {
+  statusLabel: string;
+  statusTone: "critical" | "warning";
+} {
+  if (daysRemaining < 0) {
+    return { statusLabel: "Expired", statusTone: "critical" };
+  }
+  return {
+    statusLabel: `Expiring Soon (${daysRemaining} day${daysRemaining === 1 ? "" : "s"})`,
+    statusTone: "warning",
+  };
+}
 
-  const vocsByWorker = new Map<string, WorkerVoc[]>();
-  for (const voc of vocs) {
-    const list = vocsByWorker.get(voc.worker_id) ?? [];
-    list.push(voc);
-    vocsByWorker.set(voc.worker_id, list);
+export function collectCompanyInsuranceAlerts(
+  policies: CompanyInsuranceRecord[]
+): ComplianceAlertItem[] {
+  const alerts: ComplianceAlertItem[] = [];
+  const seen = new Set<string>();
+
+  for (const policy of policies) {
+    const expiryIso = policy?.expiry_date ?? null;
+    if (!expiryIso || !isWithinInsuranceAlertWindow(expiryIso)) continue;
+
+    const daysRemaining = calculateInsuranceDaysRemaining(expiryIso);
+    if (daysRemaining === null) continue;
+
+    const expiryDate = expiryIso.slice(0, 10);
+    const dedupeKey = `company-insurance:${policy.id}:${expiryDate}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const policyType = resolveInsuranceDisplayType(policy);
+    const insurer = policy?.provider?.trim() || policy?.insurer?.trim() || "Unknown insurer";
+    const policyNumber = policy?.policy_number?.trim() || "—";
+    const presentation = getInsuranceAlertPresentation(daysRemaining);
+
+    alerts.push({
+      id: dedupeKey,
+      category: "company_insurance",
+      filterGroup: "company_insurance",
+      title: policyType,
+      subtitle: `${insurer} · Policy ${policyNumber}`,
+      documentLabel: policyType,
+      expiryDate,
+      daysRemaining,
+      statusLabel: presentation.statusLabel,
+      statusTone: presentation.statusTone,
+      sourceType: "insurance",
+      sourceId: policy.id,
+      metadata: {
+        alertKind: "company_insurance",
+        policyType,
+        policyNumber: policy?.policy_number?.trim() || null,
+        insurer,
+        expiryDate,
+        navigationHref: buildConsoleNavHref("org-insurances"),
+        documentCount: policy?.documents?.length ?? 0,
+      },
+    });
   }
 
-  const alerts = [
-    ...collectHeavyVehicleCheckAlerts(plant),
-    ...collectPlantRegistrationAlerts(plant),
-    ...collectFleetRegistrationAlerts(fleet),
-    ...collectWorkerTicketAlerts(workers, vocsByWorker),
-  ].sort((left, right) => left.daysRemaining - right.daysRemaining);
+  return alerts;
+}
 
-  const counts = {
-    all: alerts.length,
-    heavy_vehicle_check: alerts.filter((row) => row.filterGroup === "heavy_vehicle_check").length,
-    fleet_plant_registration: alerts.filter(
-      (row) => row.filterGroup === "fleet_plant_registration"
-    ).length,
-    worker_ticket: alerts.filter((row) => row.filterGroup === "worker_ticket").length,
-  };
+async function fetchInsurancePoliciesForAlerts(
+  admin?: SupabaseClient
+): Promise<CompanyInsuranceRecord[]> {
+  try {
+    if (admin) {
+      const result = await listInsuranceRecords(admin);
+      if (result.error) {
+        console.warn("Insurance alerts: failed to load policies", result.error);
+        return [];
+      }
+      return (result.data ?? []).map((row) => mapCompanyInsuranceResponse(row));
+    }
 
-  return { alerts, counts };
+    if (typeof window === "undefined") return [];
+
+    const response = await fetch("/api/organisation/insurances", { cache: "no-store" });
+    if (!response.ok) return [];
+
+    const payload = (await response.json().catch(() => null)) as {
+      data?: CompanyInsuranceRecord[];
+    } | null;
+    return Array.isArray(payload?.data) ? payload.data : [];
+  } catch (error) {
+    console.warn("Insurance alerts: unexpected load failure", error);
+    return [];
+  }
+}
+
+export async function fetchComplianceAlerts(options?: {
+  admin?: SupabaseClient;
+}): Promise<ComplianceAlertsSummary> {
+  try {
+    const [workers, vocs, fleet, plant, insurancePolicies] = await Promise.all([
+      fetchWorkers(),
+      fetchAllWorkerVocs(),
+      fetchOrganizationFleet(),
+      fetchPlant(),
+      fetchInsurancePoliciesForAlerts(options?.admin),
+    ]);
+
+    const vocsByWorker = new Map<string, WorkerVoc[]>();
+    for (const voc of vocs) {
+      const list = vocsByWorker.get(voc.worker_id) ?? [];
+      list.push(voc);
+      vocsByWorker.set(voc.worker_id, list);
+    }
+
+    const alerts = [
+      ...collectHeavyVehicleCheckAlerts(plant),
+      ...collectPlantRegistrationAlerts(plant),
+      ...collectFleetRegistrationAlerts(fleet),
+      ...collectWorkerTicketAlerts(workers, vocsByWorker),
+      ...collectCompanyInsuranceAlerts(insurancePolicies),
+    ].sort((left, right) => left.daysRemaining - right.daysRemaining);
+
+    const counts = {
+      all: alerts.length,
+      heavy_vehicle_check: alerts.filter((row) => row.filterGroup === "heavy_vehicle_check")
+        .length,
+      fleet_plant_registration: alerts.filter(
+        (row) => row.filterGroup === "fleet_plant_registration"
+      ).length,
+      worker_ticket: alerts.filter((row) => row.filterGroup === "worker_ticket").length,
+      company_insurance: alerts.filter((row) => row.filterGroup === "company_insurance").length,
+    };
+
+    return { alerts, counts };
+  } catch (error) {
+    console.error("Failed to build compliance alerts:", error);
+    return {
+      alerts: [],
+      counts: {
+        all: 0,
+        heavy_vehicle_check: 0,
+        fleet_plant_registration: 0,
+        worker_ticket: 0,
+        company_insurance: 0,
+      },
+    };
+  }
 }
 
 export function filterComplianceAlerts(
@@ -395,5 +523,10 @@ export const COMPLIANCE_ALERT_FILTER_OPTIONS: Array<{
     id: "worker_ticket",
     label: "Worker Tickets & Licenses",
     description: `Triggers ${WORKER_TICKET_ALERT_WINDOW_DAYS} days before expiry.`,
+  },
+  {
+    id: "company_insurance",
+    label: "Company Insurances",
+    description: `Triggers ${COMPANY_INSURANCE_ALERT_WINDOW_DAYS} days before expiry (includes expired).`,
   },
 ];

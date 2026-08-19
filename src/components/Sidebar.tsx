@@ -48,6 +48,7 @@ import {
 } from "@/lib/security-roles";
 import { filterProjectsForRole } from "@/lib/rbac-guards";
 import { parseConsoleRoute } from "@/lib/console-nav-routes";
+import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 
@@ -101,6 +102,7 @@ interface SubItem {
   view?: ActiveView;
   href?: string;
   openAdd?: boolean;
+  badge?: number;
 }
 
 interface NestedGroup {
@@ -175,12 +177,14 @@ function NavLink({
   active,
   icon: Icon,
   onClick,
+  badge,
 }: {
   label: string;
   depth?: number;
   active?: boolean;
   icon?: LucideIcon;
   onClick?: () => void;
+  badge?: number;
 }) {
   return (
     <button
@@ -204,7 +208,17 @@ function NavLink({
           )}
         />
       ) : null}
-      <span className="truncate">{label}</span>
+      <span className="truncate flex-1">{label}</span>
+      {badge && badge > 0 ? (
+        <span
+          className={cn(
+            "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+            active ? "bg-white/25 text-white" : "bg-red-500 text-white"
+          )}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -215,12 +229,14 @@ function RouteNavLink({
   depth = 0,
   active,
   icon,
+  badge,
 }: {
   label: string;
   href: string;
   depth?: number;
   active?: boolean;
   icon?: LucideIcon;
+  badge?: number;
 }) {
   const router = useRouter();
 
@@ -230,6 +246,7 @@ function RouteNavLink({
       depth={depth}
       active={active}
       icon={icon}
+      badge={badge}
       onClick={() => router.push(href)}
     />
   );
@@ -523,21 +540,25 @@ export default function Sidebar({
     () => buildProjectNav(activeProjects),
     [activeProjects]
   );
+  const complianceAlertCount = useComplianceAlertCount();
 
-  const organisationItems: SubItem[] = [
-    { label: "Profile Dashboard", view: "org-dashboard" },
-    { label: "Company Information", view: "org-company" },
-    { label: "Insurances", view: "org-insurances" },
-    { label: "Projects", view: "org-projects" },
-    { label: "Workers", view: "org-workers" },
-    { label: "Plant", view: "org-plant" },
-    { label: "Fleet", href: "/organisation/fleet" },
-    { label: "Alerts", href: "/organisation/alerts" },
-    { label: "Assets", view: "org-assets" },
-    ...(showSecurity
-      ? [{ label: "Security Settings", view: "org-security" as const }]
-      : []),
-  ];
+  const organisationItems: SubItem[] = useMemo(
+    () => [
+      { label: "Profile Dashboard", view: "org-dashboard" },
+      { label: "Company Information", view: "org-company" },
+      { label: "Insurances", view: "org-insurances" },
+      { label: "Projects", view: "org-projects" },
+      { label: "Workers", view: "org-workers" },
+      { label: "Plant", view: "org-plant" },
+      { label: "Fleet", href: "/organisation/fleet" },
+      { label: "Alerts", href: "/organisation/alerts", badge: complianceAlertCount },
+      { label: "Assets", view: "org-assets" },
+      ...(showSecurity
+        ? [{ label: "Security Settings", view: "org-security" as const }]
+        : []),
+    ],
+    [complianceAlertCount, showSecurity]
+  );
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-80">
@@ -1020,6 +1041,7 @@ function OrganisationSection({
                 key={item.label}
                 label={item.label}
                 href={item.href}
+                badge={item.badge}
                 active={
                   pathname === item.href || pathname?.startsWith(`${item.href}/`)
                 }
@@ -1028,6 +1050,7 @@ function OrganisationSection({
               <NavLink
                 key={item.label}
                 label={item.label}
+                badge={item.badge}
                 active={item.view === activeView}
                 onClick={
                   item.view ? () => onNavigate(item.view!) : undefined
