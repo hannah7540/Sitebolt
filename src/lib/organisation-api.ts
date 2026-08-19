@@ -1,7 +1,7 @@
 export const DEFAULT_ORGANISATION_ID = "00000000-0000-0000-0000-000000000001";
 
 export const ORGANISATION_SELECT_FIELDS =
-  "id, company_name, abn, email, phone, logo_url, logo, company_logo";
+  "id, company_name, abn, email, phone, address, street_address, logo_url, logo, company_logo";
 
 export type OrganisationRow = Record<string, unknown> & {
   id?: string;
@@ -10,6 +10,8 @@ export type OrganisationRow = Record<string, unknown> & {
   abn?: string | null;
   email?: string | null;
   phone?: string | null;
+  address?: string | null;
+  street_address?: string | null;
   logo_url?: string | null;
   logo?: string | null;
   company_logo?: string | null;
@@ -22,6 +24,7 @@ export interface OrganisationRecord {
   abn: string;
   email: string;
   phone: string;
+  address: string;
   logo_url: string | null;
 }
 
@@ -45,6 +48,7 @@ export function buildDefaultOrganisationRecord(): OrganisationRow {
     abn: "",
     email: "",
     phone: "",
+    address: "",
     logo_url: null,
     updated_at: new Date().toISOString(),
   };
@@ -57,6 +61,7 @@ export function mapOrganisationResponse(record: OrganisationRow): OrganisationRe
     abn: String(record.abn ?? "").trim(),
     email: String(record.email ?? "").trim(),
     phone: String(record.phone ?? "").trim(),
+    address: String(record.address ?? record.street_address ?? "").trim(),
     logo_url: resolveOrganisationLogo(record),
   };
 }
@@ -69,6 +74,7 @@ export function normalizeOrganisationSavePayload(
     abn: String(body.abn ?? "").trim(),
     email: String(body.email ?? "").trim(),
     phone: String(body.phone ?? "").trim(),
+    address: String(body.address ?? "").trim(),
     logo_url: trimOrNull(body.logo_url ?? body.logo),
     updated_at: new Date().toISOString(),
   };

@@ -38,6 +38,7 @@ export async function saveOrganisationToApi(input: {
   abn?: string;
   email?: string;
   phone?: string;
+  address?: string;
   logo_url?: string | null;
 }): Promise<{ organisation: OrganisationFormRecord | null; error: string | null }> {
   const response = await fetch("/api/organisation", {

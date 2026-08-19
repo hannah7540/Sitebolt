@@ -25,6 +25,7 @@ function applyOrganisationRecord(
     setAbn: (value: string) => void;
     setEmail: (value: string) => void;
     setPhone: (value: string) => void;
+    setAddress: (value: string) => void;
     setLogoUrl: (value: string | null) => void;
   }
 ) {
@@ -33,6 +34,7 @@ function applyOrganisationRecord(
   setters.setAbn(record.abn);
   setters.setEmail(record.email);
   setters.setPhone(record.phone);
+  setters.setAddress(record.address ?? "");
   setters.setLogoUrl(record.logo_url);
 }
 
@@ -47,6 +49,7 @@ export default function CompanyInformationPanel() {
   const [abn, setAbn] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [logoBroken, setLogoBroken] = useState(false);
@@ -63,6 +66,7 @@ export default function CompanyInformationPanel() {
     setAbn,
     setEmail,
     setPhone,
+    setAddress,
     setLogoUrl,
   };
 
@@ -72,9 +76,10 @@ export default function CompanyInformationPanel() {
       abn: overrides?.abn ?? abn,
       email: overrides?.email ?? email,
       phone: overrides?.phone ?? phone,
+      address: overrides?.address ?? address ?? "",
       logo_url: overrides?.logo_url !== undefined ? overrides.logo_url : logoUrl,
     }),
-    [companyName, abn, email, phone, logoUrl]
+    [companyName, abn, email, phone, address, logoUrl]
   );
 
   const loadProfile = useCallback(async () => {
@@ -148,10 +153,11 @@ export default function CompanyInformationPanel() {
 
     try {
       await persistOrganisation(buildPayload());
-      showSuccess("Organisation details saved successfully");
+      showSuccess("Company information updated");
     } catch (cause) {
       const message =
         cause instanceof Error ? cause.message : "Failed to save organisation details";
+      console.error("Company information save failed:", cause);
       setError(message);
       showError(message);
     } finally {
@@ -349,6 +355,17 @@ export default function CompanyInformationPanel() {
               onChange={(e) => setPhone(e.target.value)}
               inputMode="tel"
               autoComplete="tel"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className={labelClass}>Company Address</span>
+            <input
+              className={inputClass}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="e.g. 123 Construction Way, Sydney NSW 2000"
+              autoComplete="street-address"
             />
           </label>
         </div>
