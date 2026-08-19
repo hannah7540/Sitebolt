@@ -64,12 +64,15 @@ function buildApprovedAdminPayload(
   } as WorkerTimesheet;
   const overtimeHours = resolveTimesheetOvertimeHours(rowForOvertime);
 
+  const projectCode = input.timesheetProject?.code?.trim();
+
   return sanitizeWritePayload(
     stripUndefined({
       worker_id: input.workerId,
       work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
       project_id: projectId,
       project_name: projectName,
+      project_code: projectCode || undefined,
       worker_trade: input.workerTrade?.trim() || input.timesheetTaskName?.trim() || null,
       start_time: firstActivity?.startTime ?? "06:30",
       finish_time: lastActivity?.endTime ?? "14:30",

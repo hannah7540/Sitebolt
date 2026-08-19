@@ -6,12 +6,19 @@ import {
   logSupabaseTableUnavailable,
   type SupabaseRequestError,
 } from "./supabase-errors";
+import {
+  fetchProjects,
+  filterActiveProjects,
+  type DbProject,
+} from "./project-resolver";
 
 export interface TimesheetProject {
   id: string;
   client: string;
   project: string;
   address: string;
+  /** Organisation project code / job number when sourced from `projects`. */
+  code?: string;
 }
 
 export interface TimesheetTask {
@@ -95,6 +102,47 @@ function sortTimesheetProjects(projects: TimesheetProject[]): TimesheetProject[]
     if (clientCompare !== 0) return clientCompare;
     return left.project.localeCompare(right.project);
   });
+}
+
+function mapOrganisationProjectToTimesheetProject(project: DbProject): TimesheetProject {
+  return {
+    id: project.id,
+    client: project.client?.trim() || "Other",
+    project: project.name?.trim() || project.project_name?.trim() || "",
+    address: project.location?.trim() || "",
+    code: project.project_code?.trim() || undefined,
+  };
+}
+
+/** Active organisation projects for timesheet dropdowns (primary source). */
+async function fetchOrganisationProjectsForTimesheets(): Promise<TimesheetProject[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const activeProjects = filterActiveProjects(await fetchProjects());
+    return activeProjects
+      .map(mapOrganisationProjectToTimesheetProject)
+      .filter((row) => row.project || row.client);
+  } catch {
+    return [];
+  }
+}
+
+function mergeTimesheetProjectLists(
+  primary: TimesheetProject[],
+  legacy: TimesheetProject[]
+): TimesheetProject[] {
+  const seen = new Set<string>();
+  const merged: TimesheetProject[] = [];
+
+  for (const project of [...primary, ...legacy]) {
+    const id = project.id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(project);
+  }
+
+  return sortTimesheetProjects(merged);
 }
 
 async function fetchTimesheetProjectsQuery(
@@ -202,7 +250,30 @@ export async function fetchTimesheetProjects(): Promise<{
     return { projects: [], error: "Supabase is not configured." };
   }
 
-  return fetchTimesheetProjectsQuery(true);
+  try {
+    const [organisationProjects, legacyResult] = await Promise.all([
+      fetchOrganisationProjectsForTimesheets(),
+      fetchTimesheetProjectsQuery(true),
+    ]);
+
+    const projects = mergeTimesheetProjectLists(
+      organisationProjects,
+      legacyResult.projects
+    );
+
+    if (projects.length === 0) {
+      return {
+        projects: [],
+        error:
+          legacyResult.error ??
+          "No active projects were returned. Add projects under Organisation → Projects, or configure timesheet_projects, then click Retry.",
+      };
+    }
+
+    return { projects, error: null };
+  } catch {
+    return { projects: [], error: "Unable to load projects." };
+  }
 }
 
 export async function fetchTimesheetTasks(): Promise<{

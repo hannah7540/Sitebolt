@@ -146,7 +146,7 @@ export default function WorkerTimesheetModal({
         result.projects.length === 0 && result.tasks.length === 0
           ? "No active projects or tasks were returned from Supabase. Check row data and public SELECT policies, then click Retry."
           : result.projects.length === 0
-            ? "No active projects were returned from Supabase. Ensure timesheet_projects rows have client and project set, then click Retry."
+            ? "No active projects were returned. Add projects under Organisation → Projects (or configure timesheet_projects), then click Retry."
             : "No active tasks were returned from Supabase. Ensure timesheet_tasks rows have a name and is_active = true, then click Retry."
       );
     } else {

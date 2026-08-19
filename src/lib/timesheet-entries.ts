@@ -159,12 +159,15 @@ function buildPayload(
   const isDraft = !input.submit;
   const status = input.submit ? "pending" : "draft";
 
+  const projectCode = input.timesheetProject?.code?.trim();
+
   return sanitizeWritePayload(
     stripUndefined({
       worker_id: input.workerId,
       work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
       project_id: projectId,
       project_name: projectName,
+      project_code: projectCode || undefined,
       worker_trade: input.workerTrade?.trim() || null,
       start_time: firstActivity?.startTime ?? "06:30",
       finish_time: lastActivity?.endTime ?? "14:30",

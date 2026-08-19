@@ -47,7 +47,65 @@ export type PayrollExportTimesheetRow = WorkerTimesheet & {
   worker_has_company_vehicle?: boolean;
   worker_state?: string | null;
   pay_rate_id?: string | null;
+  /** Legacy or denormalised job number when present on the timesheet row. */
+  project_code?: string | null;
 };
+
+function normalizeProjectLookupKey(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function buildProjectLookups(projects: DbProject[] = []): {
+  byId: Map<string, DbProject>;
+  byName: Map<string, DbProject>;
+} {
+  const byId = new Map<string, DbProject>();
+  const byName = new Map<string, DbProject>();
+
+  for (const project of projects) {
+    if (project?.id) {
+      byId.set(project.id, project);
+    }
+
+    const nameKey = normalizeProjectLookupKey(project?.name);
+    if (nameKey && !byName.has(nameKey)) {
+      byName.set(nameKey, project);
+    }
+
+    const projectNameKey = normalizeProjectLookupKey(project?.project_name);
+    if (projectNameKey && !byName.has(projectNameKey)) {
+      byName.set(projectNameKey, project);
+    }
+  }
+
+  return { byId, byName };
+}
+
+function resolveProjectFromLookups(
+  row: PayrollExportTimesheetRow,
+  lookups: ReturnType<typeof buildProjectLookups>
+): DbProject | undefined {
+  const projectId = row.project_id?.trim();
+  if (projectId) {
+    const byIdMatch = lookups.byId.get(projectId);
+    if (byIdMatch) return byIdMatch;
+  }
+
+  const storedName = row.project_name?.trim() ?? "";
+  if (!storedName) return undefined;
+
+  const directNameMatch = lookups.byName.get(normalizeProjectLookupKey(storedName));
+  if (directNameMatch) return directNameMatch;
+
+  if (storedName.includes(" — ")) {
+    const projectPart = storedName.split(" — ").pop()?.trim();
+    if (projectPart) {
+      return lookups.byName.get(normalizeProjectLookupKey(projectPart));
+    }
+  }
+
+  return undefined;
+}
 
 export interface PayrollCsvExportLine {
   employeeFirstName: string;
@@ -181,14 +239,23 @@ function resolveJobFields(
   row: PayrollExportTimesheetRow,
   projects: DbProject[] = []
 ): { jobName: string; job: string } {
-  const project = row.project_id
-    ? projects.find((entry) => entry.id === row.project_id)
-    : undefined;
+  const lookups = buildProjectLookups(projects);
+  const project = resolveProjectFromLookups(row, lookups);
 
-  const rawName = row.project_name?.trim() || project?.name?.trim() || "";
-  const jobName = rawName.toUpperCase();
+  const projectCode =
+    project?.project_code?.trim() ||
+    row.project_code?.trim() ||
+    "";
 
-  return { jobName, job: "" };
+  const projectName =
+    project?.name?.trim() ||
+    row.project_name?.trim() ||
+    "";
+
+  return {
+    jobName: projectName.toUpperCase(),
+    job: projectCode,
+  };
 }
 
 /** Net paid work hours used as allowance units (e.g. 8.0, 10.0, 11.0). */
