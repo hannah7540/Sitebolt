@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Loader2, Pencil, Trash2 } from "lucide-react";
 import Toast from "@/components/ui/Toast";
 import {
@@ -18,17 +18,26 @@ import {
   resolveInsuranceCoverageDisplay,
 } from "@/lib/insurance-utils";
 import { useFormToast } from "@/hooks/useFormToast";
+import {
+  organisationRowDomId,
+  scrollToOrganisationRow,
+  shouldOpenDeepLinkModal,
+  useOrganisationEntityDeepLink,
+} from "@/hooks/useOrganisationEntityDeepLink";
 import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 
 export default function InsurancesPanel() {
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
+  const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
+  const deepLinkHandledRef = useRef<string | null>(null);
   const [insurances, setInsurances] = useState<CompanyInsuranceFormRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editingInsurance, setEditingInsurance] =
     useState<CompanyInsuranceFormRecord | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -56,14 +65,40 @@ export default function InsurancesPanel() {
     void load();
   }, [load]);
 
+  const openEdit = useCallback((item: CompanyInsuranceFormRecord) => {
+    setShowAdd(false);
+    setEditingInsurance(item);
+  }, []);
+
+  useEffect(() => {
+    if (!hasDeepLink || !target.id || loading) return;
+
+    const deepLinkKey = `${target.id}:${target.action ?? "edit"}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+
+    const item = insurances.find((row) => row?.id === target.id);
+    if (!item) {
+      console.warn("Insurance deep link: policy not found", target.id);
+      showError("Item not found or has been removed.");
+      deepLinkHandledRef.current = deepLinkKey;
+      clearDeepLink();
+      return;
+    }
+
+    deepLinkHandledRef.current = deepLinkKey;
+    setHighlightId(item.id);
+    scrollToOrganisationRow(organisationRowDomId("insurance", item.id));
+
+    if (shouldOpenDeepLinkModal(target)) {
+      openEdit(item);
+    }
+  }, [clearDeepLink, hasDeepLink, insurances, loading, openEdit, showError, target]);
+
   const closeModal = () => {
     setShowAdd(false);
     setEditingInsurance(null);
-  };
-
-  const openEdit = (item: CompanyInsuranceFormRecord) => {
-    setShowAdd(false);
-    setEditingInsurance(item);
+    setHighlightId(null);
+    clearDeepLink();
   };
 
   const handleDelete = async (
@@ -146,7 +181,11 @@ export default function InsurancesPanel() {
                 return (
                   <tr
                     key={item.id}
-                    className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-orange-50/50"
+                    id={organisationRowDomId("insurance", item.id)}
+                    className={cn(
+                      "cursor-pointer border-b border-slate-100 last:border-0 hover:bg-orange-50/50",
+                      highlightId === item.id && "bg-orange-50 ring-2 ring-inset ring-orange-300"
+                    )}
                     onClick={() => openEdit(item)}
                   >
                     <td className="px-4 py-3 font-medium text-slate-900">

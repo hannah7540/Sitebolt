@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
-import AlertRenewModal from "@/components/organisation/AlertRenewModal";
 import {
   COMPLIANCE_ALERT_FILTER_OPTIONS,
   filterComplianceAlerts,
@@ -86,7 +85,6 @@ export default function OrganisationAlertsPanel() {
   const [automatedEnabled, setAutomatedEnabled] = useState(true);
   const [secondaryRecipients, setSecondaryRecipients] = useState("");
   const [recipientWorkerIds, setRecipientWorkerIds] = useState<string[]>([]);
-  const [renewAlert, setRenewAlert] = useState<ComplianceAlertItem | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -330,28 +328,18 @@ export default function OrganisationAlertsPanel() {
                         </span>
                       </td>
                       <td className="px-3 py-3">
-                        {alert.category === "company_insurance" ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const href = String(
-                                alert.metadata.navigationHref ?? "/?view=org-insurances"
-                              );
-                              router.push(href);
-                            }}
-                            className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-                          >
-                            View Policy
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setRenewAlert(alert)}
-                            className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-                          >
-                            Update / Renew
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const href = String(
+                              alert.metadata.navigationHref ?? "/organisation/alerts"
+                            );
+                            router.push(href);
+                          }}
+                          className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
+                        >
+                          {String(alert.metadata.actionLabel ?? "View & Update")}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -442,17 +430,6 @@ export default function OrganisationAlertsPanel() {
           </div>
         </aside>
       </div>
-
-      {renewAlert ? (
-        <AlertRenewModal
-          alert={renewAlert}
-          onClose={() => setRenewAlert(null)}
-          onSaved={() => {
-            setSuccessMessage("Record updated. Alert cleared from the active list.");
-            void load();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

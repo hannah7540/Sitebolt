@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus,
   AlertTriangle,
@@ -39,6 +39,12 @@ import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
+import {
+  organisationRowDomId,
+  scrollToOrganisationRow,
+  shouldOpenDeepLinkModal,
+  useOrganisationEntityDeepLink,
+} from "@/hooks/useOrganisationEntityDeepLink";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
 
@@ -161,11 +167,14 @@ export default function WorkerDirectoryPanel({
   canAssignPayRules = false,
   canManageWorkerRoles = false,
 }: WorkerDirectoryPanelProps) {
+  const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
+  const deepLinkHandledRef = useRef<string | null>(null);
   const [workerList, setWorkerList] = useState<Worker[]>(workers);
   const [workerTab, setWorkerTab] = useState<WorkerTabFilter>("Current");
   const [showModal, setShowModal] = useState(initialShowAdd);
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [profileInitialTab, setProfileInitialTab] = useState<WorkerProfileTab>("basic");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const [assignWorker, setAssignWorker] = useState<Worker | null>(null);
   const [workerProjectMap, setWorkerProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
@@ -345,6 +354,46 @@ export default function WorkerDirectoryPanel({
     setSelectedWorker(worker);
   };
 
+  useEffect(() => {
+    if (!hasDeepLink || !target.id || loading) return;
+
+    const deepLinkKey = `${target.id}:${target.ticketId ?? ""}:${target.tab ?? ""}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+
+    const worker = workerList.find((row) => row?.id === target.id);
+    if (!worker) {
+      console.warn("Worker deep link: worker not found", target.id);
+      showError("Item not found or has been removed.");
+      deepLinkHandledRef.current = deepLinkKey;
+      clearDeepLink();
+      return;
+    }
+
+    deepLinkHandledRef.current = deepLinkKey;
+    setHighlightId(worker.id);
+    scrollToOrganisationRow(organisationRowDomId("worker", worker.id));
+
+    if (!shouldOpenDeepLinkModal(target)) return;
+
+    const tab =
+      target.tab === "cards" ||
+      target.tab === "basic" ||
+      target.tab === "inductions" ||
+      target.tab === "financial"
+        ? target.tab
+        : target.ticketId
+          ? "cards"
+          : "basic";
+
+    openWorkerProfile(worker, tab);
+  }, [clearDeepLink, hasDeepLink, loading, showError, target, workerList]);
+
+  const closeWorkerProfile = () => {
+    setSelectedWorker(null);
+    setHighlightId(null);
+    clearDeepLink();
+  };
+
   const handleResendInvite = async (worker: Worker) => {
     const email = worker.email?.trim();
     if (!email) return;
@@ -395,7 +444,7 @@ export default function WorkerDirectoryPanel({
         initialTab={profileInitialTab}
         canAssignPayRules={canAssignPayRules}
         canManageWorkerRoles={canManageWorkerRoles}
-        onBack={() => setSelectedWorker(null)}
+        onBack={closeWorkerProfile}
         onWorkerUpdated={(updated) => {
           patchWorker(updated);
           setSelectedWorker(updated);
@@ -503,9 +552,11 @@ export default function WorkerDirectoryPanel({
               return (
                 <tr
                   key={w.id}
+                  id={organisationRowDomId("worker", w.id)}
                   className={cn(
                     "border-t border-slate-200 cursor-pointer hover:bg-orange-50",
-                    nonCompliant && "bg-red-50"
+                    nonCompliant && "bg-red-50",
+                    highlightId === w.id && "ring-2 ring-inset ring-orange-300 bg-orange-50"
                   )}
                   onClick={() => openWorkerProfile(w)}
                 >

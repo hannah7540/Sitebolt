@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Search } from "lucide-react";
 import {
   fetchOrganizationFleet,
   FLEET_STATUSES,
+  type FleetDocumentType,
   type FleetStatus,
   type OrganizationFleetVehicle,
 } from "@/lib/organization-fleet";
@@ -16,10 +17,21 @@ import {
 } from "@/lib/fleet-utils";
 import AddFleetModal from "@/components/fleet/AddFleetModal";
 import FleetDocumentsModal from "@/components/fleet/FleetDocumentsModal";
+import {
+  organisationRowDomId,
+  scrollToOrganisationRow,
+  shouldOpenDeepLinkModal,
+  useOrganisationEntityDeepLink,
+} from "@/hooks/useOrganisationEntityDeepLink";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 
 export default function FleetAdminPanel() {
+  const { toast, showError, dismissToast } = useFormToast();
+  const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
+  const deepLinkHandledRef = useRef<string | null>(null);
   const [vehicles, setVehicles] = useState<OrganizationFleetVehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,6 +40,9 @@ export default function FleetAdminPanel() {
   const [editVehicle, setEditVehicle] = useState<OrganizationFleetVehicle | null>(null);
   const [documentsVehicle, setDocumentsVehicle] =
     useState<OrganizationFleetVehicle | null>(null);
+  const [documentsDocumentType, setDocumentsDocumentType] =
+    useState<FleetDocumentType>("rego");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const loadFleet = useCallback(async () => {
     setLoading(true);
@@ -39,6 +54,53 @@ export default function FleetAdminPanel() {
   useEffect(() => {
     void loadFleet();
   }, [loadFleet]);
+
+  useEffect(() => {
+    if (!hasDeepLink || !target.id || loading) return;
+
+    const deepLinkKey = `${target.id}:${target.documentType ?? ""}:${target.action ?? "edit"}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+
+    const vehicle = vehicles.find((row) => row?.id === target.id);
+    if (!vehicle) {
+      console.warn("Fleet deep link: vehicle not found", target.id);
+      showError("Item not found or has been removed.");
+      deepLinkHandledRef.current = deepLinkKey;
+      clearDeepLink();
+      return;
+    }
+
+    deepLinkHandledRef.current = deepLinkKey;
+    setHighlightId(vehicle.id);
+    scrollToOrganisationRow(organisationRowDomId("fleet", vehicle.id));
+
+    if (!shouldOpenDeepLinkModal(target)) return;
+
+    const documentType =
+      target.documentType === "insurance" || target.documentType === "rego"
+        ? target.documentType
+        : null;
+
+    if (documentType) {
+      setDocumentsDocumentType(documentType);
+      setDocumentsVehicle(vehicle);
+      return;
+    }
+
+    setEditVehicle(vehicle);
+  }, [clearDeepLink, hasDeepLink, loading, showError, target, vehicles]);
+
+  const closeEditModal = () => {
+    setEditVehicle(null);
+    setHighlightId(null);
+    clearDeepLink();
+  };
+
+  const closeDocumentsModal = () => {
+    setDocumentsVehicle(null);
+    setHighlightId(null);
+    clearDeepLink();
+  };
 
   const filteredVehicles = useMemo(() => {
     return vehicles.filter((vehicle) => {
@@ -131,7 +193,15 @@ export default function FleetAdminPanel() {
                   const status = fleetStatusMeta(vehicle.status);
 
                   return (
-                    <tr key={vehicle.id} className="border-b border-slate-100 last:border-0">
+                    <tr
+                      key={vehicle.id}
+                      id={organisationRowDomId("fleet", vehicle.id)}
+                      className={cn(
+                        "border-b border-slate-100 last:border-0",
+                        highlightId === vehicle.id &&
+                          "bg-orange-50 ring-2 ring-inset ring-orange-300"
+                      )}
+                    >
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {vehicle.unit_number}
                       </td>
@@ -206,7 +276,7 @@ export default function FleetAdminPanel() {
       {editVehicle ? (
         <AddFleetModal
           vehicle={editVehicle}
-          onClose={() => setEditVehicle(null)}
+          onClose={closeEditModal}
           onSaved={() => void loadFleet()}
         />
       ) : null}
@@ -214,9 +284,14 @@ export default function FleetAdminPanel() {
       {documentsVehicle ? (
         <FleetDocumentsModal
           vehicle={documentsVehicle}
-          onClose={() => setDocumentsVehicle(null)}
+          documentType={documentsDocumentType}
+          onClose={closeDocumentsModal}
           onSaved={() => void loadFleet()}
         />
+      ) : null}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, QrCode, Phone, AlertOctagon, Wrench, Link2, Pencil, Search, X } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
 import {
@@ -25,6 +25,14 @@ import AddPlantModal from "./AddPlantModal";
 import PlantQRModal from "./PlantQRModal";
 import PlantDefectModal from "./PlantDefectModal";
 import PlantProfileView from "./PlantProfileView";
+import {
+  organisationRowDomId,
+  scrollToOrganisationRow,
+  shouldOpenDeepLinkModal,
+  useOrganisationEntityDeepLink,
+} from "@/hooks/useOrganisationEntityDeepLink";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 
@@ -106,12 +114,16 @@ export default function PlantAdminPanel({
   onRefresh,
   initialShowAdd = false,
 }: PlantAdminPanelProps) {
+  const { toast, showError, dismissToast } = useFormToast();
+  const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
+  const deepLinkHandledRef = useRef<string | null>(null);
   const [showAddPlant, setShowAddPlant] = useState(initialShowAdd);
   const [qrPlant, setQrPlant] = useState<PlantAsset | null>(null);
   const [defectPlant, setDefectPlant] = useState<PlantAsset | null>(null);
   const [assignPlant, setAssignPlant] = useState<PlantAsset | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<PlantAsset | null>(null);
   const [profileInitialTab, setProfileInitialTab] = useState<PlantProfileTab>("basic");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const [plantList, setPlantList] = useState<PlantAsset[]>(plant);
   const [searchQuery, setSearchQuery] = useState("");
   const [plantProjectMap, setPlantProjectMap] = useState<Map<string, string[]>>(new Map());
@@ -132,6 +144,43 @@ export default function PlantAdminPanel({
   const openPlantProfile = (asset: PlantAsset, tab: PlantProfileTab = "basic") => {
     setProfileInitialTab(tab);
     setSelectedPlant(asset);
+  };
+
+  useEffect(() => {
+    if (!hasDeepLink || !target.id || loading) return;
+
+    const deepLinkKey = `${target.id}:${target.tab ?? ""}:${target.focus ?? ""}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+
+    const plantItem = plantList.find((row) => row?.id === target.id);
+    if (!plantItem) {
+      console.warn("Plant deep link: asset not found", target.id);
+      showError("Item not found or has been removed.");
+      deepLinkHandledRef.current = deepLinkKey;
+      clearDeepLink();
+      return;
+    }
+
+    deepLinkHandledRef.current = deepLinkKey;
+    setHighlightId(plantItem.id);
+    scrollToOrganisationRow(organisationRowDomId("plant", plantItem.id));
+
+    if (!shouldOpenDeepLinkModal(target)) return;
+
+    let tab: PlantProfileTab = "basic";
+    if (target.tab === "documentation" || target.tab === "prestarts" || target.tab === "service-history") {
+      tab = target.tab;
+    } else if (target.focus === "heavyVehicle") {
+      tab = "basic";
+    }
+
+    openPlantProfile(plantItem, tab);
+  }, [clearDeepLink, hasDeepLink, loading, plantList, showError, target]);
+
+  const closePlantProfile = () => {
+    setSelectedPlant(null);
+    setHighlightId(null);
+    clearDeepLink();
   };
 
   const filteredPlantList = useMemo(() => {
@@ -185,7 +234,7 @@ export default function PlantAdminPanel({
           plantProjectMap.get(selectedPlant.id) ?? []
         )}
         initialTab={profileInitialTab}
-        onBack={() => setSelectedPlant(null)}
+        onBack={closePlantProfile}
         onPlantUpdated={patchPlant}
       />
     );
@@ -259,9 +308,11 @@ export default function PlantAdminPanel({
           return (
             <div
               key={p.id}
+              id={organisationRowDomId("plant", p.id)}
               className={cn(
                 "cursor-pointer rounded-xl border p-5 transition hover:border-orange-300",
-                taggedOut ? "border-red-300 bg-red-50" : cardClass
+                taggedOut ? "border-red-300 bg-red-50" : cardClass,
+                highlightId === p.id && "ring-2 ring-orange-300 bg-orange-50"
               )}
               onClick={() => openPlantProfile(p)}
             >
@@ -411,6 +462,10 @@ export default function PlantAdminPanel({
           }}
         />
       )}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+      ) : null}
     </div>
   );
 }

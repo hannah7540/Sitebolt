@@ -32,7 +32,7 @@ import {
   resolveInsuranceDisplayType,
   type CompanyInsuranceRecord,
 } from "./organisation-insurances-api";
-import { buildConsoleNavHref } from "./console-nav-routes";
+import { attachComplianceAlertNavigation } from "./organisation-alert-navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Alert trigger windows (days before due/expiry). */
@@ -321,7 +321,6 @@ export function collectCompanyInsuranceAlerts(
         policyNumber: policy?.policy_number?.trim() || null,
         insurer,
         expiryDate,
-        navigationHref: buildConsoleNavHref("org-insurances"),
         documentCount: policy?.documents?.length ?? 0,
       },
     });
@@ -377,13 +376,13 @@ export async function fetchComplianceAlerts(options?: {
       vocsByWorker.set(voc.worker_id, list);
     }
 
-    const alerts = [
+    const alerts = attachComplianceAlertNavigation([
       ...collectHeavyVehicleCheckAlerts(plant),
       ...collectPlantRegistrationAlerts(plant),
       ...collectFleetRegistrationAlerts(fleet),
       ...collectWorkerTicketAlerts(workers, vocsByWorker),
       ...collectCompanyInsuranceAlerts(insurancePolicies),
-    ].sort((left, right) => left.daysRemaining - right.daysRemaining);
+    ]).sort((left, right) => left.daysRemaining - right.daysRemaining);
 
     const counts = {
       all: alerts.length,
