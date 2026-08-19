@@ -78,14 +78,40 @@ export default function InsuranceFormModal({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!insurance) return;
+    if (!insurance) {
+      setInsuranceType(INSURANCE_TYPES[0]);
+      setCustomTypeName("");
+      setPolicyNumber("");
+      setProvider("");
+      setStartDate("");
+      setExpiryDate("");
+      setSavedDocuments([]);
+      setStagedFiles([]);
+      setAllRegions(false);
+      setSelectedRegions([]);
+      setError(null);
+      return;
+    }
+
     setInsuranceType(insurance.insurance_type || INSURANCE_TYPES[0]);
     setCustomTypeName(insurance.custom_type_name ?? "");
     setPolicyNumber(insurance.policy_number ?? "");
     setProvider(insurance.provider ?? "");
     setStartDate(insurance.start_date ?? insurance.date_obtained ?? "");
     setExpiryDate(insurance.expiry_date ?? "");
-    setSavedDocuments(insurance.documents ?? []);
+    setSavedDocuments(
+      insurance.documents?.length
+        ? insurance.documents
+        : insurance.file_url ?? insurance.document_url
+          ? [
+              {
+                name: insurance.file_name ?? "Policy document",
+                url: (insurance.file_url ?? insurance.document_url) as string,
+                uploaded_at: insurance.updated_at ?? new Date().toISOString(),
+              },
+            ]
+          : []
+    );
     setStagedFiles([]);
     setAllRegions(Boolean(insurance.all_states));
     setSelectedRegions(
@@ -93,6 +119,7 @@ export default function InsuranceFormModal({
         ? [...ALL_INSURANCE_REGIONS]
         : normalizeInsuranceRegions(insurance.states)
     );
+    setError(null);
   }, [insurance]);
 
   const handleAllRegionsChange = (checked: boolean) => {
@@ -188,38 +215,36 @@ export default function InsuranceFormModal({
     }
 
     let documents = [...savedDocuments];
+    let uploadWarning: string | null = null;
 
     if (stagedFiles.length > 0) {
       setUploadingDoc(true);
       try {
         const upload = await uploadInsuranceDocuments(stagedFiles.map((entry) => entry.file));
-        if (upload.errors.length > 0 && upload.documents.length === 0) {
-          throw new Error(upload.errors[0] ?? "Failed to upload insurance documents.");
-        }
         if (upload.errors.length > 0) {
-          setError(
-            `Some files failed to upload: ${upload.errors.join(" ")}`
-          );
+          console.error("Insurance document upload errors:", upload.errors);
+          uploadWarning = `Some files failed to upload: ${upload.errors.join(" ")}`;
         }
-        documents = [...documents, ...upload.documents];
+        if (upload.documents.length > 0) {
+          documents = [...documents, ...upload.documents];
+          setStagedFiles([]);
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to upload insurance documents.";
-        console.error(err);
-        setError(message);
-        setSaving(false);
-        setUploadingDoc(false);
-        return;
+        console.error("Insurance document upload failed:", err);
+        uploadWarning = message;
       } finally {
         setUploadingDoc(false);
       }
     }
 
     const primary = documents[0] ?? null;
+    const policyId = insurance?.id?.trim();
 
     try {
       const result = await onSaved({
-        id: insurance?.id,
+        id: policyId || undefined,
         insurance_type: insuranceType,
         custom_type_name:
           insuranceType === OTHER_INSURANCE_TYPE ? customTypeName.trim() : null,
@@ -237,6 +262,9 @@ export default function InsuranceFormModal({
 
       if (result.error) {
         throw new Error(result.error);
+      }
+      if (uploadWarning) {
+        console.warn("Insurance saved with document upload warnings:", uploadWarning);
       }
       onClose();
     } catch (err) {

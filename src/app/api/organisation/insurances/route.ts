@@ -99,7 +99,7 @@ export async function GET() {
   }
 }
 
-async function handleSave(request: Request, method: "POST" | "PUT") {
+async function handleSave(request: Request) {
   const auth = await requireOrganisationWriteAccess();
   if (!auth.ok) return auth.response;
 
@@ -134,27 +134,30 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
       );
     }
 
-    const id = method === "PUT" ? String(body.id ?? "").trim() : "";
-    if (method === "PUT" && !id) {
-      return NextResponse.json(
-        { success: false, error: "Insurance id is required." },
-        { status: 400 }
-      );
-    }
+    const policyId = String(body.id ?? "").trim();
+    const isUpdate = Boolean(policyId);
 
-    const result =
-      method === "PUT"
-        ? await updateInsuranceRecords(auth.admin, id, body)
-        : await insertInsuranceRecords(auth.admin, body);
+    console.info("Insurance save:", {
+      action: isUpdate ? "update" : "insert",
+      policyId: policyId || null,
+    });
+
+    const result = isUpdate
+      ? await updateInsuranceRecords(auth.admin, policyId, body)
+      : await insertInsuranceRecords(auth.admin, body);
 
     if (result.error || !result.data) {
-      console.error("Insurance Save Error:", result.error);
+      console.error("Insurance Save Error:", {
+        action: isUpdate ? "update" : "insert",
+        policyId: policyId || null,
+        error: result.error,
+      });
       return NextResponse.json(
         {
           success: false,
           error: result.error ?? "Failed to save insurance policy.",
         },
-        { status: 500 }
+        { status: isUpdate && result.error?.includes("not found") ? 404 : 500 }
       );
     }
 
@@ -169,11 +172,11 @@ async function handleSave(request: Request, method: "POST" | "PUT") {
 }
 
 export async function POST(request: Request) {
-  return handleSave(request, "POST");
+  return handleSave(request);
 }
 
 export async function PUT(request: Request) {
-  return handleSave(request, "PUT");
+  return handleSave(request);
 }
 
 export async function DELETE(request: Request) {

@@ -353,6 +353,14 @@ function buildStandardPayload(record: Record<string, unknown>): Record<string, u
   };
 }
 
+function buildStandardPayloadWithoutDocuments(
+  record: Record<string, unknown>
+): Record<string, unknown> {
+  const payload = buildStandardPayload(record);
+  delete payload.documents;
+  return payload;
+}
+
 function buildLegacyPayload(record: Record<string, unknown>): Record<string, unknown> {
   return {
     insurance_type: record.insurance_type,
@@ -378,23 +386,67 @@ function buildMinimalPayload(record: Record<string, unknown>): Record<string, un
   };
 }
 
-function payloadVariants(
-  record: Record<string, unknown>,
-  table: InsuranceTableName
-): Record<string, unknown>[] {
-  if (table === PRIMARY_INSURANCE_TABLE) {
-    return [
-      record,
-      buildStandardPayload(record),
-      buildLegacyPayload(record),
-      buildMinimalPayload(record),
-    ];
-  }
-  return [
+function payloadVariants(record: Record<string, unknown>): Record<string, unknown>[] {
+  const variants = [
     buildStandardPayload(record),
+    buildStandardPayloadWithoutDocuments(record),
     buildLegacyPayload(record),
     buildMinimalPayload(record),
   ];
+
+  return variants.filter(
+    (variant, index) =>
+      variants.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(variant)) ===
+      index
+  );
+}
+
+async function findInsuranceRecordById(
+  admin: SupabaseClient,
+  id: string
+): Promise<{ table: InsuranceTableName; row: CompanyInsuranceRow } | null> {
+  for (const table of INSURANCE_TABLES) {
+    const result = await admin.from(table).select("*").eq("id", id).maybeSingle();
+    if (result.error) {
+      if (
+        isMissingInsuranceTableError(result.error.message, table) ||
+        isMissingInsuranceColumnError(result.error.message)
+      ) {
+        continue;
+      }
+      console.error("Insurance lookup error:", {
+        table,
+        id,
+        error: result.error.message,
+      });
+      continue;
+    }
+    if (result.data) {
+      return { table, row: result.data as CompanyInsuranceRow };
+    }
+  }
+  return null;
+}
+
+function formatInsuranceSaveError(
+  action: "insert" | "update",
+  details: {
+    id?: string;
+    table?: InsuranceTableName;
+    postgrestError?: string | null;
+    attemptedTables?: InsuranceTableName[];
+  }
+): string {
+  if (details.postgrestError?.trim()) {
+    return details.postgrestError.trim();
+  }
+  if (action === "update" && details.id) {
+    const tables = details.attemptedTables?.join(", ") ?? INSURANCE_TABLES.join(", ");
+    return `Insurance policy not found (id: ${details.id}). Checked tables: ${tables}.`;
+  }
+  return action === "update"
+    ? "Failed to update insurance policy."
+    : "Failed to create insurance policy.";
 }
 
 async function queryTable(
@@ -433,17 +485,31 @@ async function queryTable(
 export async function listInsuranceRecords(
   admin: SupabaseClient
 ): Promise<{ data: CompanyInsuranceRow[]; error: string | null }> {
-  for (const table of INSURANCE_TABLES) {
+  const merged = new Map<string, CompanyInsuranceRow>();
+  let lastError: string | null = null;
+
+  for (const table of [...INSURANCE_TABLES].reverse()) {
     const result = await queryTable(admin, table);
     if (result.error && isMissingInsuranceTableError(result.error, table)) {
       continue;
     }
     if (result.error) {
-      return { data: [], error: result.error };
+      lastError = result.error;
+      continue;
     }
-    return result;
+    for (const row of result.data) {
+      const id = String(row.id ?? "").trim();
+      if (id) {
+        merged.set(id, row);
+      }
+    }
   }
-  return { data: [], error: null };
+
+  if (merged.size === 0 && lastError) {
+    return { data: [], error: lastError };
+  }
+
+  return { data: Array.from(merged.values()), error: null };
 }
 
 async function syncMirror(
@@ -452,7 +518,7 @@ async function syncMirror(
   id: string,
   record: Record<string, unknown>
 ): Promise<void> {
-  for (const row of payloadVariants(record, mirrorTable)) {
+  for (const row of payloadVariants(record)) {
     const mirrorResult = await admin
       .from(mirrorTable)
       .upsert([{ ...row, id }], { onConflict: "id" })
@@ -478,7 +544,7 @@ export async function insertInsuranceRecords(
   let lastError: string | null = null;
 
   for (const table of INSURANCE_TABLES) {
-    for (const row of payloadVariants(record, table)) {
+    for (const row of payloadVariants(record)) {
       const result = await admin.from(table).insert([row]).select("*").single();
       if (!result.error && result.data) {
         const savedRow = result.data as CompanyInsuranceRow;
@@ -509,7 +575,7 @@ export async function insertInsuranceRecords(
     }
   }
 
-  return { data: null, error: lastError ?? "Failed to save insurance policy." };
+  return { data: null, error: formatInsuranceSaveError("insert", { postgrestError: lastError }) };
 }
 
 export async function updateInsuranceRecords(
@@ -517,16 +583,41 @@ export async function updateInsuranceRecords(
   id: string,
   body: Record<string, unknown>
 ): Promise<{ data: CompanyInsuranceRow | null; error: string | null }> {
+  const trimmedId = id.trim();
+  if (!trimmedId) {
+    return { data: null, error: "Insurance id is required for update." };
+  }
+
   const record = buildRecordPayload(body);
+  const located = await findInsuranceRecordById(admin, trimmedId);
+
+  if (!located) {
+    console.error("Insurance update: record not found in any table", {
+      id: trimmedId,
+      tables: INSURANCE_TABLES,
+    });
+    return {
+      data: null,
+      error: formatInsuranceSaveError("update", {
+        id: trimmedId,
+        attemptedTables: [...INSURANCE_TABLES],
+      }),
+    };
+  }
+
+  const tablesToTry = [
+    located.table,
+    ...INSURANCE_TABLES.filter((table) => table !== located.table),
+  ];
   let savedRow: CompanyInsuranceRow | null = null;
   let lastError: string | null = null;
 
-  for (const table of INSURANCE_TABLES) {
-    for (const row of payloadVariants(record, table)) {
+  for (const table of tablesToTry) {
+    for (const row of payloadVariants(record)) {
       const result = await admin
         .from(table)
         .update(row)
-        .eq("id", id)
+        .eq("id", trimmedId)
         .select("*")
         .maybeSingle();
 
@@ -537,31 +628,37 @@ export async function updateInsuranceRecords(
       }
 
       if (result.error) {
+        lastError = result.error.message;
         console.error("Insurance Update Error:", {
           table,
-          id,
+          id: trimmedId,
           keys: Object.keys(row),
           error: result.error.message,
         });
         if (isMissingInsuranceTableError(result.error.message, table)) break;
         if (isMissingInsuranceColumnError(result.error.message)) {
-          lastError = result.error.message;
           continue;
         }
-        if (!result.error.message.toLowerCase().includes("0 rows")) {
-          lastError = result.error.message;
-        }
+      } else if (!result.data) {
+        console.warn("Insurance update matched 0 rows:", { table, id: trimmedId });
       }
     }
     if (savedRow) break;
   }
 
   if (!savedRow) {
-    return { data: null, error: lastError ?? "Insurance policy not found." };
+    return {
+      data: null,
+      error: formatInsuranceSaveError("update", {
+        id: trimmedId,
+        postgrestError: lastError,
+        attemptedTables: tablesToTry,
+      }),
+    };
   }
 
   for (const table of INSURANCE_TABLES) {
-    await syncMirror(admin, table, id, record);
+    await syncMirror(admin, table, trimmedId, record);
   }
 
   return { data: savedRow, error: null };

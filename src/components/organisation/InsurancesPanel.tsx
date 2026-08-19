@@ -238,7 +238,7 @@ export default function InsurancesPanel() {
             } catch (err) {
               const message =
                 err instanceof Error ? err.message : "Server error saving insurance";
-              console.error(err);
+              console.error("Insurance save failed in panel:", err);
               showError(message);
               return { error: message };
             }

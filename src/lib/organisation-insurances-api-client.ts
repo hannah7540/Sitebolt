@@ -56,6 +56,7 @@ export async function saveCompanyInsuranceToApi(input: {
   all_states?: boolean;
   states?: string[];
 }): Promise<{ insurance: CompanyInsuranceFormRecord | null; error: string | null }> {
+  const policyId = typeof input.id === "string" ? input.id.trim() : "";
   const documents = Array.isArray(input.documents) ? input.documents : [];
   const primary = documents[0];
   const payload = {
@@ -71,9 +72,9 @@ export async function saveCompanyInsuranceToApi(input: {
   };
 
   const response = await fetch("/api/organisation/insurances", {
-    method: input.id ? "PUT" : "POST",
+    method: policyId ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, id: input.id }),
+    body: JSON.stringify(policyId ? { ...payload, id: policyId } : payload),
   });
 
   const resData = (await response.json().catch(() => null)) as
@@ -83,7 +84,13 @@ export async function saveCompanyInsuranceToApi(input: {
   if (!response.ok || resData?.success === false || resData?.error) {
     const message =
       resData?.error ?? `Server error saving insurance (${response.status})`;
-    console.error("Insurance save failed:", message, resData);
+    console.error("Insurance save failed:", {
+      action: policyId ? "update" : "insert",
+      policyId: policyId || null,
+      status: response.status,
+      error: message,
+      response: resData,
+    });
     return { insurance: null, error: message };
   }
 
