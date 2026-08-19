@@ -27,6 +27,9 @@ import {
   buildPayrollExportFilename,
   buildPayrollExportLinesForTimesheet,
   buildPayrollTimesheetExportCsvFromLines,
+  fetchPayrollCsvExportProjectLookups,
+  resolvePayrollCsvProjectLookups,
+  type PayrollCsvProjectLookups,
 } from "./payroll-timesheet-csv-export";
 import type { DbProject } from "./project-resolver";
 import {
@@ -648,31 +651,42 @@ export function formatPayrollExportUnits(hours: number): number {
 export function buildPayrollTimesheetExportCsv(
   rows: AccountsTimesheetRow[],
   payRules: PayRateRule[] = [],
-  projects: DbProject[] = []
+  projectsOrLookups: DbProject[] | PayrollCsvProjectLookups = []
 ): string {
+  const lookups = resolvePayrollCsvProjectLookups(projectsOrLookups);
   const exportLines = rows.flatMap((row) => {
     const payRule = resolveTimesheetPayRule(row, payRules);
-    return buildPayrollExportLinesForTimesheet(row, payRule, projects);
+    return buildPayrollExportLinesForTimesheet(row, payRule, lookups);
   });
 
   return buildPayrollTimesheetExportCsvFromLines(exportLines);
 }
 
+export async function buildPayrollTimesheetExportCsvAsync(
+  rows: AccountsTimesheetRow[],
+  payRules: PayRateRule[] = []
+): Promise<string> {
+  const lookups = await fetchPayrollCsvExportProjectLookups();
+  return buildPayrollTimesheetExportCsv(rows, payRules, lookups);
+}
+
 export { buildPayrollExportFilename } from "./payroll-timesheet-csv-export";
 
-export function downloadPayrollTimesheetCsv(
+export async function downloadPayrollTimesheetCsv(
   rows: AccountsTimesheetRow[],
   payRules: PayRateRule[] = [],
   options: {
     filename?: string;
     projects?: DbProject[];
+    lookups?: PayrollCsvProjectLookups;
   } = {}
-): void {
-  const csv = buildPayrollTimesheetExportCsv(
-    rows,
-    payRules,
-    options.projects ?? []
-  );
+): Promise<void> {
+  const lookups =
+    options.lookups ??
+    (options.projects?.length
+      ? resolvePayrollCsvProjectLookups(options.projects)
+      : await fetchPayrollCsvExportProjectLookups());
+  const csv = buildPayrollTimesheetExportCsv(rows, payRules, lookups);
   const filename = options.filename ?? buildPayrollExportFilename(rows);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);

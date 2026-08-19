@@ -1,6 +1,7 @@
-import type { WorkerTimesheet } from "./supabase";
+import { supabase, isSupabaseConfigured, type WorkerTimesheet } from "./supabase";
 import type { PayRateRule } from "./pay-rates-and-rules";
 import type { DbProject } from "./project-resolver";
+import { isSupabaseMissingColumnError } from "./supabase-errors";
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
 import { resolveLeaveTimesheetDisplay } from "./leave-timesheet-rules";
 import {
@@ -49,59 +50,164 @@ export type PayrollExportTimesheetRow = WorkerTimesheet & {
   pay_rate_id?: string | null;
   /** Legacy or denormalised job number when present on the timesheet row. */
   project_code?: string | null;
+  job?: string | null;
+  job_number?: string | null;
+  project?: string | null;
+};
+
+/** Normalised project row for payroll CSV Job / Job Number resolution. */
+export type PayrollCsvProjectRecord = {
+  id: string;
+  name: string;
+  code: string;
+  projectNumber: string;
+};
+
+export type PayrollCsvProjectLookups = {
+  byId: Map<string, PayrollCsvProjectRecord>;
+  byName: Map<string, PayrollCsvProjectRecord>;
+};
+
+const PAYROLL_CSV_PROJECT_SELECT_VARIANTS = [
+  "id, project_name, project_code, client",
+  "id, project_name, name, code, project_number, client, client_name",
+  "id, project_name, slug, project_code",
+  "*",
+] as const;
+
+const EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS: PayrollCsvProjectLookups = {
+  byId: new Map(),
+  byName: new Map(),
 };
 
 function normalizeProjectLookupKey(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
-function buildProjectLookups(projects: DbProject[] = []): {
-  byId: Map<string, DbProject>;
-  byName: Map<string, DbProject>;
-} {
-  const byId = new Map<string, DbProject>();
-  const byName = new Map<string, DbProject>();
+function mapPayrollCsvProjectRow(row: Record<string, unknown>): PayrollCsvProjectRecord | null {
+  const id = String(row.id ?? "").trim();
+  if (!id) return null;
 
-  for (const project of projects) {
-    if (project?.id) {
-      byId.set(project.id, project);
-    }
+  const name = String(row.project_name ?? row.name ?? row.slug ?? "").trim();
+  const code = String(row.project_code ?? row.code ?? "").trim();
+  const projectNumber = String(row.project_number ?? row.project_code ?? row.code ?? "").trim();
 
-    const nameKey = normalizeProjectLookupKey(project?.name);
+  return { id, name, code, projectNumber };
+}
+
+function buildPayrollCsvProjectLookupsFromRecords(
+  records: PayrollCsvProjectRecord[]
+): PayrollCsvProjectLookups {
+  const byId = new Map<string, PayrollCsvProjectRecord>();
+  const byName = new Map<string, PayrollCsvProjectRecord>();
+
+  for (const project of records) {
+    byId.set(project.id, project);
+
+    const nameKey = normalizeProjectLookupKey(project.name);
     if (nameKey && !byName.has(nameKey)) {
       byName.set(nameKey, project);
-    }
-
-    const projectNameKey = normalizeProjectLookupKey(project?.project_name);
-    if (projectNameKey && !byName.has(projectNameKey)) {
-      byName.set(projectNameKey, project);
     }
   }
 
   return { byId, byName };
 }
 
-function resolveProjectFromLookups(
+/** Build lookups from already-loaded DbProject rows (tests / cached UI data). */
+export function buildPayrollCsvProjectLookupsFromDbProjects(
+  projects: DbProject[] = []
+): PayrollCsvProjectLookups {
+  const records = projects
+    .map((project) =>
+      mapPayrollCsvProjectRow({
+        id: project.id,
+        project_name: project.project_name ?? project.name,
+        project_code: project.project_code,
+        project_number: project.project_code,
+      })
+    )
+    .filter((record): record is PayrollCsvProjectRecord => record !== null);
+
+  return buildPayrollCsvProjectLookupsFromRecords(records);
+}
+
+/** Fetch projects directly from Supabase for payroll CSV export resolution. */
+export async function fetchPayrollCsvExportProjectLookups(): Promise<PayrollCsvProjectLookups> {
+  if (!isSupabaseConfigured()) return EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS;
+
+  try {
+    for (const select of PAYROLL_CSV_PROJECT_SELECT_VARIANTS) {
+      const { data, error } = await supabase.from("projects").select(select);
+
+      if (error) {
+        if (isSupabaseMissingColumnError(error)) continue;
+        return EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS;
+      }
+
+      const records = (data ?? [])
+        .map((row) =>
+          mapPayrollCsvProjectRow(row as unknown as Record<string, unknown>)
+        )
+        .filter((record): record is PayrollCsvProjectRecord => record !== null);
+
+      return buildPayrollCsvProjectLookupsFromRecords(records);
+    }
+  } catch {
+    return EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS;
+  }
+
+  return EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS;
+}
+
+export function resolvePayrollCsvProjectLookups(
+  projectsOrLookups: DbProject[] | PayrollCsvProjectLookups = []
+): PayrollCsvProjectLookups {
+  if (!Array.isArray(projectsOrLookups)) {
+    return projectsOrLookups;
+  }
+  return buildPayrollCsvProjectLookupsFromDbProjects(projectsOrLookups);
+}
+
+/** Strip client prefix from stored display names (`Client — Project`). */
+function extractProjectNameOnly(stored: string | null | undefined): string {
+  const trimmed = stored?.trim() ?? "";
+  if (!trimmed) return "";
+  if (trimmed.includes(" — ")) {
+    return trimmed.split(" — ").pop()?.trim() ?? trimmed;
+  }
+  return trimmed;
+}
+
+function resolveStoredProjectNameKeys(row: PayrollExportTimesheetRow): string[] {
+  const keys = new Set<string>();
+  const candidates = [
+    row.project_name,
+    row.project,
+    row.job,
+    extractProjectNameOnly(row.project_name),
+  ];
+
+  for (const candidate of candidates) {
+    const key = normalizeProjectLookupKey(candidate);
+    if (key) keys.add(key);
+  }
+
+  return [...keys];
+}
+
+function resolveMatchedPayrollCsvProject(
   row: PayrollExportTimesheetRow,
-  lookups: ReturnType<typeof buildProjectLookups>
-): DbProject | undefined {
+  lookups: PayrollCsvProjectLookups
+): PayrollCsvProjectRecord | undefined {
   const projectId = row.project_id?.trim();
   if (projectId) {
     const byIdMatch = lookups.byId.get(projectId);
     if (byIdMatch) return byIdMatch;
   }
 
-  const storedName = row.project_name?.trim() ?? "";
-  if (!storedName) return undefined;
-
-  const directNameMatch = lookups.byName.get(normalizeProjectLookupKey(storedName));
-  if (directNameMatch) return directNameMatch;
-
-  if (storedName.includes(" — ")) {
-    const projectPart = storedName.split(" — ").pop()?.trim();
-    if (projectPart) {
-      return lookups.byName.get(normalizeProjectLookupKey(projectPart));
-    }
+  for (const nameKey of resolveStoredProjectNameKeys(row)) {
+    const byNameMatch = lookups.byName.get(nameKey);
+    if (byNameMatch) return byNameMatch;
   }
 
   return undefined;
@@ -235,26 +341,33 @@ function resolveEmployeeNames(row: PayrollExportTimesheetRow): {
   return splitWorkerFullName(row.worker_name ?? "");
 }
 
+/**
+ * Resolve payroll CSV Job (project name) and Job Number (project code).
+ * JOB NAME column ← project name only; JOB column ← project code / number.
+ */
 function resolveJobFields(
   row: PayrollExportTimesheetRow,
-  projects: DbProject[] = []
+  lookups: PayrollCsvProjectLookups = EMPTY_PAYROLL_CSV_PROJECT_LOOKUPS
 ): { jobName: string; job: string } {
-  const lookups = buildProjectLookups(projects);
-  const project = resolveProjectFromLookups(row, lookups);
+  const matchedProj = resolveMatchedPayrollCsvProject(row, lookups);
 
-  const projectCode =
-    project?.project_code?.trim() ||
-    row.project_code?.trim() ||
+  const jobName =
+    matchedProj?.name?.trim() ||
+    extractProjectNameOnly(row.project_name) ||
+    row.project?.trim() ||
+    row.job?.trim() ||
     "";
 
-  const projectName =
-    project?.name?.trim() ||
-    row.project_name?.trim() ||
+  const jobNumber =
+    matchedProj?.code?.trim() ||
+    matchedProj?.projectNumber?.trim() ||
+    row.project_code?.trim() ||
+    row.job_number?.trim() ||
     "";
 
   return {
-    jobName: projectName.toUpperCase(),
-    job: projectCode,
+    jobName: jobName.toUpperCase(),
+    job: jobNumber,
   };
 }
 
@@ -283,7 +396,7 @@ function hasWorkedPayLines(breakdown: TimesheetPayBreakdown | null): boolean {
 function injectDailyAllowanceRows(
   lines: PayrollCsvExportLine[],
   row: PayrollExportTimesheetRow,
-  projects: DbProject[],
+  lookups: PayrollCsvProjectLookups,
   shiftHours: number,
   travelCategory: string,
   mealCategory: string,
@@ -292,16 +405,16 @@ function injectDailyAllowanceRows(
   if (shiftHours <= 0) return;
 
   if (!row.worker_has_company_vehicle) {
-    pushLine(lines, row, projects, travelCategory, 1);
+    pushLine(lines, row, lookups, travelCategory, 1);
   }
-  pushLine(lines, row, projects, "Site Allowance 2026", shiftHours);
-  pushLine(lines, row, projects, "AAC Productivity Allowance", shiftHours);
+  pushLine(lines, row, lookups, "Site Allowance 2026", shiftHours);
+  pushLine(lines, row, lookups, "AAC Productivity Allowance", shiftHours);
 
   if (isMealAllowanceEligible(
     resolveNetWorkedHoursForMealAllowance(row),
     mealThreshold
   )) {
-    pushLine(lines, row, projects, mealCategory, 1);
+    pushLine(lines, row, lookups, mealCategory, 1);
   }
 }
 
@@ -374,14 +487,14 @@ function resolveLeavePayrollCategory(
 function pushLine(
   lines: PayrollCsvExportLine[],
   row: PayrollExportTimesheetRow,
-  projects: DbProject[],
+  lookups: PayrollCsvProjectLookups,
   payrollCategory: string,
   units: number
 ): void {
   if (units <= 0) return;
 
   const { firstName, lastName } = resolveEmployeeNames(row);
-  const { jobName, job } = resolveJobFields(row, projects);
+  const { jobName, job } = resolveJobFields(row, lookups);
 
   lines.push({
     employeeFirstName: firstName,
@@ -397,19 +510,19 @@ function pushLine(
 function pushLeaveExportLine(
   lines: PayrollCsvExportLine[],
   row: PayrollExportTimesheetRow,
-  projects: DbProject[],
+  lookups: PayrollCsvProjectLookups,
   payrollCategory: string,
   units: number
 ): void {
-  pushLine(lines, row, projects, payrollCategory, units);
+  pushLine(lines, row, lookups, payrollCategory, units);
   if (isAnnualLeavePayrollCategory(payrollCategory)) {
-    pushLine(lines, row, projects, PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY, units);
+    pushLine(lines, row, lookups, PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY, units);
   }
 }
 
 function buildLeaveExportLines(
   row: PayrollExportTimesheetRow,
-  projects: DbProject[],
+  lookups: PayrollCsvProjectLookups,
   breakdown: TimesheetPayBreakdown | null
 ): PayrollCsvExportLine[] {
   const lines: PayrollCsvExportLine[] = [];
@@ -418,7 +531,7 @@ function buildLeaveExportLines(
     for (const item of breakdown.line_items) {
       if (!isLeaveLineCategory(item.category) || item.hours <= 0) continue;
       const payrollCategory = resolveLeavePayrollCategory(row, item.category, item.label);
-      pushLeaveExportLine(lines, row, projects, payrollCategory, item.hours);
+      pushLeaveExportLine(lines, row, lookups, payrollCategory, item.hours);
     }
     return lines;
   }
@@ -428,7 +541,7 @@ function buildLeaveExportLines(
     pushLeaveExportLine(
       lines,
       row,
-      projects,
+      lookups,
       resolveLeavePayrollCategory(
         row,
         item.category,
@@ -444,7 +557,7 @@ function buildLeaveExportLines(
     pushLeaveExportLine(
       lines,
       row,
-      projects,
+      lookups,
       mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType),
       totals.dailyTotalHours
     );
@@ -455,7 +568,7 @@ function buildLeaveExportLines(
 
 function buildWorkAndAllowanceExportLines(
   row: PayrollExportTimesheetRow,
-  projects: DbProject[],
+  lookups: PayrollCsvProjectLookups,
   payRule: PayRateRule,
   breakdown: TimesheetPayBreakdown
 ): PayrollCsvExportLine[] {
@@ -472,17 +585,17 @@ function buildWorkAndAllowanceExportLines(
   }
 
   if (breakdown.base_hours > 0) {
-    pushLine(lines, row, projects, categories.baseHourly, breakdown.base_hours);
+    pushLine(lines, row, lookups, categories.baseHourly, breakdown.base_hours);
   }
 
   if (breakdown.overtime_hours > 0) {
-    pushLine(lines, row, projects, categories.overtime, breakdown.overtime_hours);
+    pushLine(lines, row, lookups, categories.overtime, breakdown.overtime_hours);
   }
 
   injectDailyAllowanceRows(
     lines,
     row,
-    projects,
+    lookups,
     shiftHours,
     categories.travel,
     categories.meal,
@@ -490,7 +603,7 @@ function buildWorkAndAllowanceExportLines(
   );
 
   if (breakdown.hsr_allowance_pay > 0 && shiftHours > 0) {
-    pushLine(lines, row, projects, categories.hsr, shiftHours);
+    pushLine(lines, row, lookups, categories.hsr, shiftHours);
   }
 
   return lines;
@@ -498,7 +611,7 @@ function buildWorkAndAllowanceExportLines(
 
 function buildFallbackWorkExportLines(
   row: PayrollExportTimesheetRow,
-  projects: DbProject[]
+  lookups: PayrollCsvProjectLookups
 ): PayrollCsvExportLine[] {
   const lines: PayrollCsvExportLine[] = [];
   const categories = resolvePayrollCategoryNames(null, {
@@ -514,17 +627,17 @@ function buildFallbackWorkExportLines(
   const overtimeHours = Math.max(0, roundUnits(shiftHours - 8));
 
   if (baseHours > 0) {
-    pushLine(lines, row, projects, categories.baseHourly, baseHours);
+    pushLine(lines, row, lookups, categories.baseHourly, baseHours);
   }
   if (overtimeHours > 0) {
-    pushLine(lines, row, projects, categories.overtime, overtimeHours);
+    pushLine(lines, row, lookups, categories.overtime, overtimeHours);
   }
 
   if (baseHours > 0 || overtimeHours > 0) {
     injectDailyAllowanceRows(
       lines,
       row,
-      projects,
+      lookups,
       shiftHours,
       categories.travel,
       categories.meal,
@@ -539,8 +652,9 @@ function buildFallbackWorkExportLines(
 export function buildPayrollExportLinesForTimesheet(
   row: PayrollExportTimesheetRow,
   payRule: PayRateRule | null,
-  projects: DbProject[] = []
+  projectsOrLookups: DbProject[] | PayrollCsvProjectLookups = []
 ): PayrollCsvExportLine[] {
+  const lookups = resolvePayrollCsvProjectLookups(projectsOrLookups);
   const breakdown = payRule
     ? calculateTimesheetPay(row, payRule, {
         hsrApplicable: row.worker_is_hsr ?? false,
@@ -549,13 +663,13 @@ export function buildPayrollExportLinesForTimesheet(
       })
     : null;
 
-  const leaveLines = buildLeaveExportLines(row, projects, breakdown);
+  const leaveLines = buildLeaveExportLines(row, lookups, breakdown);
   const workLines =
     breakdown && payRule && hasWorkedPayLines(breakdown)
-      ? buildWorkAndAllowanceExportLines(row, projects, payRule, breakdown)
+      ? buildWorkAndAllowanceExportLines(row, lookups, payRule, breakdown)
       : breakdown && payRule
         ? []
-        : buildFallbackWorkExportLines(row, projects);
+        : buildFallbackWorkExportLines(row, lookups);
 
   const combined = [...workLines, ...leaveLines];
 
@@ -569,7 +683,7 @@ export function buildPayrollExportLinesForTimesheet(
     pushLine(
       fallback,
       row,
-      projects,
+      lookups,
       resolvePayrollCategoryNames(payRule, {
         isApprentice: row.worker_is_apprentice ?? false,
         workerState: row.worker_state,

@@ -460,8 +460,7 @@ export default function AccountsTimesheetsTab({
   };
 
   const handleExport = async () => {
-    downloadPayrollTimesheetCsv(sortedRows, payRules, {
-      projects,
+    await downloadPayrollTimesheetCsv(sortedRows, payRules, {
       filename: buildPayrollExportFilename(sortedRows),
     });
     setMessage(`Exported ${sortedRows.length} timesheet row(s).`);
