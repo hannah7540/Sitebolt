@@ -2,6 +2,7 @@
 
 import { Download, ExternalLink } from "lucide-react";
 import type { InsuranceDocumentAttachment } from "@/lib/insurance-utils";
+import { formatInsuranceFileSize } from "@/lib/insurance-utils";
 import { cn } from "@/lib/utils";
 
 interface InsuranceDocumentLinksProps {
@@ -31,6 +32,11 @@ export default function InsuranceDocumentLinks({
         >
           <span className="truncate font-medium text-slate-700" title={doc.name}>
             {doc.name}
+            {typeof doc.size === "number" ? (
+              <span className="ml-1 font-normal text-slate-400">
+                ({formatInsuranceFileSize(doc.size)})
+              </span>
+            ) : null}
           </span>
           <a
             href={doc.url}

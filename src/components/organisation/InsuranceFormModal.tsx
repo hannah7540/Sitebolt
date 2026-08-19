@@ -34,7 +34,8 @@ interface StagedInsuranceFile {
 interface InsuranceFormModalProps {
   insurance?: CompanyInsuranceFormRecord | null;
   onClose: () => void;
-  onSaved: (input: {
+  onSaved: (
+    input: {
     id?: string;
     insurance_type: string;
     custom_type_name: string | null;
@@ -48,7 +49,9 @@ interface InsuranceFormModalProps {
     documents: InsuranceDocumentAttachment[];
     all_states: boolean;
     states: InsuranceRegion[];
-  }) => Promise<{ error: string | null }>;
+  },
+    context?: { uploadWarning?: string | null }
+  ) => Promise<{ error: string | null }>;
 }
 
 function createStagedId(): string {
@@ -243,28 +246,28 @@ export default function InsuranceFormModal({
     const policyId = insurance?.id?.trim();
 
     try {
-      const result = await onSaved({
-        id: policyId || undefined,
-        insurance_type: insuranceType,
-        custom_type_name:
-          insuranceType === OTHER_INSURANCE_TYPE ? customTypeName.trim() : null,
-        policy_number: policyNumber,
-        provider,
-        date_obtained: normalizedStart,
-        start_date: normalizedStart,
-        expiry_date: normalizedExpiry,
-        file_url: primary?.url ?? null,
-        file_name: primary?.name ?? null,
-        documents,
-        all_states: regionPayload.all_states,
-        states: normalizeInsuranceRegions(regionPayload.states),
-      });
+      const result = await onSaved(
+        {
+          id: policyId || undefined,
+          insurance_type: insuranceType,
+          custom_type_name:
+            insuranceType === OTHER_INSURANCE_TYPE ? customTypeName.trim() : null,
+          policy_number: policyNumber,
+          provider,
+          date_obtained: normalizedStart,
+          start_date: normalizedStart,
+          expiry_date: normalizedExpiry,
+          file_url: primary?.url ?? null,
+          file_name: primary?.name ?? null,
+          documents,
+          all_states: regionPayload.all_states,
+          states: normalizeInsuranceRegions(regionPayload.states),
+        },
+        { uploadWarning }
+      );
 
       if (result.error) {
         throw new Error(result.error);
-      }
-      if (uploadWarning) {
-        console.warn("Insurance saved with document upload warnings:", uploadWarning);
       }
       onClose();
     } catch (err) {

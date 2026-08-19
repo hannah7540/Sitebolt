@@ -146,18 +146,7 @@ export default function InsurancesPanel() {
             <tbody>
               {insurances.map((item) => {
                 const expiry = getInsuranceExpiryStatus(item.expiry_date);
-                const documents =
-                  item.documents?.length > 0
-                    ? item.documents
-                    : item.file_url ?? item.document_url
-                      ? [
-                          {
-                            name: item.file_name ?? "Policy document",
-                            url: (item.file_url ?? item.document_url) as string,
-                            uploaded_at: item.updated_at ?? new Date().toISOString(),
-                          },
-                        ]
-                      : [];
+                const documents = item.documents ?? [];
                 return (
                   <tr key={item.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-slate-900">
@@ -227,11 +216,15 @@ export default function InsurancesPanel() {
         <InsuranceFormModal
           insurance={editingInsurance}
           onClose={closeModal}
-          onSaved={async (input) => {
+          onSaved={async (input, context) => {
             try {
               const { error } = await saveCompanyInsuranceToApi(input);
               if (error) throw new Error(error);
-              showSuccess("Insurance policy saved successfully");
+              if (context?.uploadWarning) {
+                showError(context.uploadWarning);
+              } else {
+                showSuccess("Insurance policy saved successfully");
+              }
               closeModal();
               await load();
               return { error: null };

@@ -137,7 +137,19 @@ function normalizeDocumentEntry(value: unknown): InsuranceDocumentAttachment | n
     asNullableString(row.uploaded_at) ??
     asNullableString(row.uploadedAt) ??
     new Date().toISOString();
-  return { name, url, uploaded_at: uploadedAt };
+  const sizeRaw = row.size;
+  const size =
+    typeof sizeRaw === "number" && Number.isFinite(sizeRaw)
+      ? sizeRaw
+      : typeof sizeRaw === "string" && sizeRaw.trim()
+        ? Number(sizeRaw)
+        : undefined;
+  return {
+    name,
+    url,
+    uploaded_at: uploadedAt,
+    ...(typeof size === "number" && Number.isFinite(size) ? { size } : {}),
+  };
 }
 
 export function readInsuranceDocuments(
@@ -301,41 +313,31 @@ export function buildRecordPayload(
 
   return {
     insurance_type: insuranceType,
-    type: insuranceType,
     custom_type_name: asNullableString(body.custom_type_name ?? body.custom_name),
-    custom_name: asNullableString(body.custom_type_name ?? body.custom_name),
     policy_number: asString(body.policy_number ?? body.policy_no),
-    policy_no: asString(body.policy_number ?? body.policy_no),
     provider,
     insurer: provider,
     all_states: allStates,
-    all_regions: allStates,
     states: resolvedStates,
-    regions: resolvedStates,
-    coverage_states: resolvedStates,
     start_date: sDate,
     date_obtained: sDate,
-    effective_date: sDate,
     expiry_date: eDate,
-    end_date: eDate,
-    expiration_date: eDate,
     documents,
     file_url: legacyFields.file_url,
     document_url: legacyFields.document_url,
-    attachment_url: legacyFields.file_url,
-    url: legacyFields.file_url,
-    doc_url: legacyFields.file_url,
     file_name: legacyFields.file_name,
-    document_name: legacyFields.file_name,
     notes: asNullableString(body.notes),
     updated_at: new Date().toISOString(),
   };
 }
 
-function buildStandardPayload(record: Record<string, unknown>): Record<string, unknown> {
-  return {
+function buildOrganisationTablePayload(
+  record: Record<string, unknown>,
+  includeDocuments: boolean
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
     insurance_type: record.insurance_type,
-    custom_type_name: record.custom_type_name,
+    custom_type_name: record.custom_type_name ?? null,
     policy_number: record.policy_number || null,
     provider: record.provider || null,
     insurer: record.insurer || null,
@@ -346,18 +348,40 @@ function buildStandardPayload(record: Record<string, unknown>): Record<string, u
     expiry_date: record.expiry_date,
     file_url: record.file_url,
     file_name: record.file_name,
-    documents: record.documents,
     document_url: record.document_url,
-    notes: record.notes,
+    notes: record.notes ?? null,
     updated_at: record.updated_at,
   };
+  if (includeDocuments) {
+    payload.documents = record.documents ?? [];
+  }
+  return payload;
 }
 
-function buildStandardPayloadWithoutDocuments(
-  record: Record<string, unknown>
+function buildCompanyTablePayload(
+  record: Record<string, unknown>,
+  includeDocuments: boolean
 ): Record<string, unknown> {
-  const payload = buildStandardPayload(record);
-  delete payload.documents;
+  const payload: Record<string, unknown> = {
+    insurance_type: record.insurance_type,
+    custom_type_name: record.custom_type_name ?? null,
+    policy_number: record.policy_number || null,
+    provider: record.provider || null,
+    insurer: record.insurer || null,
+    all_states: record.all_states,
+    states: record.states,
+    start_date: record.start_date,
+    date_obtained: record.date_obtained,
+    expiry_date: record.expiry_date,
+    file_url: record.file_url,
+    file_name: record.file_name,
+    document_url: record.document_url,
+    notes: record.notes ?? null,
+    updated_at: record.updated_at,
+  };
+  if (includeDocuments) {
+    payload.documents = record.documents ?? [];
+  }
   return payload;
 }
 
@@ -365,11 +389,12 @@ function buildLegacyPayload(record: Record<string, unknown>): Record<string, unk
   return {
     insurance_type: record.insurance_type,
     policy_number: record.policy_number || null,
-    insurer: record.provider || null,
+    insurer: record.provider || record.insurer || null,
     expiry_date: record.expiry_date,
     date_obtained: record.start_date,
     start_date: record.start_date,
-    document_url: record.file_url,
+    document_url: record.document_url ?? record.file_url,
+    file_url: record.file_url ?? record.document_url,
     all_states: record.all_states,
     states: record.states,
     updated_at: record.updated_at,
@@ -381,15 +406,28 @@ function buildMinimalPayload(record: Record<string, unknown>): Record<string, un
     insurance_type: record.insurance_type,
     policy_number: record.policy_number || null,
     expiry_date: record.expiry_date,
-    document_url: record.file_url,
+    document_url: record.document_url ?? record.file_url,
     updated_at: record.updated_at,
   };
 }
 
-function payloadVariants(record: Record<string, unknown>): Record<string, unknown>[] {
+function buildTablePayload(
+  record: Record<string, unknown>,
+  table: InsuranceTableName,
+  includeDocuments: boolean
+): Record<string, unknown> {
+  return table === PRIMARY_INSURANCE_TABLE
+    ? buildOrganisationTablePayload(record, includeDocuments)
+    : buildCompanyTablePayload(record, includeDocuments);
+}
+
+function payloadVariants(
+  record: Record<string, unknown>,
+  table: InsuranceTableName
+): Record<string, unknown>[] {
   const variants = [
-    buildStandardPayload(record),
-    buildStandardPayloadWithoutDocuments(record),
+    buildTablePayload(record, table, true),
+    buildTablePayload(record, table, false),
     buildLegacyPayload(record),
     buildMinimalPayload(record),
   ];
@@ -518,7 +556,7 @@ async function syncMirror(
   id: string,
   record: Record<string, unknown>
 ): Promise<void> {
-  for (const row of payloadVariants(record)) {
+  for (const row of payloadVariants(record, mirrorTable)) {
     const mirrorResult = await admin
       .from(mirrorTable)
       .upsert([{ ...row, id }], { onConflict: "id" })
@@ -544,7 +582,7 @@ export async function insertInsuranceRecords(
   let lastError: string | null = null;
 
   for (const table of INSURANCE_TABLES) {
-    for (const row of payloadVariants(record)) {
+    for (const row of payloadVariants(record, table)) {
       const result = await admin.from(table).insert([row]).select("*").single();
       if (!result.error && result.data) {
         const savedRow = result.data as CompanyInsuranceRow;
@@ -613,7 +651,7 @@ export async function updateInsuranceRecords(
   let lastError: string | null = null;
 
   for (const table of tablesToTry) {
-    for (const row of payloadVariants(record)) {
+    for (const row of payloadVariants(record, table)) {
       const result = await admin
         .from(table)
         .update(row)

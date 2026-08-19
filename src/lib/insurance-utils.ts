@@ -77,6 +77,7 @@ export interface InsuranceDocumentAttachment {
   name: string;
   url: string;
   uploaded_at: string;
+  size?: number;
 }
 
 export function formatInsuranceFileSize(bytes: number): string {
