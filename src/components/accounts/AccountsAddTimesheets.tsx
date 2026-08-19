@@ -10,6 +10,7 @@ import { fetchAllWorkers, type Worker } from "@/lib/supabase";
 import {
   fetchTimesheetFormOptions,
   formatTimesheetProjectDisplayName,
+  formatTimesheetProjectOptionLabel,
   groupTimesheetProjectsByClient,
   type TimesheetProject,
   type TimesheetTask,
@@ -421,8 +422,7 @@ export default function AccountsAddTimesheets() {
                       <optgroup key={group.client} label={group.client}>
                         {group.projects.map((project) => (
                           <option key={project.id} value={project.id}>
-                            {project.project}
-                            {project.address ? ` — ${project.address}` : ""}
+                            {formatTimesheetProjectOptionLabel(project)}
                           </option>
                         ))}
                       </optgroup>

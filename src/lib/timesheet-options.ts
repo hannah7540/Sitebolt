@@ -57,9 +57,10 @@ export function formatTimesheetProjectDisplayName(project: TimesheetProject): st
 export function groupTimesheetProjectsByClient(
   projects: TimesheetProject[]
 ): ClientProjectGroup[] {
+  const uniqueProjects = deduplicateTimesheetProjects(projects);
   const grouped = new Map<string, TimesheetProject[]>();
 
-  for (const project of projects) {
+  for (const project of uniqueProjects) {
     const client = project.client.trim() || "Other";
     const list = grouped.get(client) ?? [];
     list.push(project);
@@ -98,10 +99,26 @@ function formatTimesheetOptionsLoadError(
 
 function sortTimesheetProjects(projects: TimesheetProject[]): TimesheetProject[] {
   return [...projects].sort((left, right) => {
-    const clientCompare = left.client.localeCompare(right.client);
-    if (clientCompare !== 0) return clientCompare;
-    return left.project.localeCompare(right.project);
+    const nameCompare = (left.project || "").localeCompare(right.project || "");
+    if (nameCompare !== 0) return nameCompare;
+    return left.client.localeCompare(right.client);
   });
+}
+
+/** Deduplicate project picklist rows by id (fallback: project name). */
+export function deduplicateTimesheetProjects(
+  projects: TimesheetProject[] | null | undefined
+): TimesheetProject[] {
+  return Array.from(
+    new Map(
+      (projects ?? []).map((project) => [project.id || project.project, project])
+    ).values()
+  ).sort((left, right) => (left.project || "").localeCompare(right.project || ""));
+}
+
+export function formatTimesheetProjectOptionLabel(project: TimesheetProject): string {
+  const name = project.project?.trim() || project.client?.trim() || "Unnamed project";
+  return project.code?.trim() ? `${name} (${project.code.trim()})` : name;
 }
 
 function mapOrganisationProjectToTimesheetProject(project: DbProject): TimesheetProject {
@@ -120,29 +137,14 @@ async function fetchOrganisationProjectsForTimesheets(): Promise<TimesheetProjec
 
   try {
     const activeProjects = filterActiveProjects(await fetchProjects());
-    return activeProjects
-      .map(mapOrganisationProjectToTimesheetProject)
-      .filter((row) => row.project || row.client);
+    return deduplicateTimesheetProjects(
+      activeProjects
+        .map(mapOrganisationProjectToTimesheetProject)
+        .filter((row) => row.project || row.client)
+    );
   } catch {
     return [];
   }
-}
-
-function mergeTimesheetProjectLists(
-  primary: TimesheetProject[],
-  legacy: TimesheetProject[]
-): TimesheetProject[] {
-  const seen = new Set<string>();
-  const merged: TimesheetProject[] = [];
-
-  for (const project of [...primary, ...legacy]) {
-    const id = project.id?.trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    merged.push(project);
-  }
-
-  return sortTimesheetProjects(merged);
 }
 
 async function fetchTimesheetProjectsQuery(
@@ -251,22 +253,13 @@ export async function fetchTimesheetProjects(): Promise<{
   }
 
   try {
-    const [organisationProjects, legacyResult] = await Promise.all([
-      fetchOrganisationProjectsForTimesheets(),
-      fetchTimesheetProjectsQuery(true),
-    ]);
-
-    const projects = mergeTimesheetProjectLists(
-      organisationProjects,
-      legacyResult.projects
-    );
+    const projects = await fetchOrganisationProjectsForTimesheets();
 
     if (projects.length === 0) {
       return {
         projects: [],
         error:
-          legacyResult.error ??
-          "No active projects were returned. Add projects under Organisation → Projects, or configure timesheet_projects, then click Retry.",
+          "No active projects were returned. Add projects under Organisation → Projects, then click Retry.",
       };
     }
 

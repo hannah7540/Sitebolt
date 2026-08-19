@@ -6,6 +6,7 @@ import type { Worker, WorkerTimesheet } from "@/lib/supabase";
 import {
   fetchTimesheetFormOptions,
   formatTimesheetProjectDisplayName,
+  formatTimesheetProjectOptionLabel,
   groupTimesheetProjectsByClient,
   type TimesheetProject,
   type TimesheetTask,
@@ -146,7 +147,7 @@ export default function WorkerTimesheetModal({
         result.projects.length === 0 && result.tasks.length === 0
           ? "No active projects or tasks were returned from Supabase. Check row data and public SELECT policies, then click Retry."
           : result.projects.length === 0
-            ? "No active projects were returned. Add projects under Organisation → Projects (or configure timesheet_projects), then click Retry."
+            ? "No active projects were returned. Add projects under Organisation → Projects, then click Retry."
             : "No active tasks were returned from Supabase. Ensure timesheet_tasks rows have a name and is_active = true, then click Retry."
       );
     } else {
@@ -461,8 +462,7 @@ export default function WorkerTimesheetModal({
                     <optgroup key={group.client} label={group.client}>
                       {group.projects.map((project) => (
                         <option key={project.id} value={project.id}>
-                          {project.project}
-                          {project.address ? ` — ${project.address}` : ""}
+                          {formatTimesheetProjectOptionLabel(project)}
                         </option>
                       ))}
                     </optgroup>
