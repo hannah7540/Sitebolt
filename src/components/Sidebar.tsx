@@ -90,6 +90,7 @@ interface SidebarProps {
   projects: DbProject[];
   selectedProjectId?: string | null;
   sessionRole: SecurityRole;
+  sessionSecurityRoleRaw?: string | null;
   assignedProjectIds?: readonly string[];
   accountsAccessRole?: AccountsAccessRole;
   canAccessAccounts?: boolean;
@@ -131,7 +132,8 @@ interface SidebarMenuGroup {
 function buildAccountsMenu(
   sessionRole: SecurityRole,
   accountsAccessRole: AccountsAccessRole = "disabled",
-  canAccessAccounts = false
+  canAccessAccounts = false,
+  sessionSecurityRoleRaw: string | null = null
 ): SidebarMenuGroup | null {
   const children: SidebarMenuChild[] = [];
 
@@ -151,7 +153,13 @@ function buildAccountsMenu(
     });
   }
 
-  if (canAddAccountsTimesheets(sessionRole, accountsAccessRole, canAccessAccounts)) {
+  if (
+    canAddAccountsTimesheets(
+      sessionSecurityRoleRaw ?? sessionRole,
+      accountsAccessRole,
+      canAccessAccounts
+    )
+  ) {
     children.push({
       title: "Add Timesheets",
       href: "/accounts/add-timesheets",
@@ -476,6 +484,7 @@ export default function Sidebar({
   projects,
   selectedProjectId,
   sessionRole,
+  sessionSecurityRoleRaw = null,
   assignedProjectIds = [],
   accountsAccessRole = "disabled",
   canAccessAccounts = false,
@@ -519,8 +528,14 @@ export default function Sidebar({
   const showEmails = canAccessEmailsModule(sessionRole);
   const showSecurity = canManageSecuritySettings(sessionRole);
   const accountsMenu = useMemo(
-    () => buildAccountsMenu(sessionRole, accountsAccessRole, canAccessAccounts),
-    [sessionRole, accountsAccessRole, canAccessAccounts]
+    () =>
+      buildAccountsMenu(
+        sessionRole,
+        accountsAccessRole,
+        canAccessAccounts,
+        sessionSecurityRoleRaw
+      ),
+    [sessionRole, sessionSecurityRoleRaw, accountsAccessRole, canAccessAccounts]
   );
   const showAccounts =
     permissionsLoading ||

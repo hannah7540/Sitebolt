@@ -15,6 +15,7 @@ export default function AccountsNav() {
   const pathname = usePathname();
   const adminConsole = useAdminConsoleOptional();
   const sessionRole = adminConsole?.sessionRole ?? "general_worker";
+  const sessionSecurityRoleRaw = adminConsole?.sessionSecurityRoleRaw ?? null;
   const accountsAccessRole = adminConsole?.accountsAccessRole ?? "disabled";
   const canAccessAccounts = adminConsole?.canAccessAccounts ?? false;
 
@@ -33,7 +34,11 @@ export default function AccountsNav() {
           icon: Scale,
         }
       : null,
-    canAddAccountsTimesheets(sessionRole, accountsAccessRole, canAccessAccounts)
+    canAddAccountsTimesheets(
+      sessionSecurityRoleRaw ?? sessionRole,
+      accountsAccessRole,
+      canAccessAccounts
+    )
       ? {
           label: "Add Timesheets",
           href: "/accounts/add-timesheets",

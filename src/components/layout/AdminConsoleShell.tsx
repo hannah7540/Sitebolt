@@ -166,6 +166,11 @@ export default function AdminConsoleShell({
     [sessionRole, sidebarProjects, assignedProjectIds]
   );
 
+  const sessionSecurityRoleRaw = useMemo(
+    () => sessionWorker?.security_role?.trim() || null,
+    [sessionWorker]
+  );
+
   const accountsAccessRole = useMemo(
     () => normalizeAccountsAccessRole(sessionWorker?.accounts_access_role),
     [sessionWorker]
@@ -222,7 +227,7 @@ export default function AdminConsoleShell({
     if (
       isAddTimesheetsPath(pathname) &&
       !canAddAccountsTimesheets(
-        sessionRole,
+        sessionSecurityRoleRaw ?? sessionRole,
         sessionWorker.accounts_access_role,
         sessionWorker.can_access_accounts
       )
@@ -244,6 +249,7 @@ export default function AdminConsoleShell({
     sessionWorker,
     workers.length,
     sessionRole,
+    sessionSecurityRoleRaw,
     requireAccountsAccess,
     requireOrganisationAccess,
     requirePayRulesAccess,
@@ -298,6 +304,7 @@ export default function AdminConsoleShell({
       loading,
       accessDenied,
       sessionRole,
+      sessionSecurityRoleRaw,
       accountsAccessRole,
       canAccessAccounts,
       assignedProjectIds,
@@ -312,6 +319,7 @@ export default function AdminConsoleShell({
       loading,
       accessDenied,
       sessionRole,
+      sessionSecurityRoleRaw,
       accountsAccessRole,
       canAccessAccounts,
       assignedProjectIds,
@@ -374,6 +382,7 @@ export default function AdminConsoleShell({
               assignedProjectIds={assignedProjectIds}
               selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
               sessionRole={sessionRole}
+              sessionSecurityRoleRaw={sessionSecurityRoleRaw}
               accountsAccessRole={accountsAccessRole}
               canAccessAccounts={canAccessAccounts}
               permissionsLoading={loading}

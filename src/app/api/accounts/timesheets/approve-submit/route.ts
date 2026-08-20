@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
@@ -11,11 +10,7 @@ import {
   submitApprovedTimesheetAdmin,
   type AdminTimesheetSubmitInput,
 } from "@/lib/admin-timesheet-submit";
-import {
-  canManageAccountsActions,
-  normalizeAccountsAccessRole,
-  normalizeSecurityRole,
-} from "@/lib/security-roles";
+import { resolveAccountsTimesheetCallerContext } from "@/lib/accounts-api-auth";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
   migrateActivityToLineItem,
@@ -73,38 +68,6 @@ function parseBreaks(raw: unknown): TimesheetBreakSlot[] {
     .filter((item): item is TimesheetBreakSlot => item !== null);
 }
 
-async function loadCallerContext(admin: SupabaseClient, authUserId: string) {
-  const { data: callerWorker } = await admin
-    .from("workers")
-    .select("id, first_name, last_name, full_name, security_role, accounts_access_role, can_access_accounts")
-    .eq("auth_user_id", authUserId)
-    .maybeSingle();
-
-  const role = normalizeSecurityRole(
-    callerWorker?.security_role && typeof callerWorker.security_role === "string"
-      ? callerWorker.security_role
-      : null
-  );
-
-  const accountsAccessRole = normalizeAccountsAccessRole(
-    callerWorker?.accounts_access_role && typeof callerWorker.accounts_access_role === "string"
-      ? callerWorker.accounts_access_role
-      : null
-  );
-
-  const canManage = canManageAccountsActions(accountsAccessRole, {
-    securityRole: role,
-    canAccessAccounts:
-      callerWorker?.can_access_accounts === true ? true : null,
-  });
-
-  const approverName = callerWorker
-    ? getWorkerDisplayName(callerWorker as Parameters<typeof getWorkerDisplayName>[0])
-    : authUserId;
-
-  return { role, accountsAccessRole, canManage, approverName, callerWorkerId: callerWorker?.id ?? null };
-}
-
 export async function POST(req: Request) {
   if (!isSupabaseAdminConfigured()) {
     return NextResponse.json(
@@ -123,7 +86,7 @@ export async function POST(req: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const caller = await loadCallerContext(admin, user.id);
+  const caller = await resolveAccountsTimesheetCallerContext(admin, user);
 
   if (!caller.canManage) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });

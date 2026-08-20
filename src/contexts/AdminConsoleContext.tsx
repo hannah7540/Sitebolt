@@ -13,6 +13,8 @@ export interface AdminConsoleContextValue {
   loading: boolean;
   accessDenied: string | null;
   sessionRole: SecurityRole;
+  /** Raw workers.security_role before normalization (for accounts permission checks). */
+  sessionSecurityRoleRaw: string | null;
   accountsAccessRole: AccountsAccessRole;
   canAccessAccounts: boolean;
   assignedProjectIds: readonly string[];

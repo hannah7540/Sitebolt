@@ -232,6 +232,28 @@ export function canManageAccountsActions(
     canAccessAccounts?: boolean | null;
   }
 ): boolean {
+  const rawSecurity = String(options?.securityRole ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    rawSecurity === "owner" ||
+    rawSecurity === "admin" ||
+    rawSecurity === "manager" ||
+    rawSecurity === "full_access"
+  ) {
+    return true;
+  }
+
+  if (rawSecurity === "accounts" || rawSecurity === "account") {
+    if (normalizeAccountsAccessRole(accountsAccessRole) === "full_access") {
+      return true;
+    }
+    if (options?.canAccessAccounts === true) {
+      return true;
+    }
+  }
+
   const securityRole = normalizeSecurityRole(options?.securityRole);
 
   if (canManageAccountsTimesheets(securityRole)) {
