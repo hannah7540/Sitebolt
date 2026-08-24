@@ -1246,6 +1246,22 @@ export async function assignMasterWorkerToProject(input: {
       );
     }
 
+    try {
+      const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
+        "./worker-swms-auto-assign"
+      );
+      await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
+        assignCompanySwms: false,
+        projectIds: [resolvedProjectId],
+        includeExistingProjects: false,
+      });
+    } catch (cause) {
+      console.warn(
+        "[assignMasterWorkerToProject] SWMS auto-assign skipped:",
+        cause
+      );
+    }
+
     return { error: null };
   } catch (error) {
     console.warn("assignMasterWorkerToProject failed:", error);
@@ -1570,6 +1586,19 @@ export async function addWorker(
       });
     } catch (cause) {
       console.warn("[addWorker] induction auto-assign skipped:", cause);
+    }
+
+    try {
+      const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
+        "./worker-swms-auto-assign"
+      );
+      await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
+        assignCompanySwms: true,
+        projectIds: resolvedProjectId ? [resolvedProjectId] : [],
+        includeExistingProjects: false,
+      });
+    } catch (cause) {
+      console.warn("[addWorker] SWMS auto-assign skipped:", cause);
     }
   }
 
@@ -1970,6 +1999,21 @@ export async function updateWorker(
         });
       } catch (cause) {
         console.warn("[updateWorker] induction auto-assign skipped:", cause);
+      }
+    }
+
+    if (projectChanged) {
+      try {
+        const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
+          "./worker-swms-auto-assign"
+        );
+        await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
+          assignCompanySwms: false,
+          projectIds: [payload.assigned_project_id as string | null],
+          includeExistingProjects: false,
+        });
+      } catch (cause) {
+        console.warn("[updateWorker] SWMS auto-assign skipped:", cause);
       }
     }
   }

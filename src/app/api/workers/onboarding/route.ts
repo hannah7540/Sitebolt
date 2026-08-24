@@ -17,6 +17,7 @@ import {
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
 import { applyWorkerInductionWorkflowRulesAdmin } from "@/lib/worker-induction-auto-assign";
+import { applyWorkerSwmsWorkflowRulesAdmin } from "@/lib/worker-swms-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
 import {
@@ -316,6 +317,15 @@ export async function POST(req: Request) {
     });
   } catch (cause) {
     console.warn("[/api/workers/onboarding] induction auto-assign skipped:", cause);
+  }
+
+  try {
+    await applyWorkerSwmsWorkflowRulesAdmin(admin, workerId, {
+      assignCompanySwms: true,
+      includeExistingProjects: true,
+    });
+  } catch (cause) {
+    console.warn("[/api/workers/onboarding] SWMS auto-assign skipped:", cause);
   }
 
   const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);

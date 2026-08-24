@@ -10,6 +10,8 @@ import {
   type SwmsAssignment,
   type SwmsDocument,
 } from "@/lib/swms";
+import { WORKER_SWMS_CHANGED_EVENT } from "@/lib/worker-swms-events";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import WorkerSwmsSignModal from "./WorkerSwmsSignModal";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -25,7 +27,117 @@ type WorkerSwmsRow = SwmsAssignment & { swms?: SwmsDocument };
 type SwmsTab = "pending" | "signed";
 
 function formatSwmsCategory(scope: string | null | undefined): string {
-  return scope === "site_specific" ? "Site-Specific" : "Company";
+  return scope === "site_specific" ? "Project SWMS" : "Company SWMS";
+}
+
+function AssignmentCard({
+  assignment,
+  onSelect,
+}: {
+  assignment: WorkerSwmsRow;
+  onSelect: (row: WorkerSwmsRow) => void;
+}) {
+  const swms = assignment.swms;
+  const category = formatSwmsCategory(resolveSwmsScope(swms));
+  const version = formatSwmsVersionLabel(swms?.version);
+  const documentUrl = getSwmsDocumentUrl(swms);
+
+  return (
+    <li>
+      <div
+        className={cn(
+          "rounded-lg border px-3 py-3",
+          assignment.status === "Pending"
+            ? "border-amber-200 bg-amber-50/40"
+            : "border-slate-200 bg-white"
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              {swms?.title ?? "SWMS document"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {version} · {category}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              assignment.status === "Pending"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-emerald-100 text-emerald-800"
+            )}
+          >
+            {assignment.status === "Signed" ? "Signed / Completed" : assignment.status}
+          </span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {documentUrl ? (
+            <a
+              href={documentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open Document
+            </a>
+          ) : null}
+          {assignment.status === "Pending" ? (
+            <button
+              type="button"
+              onClick={() => onSelect(assignment)}
+              className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600"
+            >
+              View Document & Sign
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSelect(assignment)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              View Signed Record
+            </button>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function AssignmentSection({
+  title,
+  description,
+  assignments,
+  onSelect,
+}: {
+  title: string;
+  description: string;
+  assignments: WorkerSwmsRow[];
+  onSelect: (row: WorkerSwmsRow) => void;
+}) {
+  if (assignments.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          {title}
+        </h4>
+        <p className="text-[11px] text-slate-500">{description}</p>
+      </div>
+      <ul className="space-y-2">
+        {assignments.map((assignment) => (
+          <AssignmentCard
+            key={assignment.id}
+            assignment={assignment}
+            onSelect={onSelect}
+          />
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
@@ -62,6 +174,60 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
     void loadAssignments();
   }, [workerId, loadAssignments]);
 
+  useEffect(() => {
+    const trimmedWorkerId = workerId.trim();
+    if (!trimmedWorkerId || !isSupabaseConfigured()) return;
+
+    const channel = supabase
+      .channel(`swms_assignments_${trimmedWorkerId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "swms_assignments",
+          filter: `assignee_id=eq.${trimmedWorkerId}`,
+        },
+        () => {
+          void loadAssignments();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [workerId, loadAssignments]);
+
+  useEffect(() => {
+    const handleSwmsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ workerId?: string | null }>).detail;
+      const targetId = detail?.workerId?.trim();
+      if (targetId && targetId !== workerId.trim()) return;
+      void loadAssignments();
+    };
+
+    const handleFocusRefresh = () => {
+      void loadAssignments();
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void loadAssignments();
+      }
+    };
+
+    window.addEventListener(WORKER_SWMS_CHANGED_EVENT, handleSwmsChanged);
+    window.addEventListener("focus", handleFocusRefresh);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      window.removeEventListener(WORKER_SWMS_CHANGED_EVENT, handleSwmsChanged);
+      window.removeEventListener("focus", handleFocusRefresh);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
+  }, [workerId, loadAssignments]);
+
   const pendingAssignments = useMemo(
     () => assignments.filter((row) => row.status === "Pending"),
     [assignments]
@@ -71,8 +237,35 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
     [assignments]
   );
   const pendingCount = countPendingSwmsAssignments(assignments);
-  const visibleAssignments =
-    activeTab === "pending" ? pendingAssignments : signedAssignments;
+
+  const pendingCompany = useMemo(
+    () =>
+      pendingAssignments.filter(
+        (row) => resolveSwmsScope(row.swms) !== "site_specific"
+      ),
+    [pendingAssignments]
+  );
+  const pendingProject = useMemo(
+    () =>
+      pendingAssignments.filter(
+        (row) => resolveSwmsScope(row.swms) === "site_specific"
+      ),
+    [pendingAssignments]
+  );
+  const signedCompany = useMemo(
+    () =>
+      signedAssignments.filter(
+        (row) => resolveSwmsScope(row.swms) !== "site_specific"
+      ),
+    [signedAssignments]
+  );
+  const signedProject = useMemo(
+    () =>
+      signedAssignments.filter(
+        (row) => resolveSwmsScope(row.swms) === "site_specific"
+      ),
+    [signedAssignments]
+  );
 
   return (
     <div className="space-y-3">
@@ -94,7 +287,7 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-orange-500" />
-            <h3 className="font-semibold text-slate-900">SWMS Documents</h3>
+            <h3 className="font-semibold text-slate-900">SWMS Sign-Offs</h3>
           </div>
           {pendingCount > 0 && (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
@@ -114,7 +307,7 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             )}
           >
-            Pending ({pendingAssignments.length})
+            Pending Action ({pendingAssignments.length})
           </button>
           <button
             type="button"
@@ -126,7 +319,7 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             )}
           >
-            Signed ({signedAssignments.length})
+            Signed / Completed ({signedAssignments.length})
           </button>
         </div>
 
@@ -135,85 +328,42 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
             <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
             Loading SWMS…
           </div>
-        ) : visibleAssignments.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            {activeTab === "pending"
-              ? "No pending SWMS assigned to you."
-              : "No signed SWMS yet."}
-          </p>
+        ) : activeTab === "pending" ? (
+          pendingAssignments.length === 0 ? (
+            <p className="text-sm text-slate-500">No pending SWMS assigned to you.</p>
+          ) : (
+            <div className="space-y-4">
+              <AssignmentSection
+                title="Company SWMS"
+                description="Organisation-wide safe work method statements required for onboarding."
+                assignments={pendingCompany}
+                onSelect={setSelectedAssignment}
+              />
+              <AssignmentSection
+                title="Project SWMS"
+                description="Site-specific SWMS for your assigned projects."
+                assignments={pendingProject}
+                onSelect={setSelectedAssignment}
+              />
+            </div>
+          )
+        ) : signedAssignments.length === 0 ? (
+          <p className="text-sm text-slate-500">No signed SWMS yet.</p>
         ) : (
-          <ul className="space-y-2">
-            {visibleAssignments.map((assignment) => {
-              const swms = assignment.swms;
-              const category = formatSwmsCategory(resolveSwmsScope(swms));
-              const version = formatSwmsVersionLabel(swms?.version);
-              const documentUrl = getSwmsDocumentUrl(swms);
-
-              return (
-                <li key={assignment.id}>
-                  <div
-                    className={cn(
-                      "rounded-lg border px-3 py-3",
-                      assignment.status === "Pending"
-                        ? "border-amber-200 bg-amber-50/40"
-                        : "border-slate-200 bg-white"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {swms?.title ?? "SWMS document"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {version} · {category}
-                        </p>
-                      </div>
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                          assignment.status === "Pending"
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-emerald-100 text-emerald-800"
-                        )}
-                      >
-                        {assignment.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {documentUrl ? (
-                        <a
-                          href={documentUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Open Document
-                        </a>
-                      ) : null}
-                      {assignment.status === "Pending" ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedAssignment(assignment)}
-                          className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600"
-                        >
-                          View Document & Sign
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedAssignment(assignment)}
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          View Signed Record
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="space-y-4">
+            <AssignmentSection
+              title="Company SWMS"
+              description="Completed organisation-wide SWMS acknowledgements."
+              assignments={signedCompany}
+              onSelect={setSelectedAssignment}
+            />
+            <AssignmentSection
+              title="Project SWMS"
+              description="Completed site-specific SWMS acknowledgements."
+              assignments={signedProject}
+              onSelect={setSelectedAssignment}
+            />
+          </div>
         )}
       </div>
 
@@ -225,10 +375,23 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
             setSelectedAssignment(null);
             setActiveTab("signed");
             showSuccess("SWMS signed and submitted successfully");
+            notifyWorkerSwmsChangedLocal(workerId);
             void loadAssignments();
           }}
         />
       )}
     </div>
   );
+}
+
+function notifyWorkerSwmsChangedLocal(workerId: string): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent(WORKER_SWMS_CHANGED_EVENT, {
+        detail: { workerId: workerId.trim() || null },
+      })
+    );
+  } catch {
+    // Ignore.
+  }
 }

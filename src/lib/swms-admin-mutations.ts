@@ -295,6 +295,16 @@ async function createSwmsAssignmentsAdmin(
       return { error: null, created: currentRows.length };
     }
 
+    const lower = error.message.toLowerCase();
+    if (
+      lower.includes("duplicate key") ||
+      lower.includes("unique constraint") ||
+      lower.includes("already exists")
+    ) {
+      // Concurrent/idempotent assign — treat as skipped, not failure.
+      return { error: null, created: 0 };
+    }
+
     const missingColumn = optionalColumns.find(
       (field) =>
         error.message.toLowerCase().includes(field.toLowerCase()) &&
