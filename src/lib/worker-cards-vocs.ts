@@ -17,6 +17,8 @@ export interface WorkerCardVocEntry {
   issue_date: string | null;
   expiry_date: string | null;
   document_url: string | null;
+  /** Optional back-of-card / second image */
+  document_url_back: string | null;
 }
 
 export const WORKER_CARD_CATEGORIES: WorkerCardCategory[] = [
@@ -70,6 +72,7 @@ export function createEmptyCardVocEntry(
     issue_date: null,
     expiry_date: null,
     document_url: null,
+    document_url_back: null,
   };
 }
 
@@ -95,6 +98,7 @@ export function parseCardsVocs(raw: unknown): WorkerCardVocEntry[] {
         issue_date: optionalText(row.issue_date),
         expiry_date: optionalText(row.expiry_date),
         document_url: optionalText(row.document_url),
+        document_url_back: optionalText(row.document_url_back),
       } satisfies WorkerCardVocEntry;
     })
     .filter((entry): entry is WorkerCardVocEntry => entry !== null);
@@ -115,6 +119,7 @@ export function serializeCardsVocs(entries: WorkerCardVocEntry[]): WorkerCardVoc
       issue_date: optionalText(entry.issue_date),
       expiry_date: optionalText(entry.expiry_date),
       document_url: optionalText(entry.document_url),
+      document_url_back: optionalText(entry.document_url_back),
     };
   });
 }
@@ -144,6 +149,7 @@ export function hydrateCardsVocsFromWorker(
       issue_date: worker.white_card_issue_date,
       expiry_date: null,
       document_url: worker.white_card_doc_url ?? worker.white_card_photo_url,
+      document_url_back: null,
     });
   }
 
@@ -163,6 +169,7 @@ export function hydrateCardsVocsFromWorker(
       issue_date: null,
       expiry_date: worker.drivers_licence_expiry,
       document_url: worker.drivers_licence_photo_url,
+      document_url_back: null,
     });
   }
 
@@ -176,6 +183,7 @@ export function hydrateCardsVocsFromWorker(
       issue_date: worker.silica_cert_issue_date,
       expiry_date: null,
       document_url: worker.silica_cert_doc_url ?? worker.silica_cert_photo_url,
+      document_url_back: null,
     });
   }
 
@@ -190,6 +198,7 @@ export function hydrateCardsVocsFromWorker(
       issue_date: voc.issue_date,
       expiry_date: voc.expiry_date,
       document_url: voc.document_url,
+      document_url_back: null,
     });
   }
 

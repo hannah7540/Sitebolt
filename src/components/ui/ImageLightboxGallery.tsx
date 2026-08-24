@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X } from "lucide-react";
 
 export interface LightboxImage {
   url: string;
@@ -20,10 +20,16 @@ export default function ImageLightboxGallery({
   onClose,
 }: ImageLightboxGalleryProps) {
   const [index, setIndex] = useState(initialIndex);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     setIndex(initialIndex);
+    setZoom(1);
   }, [initialIndex]);
+
+  useEffect(() => {
+    setZoom(1);
+  }, [index]);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -57,6 +63,16 @@ export default function ImageLightboxGallery({
       if (event.key === "ArrowRight") {
         event.preventDefault();
         goNext();
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))));
+        return;
+      }
+      if (event.key === "-") {
+        event.preventDefault();
+        setZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))));
       }
     };
 
@@ -84,6 +100,42 @@ export default function ImageLightboxGallery({
       >
         <X className="h-6 w-6" />
       </button>
+
+      <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/50 p-1">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))));
+          }}
+          aria-label="Zoom out"
+          className="rounded-full p-2 text-white hover:bg-black/60"
+        >
+          <ZoomOut className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setZoom((value) => (value > 1 ? 1 : 2));
+          }}
+          className="min-w-[3.5rem] px-2 text-center text-xs font-semibold text-white"
+          aria-label="Toggle zoom"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))));
+          }}
+          aria-label="Zoom in"
+          className="rounded-full p-2 text-white hover:bg-black/60"
+        >
+          <ZoomIn className="h-5 w-5" />
+        </button>
+      </div>
 
       {images.length > 1 ? (
         <>
@@ -113,14 +165,16 @@ export default function ImageLightboxGallery({
       ) : null}
 
       <div
-        className="flex max-h-[92vh] max-w-[96vw] flex-col items-center gap-3 px-14"
+        className="flex max-h-[92vh] max-w-[96vw] flex-col items-center gap-3 overflow-auto px-14"
         onClick={(event) => event.stopPropagation()}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={current.url}
           alt={current.alt}
-          className="max-h-[82vh] max-w-full object-contain"
+          className="max-h-[82vh] max-w-full origin-center object-contain transition-transform duration-150"
+          style={{ transform: `scale(${zoom})` }}
+          onDoubleClick={() => setZoom((value) => (value > 1 ? 1 : 2))}
         />
         <p className="max-w-xl text-center text-sm text-white/90">
           {current.alt}

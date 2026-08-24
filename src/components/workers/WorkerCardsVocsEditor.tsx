@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Plus, Trash2, ZoomIn } from "lucide-react";
 import {
   WORKER_CARD_CATEGORIES,
   WORKER_CARD_CATEGORY_LABELS,
@@ -12,8 +12,8 @@ import {
 import { VOC_TYPE_OPTIONS, getVocDisplayTitle } from "@/lib/voc-utils";
 import { getTicketStatus } from "@/lib/worker-utils";
 import { getTicketBadgeLabel } from "@/lib/worker-compliance";
-import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import DocumentCapture from "@/components/ui/DocumentCapture";
+import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 
@@ -21,6 +21,14 @@ interface WorkerCardsVocsEditorProps {
   workerId: string;
   entries: WorkerCardVocEntry[];
   onChange: (entries: WorkerCardVocEntry[]) => void;
+  /** When false, viewing is allowed but editing/upload is disabled. */
+  canEdit?: boolean;
+}
+
+function isPreviewableImage(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (lower.includes(".pdf")) return false;
+  return true;
 }
 
 function EntryForm({
@@ -36,26 +44,7 @@ function EntryForm({
   onDone: () => void;
   onDelete: () => void;
 }) {
-  const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-
-  const handleUpload = async (file: File | null) => {
-    if (!file) {
-      setPendingFile(null);
-      return;
-    }
-    setPendingFile(file);
-    setUploading(true);
-    const url = await uploadWorkerDocumentSafe(
-      file,
-      `workers/${workerId}/cards-vocs/${entry.id}/${Date.now()}`
-    );
-    setUploading(false);
-    if (url) {
-      onChange({ ...entry, document_url: url });
-      setPendingFile(null);
-    }
-  };
 
   return (
     <div className={cn(sectionClass, "space-y-3")}>
@@ -130,16 +119,19 @@ function EntryForm({
       <DocumentCapture
         label="Document attachment"
         file={pendingFile}
-        onFileChange={(file) => void handleUpload(file)}
+        onFileChange={setPendingFile}
         existingUrl={entry.document_url}
+        existingUrlBack={entry.document_url_back}
         uploadedUrl={entry.document_url}
-        disabled={uploading}
+        uploadedUrlBack={entry.document_url_back}
+        uploadPath={`workers/${workerId}/cards-vocs/${entry.id}/front`}
+        uploadPathBack={`workers/${workerId}/cards-vocs/${entry.id}/back`}
+        onUploaded={(url) => {
+          onChange({ ...entry, document_url: url });
+          setPendingFile(null);
+        }}
+        onUploadedBack={(url) => onChange({ ...entry, document_url_back: url })}
       />
-      {uploading && (
-        <p className="flex items-center gap-1.5 text-xs text-slate-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading document…
-        </p>
-      )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -165,10 +157,12 @@ function EntrySummary({
   entry,
   onEdit,
   onDelete,
+  canEdit,
 }: {
   entry: WorkerCardVocEntry;
   onEdit: () => void;
   onDelete: () => void;
+  canEdit: boolean;
 }) {
   const status = getTicketStatus(entry.expiry_date);
   const badgeStyles = {
@@ -177,23 +171,65 @@ function EntrySummary({
     expired: "bg-red-100 text-red-800",
     unknown: "bg-slate-100 text-slate-600",
   };
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const title =
+    getVocDisplayTitle({
+      voc_type: entry.voc_type,
+      title: entry.ticket_name,
+    }) || entry.ticket_name;
+
+  const images = [
+    ...(entry.document_url && isPreviewableImage(entry.document_url)
+      ? [{ url: entry.document_url, alt: `${title} (front)` }]
+      : []),
+    ...(entry.document_url_back && isPreviewableImage(entry.document_url_back)
+      ? [{ url: entry.document_url_back, alt: `${title} (back)` }]
+      : []),
+  ];
 
   return (
     <div className={cn(cardClass, "flex flex-wrap items-start justify-between gap-3 p-4")}>
-      <div>
-        <p className="font-semibold text-slate-900">
-          {getVocDisplayTitle({
-            voc_type: entry.voc_type,
-            title: entry.ticket_name,
-          }) || entry.ticket_name}
-        </p>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-left"
+        >
+          <p className="font-semibold text-slate-900 hover:text-orange-700">
+            {title}
+          </p>
+        </button>
         {entry.ticket_number ? (
           <p className="text-sm text-slate-500">No. {entry.ticket_number}</p>
         ) : null}
         <p className="mt-1 text-xs text-slate-500">
           Issued: {entry.issue_date ?? "—"} · Expires: {entry.expiry_date ?? "—"}
         </p>
-        {entry.document_url ? (
+
+        {images.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {images.map((image, index) => (
+              <button
+                key={image.url}
+                type="button"
+                onClick={() => setLightboxIndex(index)}
+                className="group relative h-14 w-14 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                aria-label={`Preview ${image.alt}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={image.url}
+                  alt={image.alt}
+                  className="h-full w-full object-cover"
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/35">
+                  <ZoomIn className="h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : entry.document_url ? (
           <a
             href={entry.document_url}
             target="_blank"
@@ -210,19 +246,37 @@ function EntrySummary({
         </span>
         <button
           type="button"
-          onClick={onEdit}
+          onClick={() => {
+            if (canEdit) {
+              onEdit();
+              return;
+            }
+            if (images.length > 0) {
+              setLightboxIndex(0);
+            }
+          }}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-orange-300"
         >
-          <Pencil className="h-3 w-3" /> Edit
+          <Pencil className="h-3 w-3" /> {canEdit ? "Edit" : "View"}
         </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-        >
-          <Trash2 className="h-3 w-3" /> Delete
-        </button>
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="h-3 w-3" /> Delete
+          </button>
+        ) : null}
       </div>
+
+      {lightboxIndex !== null && images.length > 0 ? (
+        <ImageLightboxGallery
+          images={images}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -231,6 +285,7 @@ export default function WorkerCardsVocsEditor({
   workerId,
   entries,
   onChange,
+  canEdit = true,
 }: WorkerCardsVocsEditorProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -244,6 +299,7 @@ export default function WorkerCardsVocsEditor({
   };
 
   const addEntry = (category: WorkerCardCategory) => {
+    if (!canEdit) return;
     const next = createEmptyCardVocEntry(category);
     onChange([...entries, next]);
     setEditingId(next.id);
@@ -259,14 +315,16 @@ export default function WorkerCardsVocsEditor({
               <h3 className="text-sm font-semibold text-slate-900">
                 {WORKER_CARD_CATEGORY_LABELS[category]}
               </h3>
-              <button
-                type="button"
-                onClick={() => addEntry(category)}
-                className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add entry
-              </button>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => addEntry(category)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add entry
+                </button>
+              ) : null}
             </div>
 
             {categoryEntries.length === 0 ? (
@@ -276,7 +334,7 @@ export default function WorkerCardsVocsEditor({
             ) : (
               <div className="space-y-3">
                 {categoryEntries.map((entry) =>
-                  editingId === entry.id ? (
+                  editingId === entry.id && canEdit ? (
                     <EntryForm
                       key={entry.id}
                       entry={entry}
@@ -289,6 +347,7 @@ export default function WorkerCardsVocsEditor({
                     <EntrySummary
                       key={entry.id}
                       entry={entry}
+                      canEdit={canEdit}
                       onEdit={() => setEditingId(entry.id)}
                       onDelete={() => removeEntry(entry.id)}
                     />

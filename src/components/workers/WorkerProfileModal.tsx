@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
+import { X, Loader2, AlertTriangle, ExternalLink, Pencil, ZoomIn } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
   fetchWorkerVocs,
@@ -17,6 +17,9 @@ import {
 } from "@/lib/worker-compliance";
 import { getTicketStatus, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import type { VocDraft } from "@/lib/voc-utils";
+import { getVocDisplayTitle } from "@/lib/voc-utils";
+import EditVocModal from "@/components/workers/EditVocModal";
+import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import VocListEditor from "./VocListEditor";
 import { cn } from "@/lib/utils";
 import { modalOverlayClass, modalClass } from "@/lib/ui-classes";
@@ -28,7 +31,13 @@ interface WorkerProfileModalProps {
   onSaved?: () => void;
 }
 
-function ExistingVocCard({ voc }: { voc: WorkerVoc }) {
+function ExistingVocCard({
+  voc,
+  onOpen,
+}: {
+  voc: WorkerVoc;
+  onOpen: () => void;
+}) {
   const status = getTicketStatus(voc.expiry_date);
   const styles = {
     valid: "border-emerald-200 bg-emerald-50",
@@ -42,16 +51,22 @@ function ExistingVocCard({ voc }: { voc: WorkerVoc }) {
     expired: "bg-red-100 text-red-800",
     unknown: "bg-slate-100 text-slate-600",
   };
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const hasImage =
+    Boolean(voc.document_url) &&
+    !String(voc.document_url).toLowerCase().includes(".pdf");
 
   return (
     <div className={cn("rounded-xl border p-4", styles[status])}>
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-slate-900">{voc.title}</p>
+        <button type="button" onClick={onOpen} className="min-w-0 text-left">
+          <p className="font-semibold text-slate-900 hover:text-orange-700">
+            {getVocDisplayTitle(voc)}
+          </p>
           {voc.issuing_org && (
             <p className="text-xs text-slate-500">{voc.issuing_org}</p>
           )}
-        </div>
+        </button>
         <span
           className={cn(
             "shrink-0 rounded px-2 py-0.5 text-xs font-bold",
@@ -65,16 +80,49 @@ function ExistingVocCard({ voc }: { voc: WorkerVoc }) {
         <span>Issued: {voc.issue_date ?? "—"}</span>
         <span>Expires: {voc.expiry_date ?? "—"}</span>
       </div>
-      {voc.document_url && (
-        <a
-          href={voc.document_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1 text-xs text-sky-400 hover:underline"
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {hasImage && voc.document_url ? (
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="group relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-white"
+            aria-label="Preview VOC document"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={voc.document_url}
+              alt={getVocDisplayTitle(voc)}
+              className="h-full w-full object-cover"
+            />
+            <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30">
+              <ZoomIn className="h-3.5 w-3.5 text-white opacity-0 group-hover:opacity-100" />
+            </span>
+          </button>
+        ) : voc.document_url ? (
+          <a
+            href={voc.document_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline"
+          >
+            <ExternalLink className="h-3 w-3" /> View document
+          </a>
+        ) : null}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:border-orange-300"
         >
-          <ExternalLink className="h-3 w-3" /> View document
-        </a>
-      )}
+          <Pencil className="h-3 w-3" /> Edit VOC
+        </button>
+      </div>
+      {lightboxOpen && voc.document_url ? (
+        <ImageLightboxGallery
+          images={[{ url: voc.document_url, alt: getVocDisplayTitle(voc) }]}
+          initialIndex={0}
+          onClose={() => setLightboxOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -87,6 +135,7 @@ export default function WorkerProfileModal({
 }: WorkerProfileModalProps) {
   const [existingVocs, setExistingVocs] = useState<WorkerVoc[]>(initialVocs);
   const [newVocs, setNewVocs] = useState<VocDraft[]>([]);
+  const [editingVoc, setEditingVoc] = useState<WorkerVoc | null>(null);
   const [loadingVocs, setLoadingVocs] = useState(initialVocs.length === 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,7 +299,11 @@ export default function WorkerProfileModal({
           ) : (
             <div className="mt-3 space-y-2">
               {existingVocs.map((voc) => (
-                <ExistingVocCard key={voc.id} voc={voc} />
+                <ExistingVocCard
+                  key={voc.id}
+                  voc={voc}
+                  onOpen={() => setEditingVoc(voc)}
+                />
               ))}
             </div>
           )}
@@ -294,6 +347,27 @@ export default function WorkerProfileModal({
           </button>
         </div>
       </div>
+
+      {editingVoc ? (
+        <EditVocModal
+          voc={editingVoc}
+          workerId={worker.id}
+          onClose={() => setEditingVoc(null)}
+          onSaved={async (updated) => {
+            const next = existingVocs.map((row) =>
+              row.id === updated.id ? updated : row
+            );
+            setExistingVocs(next);
+            setEditingVoc(null);
+            await updateWorkerStatusFromVocs(
+              worker.id,
+              worker.drivers_licence_expiry,
+              next.map((v) => v.expiry_date)
+            );
+            onSaved?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

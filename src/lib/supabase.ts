@@ -1801,6 +1801,64 @@ export async function insertWorkerVocs(
   return { error: lastError };
 }
 
+export async function updateWorkerVoc(
+  vocId: string,
+  updates: {
+    title?: string;
+    voc_type?: string | null;
+    issuing_org?: string | null;
+    issue_date?: string | null;
+    expiry_date?: string | null;
+    document_url?: string | null;
+  }
+): Promise<{ error: string | null }> {
+  const vocType = String(updates.voc_type ?? updates.title ?? "").trim();
+  const basePayload: Record<string, unknown> = {
+    issuing_org: updates.issuing_org ?? null,
+    issue_date: nullIfBlankWorkerDate(updates.issue_date),
+    expiry_date: nullIfBlankWorkerDate(updates.expiry_date),
+    document_url: updates.document_url ?? null,
+  };
+
+  if (vocType) {
+    basePayload.title = vocType;
+    basePayload.voc_type = vocType;
+    basePayload.name = vocType;
+  }
+
+  const attempts = [
+    basePayload,
+    (() => {
+      const { name: _name, voc_type: _vocType, ...rest } = basePayload;
+      return rest;
+    })(),
+    (() => {
+      const { name: _name, ...rest } = basePayload;
+      return rest;
+    })(),
+  ];
+
+  let lastError: string | null = null;
+  for (const payload of attempts) {
+    const { error } = await supabase
+      .from("worker_vocs")
+      .update(payload)
+      .eq("id", vocId);
+    if (!error) return { error: null };
+    lastError = error.message;
+    const lower = error.message.toLowerCase();
+    if (
+      !lower.includes("column") &&
+      !lower.includes("schema cache") &&
+      !lower.includes("could not find")
+    ) {
+      break;
+    }
+  }
+
+  return { error: lastError };
+}
+
 export async function deleteWorkerVoc(vocId: string): Promise<{ error: string | null }> {
   const { error } = await supabase.from("worker_vocs").delete().eq("id", vocId);
   return { error: error?.message ?? null };
