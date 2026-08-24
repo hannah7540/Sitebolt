@@ -11,30 +11,24 @@ platform :ios do
       in_house: false
     )
 
-    cocoapods(
-      podfile: "Podfile",
-      try_repo_update_on_error: true
-    )
-
     increment_build_number(
       build_number: Time.now.to_i.to_s,
       xcodeproj: "App.xcodeproj"
     )
 
     build_app(
-      workspace: "App.xcworkspace",
+      project: "App.xcodeproj",
       scheme: "App",
       configuration: "Release",
       clean: true,
       export_method: "app-store",
+      api_key: api_key,
       export_options: {
         method: "app-store",
         signingStyle: "automatic",
-        teamID: ENV["APPLE_TEAM_ID"],
-        manageAppVersionAndBuildNumber: true,
-        uploadSymbols: true
+        teamID: ENV["APPLE_TEAM_ID"]
       },
-      xcargs: "CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -allowProvisioningUpdates"
+      xcargs: "-allowProvisioningUpdates"
     )
 
     upload_to_testflight(
