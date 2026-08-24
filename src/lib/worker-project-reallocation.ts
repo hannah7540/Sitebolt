@@ -2,10 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadCompanyProfile } from "@/lib/company-profile-service";
 import { sendEmail } from "@/lib/email-service";
 import {
-  FORM_WORKER_ASSIGNMENTS_TABLE,
-  INDUCTION_FORM_TEMPLATES_TABLE,
-  sanitizeFormWorkerAssignmentRow,
-} from "@/lib/induction-form-builder";
+  assignProjectInductionsForWorker,
+  findActiveProjectInductionTemplates,
+} from "@/lib/worker-induction-auto-assign";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { getWorkerDisplayName, splitWorkerFullName } from "@/lib/worker-utils";
@@ -38,27 +37,6 @@ type WorkerRow = {
   worker_name: string | null;
 };
 
-type ProjectInductionTemplate = {
-  id: string;
-  title: string;
-  project_id: string | null;
-};
-
-function isMissingTableError(message: string, table: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes(table.toLowerCase()) &&
-    (lower.includes("does not exist") ||
-      lower.includes("could not find") ||
-      lower.includes("schema cache"))
-  );
-}
-
-function isMissingColumnError(message: string, column: string): boolean {
-  const lower = message.toLowerCase();
-  return lower.includes(column.toLowerCase()) && lower.includes("column");
-}
-
 async function fetchWorkerRow(
   admin: SupabaseClient,
   workerId: string
@@ -75,215 +53,6 @@ async function fetchWorkerRow(
   }
 
   return (data as WorkerRow | null) ?? null;
-}
-
-async function findActiveProjectInductionTemplate(
-  admin: SupabaseClient,
-  projectId: string
-): Promise<ProjectInductionTemplate | null> {
-  try {
-    const projectKeys = new Set<string>([projectId]);
-    const { data: projectRow } = await admin
-      .from("projects")
-      .select("id, slug")
-      .or(`id.eq.${projectId},slug.eq.${projectId}`)
-      .maybeSingle();
-
-    if (projectRow) {
-      if (projectRow.id) projectKeys.add(String(projectRow.id));
-      if (projectRow.slug) projectKeys.add(String(projectRow.slug));
-    }
-
-    for (const key of projectKeys) {
-      const { data, error } = await admin
-        .from(INDUCTION_FORM_TEMPLATES_TABLE)
-        .select("id, title, project_id, scope, status")
-        .eq("scope", "project")
-        .eq("status", "active")
-        .eq("project_id", key)
-        .order("updated_at", { ascending: false })
-        .limit(1);
-
-      if (error) {
-        if (isMissingTableError(error.message, INDUCTION_FORM_TEMPLATES_TABLE)) {
-          console.warn(
-            "[worker-reallocation] induction templates table unavailable; skipping assignment."
-          );
-          return null;
-        }
-        console.warn("[worker-reallocation] template lookup failed:", error.message);
-        continue;
-      }
-
-      const row = (data ?? [])[0] as Record<string, unknown> | undefined;
-      if (row?.id) {
-        return {
-          id: String(row.id),
-          title: String(row.title ?? "Site induction"),
-          project_id: row.project_id ? String(row.project_id) : null,
-        };
-      }
-    }
-
-    console.warn(
-      `[worker-reallocation] no active project induction template for project ${projectId}.`
-    );
-    return null;
-  } catch (cause) {
-    console.warn("[worker-reallocation] template lookup error:", cause);
-    return null;
-  }
-}
-
-async function workerAlreadyHasInductionAssignment(
-  admin: SupabaseClient,
-  templateId: string,
-  workerId: string
-): Promise<boolean> {
-  const { data, error } = await admin
-    .from(FORM_WORKER_ASSIGNMENTS_TABLE)
-    .select("id")
-    .eq("worker_id", workerId)
-    .or(`form_id.eq.${templateId},form_template_id.eq.${templateId}`)
-    .limit(1);
-
-  if (error) {
-    if (isMissingTableError(error.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
-      return false;
-    }
-    if (isMissingColumnError(error.message, "form_template_id")) {
-      const fallback = await admin
-        .from(FORM_WORKER_ASSIGNMENTS_TABLE)
-        .select("id")
-        .eq("worker_id", workerId)
-        .eq("form_id", templateId)
-        .limit(1);
-      if (fallback.error) {
-        console.warn(
-          "[worker-reallocation] assignment lookup failed:",
-          fallback.error.message
-        );
-        return false;
-      }
-      return (fallback.data ?? []).length > 0;
-    }
-    console.warn("[worker-reallocation] assignment lookup failed:", error.message);
-    return false;
-  }
-
-  return (data ?? []).length > 0;
-}
-
-async function insertProjectInductionAssignment(
-  admin: SupabaseClient,
-  input: {
-    template: ProjectInductionTemplate;
-    worker: WorkerRow;
-    workerId: string;
-    projectId: string;
-    projectName: string;
-    effectiveDate: string;
-  }
-): Promise<boolean> {
-  const workerName = getWorkerDisplayName(input.worker, "Worker");
-  const assignedAt = `${input.effectiveDate.slice(0, 10)}T12:00:00.000Z`;
-  const payload = sanitizeFormWorkerAssignmentRow({
-    template: {
-      id: input.template.id,
-      title: input.template.title,
-      project_id: input.projectId,
-      project_name: input.projectName,
-    },
-    worker: {
-      id: input.workerId,
-      full_name: workerName,
-      project_id: input.projectId,
-      project_name: input.projectName,
-    },
-    assignedBy: { id: "system", full_name: "SiteBolt Calendar" },
-    assignedAt,
-  });
-
-  let currentPayload: Record<string, unknown> = {
-    ...payload,
-    due_date: input.effectiveDate.slice(0, 10),
-  };
-  const optionalColumns = [
-    "form_template_id",
-    "template_id",
-    "form_title",
-    "worker_name",
-    "project_name",
-    "assigned_by",
-    "assigned_by_id",
-    "assigned_by_name",
-    "due_date",
-  ] as const;
-
-  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
-    const { error } = await admin
-      .from(FORM_WORKER_ASSIGNMENTS_TABLE)
-      .insert([currentPayload]);
-
-    if (!error) {
-      return true;
-    }
-
-    if (isMissingTableError(error.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
-      console.warn("[worker-reallocation] assignments table unavailable.");
-      return false;
-    }
-
-    const columnToDrop = optionalColumns.find(
-      (column) =>
-        isMissingColumnError(error.message, column) && column in currentPayload
-    );
-
-    if (!columnToDrop) {
-      console.warn("[worker-reallocation] assignment insert failed:", error.message);
-      return false;
-    }
-
-    const nextPayload = { ...currentPayload };
-    delete nextPayload[columnToDrop];
-    currentPayload = nextPayload;
-  }
-
-  return false;
-}
-
-async function assignProjectInductionIfNeeded(
-  admin: SupabaseClient,
-  input: {
-    workerId: string;
-    projectId: string;
-    projectName: string;
-    worker: WorkerRow;
-    effectiveDate: string;
-  }
-): Promise<boolean> {
-  const template = await findActiveProjectInductionTemplate(admin, input.projectId);
-  if (!template) {
-    return false;
-  }
-
-  const alreadyAssigned = await workerAlreadyHasInductionAssignment(
-    admin,
-    template.id,
-    input.workerId
-  );
-  if (alreadyAssigned) {
-    return false;
-  }
-
-  return insertProjectInductionAssignment(admin, {
-    template,
-    worker: input.worker,
-    workerId: input.workerId,
-    projectId: input.projectId,
-    projectName: input.projectName,
-    effectiveDate: input.effectiveDate,
-  });
 }
 
 function resolveWorkerFirstName(worker: WorkerRow): string {
@@ -371,13 +140,18 @@ export async function processWorkerProjectReallocation(
 
   let inductionAssigned = false;
   try {
-    inductionAssigned = await assignProjectInductionIfNeeded(admin, {
-      workerId,
-      projectId,
-      projectName,
-      worker,
-      effectiveDate,
+    const templates = await findActiveProjectInductionTemplates(admin, projectId);
+    if (templates.length === 0) {
+      console.warn(
+        `[worker-reallocation] no active project induction template for project ${projectId}.`
+      );
+    }
+
+    const assignResult = await assignProjectInductionsForWorker(admin, workerId, [projectId], {
+      projectNames: { [projectId]: projectName },
     });
+    inductionAssigned = assignResult.assigned > 0;
+    warnings.push(...assignResult.warnings);
   } catch (cause) {
     console.warn("[worker-reallocation] induction assignment error:", cause);
     warnings.push("Project induction assignment skipped due to an error.");

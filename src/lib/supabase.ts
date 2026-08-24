@@ -1228,6 +1228,24 @@ export async function assignMasterWorkerToProject(input: {
       WORKER_JUNCTION_OPTIONAL_COLUMNS
     );
 
+    try {
+      const { applyWorkerInductionWorkflowRulesForWorker } = await import(
+        "./worker-induction-auto-assign"
+      );
+      await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+        projectIds: [resolvedProjectId],
+        projectNames: projectName
+          ? { [resolvedProjectId]: projectName }
+          : undefined,
+        includeExistingProjects: false,
+      });
+    } catch (cause) {
+      console.warn(
+        "[assignMasterWorkerToProject] induction auto-assign skipped:",
+        cause
+      );
+    }
+
     return { error: null };
   } catch (error) {
     console.warn("assignMasterWorkerToProject failed:", error);
@@ -1538,6 +1556,21 @@ export async function addWorker(
       worker.state,
       worker.is_apprentice ?? false
     );
+  }
+
+  if (workerId) {
+    try {
+      const { applyWorkerInductionWorkflowRulesForWorker } = await import(
+        "./worker-induction-auto-assign"
+      );
+      await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+        state: worker.state ?? null,
+        projectIds: resolvedProjectId ? [resolvedProjectId] : [],
+        includeExistingProjects: false,
+      });
+    } catch (cause) {
+      console.warn("[addWorker] induction auto-assign skipped:", cause);
+    }
   }
 
   return { error: null, workerId };
@@ -1919,6 +1952,27 @@ export async function updateWorker(
     .from("workers")
     .update(payload)
     .eq("id", workerId);
+
+  if (!error) {
+    const stateChanged = updates.state !== undefined;
+    const projectChanged = updates.assigned_project_id !== undefined;
+    if (stateChanged || projectChanged) {
+      try {
+        const { applyWorkerInductionWorkflowRulesForWorker } = await import(
+          "./worker-induction-auto-assign"
+        );
+        await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+          state: stateChanged ? (updates.state ?? null) : undefined,
+          projectIds: projectChanged
+            ? [payload.assigned_project_id as string | null]
+            : [],
+          includeExistingProjects: false,
+        });
+      } catch (cause) {
+        console.warn("[updateWorker] induction auto-assign skipped:", cause);
+      }
+    }
+  }
 
   return { error: error?.message ?? null };
 }

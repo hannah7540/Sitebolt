@@ -74,8 +74,10 @@ import FormViewer from "./FormViewer";
 import {
   fetchOutstandingWorkerFormAssignments,
   resolveAssignmentProjectLabel,
+  FORM_WORKER_ASSIGNMENTS_TABLE,
   type FormWorkerAssignment,
 } from "@/lib/induction-form-builder";
+import { WORKER_INDUCTIONS_CHANGED_EVENT } from "@/lib/worker-induction-events";
 import {
   canCustomizeDashboardLayout,
   normalizeSecurityRole,
@@ -455,6 +457,23 @@ export default function WorkerDashboardView({
     );
   }, [effectiveWorkerId]);
 
+  const refreshPendingInductions = useCallback(async () => {
+    const resolvedWorkerId = effectiveWorkerId?.trim();
+    if (!resolvedWorkerId || !isSupabaseConfigured()) return;
+
+    try {
+      const workerDisplayName = worker ? getWorkerDisplayName(worker) : null;
+      const { assignments } = await fetchOutstandingWorkerFormAssignments({
+        workerId: resolvedWorkerId,
+        workerName: workerDisplayName,
+        profileFullName: worker?.full_name ?? workerDisplayName,
+      });
+      setPendingInductions(assignments);
+    } catch (cause) {
+      console.warn("Worker dashboard induction refresh failed:", cause);
+    }
+  }, [effectiveWorkerId, worker]);
+
   useEffect(() => {
     const resolvedWorkerId = effectiveWorkerId?.trim();
     if (!resolvedWorkerId || !isSupabaseConfigured()) return;
@@ -473,32 +492,61 @@ export default function WorkerDashboardView({
           void refreshTimesheets();
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: FORM_WORKER_ASSIGNMENTS_TABLE,
+          filter: `worker_id=eq.${resolvedWorkerId}`,
+        },
+        () => {
+          void refreshPendingInductions();
+        }
+      )
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [effectiveWorkerId, refreshTimesheets]);
+  }, [effectiveWorkerId, refreshTimesheets, refreshPendingInductions]);
 
   useEffect(() => {
     const handleFocusRefresh = () => {
       void refreshTimesheets();
+      void refreshPendingInductions();
     };
 
     const handleVisibilityRefresh = () => {
       if (document.visibilityState === "visible") {
         void refreshTimesheets();
+        void refreshPendingInductions();
       }
+    };
+
+    const handleInductionsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ workerId?: string | null }>).detail;
+      const targetId = detail?.workerId?.trim();
+      const resolvedWorkerId = effectiveWorkerId?.trim();
+      if (targetId && resolvedWorkerId && targetId !== resolvedWorkerId) {
+        return;
+      }
+      void refreshPendingInductions();
     };
 
     window.addEventListener("focus", handleFocusRefresh);
     document.addEventListener("visibilitychange", handleVisibilityRefresh);
+    window.addEventListener(WORKER_INDUCTIONS_CHANGED_EVENT, handleInductionsChanged);
 
     return () => {
       window.removeEventListener("focus", handleFocusRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+      window.removeEventListener(
+        WORKER_INDUCTIONS_CHANGED_EVENT,
+        handleInductionsChanged
+      );
     };
-  }, [refreshTimesheets]);
+  }, [effectiveWorkerId, refreshTimesheets, refreshPendingInductions]);
 
   const grantedProjectIds = useMemo(
     () => (worker ? getWorkerAssignedProjectIds(worker) : []),
