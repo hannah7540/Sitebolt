@@ -8,11 +8,14 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -31,11 +34,6 @@ jobs:
           npx cap add ios || true
           npx cap sync ios
 
-      - name: Resolve Swift Package Dependencies
-        run: |
-          cd ios/App
-          xcodebuild -resolvePackageDependencies -project App.xcodeproj
-
       - name: Setup App Store Connect API Key
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -52,7 +50,7 @@ jobs:
           xcrun agvtool new-version -all $(date +%s) || true
           sed -i '' "s/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = ${TEAM_ID};/g" App.xcodeproj/project.pbxproj || true
 
-      - name: Build & Archive iOS App (Unsigned Intermediate)
+      - name: Build & Archive iOS App
         run: |
           cd ios/App
           xcodebuild clean archive \
