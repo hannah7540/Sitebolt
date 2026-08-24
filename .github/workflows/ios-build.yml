@@ -19,13 +19,13 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: Install Node Dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build Web Application
+      - name: Build web application
         run: npm run build
 
-      - name: Sync Capacitor iOS & Install Pods
+      - name: Sync Capacitor iOS & CocoaPods
         run: |
           npx cap sync ios
           cd ios/App
@@ -56,9 +56,11 @@ jobs:
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            ENABLE_USER_SCRIPT_SANDBOXING=NO \
+            COMPUTE_SYS_PODS_FRAMEWORKS_CODE_SIGN_IDENTITY=""
 
       - name: Create ExportOptions.plist
         env:
