@@ -25,13 +25,10 @@ jobs:
       - name: Build web application
         run: npm run build
 
-      - name: Sync Capacitor iOS
-        run: npx cap sync ios
-
-      - name: Install CocoaPods
+      - name: Add and Sync Capacitor iOS
         run: |
-          cd ios/App
-          pod install
+          npx cap add ios || true
+          npx cap sync ios
 
       - name: Setup App Store Connect API Key
         env:
