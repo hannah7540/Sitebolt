@@ -17,21 +17,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build web application
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          export NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}"
-          export NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder-anon-key}"
-          export SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-placeholder-service-role-key}"
-          npm run build
+        run: npm run build
 
       - name: Sync Capacitor iOS
         run: npx cap sync ios
@@ -39,11 +31,7 @@ jobs:
       - name: Install CocoaPods
         run: |
           cd ios/App
-          if [ -f Podfile ]; then
-            pod install
-          else
-            echo "No Podfile found; continuing with App.xcodeproj (Capacitor SPM)."
-          fi
+          pod install
 
       - name: Setup App Store Connect API Key
         env:
@@ -53,42 +41,23 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$KEY_CONTENT" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
 
-      - name: Configure Project Team and Build Version
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Configure Project Build Version
         run: |
           cd ios/App
           xcrun agvtool new-version -all $(date +%s)
-          if grep -q "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj; then
-            sed -i '' "s/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = ${TEAM_ID};/g" App.xcodeproj/project.pbxproj
-          else
-            sed -i '' "s/CODE_SIGN_STYLE = Automatic;/DEVELOPMENT_TEAM = ${TEAM_ID}; CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
-          fi
 
-      - name: Build & Archive (Generic iOS Device)
-        env:
-          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Build & Archive (Unsigned Intermediate Build)
         run: |
           cd ios/App
-          if [ -d App.xcworkspace ]; then
-            XCODE_TARGET="-workspace App.xcworkspace"
-          else
-            XCODE_TARGET="-project App.xcodeproj"
-          fi
           xcodebuild clean archive \
-            $XCODE_TARGET \
+            -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID ${KEY_ID} \
-            -authenticationKeyIssuerID ${ISSUER_ID} \
-            DEVELOPMENT_TEAM=${TEAM_ID} \
-            CODE_SIGNING_ALLOWED=YES
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Create ExportOptions.plist
         env:
@@ -115,7 +84,7 @@ jobs:
           </plist>
           EOF
 
-      - name: Export & Upload IPA to TestFlight
+      - name: Export & Sign IPA
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -130,7 +99,12 @@ jobs:
             -authenticationKeyID ${KEY_ID} \
             -authenticationKeyIssuerID ${ISSUER_ID}
 
-          IPA_PATH=$(find build/IPA -name "*.ipa" | head -n 1)
+      - name: Upload IPA to TestFlight
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          IPA_PATH=$(find ios/App/build/IPA -name "*.ipa" | head -n 1)
           echo "Found IPA: $IPA_PATH"
           xcrun altool --upload-app \
             -f "$IPA_PATH" \
