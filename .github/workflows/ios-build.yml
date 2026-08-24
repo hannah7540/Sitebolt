@@ -43,9 +43,14 @@ jobs:
       - name: Build Web Application
         run: npm run build
 
-      - name: Re-sync Native Capacitor Project
+      - name: Sync Native Capacitor Project
         run: |
           npx cap sync ios
+
+      - name: Configure Xcode Project Team ID & Signing
+        run: |
+          cd ios/App
+          sed -i '' "s/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = ${{ secrets.APPLE_TEAM_ID }};/g" App.xcodeproj/project.pbxproj || true
 
       - name: Run Fastlane Deployment to TestFlight
         working-directory: ios/App

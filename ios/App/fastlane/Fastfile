@@ -16,7 +16,6 @@ platform :ios do
       xcodeproj: "App.xcodeproj"
     )
 
-    # Write auth key file for xcodebuild export authentication
     key_path = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{ENV['APP_STORE_CONNECT_KEY_ID']}.p8")
     FileUtils.mkdir_p(File.dirname(key_path))
     File.write(key_path, ENV["APP_STORE_CONNECT_PRIVATE_KEY"])
@@ -30,9 +29,11 @@ platform :ios do
       export_options: {
         method: "app-store",
         signingStyle: "automatic",
-        teamID: ENV["APPLE_TEAM_ID"]
+        teamID: ENV["APPLE_TEAM_ID"],
+        manageAppVersionAndBuildNumber: true,
+        uploadSymbols: true
       },
-      xcargs: "-allowProvisioningUpdates -authenticationKeyPath #{key_path} -authenticationKeyID #{ENV['APP_STORE_CONNECT_KEY_ID']} -authenticationKeyIssuerID #{ENV['APP_STORE_CONNECT_ISSUER_ID']}",
+      xcargs: "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} -allowProvisioningUpdates -authenticationKeyPath #{key_path} -authenticationKeyID #{ENV['APP_STORE_CONNECT_KEY_ID']} -authenticationKeyIssuerID #{ENV['APP_STORE_CONNECT_ISSUER_ID']}",
       export_xcargs: "-allowProvisioningUpdates -authenticationKeyPath #{key_path} -authenticationKeyID #{ENV['APP_STORE_CONNECT_KEY_ID']} -authenticationKeyIssuerID #{ENV['APP_STORE_CONNECT_ISSUER_ID']}"
     )
 
