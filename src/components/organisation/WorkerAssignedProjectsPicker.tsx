@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
+import DropdownPanel from "@/components/ui/DropdownPanel";
 import type { DbProject } from "@/lib/project-resolver";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
@@ -55,28 +56,12 @@ export default function WorkerAssignedProjectsPicker({
   saving = false,
 }: WorkerAssignedProjectsPickerProps) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const allSelected =
     projects.length > 0 && projects.every((p) => selectedIds.includes(p.id));
 
-  useEffect(() => {
-    if (!open) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
-
-  const sortedProjects = useMemo(
-    () => [...projects].sort((a, b) => a.name.localeCompare(b.name)),
-    [projects]
-  );
+  const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name));
 
   const toggleProject = (projectId: string) => {
     onChange(
@@ -91,11 +76,14 @@ export default function WorkerAssignedProjectsPicker({
   };
 
   return (
-    <div ref={rootRef} className="relative min-w-[12rem]">
+    <div className="min-w-[12rem]">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled || saving}
         onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className={cn(
           inputClass,
           "flex min-h-[2.25rem] w-full items-center justify-between gap-2 py-1.5 text-left"
@@ -116,40 +104,46 @@ export default function WorkerAssignedProjectsPicker({
         )}
       </button>
 
-      {open && (
-        <div className="absolute left-0 z-20 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-900">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
-            />
-            Select All / All Projects
-          </label>
+      <DropdownPanel
+        open={open}
+        triggerRef={triggerRef}
+        minWidth={288}
+        matchTriggerWidth={false}
+        maxHeight={280}
+        onClose={() => setOpen(false)}
+        className="p-2"
+      >
+        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-900">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={toggleAll}
+            className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+          />
+          Select All / All Projects
+        </label>
 
-          <div className="mt-2 max-h-52 space-y-0.5 overflow-y-auto">
-            {sortedProjects.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-slate-500">No active projects.</p>
-            ) : (
-              sortedProjects.map((project) => (
-                <label
-                  key={project.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(project.id)}
-                    onChange={() => toggleProject(project.id)}
-                    className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
-                  />
-                  <span className="truncate">{project.name}</span>
-                </label>
-              ))
-            )}
-          </div>
+        <div className="mt-2 max-h-52 space-y-0.5 overflow-y-auto" role="listbox">
+          {sortedProjects.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-slate-500">No active projects.</p>
+          ) : (
+            sortedProjects.map((project) => (
+              <label
+                key={project.id}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(project.id)}
+                  onChange={() => toggleProject(project.id)}
+                  className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                />
+                <span className="truncate">{project.name}</span>
+              </label>
+            ))
+          )}
         </div>
-      )}
+      </DropdownPanel>
     </div>
   );
 }

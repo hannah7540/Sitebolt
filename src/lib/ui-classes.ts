@@ -18,3 +18,7 @@ export const modalClass =
   "relative max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl";
 
 export const labelClass = "text-xs text-slate-500";
+
+/** Portaled dropdown / combobox panel — escapes overflow-hidden parents. */
+export const dropdownPanelClass =
+  "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg";

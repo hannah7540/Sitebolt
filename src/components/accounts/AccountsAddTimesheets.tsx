@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, Loader2, Search, UserRound } from "lucide-react";
+import { Loader2, UserRound } from "lucide-react";
 import AccountsNav from "@/components/accounts/AccountsNav";
+import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { fetchAllWorkers, type Worker } from "@/lib/supabase";
@@ -51,10 +52,7 @@ export default function AccountsAddTimesheets() {
 
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workersLoading, setWorkersLoading] = useState(true);
-  const [selectedWorkerId, setSelectedWorkerId] = useState("");
-  const [workerSearch, setWorkerSearch] = useState("");
-  const [workerDropdownOpen, setWorkerDropdownOpen] = useState(false);
-  const workerDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<TimesheetProject[]>([]);
   const [tasks, setTasks] = useState<TimesheetTask[]>([]);
@@ -96,46 +94,10 @@ export default function AccountsAddTimesheets() {
     void loadTimesheetOptions();
   }, [loadWorkers, loadTimesheetOptions]);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        workerDropdownRef.current &&
-        !workerDropdownRef.current.contains(event.target as Node)
-      ) {
-        setWorkerDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   const selectedWorker = useMemo(
     () => workers.find((worker) => worker.id === selectedWorkerId) ?? null,
     [workers, selectedWorkerId]
   );
-
-  const filteredWorkers = useMemo(() => {
-    const needle = workerSearch.trim().toLowerCase();
-    let list = workers;
-
-    if (needle) {
-      list = list.filter((worker) => {
-        const name = getWorkerDisplayName(worker).toLowerCase();
-        const email = worker.email?.toLowerCase() ?? "";
-        const phone = worker.phone?.toLowerCase() ?? "";
-        return (
-          name.includes(needle) ||
-          email.includes(needle) ||
-          phone.includes(needle) ||
-          worker.full_name.toLowerCase().includes(needle)
-        );
-      });
-    }
-
-    return list.sort((a, b) =>
-      getWorkerDisplayName(a).localeCompare(getWorkerDisplayName(b))
-    );
-  }, [workers, workerSearch]);
 
   const projectGroups = useMemo(
     () => groupTimesheetProjectsByClient(projects),
@@ -196,11 +158,14 @@ export default function AccountsAddTimesheets() {
     setNotes("");
   };
 
-  const handleSelectWorker = (worker: Worker) => {
-    setSelectedWorkerId(worker.id);
-    setWorkerSearch(getWorkerDisplayName(worker));
-    setWorkerDropdownOpen(false);
+  const handleWorkerChange = (workerId: string | null) => {
+    setSelectedWorkerId(workerId);
     setShowViewLink(false);
+
+    if (!workerId) return;
+
+    const worker = workers.find((item) => item.id === workerId);
+    if (!worker) return;
 
     if (worker.assigned_project_id && projects.some((p) => p.id === worker.assigned_project_id)) {
       setSelectedProjectId(worker.assigned_project_id);
@@ -300,63 +265,24 @@ export default function AccountsAddTimesheets() {
       </div>
 
       <div className={cn(cardClass, "space-y-6 p-6")}>
-        <div ref={workerDropdownRef} className="relative">
-          <label htmlFor="worker-search" className={labelClass}>
-            Select Worker
-          </label>
-          <div className="relative mt-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              id="worker-search"
-              type="text"
-              value={workerSearch}
-              onChange={(event) => {
-                setWorkerSearch(event.target.value);
-                setWorkerDropdownOpen(true);
-                if (!event.target.value.trim()) {
-                  setSelectedWorkerId("");
-                }
-              }}
-              onFocus={() => setWorkerDropdownOpen(true)}
-              placeholder="Search by name, email, or mobile…"
-              className={cn(inputClass, "pl-9 pr-9")}
-              autoComplete="off"
-            />
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        {workersLoading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+            Loading workers…
           </div>
-
-          {workerDropdownOpen ? (
-            <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-              {workersLoading ? (
-                <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-                  Loading workers…
-                </div>
-              ) : filteredWorkers.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-slate-500">No workers found.</p>
-              ) : (
-                filteredWorkers.map((worker) => (
-                  <button
-                    key={worker.id}
-                    type="button"
-                    onClick={() => handleSelectWorker(worker)}
-                    className={cn(
-                      "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left text-sm hover:bg-orange-50",
-                      selectedWorkerId === worker.id && "bg-orange-50"
-                    )}
-                  >
-                    <span className="font-medium text-slate-900">
-                      {getWorkerDisplayName(worker)}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {[worker.email, worker.phone].filter(Boolean).join(" · ")}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          ) : null}
-        </div>
+        ) : (
+          <WorkerSearchSelect
+            id="worker-search"
+            mode="single"
+            label="Select Worker"
+            workers={workers}
+            selected={selectedWorkerId}
+            onChange={handleWorkerChange}
+            placeholder="Search by name, email, or mobile…"
+            searchPlaceholder="Search by name, email, or mobile…"
+            allowClear
+          />
+        )}
 
         {selectedWorker ? (
           <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">

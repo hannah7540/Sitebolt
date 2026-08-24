@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
+import DropdownPanel from "@/components/ui/DropdownPanel";
 import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
@@ -160,7 +161,7 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
   } = props;
 
   const mode = props.mode;
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -207,26 +208,8 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
 
   useEffect(() => {
     if (!open) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        closeDropdown();
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDropdown();
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
     searchInputRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open, closeDropdown]);
+  }, [open]);
 
   const toggleWorker = (workerId: string) => {
     if (mode !== "multiple") return;
@@ -269,7 +252,7 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
         : placeholder;
 
   return (
-    <div ref={containerRef} className="relative space-y-2">
+    <div className="space-y-2">
       {label ? (
         <label className={labelClass} htmlFor={id}>
           {label}
@@ -299,7 +282,7 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
         </div>
       ) : null}
 
-      <div className="relative">
+      <div ref={triggerRef} className="relative">
         <button
           id={id}
           type="button"
@@ -342,67 +325,70 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
         ) : null}
       </div>
 
-      {open ? (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <div className="border-b border-slate-200 p-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={searchInputRef}
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                className={`${inputClass} pl-9`}
-                disabled={disabled}
-                aria-label={searchPlaceholder}
-              />
-            </div>
-          </div>
-
-          <div
-            className="max-h-56 overflow-y-auto p-2"
-            role="listbox"
-            aria-multiselectable={mode === "multiple"}
-          >
-            {mode === "single" && unassignedOptionLabel ? (
-              <button
-                type="button"
-                role="option"
-                aria-selected={!props.selected}
-                disabled={disabled}
-                onClick={selectUnassigned}
-                className={cn(
-                  "mb-1 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-orange-50",
-                  !props.selected ? "bg-orange-50/70 text-orange-900" : "text-slate-700"
-                )}
-              >
-                {unassignedOptionLabel}
-              </button>
-            ) : null}
-
-            {activeWorkers.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-slate-500">No active workers available.</p>
-            ) : filteredWorkers.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-slate-500">No workers match your search.</p>
-            ) : (
-              filteredWorkers.map((worker) => (
-                <WorkerOptionRow
-                  key={worker.id}
-                  worker={worker}
-                  mode={mode}
-                  disabled={disabled}
-                  checked={selectedIds.includes(worker.id)}
-                  getWorkerLabel={getWorkerLabel}
-                  onSelect={() =>
-                    mode === "multiple" ? toggleWorker(worker.id) : selectWorker(worker.id)
-                  }
-                />
-              ))
-            )}
+      <DropdownPanel
+        open={open}
+        triggerRef={triggerRef}
+        maxHeight={320}
+        onClose={closeDropdown}
+      >
+        <div className="border-b border-slate-200 p-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={searchPlaceholder}
+              className={`${inputClass} pl-9`}
+              disabled={disabled}
+              aria-label={searchPlaceholder}
+            />
           </div>
         </div>
-      ) : null}
+
+        <div
+          className="max-h-56 overflow-y-auto p-2"
+          role="listbox"
+          aria-multiselectable={mode === "multiple"}
+        >
+          {mode === "single" && unassignedOptionLabel ? (
+            <button
+              type="button"
+              role="option"
+              aria-selected={!props.selected}
+              disabled={disabled}
+              onClick={selectUnassigned}
+              className={cn(
+                "mb-1 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-orange-50",
+                !props.selected ? "bg-orange-50/70 text-orange-900" : "text-slate-700"
+              )}
+            >
+              {unassignedOptionLabel}
+            </button>
+          ) : null}
+
+          {activeWorkers.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-slate-500">No active workers available.</p>
+          ) : filteredWorkers.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-slate-500">No workers match your search.</p>
+          ) : (
+            filteredWorkers.map((worker) => (
+              <WorkerOptionRow
+                key={worker.id}
+                worker={worker}
+                mode={mode}
+                disabled={disabled}
+                checked={selectedIds.includes(worker.id)}
+                getWorkerLabel={getWorkerLabel}
+                onSelect={() =>
+                  mode === "multiple" ? toggleWorker(worker.id) : selectWorker(worker.id)
+                }
+              />
+            ))
+          )}
+        </div>
+      </DropdownPanel>
     </div>
   );
 }
