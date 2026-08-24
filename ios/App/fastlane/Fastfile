@@ -24,11 +24,12 @@ platform :ios do
       export_method: "app-store",
       export_options: {
         method: "app-store",
-        provisioningProfiles: {},
         signingStyle: "automatic",
-        teamID: ENV["APPLE_TEAM_ID"]
+        teamID: ENV["APPLE_TEAM_ID"],
+        manageAppVersionAndBuildNumber: true,
+        uploadSymbols: true
       },
-      xcargs: "-allowProvisioningUpdates"
+      xcargs: "CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -allowProvisioningUpdates"
     )
 
     upload_to_testflight(
