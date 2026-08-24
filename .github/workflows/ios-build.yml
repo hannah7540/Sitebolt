@@ -8,15 +8,14 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Select Stable Xcode
+      - name: Verify Xcode Version
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
           xcodebuild -version
 
       - name: Setup Node.js 22
@@ -81,6 +80,8 @@ jobs:
               <string>${TEAM_ID}</string>
               <key>destination</key>
               <string>upload</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
               <key>manageAppVersionAndBuildNumber</key>
               <true/>
               <key>uploadSymbols</key>
