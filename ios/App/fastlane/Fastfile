@@ -16,12 +16,17 @@ platform :ios do
       xcodeproj: "App.xcodeproj"
     )
 
+    cocoapods(
+      clean_install: true,
+      podfile: "./Podfile"
+    )
+
     key_path = File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{ENV['APP_STORE_CONNECT_KEY_ID']}.p8")
     FileUtils.mkdir_p(File.dirname(key_path))
     File.write(key_path, ENV["APP_STORE_CONNECT_PRIVATE_KEY"])
 
     build_app(
-      project: "App.xcodeproj",
+      workspace: "App.xcworkspace",
       scheme: "App",
       configuration: "Release",
       clean: true,
