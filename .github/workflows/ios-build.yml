@@ -74,13 +74,13 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>app-store</string>
+              <string>app-store-connect</string>
               <key>signingStyle</key>
               <string>automatic</string>
               <key>teamID</key>
               <string>${TEAM_ID}</string>
               <key>destination</key>
-              <string>export</string>
+              <string>upload</string>
               <key>manageAppVersionAndBuildNumber</key>
               <true/>
               <key>uploadSymbols</key>
@@ -89,7 +89,7 @@ jobs:
           </plist>
           EOF
 
-      - name: Export & Sign IPA via App Store Connect API
+      - name: Export, Sign & Upload directly to TestFlight via API
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -97,22 +97,8 @@ jobs:
           cd ios/App
           xcodebuild -exportArchive \
             -archivePath build/App.xcarchive \
-            -exportPath build/IPA \
             -exportOptionsPlist ExportOptions.plist \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID ${KEY_ID} \
             -authenticationKeyIssuerID ${ISSUER_ID}
-
-      - name: Upload IPA to TestFlight
-        env:
-          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-        run: |
-          IPA_PATH=$(find ios/App/build/IPA -name "*.ipa" | head -n 1)
-          echo "Found IPA at: $IPA_PATH"
-          xcrun altool --upload-app \
-            -f "$IPA_PATH" \
-            -t ios \
-            --apiKey "$KEY_ID" \
-            --apiIssuer "$ISSUER_ID"
