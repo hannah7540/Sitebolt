@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
 
 concurrency:
   group: ios-build-${{ github.ref }}
@@ -20,7 +18,6 @@ env:
   BUNDLE_ID: com.sitebolt.app
   XCODE_PROJECT: ios/App/App.xcodeproj
   XCODE_SCHEME: App
-  IPA_OUTPUT_DIR: ${{ runner.temp }}/ipa-export
 
 jobs:
   build-and-deploy-ios:
@@ -134,11 +131,15 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           BUILD_NUMBER: ${{ github.run_number }}
           BUNDLE_ID: ${{ env.BUNDLE_ID }}
-          IPA_OUTPUT_DIR: ${{ env.IPA_OUTPUT_DIR }}
           PROFILE_NAME: ${{ env.PROFILE_NAME }}
           APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
           KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
-        run: bundle exec fastlane beta
+        run: |
+          set -euo pipefail
+          export IPA_OUTPUT_DIR="$RUNNER_TEMP/ipa-export"
+          echo "IPA_OUTPUT_DIR=$IPA_OUTPUT_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$IPA_OUTPUT_DIR"
+          bundle exec fastlane beta
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
