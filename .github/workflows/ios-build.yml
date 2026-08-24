@@ -31,6 +31,11 @@ jobs:
           npx cap add ios || true
           npx cap sync ios
 
+      - name: Resolve Swift Package Dependencies
+        run: |
+          cd ios/App
+          xcodebuild -resolvePackageDependencies -project App.xcodeproj
+
       - name: Setup App Store Connect API Key
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
