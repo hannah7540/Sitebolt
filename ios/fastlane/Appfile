@@ -1,0 +1,3 @@
+app_identifier("com.sitebolt.app")
+
+# APPLE_TEAM_ID is injected by CI after provisioning profile installation.
