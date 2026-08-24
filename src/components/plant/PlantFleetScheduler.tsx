@@ -76,6 +76,10 @@ interface PlantFleetSchedulerProps {
   weekdaysOnly?: boolean;
   /** Red defect / service-due badges under unit name in pinned column. */
   showHeaderAlerts?: boolean;
+  /** Hide the scheduler's own title block when parent provides the heading. */
+  hideTitle?: boolean;
+  /** Passed through to the calendar scroll container. */
+  scrollMaxHeightClass?: string;
 }
 
 function PlantProjectAssignmentCell({
@@ -178,6 +182,8 @@ export default function PlantFleetScheduler({
   subtitle = "Fleet allocation · project assignments · service milestones",
   weekdaysOnly = false,
   showHeaderAlerts = false,
+  hideTitle = false,
+  scrollMaxHeightClass,
 }: PlantFleetSchedulerProps) {
   const calendarAnchor = useMemo(() => getDefaultCalendarAnchor(), []);
   const scrollAdjustRef = useRef(0);
@@ -697,10 +703,12 @@ export default function PlantFleetScheduler({
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-orange-500">{title}</h1>
-        <p className="text-sm text-slate-500">{subtitle}</p>
-      </div>
+      {!hideTitle ? (
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-orange-500">{title}</h1>
+          <p className="text-sm text-slate-500">{subtitle}</p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-6 xl:flex-row">
         <div className="min-w-0 flex-1 space-y-2">
@@ -745,6 +753,7 @@ export default function PlantFleetScheduler({
             scrollAdjustRef={scrollAdjustRef}
             onFocusedWeekChange={setFocusedWeekStart}
             weekdaysOnly={weekdaysOnly}
+            scrollMaxHeightClass={scrollMaxHeightClass}
           />
         </div>
 

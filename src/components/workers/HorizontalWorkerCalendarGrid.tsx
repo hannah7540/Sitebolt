@@ -45,6 +45,8 @@ export interface HorizontalWorkerCalendarGridProps {
   scrollAdjustRef?: React.MutableRefObject<number>;
   onFocusedWeekChange?: (weekStart: Date) => void;
   renderWorkerHeaderExtra?: (worker: Worker) => ReactNode;
+  /** Override vertical scroll max-height (e.g. expanded calendar). */
+  scrollMaxHeightClass?: string;
 }
 
 function WorkerComplianceDot({
@@ -83,6 +85,7 @@ export default function HorizontalWorkerCalendarGrid({
   scrollAdjustRef,
   onFocusedWeekChange,
   renderWorkerHeaderExtra,
+  scrollMaxHeightClass = "max-h-[70vh]",
 }: HorizontalWorkerCalendarGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToToday = useRef(false);
@@ -217,7 +220,7 @@ export default function HorizontalWorkerCalendarGrid({
 
       <div
         ref={scrollRef}
-        className="calendar-scroll-x max-h-[70vh] overflow-y-auto"
+        className={cn("calendar-scroll-x overflow-y-auto", scrollMaxHeightClass)}
         onScroll={handleScroll}
       >
         <div style={{ minWidth: gridWidth }}>

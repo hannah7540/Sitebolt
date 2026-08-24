@@ -99,6 +99,10 @@ interface WorkerProjectSchedulerProps {
   onWeekStartChange?: (weekStart: Date) => void;
   onReloadCalendar?: () => Promise<void>;
   onRefreshCalendar?: () => void | Promise<void>;
+  /** Hide the scheduler's own title block when parent provides the heading. */
+  hideTitle?: boolean;
+  /** Passed through to the calendar scroll container. */
+  scrollMaxHeightClass?: string;
 }
 
 function CalendarEventPill({
@@ -192,6 +196,8 @@ export default function WorkerProjectScheduler({
   onCalendarRangeChange,
   onReloadCalendar,
   onRefreshCalendar,
+  hideTitle = false,
+  scrollMaxHeightClass,
 }: WorkerProjectSchedulerProps) {
   const calendarAnchor = useMemo(() => getDefaultCalendarAnchor(), []);
   const scrollAdjustRef = useRef(0);
@@ -766,10 +772,12 @@ export default function WorkerProjectScheduler({
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-orange-500">{title}</h1>
-        <p className="text-sm text-slate-500">{subtitle}</p>
-      </div>
+      {!hideTitle ? (
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-orange-500">{title}</h1>
+          <p className="text-sm text-slate-500">{subtitle}</p>
+        </div>
+      ) : null}
 
       {adminCalendarMode ? (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -830,6 +838,7 @@ export default function WorkerProjectScheduler({
             renderWorkerHeaderExtra={
               adminCalendarMode ? renderWorkerHeaderExtra : undefined
             }
+            scrollMaxHeightClass={scrollMaxHeightClass}
           />
         </div>
 

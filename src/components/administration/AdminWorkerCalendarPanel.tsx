@@ -45,15 +45,6 @@ export default function AdminWorkerCalendarPanel({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">
-          Full Worker <span className="text-orange-500">Calendar</span>
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Consolidated worker schedules, RDOs, and leave across all active projects.
-        </p>
-      </div>
-
       <ProjectMultiSelect
         projects={projects}
         selectedProjectIds={selectedProjectIds}

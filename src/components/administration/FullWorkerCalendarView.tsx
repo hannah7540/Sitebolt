@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import WorkerProjectScheduler from "@/components/workers/WorkerProjectScheduler";
 import BulkRdoModal from "@/components/administration/BulkRdoModal";
 import AddOtherLeaveModal from "@/components/administration/AddOtherLeaveModal";
+import CalendarExpandShell from "@/components/administration/CalendarExpandShell";
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
@@ -67,6 +68,7 @@ export default function FullWorkerCalendarView({
   const [rangeEnd, setRangeEnd] = useState(() => getCalendarRangeEnd(calendarAnchor));
   const [showBulkRdo, setShowBulkRdo] = useState(false);
   const [showOtherLeave, setShowOtherLeave] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const rangeStartIso = formatDateOnly(rangeStart);
   const rangeEndIso = formatDateOnly(rangeEnd);
@@ -207,26 +209,36 @@ export default function FullWorkerCalendarView({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => setShowBulkRdo(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
-        >
-          <Plus className="h-4 w-4" />
-          Add RDO
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowOtherLeave(true)}
-          className="inline-flex items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 py-2.5 text-sm font-semibold text-orange-600 shadow-sm hover:bg-orange-50"
-        >
-          <Plus className="h-4 w-4" />
-          Add Other Leave
-        </button>
-      </div>
-
+    <CalendarExpandShell
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+      title={
+        <h1 className="text-3xl font-bold text-slate-900">
+          Full Worker <span className="text-orange-500">Calendar</span>
+        </h1>
+      }
+      subtitle="Worker allocations, RDO blocks, and leave across selected projects."
+      toolbar={
+        <>
+          <button
+            type="button"
+            onClick={() => setShowBulkRdo(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" />
+            Add RDO
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowOtherLeave(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 py-2.5 text-sm font-semibold text-orange-600 shadow-sm hover:bg-orange-50"
+          >
+            <Plus className="h-4 w-4" />
+            Add Other Leave
+          </button>
+        </>
+      }
+    >
       <WorkerProjectScheduler
         workers={workers}
         workerVocs={workerVocs}
@@ -236,6 +248,10 @@ export default function FullWorkerCalendarView({
         title="Full Worker Calendar"
         subtitle="Worker allocations, RDO blocks, and leave across selected projects"
         adminCalendarMode
+        hideTitle
+        scrollMaxHeightClass={
+          expanded ? "max-h-[calc(92vh-16rem)]" : undefined
+        }
         workerProjectMap={workerProjectMap}
         calendarEvents={calendarEvents}
         leaveRequests={leaveRequests}
@@ -267,6 +283,6 @@ export default function FullWorkerCalendarView({
           onSubmit={handleAddOtherLeave}
         />
       ) : null}
-    </div>
+    </CalendarExpandShell>
   );
 }

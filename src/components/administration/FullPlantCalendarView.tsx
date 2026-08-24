@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PlantFleetScheduler from "@/components/plant/PlantFleetScheduler";
 import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
+import CalendarExpandShell from "@/components/administration/CalendarExpandShell";
 import type { PlantAsset } from "@/lib/supabase";
 import {
   buildPlantServiceCreateInput,
@@ -36,6 +37,7 @@ export default function FullPlantCalendarView({
 }: FullPlantCalendarViewProps) {
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     fetchProjects().then((list) => {
@@ -51,23 +53,23 @@ export default function FullPlantCalendarView({
   }, [selectedProjectIds, projects.length]);
 
   return (
-    <div className="space-y-6">
-      <div>
+    <CalendarExpandShell
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+      title={
         <h1 className="text-3xl font-bold text-slate-900">
           Full Plant <span className="text-orange-500">Calendar</span>
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Consolidated plant assignments, service schedules, and defect alerts
-          across all active projects.
-        </p>
-      </div>
-
-      <ProjectMultiSelect
-        projects={projects}
-        selectedProjectIds={selectedProjectIds}
-        onChange={setSelectedProjectIds}
-      />
-
+      }
+      subtitle="Consolidated plant assignments, service schedules, and defect alerts across all active projects."
+      filters={
+        <ProjectMultiSelect
+          projects={projects}
+          selectedProjectIds={selectedProjectIds}
+          onChange={setSelectedProjectIds}
+        />
+      }
+    >
       <PlantFleetScheduler
         plant={plant}
         loading={loading}
@@ -76,7 +78,11 @@ export default function FullPlantCalendarView({
         title="Full Plant Calendar"
         subtitle="Fleet allocation and service scheduling across selected projects — project badges Mon–Fri; weekend events when logged"
         showHeaderAlerts
+        hideTitle
+        scrollMaxHeightClass={
+          expanded ? "max-h-[calc(92vh-14rem)]" : undefined
+        }
       />
-    </div>
+    </CalendarExpandShell>
   );
 }

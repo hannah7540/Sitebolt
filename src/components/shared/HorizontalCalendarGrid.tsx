@@ -55,6 +55,8 @@ export interface HorizontalCalendarGridProps<T> {
   loadingMessage?: string;
   /** When true, Mon columns get week-start styling and prev/next week scrolls 5 days. */
   weekdaysOnly?: boolean;
+  /** Override vertical scroll max-height (e.g. expanded calendar). */
+  scrollMaxHeightClass?: string;
 }
 
 export default function HorizontalCalendarGrid<T>({
@@ -81,6 +83,7 @@ export default function HorizontalCalendarGrid<T>({
   stickyColumnWidth = CALENDAR_WORKER_COLUMN_WIDTH,
   loadingMessage = "Loading schedules…",
   weekdaysOnly = false,
+  scrollMaxHeightClass = "max-h-[70vh]",
 }: HorizontalCalendarGridProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToToday = useRef(false);
@@ -219,7 +222,7 @@ export default function HorizontalCalendarGrid<T>({
 
       <div
         ref={scrollRef}
-        className="calendar-scroll-x max-h-[70vh] overflow-y-auto"
+        className={cn("calendar-scroll-x overflow-y-auto", scrollMaxHeightClass)}
         onScroll={handleScroll}
       >
         <div style={{ minWidth: gridWidth }}>
