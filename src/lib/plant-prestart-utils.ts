@@ -124,13 +124,48 @@ export function getLatestPrestartByPlant(
       map.set(row.plant_id, row);
       continue;
     }
-    const existingTime = new Date(existing.created_at).getTime();
-    const rowTime = new Date(row.created_at).getTime();
+    const existingTime = new Date(
+      existing.submitted_at ?? existing.created_at
+    ).getTime();
+    const rowTime = new Date(row.submitted_at ?? row.created_at).getTime();
     if (rowTime > existingTime) {
       map.set(row.plant_id, row);
     }
   }
   return map;
+}
+
+/** Calendar pinned-column label for the most recent pre-start (AU date + relative). */
+export function formatLastPrestartColumnLabel(
+  prestart: PlantPrestart | undefined | null
+): { dateLabel: string; relativeLabel: string | null } {
+  if (!prestart) {
+    return { dateLabel: "No Pre-Start", relativeLabel: null };
+  }
+
+  const submittedAt = new Date(prestart.submitted_at ?? prestart.created_at);
+  if (Number.isNaN(submittedAt.getTime())) {
+    return { dateLabel: "No Pre-Start", relativeLabel: null };
+  }
+
+  const dateLabel = submittedAt.toLocaleDateString("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+  const today = localIsoDate();
+  const submittedIso = localIsoDate(submittedAt);
+  if (submittedIso === today) {
+    return { dateLabel, relativeLabel: "Today" };
+  }
+
+  const yesterday = localIsoDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  if (submittedIso === yesterday) {
+    return { dateLabel, relativeLabel: "Yesterday" };
+  }
+
+  return { dateLabel, relativeLabel: null };
 }
 
 export function groupPrestartsByPlantDate(

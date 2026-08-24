@@ -53,6 +53,7 @@ import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetail
 import PlantDefectResolveModal from "@/components/plant/PlantDefectResolveModal";
 import {
   applyResolvedPrestartPatch,
+  formatLastPrestartColumnLabel,
   formatPrestartHours,
   getLatestPrestartByPlant,
   getPlantCalendarHeaderAlerts,
@@ -212,7 +213,7 @@ export default function PlantFleetScheduler({
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [prestarts, setPrestarts] = useState<PlantPrestart[]>([]);
-  const [latestPrestartsForAlerts, setLatestPrestartsForAlerts] = useState<
+  const [latestPrestartsByPlant, setLatestPrestartsByPlant] = useState<
     Map<string, PlantPrestart>
   >(() => new Map());
   const [prestartsLoading, setPrestartsLoading] = useState(true);
@@ -284,29 +285,39 @@ export default function PlantFleetScheduler({
           endDate: rangeEndIso,
           limit: 1000,
         }),
-        showHeaderAlerts
-          ? fetchPlantPrestarts({
-              plantIds: plantIds.length > 0 ? plantIds : undefined,
-              limit: Math.max(plantIds.length * 3, 200),
-            })
-          : Promise.resolve([] as PlantPrestart[]),
+        // Absolute latest per plant (not range-scoped) for hours / service / last pre-start.
+        fetchPlantPrestarts({
+          plantIds: plantIds.length > 0 ? plantIds : undefined,
+          limit: Math.max(plantIds.length * 3, 200),
+        }),
       ]);
       setPrestarts(rangeData);
-      if (showHeaderAlerts) {
-        setLatestPrestartsForAlerts(getLatestPrestartByPlant(latestData));
-      }
+      setLatestPrestartsByPlant(getLatestPrestartByPlant(latestData));
     } catch {
       setPrestarts([]);
-      if (showHeaderAlerts) {
-        setLatestPrestartsForAlerts(new Map());
-      }
+      setLatestPrestartsByPlant(new Map());
     } finally {
       setPrestartsLoading(false);
     }
-  }, [plant, rangeEndIso, rangeStartIso, showHeaderAlerts]);
+  }, [plant, rangeEndIso, rangeStartIso]);
 
   useEffect(() => {
     void loadPrestarts();
+  }, [loadPrestarts]);
+
+  // Re-sync Last Pre-Start / hours when returning to the tab after a mobile/web submission.
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadPrestarts();
+      }
+    };
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
   }, [loadPrestarts]);
 
   useEffect(() => {
@@ -430,10 +441,7 @@ export default function PlantFleetScheduler({
     [plant, projectFilterSet]
   );
 
-  const latestPrestartByPlant = useMemo(
-    () => getLatestPrestartByPlant(prestarts),
-    [prestarts]
-  );
+  const latestPrestartByPlant = latestPrestartsByPlant;
 
   const bookedServicesByPlant = useMemo(() => {
     const todayIso = formatDateOnly(new Date());
@@ -450,7 +458,7 @@ export default function PlantFleetScheduler({
       setPrestarts((current) =>
         current.map((row) => (row.id === prestartId ? patch : row))
       );
-      setLatestPrestartsForAlerts((current) => {
+      setLatestPrestartsByPlant((current) => {
         const next = new Map(current);
         for (const [plantId, row] of next.entries()) {
           if (row.id === prestartId) {
@@ -485,9 +493,10 @@ export default function PlantFleetScheduler({
         applyResolvedPrestartPatch(prestart, resolutionNotes)
       );
       onRefresh();
+      void loadPrestarts();
       return { error: null };
     },
-    [onRefresh, patchPrestartInState, resolveDefectTarget]
+    [loadPrestarts, onRefresh, patchPrestartInState, resolveDefectTarget]
   );
 
   const pinnedExtraColumns = useMemo(
@@ -522,6 +531,37 @@ export default function PlantFleetScheduler({
           );
         },
       },
+      {
+        key: "last_pre_start",
+        label: "Last Pre-Start",
+        width: 128,
+        renderCell: (asset: PlantAsset) => {
+          const latest = latestPrestartByPlant.get(asset.id);
+          const { dateLabel, relativeLabel } = formatLastPrestartColumnLabel(latest);
+          if (!latest) {
+            return (
+              <span className="text-xs font-medium text-slate-400">{dateLabel}</span>
+            );
+          }
+          return (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-semibold text-slate-900">{dateLabel}</span>
+              {relativeLabel ? (
+                <span
+                  className={cn(
+                    "w-fit rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                    relativeLabel === "Today"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-slate-100 text-slate-600"
+                  )}
+                >
+                  {relativeLabel}
+                </span>
+              ) : null}
+            </div>
+          );
+        },
+      },
     ],
     [latestPrestartByPlant]
   );
@@ -536,7 +576,7 @@ export default function PlantFleetScheduler({
     (asset: PlantAsset) => {
       const makeModel = [asset.make, asset.model].filter(Boolean).join(" ").trim();
       const latestForAlerts = showHeaderAlerts
-        ? (latestPrestartsForAlerts.get(asset.id) ?? latestPrestartByPlant.get(asset.id))
+        ? latestPrestartByPlant.get(asset.id)
         : undefined;
       const headerAlerts = showHeaderAlerts
         ? getPlantCalendarHeaderAlerts(asset, latestForAlerts)
@@ -595,7 +635,6 @@ export default function PlantFleetScheduler({
     [
       bookedServicesByPlant,
       latestPrestartByPlant,
-      latestPrestartsForAlerts,
       showHeaderAlerts,
     ]
   );
