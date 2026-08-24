@@ -11,13 +11,18 @@ platform :ios do
       in_house: false
     )
 
+    cocoapods(
+      podfile: "Podfile",
+      try_repo_update_on_error: true
+    )
+
     increment_build_number(
       build_number: Time.now.to_i.to_s,
       xcodeproj: "App.xcodeproj"
     )
 
     build_app(
-      project: "App.xcodeproj",
+      workspace: "App.xcworkspace",
       scheme: "App",
       configuration: "Release",
       clean: true,
