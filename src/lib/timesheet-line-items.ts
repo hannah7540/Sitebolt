@@ -26,6 +26,7 @@ export type TimesheetLineCategory =
   | "personal_leave"
   | "annual_leave"
   | "carers_leave"
+  | "leave_without_pay"
   | "wfh"
   | "rdo"
   | "public_holiday";
@@ -43,6 +44,7 @@ export const TIMESHEET_LINE_CATEGORY_OPTIONS: TimesheetLineCategoryOption[] = [
   { value: "personal_leave", label: "Personal Leave" },
   { value: "annual_leave", label: "Annual Leave" },
   { value: "carers_leave", label: "Carers Leave" },
+  { value: "leave_without_pay", label: "Leave without Pay" },
   { value: "wfh", label: "WFH" },
   { value: "rdo", label: "RDO" },
   { value: "public_holiday", label: "Public Holiday" },
@@ -64,6 +66,7 @@ const CATEGORY_LABELS: Record<TimesheetLineCategory, string> = {
   personal_leave: "Personal Leave",
   annual_leave: "Annual Leave",
   carers_leave: "Carers Leave",
+  leave_without_pay: "Leave without Pay",
   wfh: "WFH",
   rdo: "RDO",
   public_holiday: "Public Holiday",
@@ -77,6 +80,10 @@ const LABEL_TO_CATEGORY: Record<string, TimesheetLineCategory> = {
   "personal leave": "personal_leave",
   "annual leave": "annual_leave",
   "carers leave": "carers_leave",
+  "leave without pay": "leave_without_pay",
+  "leave without pay (lwop)": "leave_without_pay",
+  lwop: "leave_without_pay",
+  unpaid: "leave_without_pay",
   wfh: "wfh",
   "work from home": "wfh",
   rdo: "rdo",

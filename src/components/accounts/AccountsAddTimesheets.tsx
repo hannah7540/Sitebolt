@@ -23,7 +23,10 @@ import {
 } from "@/lib/timesheet-utils";
 import {
   createDefaultLineItem,
+  isLeaveLineCategory,
   syncLineItemFields,
+  TIMESHEET_LINE_CATEGORY_OPTIONS,
+  type TimesheetLineCategory,
 } from "@/lib/timesheet-line-items";
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -63,6 +66,7 @@ export default function AccountsAddTimesheets() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [startTime, setStartTime] = useState("06:30");
   const [endTime, setEndTime] = useState("14:30");
+  const [entryCategory, setEntryCategory] = useState<TimesheetLineCategory>("work");
   const [breakMinutes, setBreakMinutes] = useState(0);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -148,20 +152,23 @@ export default function AccountsAddTimesheets() {
     [tasks, selectedTaskId]
   );
 
-  const activities = useMemo(
-    () => [
+  const activities = useMemo(() => {
+    const isLeave = isLeaveLineCategory(entryCategory);
+    return [
       syncLineItemFields({
-        ...createDefaultLineItem("work"),
-        startTime,
-        endTime,
+        ...createDefaultLineItem(entryCategory),
+        startTime: isLeave ? "06:30" : startTime,
+        endTime: isLeave ? "14:30" : endTime,
+        durationMode: isLeave ? "full_day" : "partial",
       }),
-    ],
-    [startTime, endTime]
-  );
+    ];
+  }, [startTime, endTime, entryCategory]);
+
+  const isLeaveEntry = isLeaveLineCategory(entryCategory);
 
   const totals = useMemo(() => {
     const base = calculateDailyTotalsFromSlots(activities, []);
-    if (breakMinutes <= 0) return base;
+    if (isLeaveEntry || breakMinutes <= 0) return base;
     const breakHours = Math.round((breakMinutes / 60) * 100) / 100;
     return {
       ...base,
@@ -171,7 +178,7 @@ export default function AccountsAddTimesheets() {
         Math.round((base.workHours - breakHours + base.leaveHours) * 100) / 100
       ),
     };
-  }, [activities, breakMinutes]);
+  }, [activities, breakMinutes, isLeaveEntry]);
 
   const payRuleLabel = useMemo(() => {
     if (!selectedWorker) return "—";
@@ -184,6 +191,7 @@ export default function AccountsAddTimesheets() {
     setSelectedTaskId("");
     setStartTime("06:30");
     setEndTime("14:30");
+    setEntryCategory("work");
     setBreakMinutes(0);
     setNotes("");
   };
@@ -466,6 +474,32 @@ export default function AccountsAddTimesheets() {
                 )}
               </div>
 
+              <div className="sm:col-span-2">
+                <label htmlFor="entry-category" className={labelClass}>
+                  Entry Type
+                </label>
+                <select
+                  id="entry-category"
+                  value={entryCategory}
+                  onChange={(event) => {
+                    const category = event.target.value as TimesheetLineCategory;
+                    setEntryCategory(category);
+                    if (isLeaveLineCategory(category)) {
+                      setStartTime("06:30");
+                      setEndTime("14:30");
+                      setBreakMinutes(0);
+                    }
+                  }}
+                  className={inputClass}
+                >
+                  {TIMESHEET_LINE_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="start-time" className={labelClass}>
                   Start Time
@@ -476,6 +510,7 @@ export default function AccountsAddTimesheets() {
                   value={startTime}
                   onChange={(event) => setStartTime(event.target.value.slice(0, 5))}
                   className={inputClass}
+                  disabled={isLeaveEntry}
                 />
               </div>
 
@@ -489,9 +524,11 @@ export default function AccountsAddTimesheets() {
                   value={endTime}
                   onChange={(event) => setEndTime(event.target.value.slice(0, 5))}
                   className={inputClass}
+                  disabled={isLeaveEntry}
                 />
               </div>
 
+              {!isLeaveEntry ? (
               <div>
                 <label htmlFor="break-minutes" className={labelClass}>
                   Break (minutes)
@@ -508,6 +545,7 @@ export default function AccountsAddTimesheets() {
                   className={inputClass}
                 />
               </div>
+              ) : null}
 
               <div className="sm:col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -517,8 +555,14 @@ export default function AccountsAddTimesheets() {
                   {formatTimesheetHoursLabel(totals.dailyTotalHours)}
                 </p>
                 <p className="text-xs text-slate-500">
-                  Work {formatTimesheetHoursLabel(totals.workHours)} · Break{" "}
-                  {formatTimesheetHoursLabel(totals.breakHours)}
+                  {isLeaveEntry ? (
+                    <>Leave {formatTimesheetHoursLabel(totals.leaveHours)}</>
+                  ) : (
+                    <>
+                      Work {formatTimesheetHoursLabel(totals.workHours)} · Break{" "}
+                      {formatTimesheetHoursLabel(totals.breakHours)}
+                    </>
+                  )}
                 </p>
               </div>
 

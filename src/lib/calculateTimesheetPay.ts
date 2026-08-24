@@ -7,7 +7,9 @@ import {
 } from "./meal-allowance";
 import { isWeekdayIso } from "./scheduler-utils";
 import {
+  hasWorkLineItems,
   isLeaveLineCategory,
+  resolveLineCategory,
   resolveTimesheetLineItems,
   type TimesheetLineCategory,
 } from "./timesheet-line-items";
@@ -82,7 +84,14 @@ export function isLeaveTimesheet(timesheet: WorkerTimesheet): boolean {
     "carers leave",
   ];
 
-  return leaveMarkers.some((marker) => notes.includes(marker));
+  if (leaveMarkers.some((marker) => notes.includes(marker))) return true;
+
+  const activities = timesheet.activities ?? [];
+  if (activities.length > 0 && !hasWorkLineItems(activities)) {
+    return activities.some((slot) => isLeaveLineCategory(resolveLineCategory(slot)));
+  }
+
+  return false;
 }
 
 function resolveWeekendHourlyRate(
@@ -237,12 +246,13 @@ export function calculateTimesheetPay(
   if (hasLineItems) {
     for (const item of resolveTimesheetLineItems(timesheet)) {
       if (!isLeaveLineCategory(item.category) || item.hours <= 0) continue;
+      const isUnpaid = item.category === "leave_without_pay";
       lineItems.push({
         category: item.category,
         label: item.label,
         hours: item.hours,
-        rate: payRule.base_hourly_rate,
-        amount: roundMoney(item.hours * payRule.base_hourly_rate),
+        rate: isUnpaid ? 0 : payRule.base_hourly_rate,
+        amount: isUnpaid ? 0 : roundMoney(item.hours * payRule.base_hourly_rate),
       });
     }
   } else if (isLeaveDay && leaveHours > 0) {

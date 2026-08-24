@@ -177,6 +177,9 @@ function attendanceBadgeColors(status: string): [number, number, number] {
   if (normalized.includes("annual leave")) return [59, 130, 246];
   if (normalized.includes("public holiday")) return [139, 92, 246];
   if (normalized.includes("rdo")) return [100, 116, 139];
+  if (normalized.includes("without pay") || normalized.includes("lwop")) {
+    return [100, 116, 139];
+  }
   if (normalized.includes("leave")) return [249, 115, 22];
   return [148, 163, 184];
 }

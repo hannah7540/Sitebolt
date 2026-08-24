@@ -244,6 +244,7 @@ const LEAVE_LINE_TO_PAYROLL_CATEGORY: Record<TimesheetLineCategory, string> = {
   personal_leave: "Personal Leave Pay",
   annual_leave: PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY,
   carers_leave: "Personal Leave Pay",
+  leave_without_pay: "Leave Without Pay",
   wfh: "Base Hourly",
   rdo: "RDO Taken",
   public_holiday: "Public Holiday Pay",
