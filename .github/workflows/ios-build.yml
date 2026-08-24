@@ -19,16 +19,17 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Node Dependencies
         run: npm ci
 
-      - name: Build web application
+      - name: Build Web Application
         run: npm run build
 
-      - name: Add and Sync Capacitor iOS
+      - name: Sync Capacitor iOS & Install Pods
         run: |
-          npx cap add ios || true
           npx cap sync ios
+          cd ios/App
+          pod install --repo-update
 
       - name: Setup App Store Connect API Key
         env:
@@ -49,15 +50,8 @@ jobs:
       - name: Build & Archive iOS App
         run: |
           cd ios/App
-          if [ -d "App.xcworkspace" ]; then
-            TARGET_FLAG="-workspace App.xcworkspace"
-          else
-            TARGET_FLAG="-project App.xcodeproj"
-          fi
-          echo "Building using $TARGET_FLAG"
-
           xcodebuild clean archive \
-            $TARGET_FLAG \
+            -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -destination "generic/platform=iOS" \
@@ -91,7 +85,7 @@ jobs:
           </plist>
           EOF
 
-      - name: Export & Sign IPA
+      - name: Export, Sign & Upload to TestFlight
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -106,12 +100,7 @@ jobs:
             -authenticationKeyID ${KEY_ID} \
             -authenticationKeyIssuerID ${ISSUER_ID}
 
-      - name: Upload IPA to TestFlight
-        env:
-          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-        run: |
-          IPA_PATH=$(find ios/App/build/IPA -name "*.ipa" | head -n 1)
+          IPA_PATH=$(find build/IPA -name "*.ipa" | head -n 1)
           echo "Found IPA: $IPA_PATH"
           xcrun altool --upload-app \
             -f "$IPA_PATH" \
