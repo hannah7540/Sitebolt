@@ -1,4 +1,4 @@
-name: iOS Cloud Build and TestFlight
+name: Build and Deploy iOS to TestFlight
 
 on:
   workflow_dispatch:
@@ -6,19 +6,9 @@ on:
     branches:
       - main
 
-concurrency:
-  group: ios-build-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
 jobs:
-  build-and-deploy-ios:
-    name: Build IPA and deploy to TestFlight
+  build-and-deploy:
     runs-on: macos-14
-    timeout-minutes: 90
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Next.js web assets
+      - name: Build web application
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -43,48 +33,104 @@ jobs:
           export SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-placeholder-service-role-key}"
           npm run build
 
-      - name: Sync Capacitor iOS project
+      - name: Sync Capacitor iOS
         run: npx cap sync ios
 
-      - name: Install CocoaPods dependencies
-        working-directory: ios/App
+      - name: Install CocoaPods
         run: |
+          cd ios/App
           if [ -f Podfile ]; then
             pod install
           else
-            echo "No Podfile found; skipping pod install (Capacitor SPM project)."
+            echo "No Podfile found; continuing with App.xcodeproj (Capacitor SPM)."
           fi
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: false
-
-      - name: Install Fastlane
-        working-directory: ios
-        run: bundle install --jobs 4 --retry 3
-
-      - name: Build IPA and upload to TestFlight
-        working-directory: ios
+      - name: Setup App Store Connect API Key
         env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          BUILD_NUMBER: ${{ github.run_number }}
-          CI: true
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          set -euo pipefail
-          export IPA_OUTPUT_DIR="$RUNNER_TEMP/ipa-export"
-          echo "IPA_OUTPUT_DIR=$IPA_OUTPUT_DIR" >> "$GITHUB_ENV"
-          mkdir -p "$IPA_OUTPUT_DIR"
-          bundle exec fastlane beta
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$KEY_CONTENT" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
 
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sitebolt-ios-${{ github.run_number }}
-          path: ${{ env.IPA_OUTPUT_DIR }}/SiteBolt.ipa
-          if-no-files-found: error
-          retention-days: 30
+      - name: Set Bundle Identifier and Team
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd ios/App
+          xcrun agvtool new-version -all $(date +%s)
+          if grep -q "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj; then
+            sed -i '' "s/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = ${TEAM_ID};/g" App.xcodeproj/project.pbxproj
+          else
+            sed -i '' "s/CODE_SIGN_STYLE = Automatic;/DEVELOPMENT_TEAM = ${TEAM_ID}; CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
+          fi
+
+      - name: Build & Archive iOS App
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          cd ios/App
+          if [ -d App.xcworkspace ]; then
+            XCODE_TARGET="-workspace App.xcworkspace"
+          else
+            XCODE_TARGET="-project App.xcodeproj"
+          fi
+          xcodebuild clean archive \
+            $XCODE_TARGET \
+            -scheme App \
+            -configuration Release \
+            -archivePath build/App.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID ${KEY_ID} \
+            -authenticationKeyIssuerID ${ISSUER_ID}
+
+      - name: Create ExportOptions.plist
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat <<EOF > ios/App/ExportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+              <key>destination</key>
+              <string>export</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          cd ios/App
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportPath build/IPA \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID ${KEY_ID} \
+            -authenticationKeyIssuerID ${ISSUER_ID}
+
+      - name: Upload IPA to TestFlight
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          IPA_PATH=$(find ios/App/build/IPA -name "*.ipa" | head -n 1)
+          echo "Found IPA: $IPA_PATH"
+          xcrun altool --upload-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$KEY_ID" \
+            --apiIssuer "$ISSUER_ID"
