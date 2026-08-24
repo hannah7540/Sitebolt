@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SiteBolt</string>
+    <string name="title_activity_main">SiteBolt</string>
+    <string name="package_name">com.sitebolt.app</string>
+    <string name="custom_url_scheme">com.sitebolt.app</string>
+</resources>
