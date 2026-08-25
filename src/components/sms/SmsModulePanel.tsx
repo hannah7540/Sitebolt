@@ -113,22 +113,37 @@ export default function SmsModulePanel() {
 
   const handleReply = async () => {
     if (!selectedThread || !replyBody.trim()) return;
+    const body = replyBody.trim();
     setReplySaving(true);
     try {
       const result = await replySms({
         to: selectedThread.phone_number,
-        message_body: replyBody.trim(),
+        message_body: body,
         worker_id: selectedThread.worker_id,
       });
-      if (result.error) {
+      if (result.error && !result.message) {
         showError(result.error);
         return;
       }
-      showSuccess("Reply sent.");
+      if (result.error) {
+        showError(result.error);
+      } else {
+        showSuccess("Reply sent.");
+      }
       setReplyBody("");
-      await openThread(selectedThread);
-      setFolder("sent");
-      await loadData("sent");
+      if (result.message) {
+        setThreadMessages((current) => [...current, result.message!]);
+        setSelectedThread((current) =>
+          current
+            ? {
+                ...current,
+                last_message: result.message!.message_body,
+                last_at: result.message!.created_at,
+              }
+            : current
+        );
+      }
+      void loadData("inbox");
     } finally {
       setReplySaving(false);
     }

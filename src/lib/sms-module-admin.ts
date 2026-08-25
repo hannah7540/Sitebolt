@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  conversationPhoneKey,
+  getSmsContactPhone,
+  normalizePhoneNumber,
   phonesMatch,
   toE164Phone,
 } from "@/lib/sms-phone";
@@ -174,10 +175,7 @@ export async function fetchSmsMessagesAdmin(
     .order("created_at", { ascending: false })
     .limit(500);
 
-  if (folder === "inbox") {
-    query = query.eq("direction", "inbound");
-  } else {
-    // Sent Items: all outbound including queued, sent, failed, delivered
+  if (folder === "sent") {
     query = query.eq("direction", "outbound");
   }
 
@@ -210,44 +208,73 @@ export async function fetchSmsMessagesAdmin(
 }
 
 export function buildSmsThreads(messages: SmsMessageRow[]): SmsThreadSummary[] {
-  const inbound = messages.filter((row) => row.direction === "inbound");
-  const byKey = new Map<string, SmsThreadSummary>();
+  type ThreadAcc = SmsThreadSummary & { hasInbound: boolean };
+  const byKey = new Map<string, ThreadAcc>();
+  const workerToKey = new Map<string, string>();
 
-  for (const message of inbound) {
-    const phone = message.from_number;
-    const key =
-      message.worker_id?.trim() ||
-      conversationPhoneKey(phone) ||
-      message.id;
+  function resolveThreadKey(message: SmsMessageRow): string {
+    const contactPhone = getSmsContactPhone(message);
+
+    if (message.worker_id?.trim()) {
+      const workerId = message.worker_id.trim();
+      const mapped = workerToKey.get(workerId);
+      if (mapped) return mapped;
+      if (contactPhone) {
+        workerToKey.set(workerId, contactPhone);
+        return contactPhone;
+      }
+      const workerKey = `worker:${workerId}`;
+      workerToKey.set(workerId, workerKey);
+      return workerKey;
+    }
+
+    if (contactPhone) return contactPhone;
+    return `msg:${message.id}`;
+  }
+
+  for (const message of messages) {
+    const contactPhone = getSmsContactPhone(message);
+    const key = resolveThreadKey(message);
     const existing = byKey.get(key);
+
     if (!existing) {
       byKey.set(key, {
         threadKey: key,
         worker_id: message.worker_id,
         worker_name: message.worker_name ?? null,
-        phone_number: phone,
+        phone_number: contactPhone || message.from_number,
         last_message: message.message_body,
         last_at: message.created_at,
-        unread_count: message.is_read ? 0 : 1,
+        unread_count:
+          message.direction === "inbound" && !message.is_read ? 1 : 0,
         message_count: 1,
+        hasInbound: message.direction === "inbound",
       });
       continue;
     }
 
     existing.message_count += 1;
-    if (!message.is_read) existing.unread_count += 1;
-    if (new Date(message.created_at).getTime() > new Date(existing.last_at).getTime()) {
+    if (message.direction === "inbound") {
+      existing.hasInbound = true;
+      if (!message.is_read) existing.unread_count += 1;
+    }
+    if (
+      new Date(message.created_at).getTime() > new Date(existing.last_at).getTime()
+    ) {
       existing.last_message = message.message_body;
       existing.last_at = message.created_at;
-      existing.worker_id = message.worker_id ?? existing.worker_id;
-      existing.worker_name = message.worker_name ?? existing.worker_name;
-      existing.phone_number = phone || existing.phone_number;
     }
+    if (message.worker_id) existing.worker_id = message.worker_id;
+    if (message.worker_name) existing.worker_name = message.worker_name;
+    if (contactPhone) existing.phone_number = contactPhone;
   }
 
-  return Array.from(byKey.values()).sort(
-    (a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
-  );
+  return Array.from(byKey.values())
+    .filter((thread) => thread.hasInbound)
+    .map(({ hasInbound: _hasInbound, ...thread }) => thread)
+    .sort(
+      (a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
+    );
 }
 
 export async function fetchSmsThreadMessagesAdmin(
@@ -265,16 +292,18 @@ export async function fetchSmsThreadMessagesAdmin(
   }
 
   const workers = await loadWorkersWithPhones(admin);
-  const phone = input.phone?.trim() ?? "";
+  const normalizedContact = normalizePhoneNumber(input.phone?.trim() ?? "");
   const workerId = input.workerId?.trim() ?? "";
 
   const filtered = ((data ?? []) as Record<string, unknown>[])
     .map(mapSmsRow)
     .filter((row) => {
       if (workerId && row.worker_id === workerId) return true;
-      if (!phone) return false;
+      if (!normalizedContact) return false;
+      const from = normalizePhoneNumber(row.from_number);
+      const to = normalizePhoneNumber(row.to_number);
       return (
-        phonesMatch(row.from_number, phone) || phonesMatch(row.to_number, phone)
+        from === normalizedContact || to === normalizedContact
       );
     })
     .map((row) => {
@@ -352,7 +381,7 @@ export async function composeSmsAdmin(
     };
   }
 
-  const fromNumber = getTwilioFromNumber() ?? "";
+  const fromNumber = normalizePhoneNumber(getTwilioFromNumber() ?? "") ?? "";
   const projectId = input.project_id?.trim() || input.project_ids?.[0]?.trim() || null;
   const scheduleLater = input.send_mode === "scheduled";
   const scheduledAt = scheduleLater ? input.scheduled_at?.trim() || null : null;
@@ -522,7 +551,8 @@ export async function ingestInboundSmsAdmin(
   admin: AdminClient,
   input: { from: string; body: string; messageSid?: string | null }
 ): Promise<{ error: string | null; message: SmsMessageRow | null }> {
-  const from = String(input.from ?? "").trim();
+  const from = normalizePhoneNumber(String(input.from ?? "").trim()) ||
+    String(input.from ?? "").trim();
   const body = String(input.body ?? "").trim();
   if (!from || !body) {
     return { error: "From and Body are required.", message: null };
@@ -540,7 +570,10 @@ export async function ingestInboundSmsAdmin(
     ) ??
     null;
 
-  const toNumber = getTwilioFromNumber() ?? "";
+  const toNumber =
+    normalizePhoneNumber(getTwilioFromNumber() ?? "") ||
+    getTwilioFromNumber() ||
+    "";
 
   const { data, error } = await admin
     .from("sms_messages")
@@ -583,7 +616,7 @@ export async function replySmsAdmin(
   if (!body) return { error: "Message body is required.", message: null };
 
   const twilioResult = await sendTwilioSms({ to, body, prependPrefix: true });
-  const fromNumber = getTwilioFromNumber() ?? "";
+  const fromNumber = normalizePhoneNumber(getTwilioFromNumber() ?? "") ?? "";
   const errorDetail = twilioResult.error
     ? twilioResult.twilioCode
       ? `[${twilioResult.twilioCode}] ${twilioResult.error}`

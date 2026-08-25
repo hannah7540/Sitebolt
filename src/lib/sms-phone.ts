@@ -10,18 +10,56 @@ export function normalizePhoneDigits(phone: string | null | undefined): string {
   return String(phone ?? "").replace(/\D/g, "");
 }
 
-/** Match two phone numbers allowing country-code / leading-zero differences. */
+/**
+ * Normalize phone numbers to a consistent AU E.164 form (+614XXXXXXXX).
+ * Strips all non-digit characters except a leading '+', then converts 04… to +614….
+ */
+export function normalizePhoneNumber(phone: string | null | undefined): string {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return "";
+
+  const hasLeadingPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (digits.startsWith("04")) {
+    return `+614${digits.slice(2)}`;
+  }
+
+  if (digits.startsWith("61")) {
+    return `+${digits}`;
+  }
+
+  if (digits.startsWith("4") && digits.length >= 9) {
+    return `+61${digits}`;
+  }
+
+  if (hasLeadingPlus) {
+    return `+${digits}`;
+  }
+
+  return "";
+}
+
+/** Match two phone numbers after E.164 normalization. */
 export function phonesMatch(
   left: string | null | undefined,
   right: string | null | undefined
 ): boolean {
-  const a = normalizePhoneDigits(left);
-  const b = normalizePhoneDigits(right);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const aTail = a.slice(-9);
-  const bTail = b.slice(-9);
-  return aTail.length >= 8 && aTail === bTail;
+  const a = normalizePhoneNumber(left);
+  const b = normalizePhoneNumber(right);
+  return Boolean(a && b && a === b);
+}
+
+/** External participant phone for an SMS row (inbound sender or outbound recipient). */
+export function getSmsContactPhone(message: {
+  direction: string;
+  from_number: string;
+  to_number: string;
+}): string {
+  const raw =
+    message.direction === "inbound" ? message.from_number : message.to_number;
+  return normalizePhoneNumber(raw);
 }
 
 /**
@@ -65,9 +103,7 @@ export function toE164Phone(phone: string | null | undefined): string | null {
 }
 
 export function conversationPhoneKey(phone: string | null | undefined): string {
-  const digits = normalizePhoneDigits(phone);
-  if (!digits) return "";
-  return digits.slice(-9) || digits;
+  return normalizePhoneNumber(phone);
 }
 
 export function withOutboundPrefix(body: string, prefix: string): string {

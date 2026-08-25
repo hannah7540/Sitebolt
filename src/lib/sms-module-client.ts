@@ -132,15 +132,17 @@ export async function replySms(input: {
   message_body: string;
   worker_id?: string | null;
   project_id?: string | null;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; message?: SmsMessageRow | null }> {
   const response = await fetch("/api/sms/reply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const payload = await parseJson<{ error?: string }>(response);
+  const payload = await parseJson<{ error?: string; message?: SmsMessageRow }>(
+    response
+  );
   if (!response.ok) return { error: payload.error ?? "Failed to send reply." };
-  return { error: null };
+  return { error: payload.error ?? null, message: payload.message ?? null };
 }
 
 export type { SmsMessageRow, SmsThreadSummary, ComposeSmsInput, SmsFolder, SmsDispatchError };
