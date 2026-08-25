@@ -10,8 +10,9 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
 
-export const INCIDENT_TABLE_NOT_READY_MESSAGE =
-  "Incident reports storage is not ready. Apply migrations 129/130 so the `incident_reports` table exists, then retry.";
+/** Shown only when Postgres reports the relation is truly missing. */
+export const INCIDENT_TABLE_MISSING_MESSAGE =
+  "Could not reach the `incident_reports` table. Confirm it exists in Supabase and is exposed to the API, then retry.";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -152,12 +153,16 @@ export function formatIncidentTableError(error: unknown): string {
         : null
   );
   if (!normalized) return "Failed to access incident_reports.";
-  if (
-    isSupabaseRelationMissingError(normalized) ||
-    isSupabaseSchemaCacheError(normalized)
-  ) {
-    return INCIDENT_TABLE_NOT_READY_MESSAGE;
+
+  // Table is provisioned in Supabase — do not block on schema-cache lag.
+  if (isSupabaseSchemaCacheError(normalized)) {
+    return "Incident reports are temporarily unavailable (API schema cache). Wait a moment and retry.";
   }
+
+  if (isSupabaseRelationMissingError(normalized)) {
+    return INCIDENT_TABLE_MISSING_MESSAGE;
+  }
+
   const message = normalized.message || "Failed to access incident_reports.";
   if (message.toLowerCase().includes("incident_reports")) {
     return `${message} (table: incident_reports)`;

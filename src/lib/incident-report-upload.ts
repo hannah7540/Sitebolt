@@ -3,9 +3,6 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export const INCIDENT_ATTACHMENTS_BUCKET = "incident-attachments";
 
-const BUCKET_NOT_READY_MESSAGE =
-  "Incident attachments storage is not ready. Apply migration 129/130 so the `incident-attachments` bucket exists, then retry.";
-
 function isBucketMissingError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
@@ -37,7 +34,10 @@ export async function uploadIncidentAttachment(
     if (uploadError) {
       const message = uploadError.message || "Upload failed";
       if (isBucketMissingError(message)) {
-        return { url: null, error: BUCKET_NOT_READY_MESSAGE };
+        return {
+          url: null,
+          error: `Could not upload to \`${INCIDENT_ATTACHMENTS_BUCKET}\`. Confirm the bucket exists and allows uploads, then retry.`,
+        };
       }
       return {
         url: null,
@@ -58,7 +58,10 @@ export async function uploadIncidentAttachment(
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Upload failed";
     if (isBucketMissingError(message)) {
-      return { url: null, error: BUCKET_NOT_READY_MESSAGE };
+      return {
+        url: null,
+        error: `Could not upload to \`${INCIDENT_ATTACHMENTS_BUCKET}\`. Confirm the bucket exists and allows uploads, then retry.`,
+      };
     }
     return { url: null, error: message };
   }

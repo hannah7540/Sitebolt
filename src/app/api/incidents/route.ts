@@ -12,10 +12,10 @@ import {
   sanitizeTextArray,
   sanitizeUuidArray,
   INCIDENT_REPORTS_TABLE,
-  INCIDENT_TABLE_NOT_READY_MESSAGE,
   type IncidentReportSubmitInput,
   type IncidentTreatmentDetails,
 } from "@/lib/incident-reports";
+import { INCIDENT_ATTACHMENTS_BUCKET } from "@/lib/incident-report-upload";
 import { sendIncidentNotificationEmails } from "@/lib/incident-report-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -150,8 +150,7 @@ export async function POST(req: Request) {
   if (input.submitterSignatureUrl.startsWith("data:")) {
     return NextResponse.json(
       {
-        error:
-          "Signature must be uploaded to the incident-attachments bucket before submit.",
+        error: `Signature must be uploaded to the \`${INCIDENT_ATTACHMENTS_BUCKET}\` bucket before submit.`,
       },
       { status: 400 }
     );
@@ -167,15 +166,10 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
-    const message = formatIncidentTableError(error);
     return NextResponse.json(
       {
-        error: message,
+        error: formatIncidentTableError(error),
         table: INCIDENT_REPORTS_TABLE,
-        hint:
-          message === INCIDENT_TABLE_NOT_READY_MESSAGE
-            ? "Run supabase/migrations/129_incident_reports.sql and 130_incident_reports_schema_fix.sql"
-            : undefined,
       },
       { status: 400 }
     );
