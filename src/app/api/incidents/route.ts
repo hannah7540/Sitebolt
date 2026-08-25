@@ -8,6 +8,7 @@ import {
   buildIncidentInsertPayload,
   forceIncidentBoolean,
   formatIncidentTableError,
+  fromIncidentReports,
   generateIncidentReferenceNumber,
   isValidIncidentUuid,
   normalizeIncidentReport,
@@ -53,8 +54,7 @@ export async function GET() {
   const access = await requireSwmsAdminAccess();
   if (!access.ok) return access.response;
 
-  const { data, error } = await access.admin
-    .from(INCIDENT_REPORTS_TABLE)
+  const { data, error } = await fromIncidentReports(access.admin)
     .select("*")
     .order("created_at", { ascending: false });
 
@@ -158,8 +158,7 @@ export async function POST(req: Request) {
   const referenceNumber = await generateIncidentReferenceNumber(access.admin);
   const payload = buildIncidentInsertPayload(input, referenceNumber);
 
-  const { data, error } = await access.admin
-    .from(INCIDENT_REPORTS_TABLE)
+  const { data, error } = await fromIncidentReports(access.admin)
     .insert([payload])
     .select("*")
     .single();

@@ -10,6 +10,53 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
 
+/**
+ * Bypass strict generated Database / PostgREST table-name type locks.
+ * Prefer this over `client.from("incident_reports")` so TS does not reject
+ * the table before generated types are regenerated.
+ */
+export function fromIncidentReports(client: {
+  from: (relation: string) => unknown;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (client as { from: (relation: any) => any }).from(
+    "incident_reports" as any
+  );
+}
+
+/** Canonical public.incident_reports column keys used by inserts/selects. */
+export const INCIDENT_REPORT_SCHEMA_COLUMNS = [
+  "reference_number",
+  "submitted_by_id",
+  "submitted_by_name",
+  "incident_date_time",
+  "project_id",
+  "project_name",
+  "injured_worker_id",
+  "injured_worker_name",
+  "injury_details",
+  "treatment_details",
+  "treating_person_id",
+  "treating_person_name",
+  "offsite_treatment_location",
+  "what_occurred",
+  "incident_location_details",
+  "treatment_given",
+  "witness_ids",
+  "witness_names",
+  "immediate_corrective_action_required",
+  "is_notifiable_under_whs",
+  "what_caused_to_go_wrong",
+  "what_could_have_prevented",
+  "recommendations_to_prevent",
+  "medical_certificate_urls",
+  "submitter_signature_url",
+  "status",
+  "is_read_admin",
+  "created_at",
+  "updated_at",
+] as const;
+
 /** Shown only when Postgres reports the relation is truly missing. */
 export const INCIDENT_TABLE_MISSING_MESSAGE =
   "Could not reach the `incident_reports` table. Confirm it exists in Supabase and is exposed to the API, then retry.";
@@ -308,12 +355,13 @@ export async function generateIncidentReferenceNumber(
 export function buildIncidentInsertPayload(
   input: IncidentReportSubmitInput,
   referenceNumber: string
-): Record<string, unknown> {
+): Record<(typeof INCIDENT_REPORT_SCHEMA_COLUMNS)[number], unknown> {
   const now = new Date().toISOString();
   const witnessIds = sanitizeUuidArray(input.witnessIds ?? []);
   const witnessNames = sanitizeTextArray(input.witnessNames ?? []);
   const medicalUrls = sanitizeTextArray(input.medicalCertificateUrls ?? []);
 
+  // Keys must match public.incident_reports exactly (no camelCase / aliases).
   return {
     reference_number: referenceNumber,
     submitted_by_id: nullIfBlankUuid(input.submittedById),
@@ -321,7 +369,6 @@ export function buildIncidentInsertPayload(
     incident_date_time: input.incidentDateTime,
     project_id: nullIfBlankUuid(input.projectId),
     project_name: input.projectName?.trim() || null,
-    // Never send "" for UUID columns — empty/invalid becomes null.
     injured_worker_id: nullIfBlankUuid(input.injuredWorkerId),
     injured_worker_name: input.injuredWorkerName?.trim() || null,
     injury_details: input.injuryDetails?.trim() || null,
@@ -332,7 +379,6 @@ export function buildIncidentInsertPayload(
     what_occurred: (input.whatOccurred ?? "").trim(),
     incident_location_details: (input.incidentLocationDetails ?? "").trim(),
     treatment_given: input.treatmentGiven?.trim() || null,
-    // Always native arrays — never "" or null for array columns.
     witness_ids: witnessIds,
     witness_names: witnessNames,
     immediate_corrective_action_required: forceIncidentBoolean(
@@ -361,8 +407,7 @@ export async function submitIncidentReport(
   const referenceNumber = await generateIncidentReferenceNumber();
   const payload = buildIncidentInsertPayload(input, referenceNumber);
 
-  const { data, error } = await supabase
-    .from(INCIDENT_REPORTS_TABLE)
+  const { data, error } = await fromIncidentReports(supabase)
     .insert([payload])
     .select("*")
     .single();
@@ -385,8 +430,7 @@ export async function fetchIncidentReports(options?: {
     return { reports: [], error: "Supabase is not configured." };
   }
 
-  let query = supabase
-    .from(INCIDENT_REPORTS_TABLE)
+  let query = fromIncidentReports(supabase)
     .select("*")
     .order("created_at", { ascending: false });
 
@@ -409,8 +453,7 @@ export async function fetchIncidentReports(options?: {
 export async function countUnreadIncidentReports(): Promise<number> {
   if (!isSupabaseConfigured()) return 0;
 
-  const { count, error } = await supabase
-    .from(INCIDENT_REPORTS_TABLE)
+  const { count, error } = await fromIncidentReports(supabase)
     .select("id", { count: "exact", head: true })
     .eq("is_read_admin", false);
 
@@ -439,8 +482,7 @@ export async function updateIncidentReportAdmin(
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.is_read_admin !== undefined) payload.is_read_admin = updates.is_read_admin;
 
-  const { data, error } = await supabase
-    .from(INCIDENT_REPORTS_TABLE)
+  const { data, error } = await fromIncidentReports(supabase)
     .update(payload)
     .eq("id", id)
     .select("*")

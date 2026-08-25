@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { requireSwmsAdminAccess } from "@/lib/swms-api-auth";
 import {
   formatIncidentTableError,
+  fromIncidentReports,
   INCIDENT_REPORTS_TABLE,
   normalizeIncidentReport,
   INCIDENT_STATUS_OPTIONS,
@@ -50,8 +51,7 @@ export async function PATCH(
     }
   }
 
-  const { data, error } = await access.admin
-    .from(INCIDENT_REPORTS_TABLE)
+  const { data, error } = await fromIncidentReports(access.admin)
     .update(payload)
     .eq("id", incidentId)
     .select("*")
