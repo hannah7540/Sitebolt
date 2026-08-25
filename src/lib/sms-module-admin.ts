@@ -7,6 +7,7 @@ import {
 import { getTwilioFromNumber, sendTwilioSms } from "@/lib/sms-service";
 import type {
   ComposeSmsInput,
+  SmsDispatchError,
   SmsFolder,
   SmsMessageRow,
   SmsThreadSummary,
@@ -176,11 +177,13 @@ export async function fetchSmsMessagesAdmin(
   if (folder === "inbox") {
     query = query.eq("direction", "inbound");
   } else {
+    // Sent Items: all outbound including queued, sent, failed, delivered
     query = query.eq("direction", "outbound");
   }
 
   const { data, error } = await query;
   if (error) {
+    console.error("[sms] fetchSmsMessagesAdmin:", error.message, { folder });
     return { messages: [], error: error.message };
   }
 
@@ -323,15 +326,30 @@ export async function composeSmsAdmin(
   failed: number;
   queued: number;
   messages: SmsMessageRow[];
+  dispatchErrors: SmsDispatchError[];
 }> {
   const body = input.message_body?.trim() ?? "";
   if (!body) {
-    return { error: "Message body is required.", sent: 0, failed: 0, queued: 0, messages: [] };
+    return {
+      error: "Message body is required.",
+      sent: 0,
+      failed: 0,
+      queued: 0,
+      messages: [],
+      dispatchErrors: [],
+    };
   }
 
   const { workers, error: resolveError } = await resolveRecipientWorkers(admin, input);
   if (resolveError) {
-    return { error: resolveError, sent: 0, failed: 0, queued: 0, messages: [] };
+    return {
+      error: resolveError,
+      sent: 0,
+      failed: 0,
+      queued: 0,
+      messages: [],
+      dispatchErrors: [],
+    };
   }
 
   const fromNumber = getTwilioFromNumber() ?? "";
@@ -346,17 +364,27 @@ export async function composeSmsAdmin(
       failed: 0,
       queued: 0,
       messages: [],
+      dispatchErrors: [],
     };
   }
 
   const created: SmsMessageRow[] = [];
+  const dispatchErrors: SmsDispatchError[] = [];
   let sent = 0;
   let failed = 0;
   let queued = 0;
 
   for (const worker of workers) {
     const to = toE164Phone(worker.phone);
-    if (!to) continue;
+    if (!to) {
+      failed += 1;
+      dispatchErrors.push({
+        worker_id: worker.id,
+        phone: worker.phone ?? undefined,
+        error: `Invalid phone number: ${worker.phone ?? "missing"}`,
+      });
+      continue;
+    }
 
     if (scheduleLater) {
       const { data, error } = await admin
@@ -381,6 +409,12 @@ export async function composeSmsAdmin(
 
       if (error || !data) {
         failed += 1;
+        dispatchErrors.push({
+          worker_id: worker.id,
+          phone: to,
+          error: error?.message ?? "Failed to queue SMS in database.",
+        });
+        console.error("[sms] queue insert failed:", error?.message, { workerId: worker.id, to });
         continue;
       }
       queued += 1;
@@ -388,10 +422,29 @@ export async function composeSmsAdmin(
       continue;
     }
 
-    const twilioResult = await sendTwilioSms({ to, body, prependPrefix: true });
+    const twilioResult = await sendTwilioSms({
+      to,
+      body,
+      prependPrefix: true,
+    });
     const status = twilioResult.error ? "failed" : "sent";
-    if (twilioResult.error) failed += 1;
-    else sent += 1;
+    if (twilioResult.error) {
+      failed += 1;
+      dispatchErrors.push({
+        worker_id: worker.id,
+        phone: to,
+        error: twilioResult.error,
+        twilioCode: twilioResult.twilioCode,
+      });
+    } else {
+      sent += 1;
+    }
+
+    const errorDetail = twilioResult.error
+      ? twilioResult.twilioCode
+        ? `[${twilioResult.twilioCode}] ${twilioResult.error}`
+        : twilioResult.error
+      : null;
 
     const { data, error } = await admin
       .from("sms_messages")
@@ -408,29 +461,61 @@ export async function composeSmsAdmin(
           scheduled_at: null,
           recurrence: null,
           twilio_sid: twilioResult.sid,
-          error_message: twilioResult.error,
+          error_message: errorDetail,
           created_by: input.created_by ?? null,
         },
       ])
       .select("*")
       .single();
 
-    if (!error && data) {
-      created.push(mapSmsRow(data as Record<string, unknown>));
+    if (error || !data) {
+      console.error("[sms] outbound insert failed:", error?.message, {
+        workerId: worker.id,
+        to,
+        status,
+        twilioSid: twilioResult.sid,
+      });
+      if (!twilioResult.error) {
+        failed += 1;
+        sent -= 1;
+        dispatchErrors.push({
+          worker_id: worker.id,
+          phone: to,
+          error: error?.message ?? "SMS sent via Twilio but failed to save to database.",
+        });
+      }
+      continue;
     }
+
+    created.push(mapSmsRow(data as Record<string, unknown>));
   }
 
-  if (created.length === 0 && failed === 0) {
+  if (created.length === 0 && failed === 0 && queued === 0) {
     return {
       error: "No recipients were eligible for SMS delivery.",
       sent: 0,
       failed: 0,
       queued: 0,
       messages: [],
+      dispatchErrors,
     };
   }
 
-  return { error: null, sent, failed, queued, messages: created };
+  const summaryError =
+    failed > 0 && sent === 0 && queued === 0
+      ? dispatchErrors[0]?.error ?? "All SMS dispatches failed."
+      : failed > 0
+        ? `${failed} recipient(s) failed.`
+        : null;
+
+  return {
+    error: summaryError,
+    sent,
+    failed,
+    queued,
+    messages: created,
+    dispatchErrors,
+  };
 }
 
 export async function ingestInboundSmsAdmin(
@@ -499,6 +584,11 @@ export async function replySmsAdmin(
 
   const twilioResult = await sendTwilioSms({ to, body, prependPrefix: true });
   const fromNumber = getTwilioFromNumber() ?? "";
+  const errorDetail = twilioResult.error
+    ? twilioResult.twilioCode
+      ? `[${twilioResult.twilioCode}] ${twilioResult.error}`
+      : twilioResult.error
+    : null;
 
   const { data, error } = await admin
     .from("sms_messages")
@@ -513,7 +603,7 @@ export async function replySmsAdmin(
         project_id: input.project_id ?? null,
         is_read: true,
         twilio_sid: twilioResult.sid,
-        error_message: twilioResult.error,
+        error_message: errorDetail,
         created_by: input.created_by ?? null,
       },
     ])
@@ -528,7 +618,7 @@ export async function replySmsAdmin(
   }
 
   if (twilioResult.error) {
-    return { error: twilioResult.error, message: mapSmsRow(data as Record<string, unknown>) };
+    return { error: errorDetail, message: mapSmsRow(data as Record<string, unknown>) };
   }
 
   return { error: null, message: mapSmsRow(data as Record<string, unknown>) };

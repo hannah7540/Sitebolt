@@ -37,6 +37,13 @@ export interface SmsMessageRow {
   worker_name?: string | null;
 }
 
+export interface SmsDispatchError {
+  worker_id?: string;
+  phone?: string;
+  error: string;
+  twilioCode?: string | number | null;
+}
+
 export interface SmsThreadSummary {
   threadKey: string;
   worker_id: string | null;

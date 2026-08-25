@@ -1,5 +1,6 @@
 import type {
   ComposeSmsInput,
+  SmsDispatchError,
   SmsFolder,
   SmsMessageRow,
   SmsThreadSummary,
@@ -76,10 +77,14 @@ export async function markSmsThreadRead(input: {
 }
 
 export async function composeSms(input: ComposeSmsInput): Promise<{
+  success?: boolean;
   error: string | null;
+  twilioCode?: string | number | null;
+  dispatchErrors?: SmsDispatchError[];
   sent?: number;
   failed?: number;
   queued?: number;
+  messages?: SmsMessageRow[];
 }> {
   const response = await fetch("/api/sms/send", {
     method: "POST",
@@ -87,19 +92,38 @@ export async function composeSms(input: ComposeSmsInput): Promise<{
     body: JSON.stringify(input),
   });
   const payload = await parseJson<{
+    success?: boolean;
     error?: string;
+    twilioCode?: string | number | null;
+    dispatchErrors?: SmsDispatchError[];
     sent?: number;
     failed?: number;
     queued?: number;
+    messages?: SmsMessageRow[];
   }>(response);
+
   if (!response.ok) {
-    return { error: payload.error ?? "Failed to send SMS." };
+    return {
+      success: false,
+      error: payload.error ?? "Failed to send SMS.",
+      twilioCode: payload.twilioCode ?? null,
+      dispatchErrors: payload.dispatchErrors,
+      sent: payload.sent,
+      failed: payload.failed,
+      queued: payload.queued,
+      messages: payload.messages,
+    };
   }
+
   return {
-    error: null,
+    success: payload.success ?? (payload.failed === 0),
+    error: payload.error ?? null,
+    twilioCode: payload.twilioCode ?? null,
+    dispatchErrors: payload.dispatchErrors,
     sent: payload.sent,
     failed: payload.failed,
     queued: payload.queued,
+    messages: payload.messages,
   };
 }
 
@@ -119,4 +143,4 @@ export async function replySms(input: {
   return { error: null };
 }
 
-export type { SmsMessageRow, SmsThreadSummary, ComposeSmsInput, SmsFolder };
+export type { SmsMessageRow, SmsThreadSummary, ComposeSmsInput, SmsFolder, SmsDispatchError };

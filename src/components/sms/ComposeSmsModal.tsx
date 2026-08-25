@@ -21,7 +21,21 @@ interface ComposeSmsModalProps {
   workers: Worker[];
   projects: DbProject[];
   onClose: () => void;
-  onSent: () => void;
+  onSent: (summary?: { warning?: string; sent?: number; failed?: number; queued?: number }) => void;
+}
+
+function formatSmsDispatchErrors(
+  result: Awaited<ReturnType<typeof composeSms>>
+): string | null {
+  const parts: string[] = [];
+  if (result.error) parts.push(result.error);
+  if (result.twilioCode) parts.push(`Twilio code ${result.twilioCode}`);
+  for (const item of result.dispatchErrors ?? []) {
+    parts.push(
+      item.twilioCode ? `[${item.twilioCode}] ${item.error}` : item.error
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 export default function ComposeSmsModal({
@@ -111,12 +125,20 @@ export default function ComposeSmsModal({
         recurrence: recurrence || null,
       });
 
-      if (result.error) {
-        setError(result.error);
+      const delivered = (result.sent ?? 0) + (result.queued ?? 0);
+      const failureMessage = formatSmsDispatchErrors(result);
+
+      if (delivered === 0) {
+        setError(failureMessage ?? "Failed to send SMS.");
         return;
       }
 
-      onSent();
+      onSent({
+        warning: failureMessage ?? undefined,
+        sent: result.sent,
+        failed: result.failed,
+        queued: result.queued,
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send SMS.");

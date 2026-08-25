@@ -21,13 +21,19 @@ export async function POST(request: Request) {
     try {
       raw = (await request.json()) as Record<string, unknown>;
     } catch {
-      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON body." },
+        { status: 400 }
+      );
     }
 
     const targetMode = String(raw.target_mode ?? "all_workers") as SmsTargetMode;
     const messageBody = String(raw.message_body ?? raw.body ?? "").trim();
     if (!messageBody) {
-      return NextResponse.json({ error: "message_body is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "message_body is required." },
+        { status: 400 }
+      );
     }
 
     const input: ComposeSmsInput = {
@@ -41,7 +47,6 @@ export async function POST(request: Request) {
       recurrence: raw.recurrence ? String(raw.recurrence) : null,
     };
 
-    // Allow recipients as phone numbers by mapping to worker_ids when provided.
     if (
       input.target_mode === "selected_workers" &&
       (!input.worker_ids || input.worker_ids.length === 0) &&
@@ -55,11 +60,33 @@ export async function POST(request: Request) {
       created_by: auth.workerId,
     });
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+    const firstDispatchError = result.dispatchErrors[0];
+    const twilioCode = firstDispatchError?.twilioCode ?? null;
+    const success =
+      !result.error &&
+      result.failed === 0 &&
+      (result.sent > 0 || result.queued > 0);
+
+    if (result.error && result.messages.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error,
+          twilioCode,
+          dispatchErrors: result.dispatchErrors,
+          sent: result.sent,
+          failed: result.failed,
+          queued: result.queued,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
+      success,
+      error: result.error,
+      twilioCode,
+      dispatchErrors: result.dispatchErrors,
       sent: result.sent,
       failed: result.failed,
       queued: result.queued,
@@ -68,7 +95,11 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[POST /api/sms/send]", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to send SMS." },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to send SMS.",
+        twilioCode: null,
+      },
       { status: 500 }
     );
   }

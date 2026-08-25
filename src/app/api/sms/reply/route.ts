@@ -27,10 +27,17 @@ export async function POST(request: Request) {
     });
 
     if (result.error && !result.message) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
+      success: !result.error,
       message: result.message,
       error: result.error,
     });

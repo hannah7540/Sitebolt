@@ -53,12 +53,13 @@ export default function SmsModulePanel() {
   const [replySaving, setReplySaving] = useState(false);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (folderOverride?: SmsFolder) => {
     if (!canAccess) return;
+    const activeFolder = folderOverride ?? folder;
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchSmsMessages(folder);
+      const result = await fetchSmsMessages(activeFolder);
       if (result.error) {
         setError(result.error);
         setMessages([]);
@@ -66,7 +67,7 @@ export default function SmsModulePanel() {
       } else {
         setMessages(result.messages);
         setThreads(result.threads ?? []);
-        if (folder === "inbox") {
+        if (activeFolder === "inbox") {
           setUnreadCount(
             (result.threads ?? []).reduce((sum, thread) => sum + thread.unread_count, 0)
           );
@@ -126,7 +127,8 @@ export default function SmsModulePanel() {
       showSuccess("Reply sent.");
       setReplyBody("");
       await openThread(selectedThread);
-      void loadData();
+      setFolder("sent");
+      await loadData("sent");
     } finally {
       setReplySaving(false);
     }
@@ -400,10 +402,20 @@ export default function SmsModulePanel() {
           workers={workers}
           projects={projects}
           onClose={() => setComposeOpen(false)}
-          onSent={() => {
-            showSuccess("SMS queued/sent.");
-            void loadData();
+          onSent={(summary) => {
+            setFolder("sent");
+            void loadData("sent");
             refreshSmsUnreadCount();
+            if (summary?.warning) {
+              showError(summary.warning);
+              return;
+            }
+            const parts: string[] = [];
+            if (summary?.sent) parts.push(`${summary.sent} sent`);
+            if (summary?.queued) parts.push(`${summary.queued} scheduled`);
+            showSuccess(
+              parts.length > 0 ? `SMS dispatch complete (${parts.join(", ")}).` : "SMS sent."
+            );
           }}
         />
       ) : null}
