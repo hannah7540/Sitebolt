@@ -13,15 +13,13 @@ import {
   Clock,
   MapPin,
 } from "lucide-react";
-import type { Worker, WorkerScheduleEntry, WorkerVoc, WorkerTimesheet, LeaveRequest, PlantAsset, PlantPrestart } from "@/lib/supabase";
+import type { Worker, WorkerScheduleEntry, WorkerVoc, WorkerTimesheet, LeaveRequest } from "@/lib/supabase";
 import {
   fetchWorkerById,
   fetchLeaveRequests,
   fetchWorkerSchedules,
   fetchWorkerTimesheets,
   fetchWorkerVocs,
-  fetchPlant,
-  fetchPlantPrestarts,
   getWorkerAssignedProjectIds,
   isSupabaseConfigured,
   supabase,
@@ -43,11 +41,8 @@ import WorkerTimesheetModal from "./WorkerTimesheetModal";
 import WorkerTimesheetHistoryDrawer from "./WorkerTimesheetHistoryDrawer";
 import WorkerLeaveSubmitModal from "./WorkerLeaveSubmitModal";
 import WorkerSwmsWidget from "./WorkerSwmsWidget";
-import WorkerPlantPrestartsWidget from "./WorkerPlantPrestartsWidget";
 import WorkerPhotoEditModal from "./WorkerPhotoEditModal";
 import SiteSafetyFormModal from "./SiteSafetyFormModal";
-import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
-import { filterPlantPrestartsForDate } from "@/lib/plant-prestart-utils";
 import { localIsoDate } from "@/lib/timesheet-utils";
 import { mapTimesheetRow } from "@/lib/timesheet-entries";
 import type { SiteFormType } from "@/lib/site-forms";
@@ -92,10 +87,12 @@ const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
   "assigned_projects",
   "swms",
-  "plant_prestarts",
   "forms_hub",
   "itcs",
 ]);
+
+/** Widgets removed from My Profile — filter saved layouts that still reference them. */
+const REMOVED_PROFILE_WIDGET_IDS = new Set(["plant_prestarts"]);
 
 /** Widgets relocated into the Forms sub-dashboard — hidden from the main grid. */
 const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
@@ -208,10 +205,6 @@ export default function WorkerDashboardView({
   const [schedules, setSchedules] = useState<WorkerScheduleEntry[]>([]);
   const [timesheets, setTimesheets] = useState<WorkerTimesheet[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [plant, setPlant] = useState<PlantAsset[]>([]);
-  const [plantPrestarts, setPlantPrestarts] = useState<PlantPrestart[]>([]);
-  const [selectedPlantPrestart, setSelectedPlantPrestart] =
-    useState<PlantPrestart | null>(null);
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -354,16 +347,12 @@ export default function WorkerDashboardView({
         scheduleResult,
         timesheetResult,
         leaveResult,
-        plantResult,
-        prestartResult,
         inductionResult,
       ] = await Promise.allSettled([
         fetchWorkerVocs(resolvedWorkerId),
         fetchWorkerSchedules(payWeekStartIso, payWeekEndIso),
         fetchWorkerTimesheets(resolvedWorkerId, { limit: 100 }),
         fetchLeaveRequests({ workerId: resolvedWorkerId }),
-        fetchPlant(),
-        fetchPlantPrestarts({ startDate: todayIso, endDate: todayIso, limit: 200 }),
         fetchOutstandingWorkerFormAssignments({
           workerId: resolvedWorkerId,
           workerName: workerDisplayName,
@@ -384,8 +373,6 @@ export default function WorkerDashboardView({
       const scheduleData = unwrap(scheduleResult, [] as WorkerScheduleEntry[]);
       const timesheetData = unwrap(timesheetResult, [] as WorkerTimesheet[]);
       const leaveData = unwrap(leaveResult, [] as LeaveRequest[]);
-      const plantData = unwrap(plantResult, [] as PlantAsset[]);
-      const prestartData = unwrap(prestartResult, [] as PlantPrestart[]);
       const inductionData = unwrap(inductionResult, [] as FormWorkerAssignment[]);
 
       if (hadConnectionFailure) {
@@ -399,8 +386,6 @@ export default function WorkerDashboardView({
         setSchedules([]);
         setTimesheets([]);
         setLeaveRequests([]);
-        setPlant([]);
-        setPlantPrestarts([]);
         setPendingInductions([]);
         if (hadConnectionFailure) {
           setError(null);
@@ -418,8 +403,6 @@ export default function WorkerDashboardView({
           )
         );
         setLeaveRequests(leaveData);
-        setPlant(plantData);
-        setPlantPrestarts(filterPlantPrestartsForDate(prestartData, todayIso));
         setPendingInductions(inductionData);
 
         const grantedIds = getWorkerAssignedProjectIds(workerData);
@@ -601,10 +584,6 @@ export default function WorkerDashboardView({
       setActiveSiteForm(null);
       return true;
     }
-    if (selectedPlantPrestart) {
-      setSelectedPlantPrestart(null);
-      return true;
-    }
     if (showLeaveSubmit) {
       setShowLeaveSubmit(false);
       return true;
@@ -642,7 +621,6 @@ export default function WorkerDashboardView({
     activeInductionAssignment,
     activeSiteForm,
     comingSoon,
-    selectedPlantPrestart,
     showDetails,
     showFormsSubDashboard,
     showHiddenDrawer,
@@ -808,17 +786,6 @@ export default function WorkerDashboardView({
       );
     }
 
-    if (widgetId === "plant_prestarts") {
-      return (
-        <WorkerPlantPrestartsWidget
-          prestarts={plantPrestarts}
-          plant={plant}
-          loading={loading}
-          onSelectPrestart={setSelectedPlantPrestart}
-        />
-      );
-    }
-
     if (widgetId === "itcs") {
       return (
         <WorkerItcsWidget
@@ -934,7 +901,9 @@ export default function WorkerDashboardView({
   const widgetsToRender = useMemo(() => {
     const source = layout.editMode ? layout.orderedWidgets : layout.visibleWidgets;
     return source.filter(
-      (widget) => !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id)
+      (widget) =>
+        !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id) &&
+        !REMOVED_PROFILE_WIDGET_IDS.has(widget.id)
     );
   }, [layout.editMode, layout.orderedWidgets, layout.visibleWidgets]);
   const hiddenWidgetIds = layout.hiddenWidgets.map((widget) => widget.id);
@@ -1198,14 +1167,6 @@ export default function WorkerDashboardView({
           onSubmitted={loadData}
         />
       )}
-
-      {selectedPlantPrestart ? (
-        <PlantPrestartDetailModal
-          prestart={selectedPlantPrestart}
-          plant={plant}
-          onClose={() => setSelectedPlantPrestart(null)}
-        />
-      ) : null}
 
       {worker && activeSiteForm && selectedProjectId && (
         <SiteSafetyFormModal
