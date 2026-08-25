@@ -19,6 +19,8 @@ import WorkerRFIPanel from "@/components/workers/WorkerRFIPanel";
 import WorkerSubmitRFIModal from "@/components/workers/SubmitRFIModal";
 import WorkerRequestModal from "@/components/workers/WorkerRequestModal";
 import WorkerRequestTile from "@/components/workers/WorkerRequestTile";
+import WorkerIncidentReportModal from "@/components/workers/WorkerIncidentReportModal";
+import WorkerIncidentReportTile from "@/components/workers/WorkerIncidentReportTile";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +64,7 @@ export const FORMS_HUB_TILES: FormsHubTile[] = [
   },
 ];
 
-type FormsHubModal = "rfi" | "request" | null;
+type FormsHubModal = "rfi" | "request" | "incident" | null;
 
 interface WorkerFormsSubDashboardProps {
   worker: Worker;
@@ -102,6 +104,18 @@ export default function WorkerFormsSubDashboard({
       setSelectedForm("request");
     } catch (error) {
       console.error("[WorkerFormsSubDashboard] Failed to open Request Form modal:", error);
+    }
+  };
+
+  const openIncidentForm = () => {
+    try {
+      console.info("[WorkerFormsSubDashboard] Opening Incident Report modal");
+      setSelectedForm("incident");
+    } catch (error) {
+      console.error(
+        "[WorkerFormsSubDashboard] Failed to open Incident Report modal:",
+        error
+      );
     }
   };
 
@@ -183,6 +197,7 @@ export default function WorkerFormsSubDashboard({
         ))}
         <WorkerRFITile assignedCount={assignedRfiCount} onClick={openRfiForm} />
         <WorkerRequestTile onClick={openRequestForm} />
+        <WorkerIncidentReportTile onClick={openIncidentForm} />
       </div>
 
       <WorkerRFIPanel
@@ -211,6 +226,16 @@ export default function WorkerFormsSubDashboard({
         />
       ) : null}
 
+      {selectedForm === "incident" ? (
+        <WorkerIncidentReportModal
+          worker={worker}
+          seedProjects={projects}
+          defaultProjectId={defaultProjectId}
+          onClose={closeActiveForm}
+          onSubmitted={closeActiveForm}
+        />
+      ) : null}
+
       <WorkerLeaveRequestsWidget
         leaveRequests={leaveRequests}
         onSubmitLeave={onSubmitLeave}
@@ -222,7 +247,8 @@ export default function WorkerFormsSubDashboard({
 export function FormsHubPreviewBadges() {
   return (
     <p className="text-xs leading-relaxed text-slate-500">
-      Toolbox Talks • Pre-Starts • Safety Walks • RFI • Request Form • Leave Requests
+      Toolbox Talks • Pre-Starts • Safety Walks • RFI • Request Form • Incident Reports •
+      Leave Requests
     </p>
   );
 }

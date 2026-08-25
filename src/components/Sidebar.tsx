@@ -27,6 +27,7 @@ import {
   filterActiveProjects,
   type DbProject,
 } from "@/lib/project-resolver";
+import { useIncidentUnreadCount } from "@/hooks/useIncidentUnreadCount";
 import {
   extractProjectIdFromPathname,
   resolveProjectNavHref,
@@ -928,6 +929,7 @@ function AdministrationSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const isFormsRoute = pathname?.startsWith("/admin/forms") ?? false;
+  const incidentUnreadCount = useIncidentUnreadCount(true);
   const [open, setOpen] = useState(isFormsRoute);
   const [formsOpen, setFormsOpen] = useState(isFormsRoute);
   const items: SubItem[] = [
@@ -962,6 +964,11 @@ function AdministrationSection({
               <span className="flex items-center gap-2">
                 <ClipboardList className="h-4 w-4 text-slate-400" />
                 Forms & Registers
+                {incidentUnreadCount > 0 ? (
+                  <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">
+                    {incidentUnreadCount > 99 ? "99+" : incidentUnreadCount}
+                  </span>
+                ) : null}
               </span>
               {formsOpen ? (
                 <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -996,6 +1003,16 @@ function AdministrationSection({
                   active={
                     pathname === "/admin/forms/requests" ||
                     pathname?.startsWith("/admin/forms/requests/")
+                  }
+                />
+                <RouteNavLink
+                  label="Incidents"
+                  href="/admin/forms/incidents"
+                  depth={1}
+                  badge={incidentUnreadCount}
+                  active={
+                    pathname === "/admin/forms/incidents" ||
+                    pathname?.startsWith("/admin/forms/incidents/")
                   }
                 />
                 <RouteNavLink
