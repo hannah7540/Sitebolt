@@ -1,25 +1,52 @@
 import twilio from "twilio";
 import { SMS_OUTBOUND_PREFIX } from "@/lib/sms-types";
-import { toE164Phone, withOutboundPrefix } from "@/lib/sms-phone";
+import { formatOutboundPhoneE164, withOutboundPrefix } from "@/lib/sms-phone";
 
-export function isTwilioConfigured(): boolean {
-  return Boolean(
-    process.env.TWILIO_ACCOUNT_SID?.trim() &&
-      process.env.TWILIO_AUTH_TOKEN?.trim() &&
-      process.env.TWILIO_PHONE_NUMBER?.trim()
+export const TWILIO_MISSING_CREDS_ERROR =
+  "Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN in environment variables";
+
+export function getTwilioCredentials(): {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+} {
+  return {
+    accountSid: (process.env.TWILIO_ACCOUNT_SID || "").trim(),
+    authToken: (process.env.TWILIO_AUTH_TOKEN || "").trim(),
+    fromNumber: (process.env.TWILIO_PHONE_NUMBER || "").trim(),
+  };
+}
+
+export function validateTwilioCredentials():
+  | { ok: true; accountSid: string; authToken: string; fromNumber: string }
+  | { ok: false; error: string } {
+  const { accountSid, authToken, fromNumber } = getTwilioCredentials();
+  if (!accountSid || !authToken) {
+    return { ok: false, error: TWILIO_MISSING_CREDS_ERROR };
+  }
+  return { ok: true, accountSid, authToken, fromNumber };
+}
+
+export function logTwilioAuthCheck(accountSid: string, authToken: string): void {
+  console.log(
+    "Twilio Auth Check - SID:",
+    accountSid ? `${accountSid.substring(0, 6)}...` : "MISSING",
+    "Token length:",
+    authToken.length
   );
 }
 
-export function getTwilioFromNumber(): string | null {
-  return process.env.TWILIO_PHONE_NUMBER?.trim() || null;
+export function isTwilioConfigured(): boolean {
+  const creds = validateTwilioCredentials();
+  return creds.ok && Boolean(creds.fromNumber);
 }
 
-function createTwilioClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) {
-    throw new Error("Twilio credentials are not configured.");
-  }
+export function getTwilioFromNumber(): string | null {
+  const { fromNumber } = getTwilioCredentials();
+  return fromNumber || null;
+}
+
+function createTwilioClient(accountSid: string, authToken: string) {
   return twilio(accountSid, authToken);
 }
 
@@ -55,24 +82,33 @@ export async function sendTwilioSms(input: {
   error: string | null;
   twilioCode: string | number | null;
 }> {
-  if (!isTwilioConfigured()) {
+  const creds = validateTwilioCredentials();
+  if (!creds.ok) {
     return {
       sid: null,
       body: input.body,
-      error: "Twilio is not configured (TWILIO_ACCOUNT_SID / AUTH_TOKEN / PHONE_NUMBER).",
+      error: creds.error,
       twilioCode: null,
     };
   }
 
-  const from = getTwilioFromNumber();
-  const to = toE164Phone(input.to);
-  if (!from || !to) {
+  if (!creds.fromNumber) {
     return {
       sid: null,
       body: input.body,
-      error: !to
-        ? `Invalid recipient phone: ${input.to} (expected AU mobile E.164, e.g. +61412345678).`
-        : "TWILIO_PHONE_NUMBER is missing.",
+      error: "TWILIO_PHONE_NUMBER is missing or invalid.",
+      twilioCode: null,
+    };
+  }
+
+  const from =
+    formatOutboundPhoneE164(creds.fromNumber) ?? creds.fromNumber;
+  const to = formatOutboundPhoneE164(input.to);
+  if (!to) {
+    return {
+      sid: null,
+      body: input.body,
+      error: `Invalid recipient phone: ${input.to} (expected AU mobile E.164, e.g. +61412345678).`,
       twilioCode: null,
     };
   }
@@ -82,10 +118,11 @@ export async function sendTwilioSms(input: {
       ? input.body.trim()
       : withOutboundPrefix(input.body, SMS_OUTBOUND_PREFIX);
 
-  console.log("Dispatching Twilio SMS to:", to, "From:", from);
+  logTwilioAuthCheck(creds.accountSid, creds.authToken);
+  console.log("Final formatted E.164 number:", to, "From:", from);
 
   try {
-    const client = createTwilioClient();
+    const client = createTwilioClient(creds.accountSid, creds.authToken);
     const message = await client.messages.create({
       from,
       to,

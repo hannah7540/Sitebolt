@@ -1,3 +1,10 @@
+/** Strip spaces, brackets, and dashes from a phone string. */
+export function stripPhoneFormatting(phone: string | null | undefined): string {
+  return String(phone ?? "")
+    .trim()
+    .replace(/[\s\-()]/g, "");
+}
+
 /** Digits-only phone string for comparisons. */
 export function normalizePhoneDigits(phone: string | null | undefined): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -17,45 +24,44 @@ export function phonesMatch(
   return aTail.length >= 8 && aTail === bTail;
 }
 
-/** Best-effort E.164 for AU mobiles (04xxxxxxxx → +614xxxxxxxx). */
-export function toE164Phone(phone: string | null | undefined): string | null {
-  const raw = String(phone ?? "").trim();
-  if (!raw) return null;
+/**
+ * Format outbound AU numbers to E.164:
+ * - Strip spaces, brackets, and dashes
+ * - 04xxxxxxxx → +614xxxxxxxx
+ * - 4xxxxxxxxx → +614xxxxxxxx
+ */
+export function formatOutboundPhoneE164(
+  phone: string | null | undefined
+): string | null {
+  const stripped = stripPhoneFormatting(phone);
+  if (!stripped) return null;
 
-  if (raw.startsWith("+")) {
-    const digits = normalizePhoneDigits(raw);
+  if (stripped.startsWith("+")) {
+    const digits = stripped.slice(1).replace(/\D/g, "");
     return digits.length >= 8 ? `+${digits}` : null;
   }
 
-  const digits = normalizePhoneDigits(raw);
+  const digits = stripped.replace(/\D/g, "");
   if (!digits) return null;
 
-  // Australian mobile: 04xxxxxxxx (10 digits)
-  if (/^04\d{8}$/.test(digits)) {
-    return `+61${digits.slice(1)}`;
+  if (digits.startsWith("04")) {
+    return `+614${digits.slice(2)}`;
   }
 
-  // Already includes country code without plus: 614xxxxxxxx
-  if (/^614\d{8}$/.test(digits)) {
-    return `+${digits}`;
-  }
-
-  // Other AU numbers with leading 0: 0XXXXXXXXX
-  if (digits.startsWith("0") && digits.length >= 9 && digits.length <= 10) {
-    return `+61${digits.slice(1)}`;
-  }
-
-  // Country code 61 without leading 0 on local part
-  if (digits.startsWith("61") && digits.length >= 11 && digits.length <= 12) {
-    return `+${digits}`;
-  }
-
-  // 9-digit mobile missing leading 0 (412345678)
-  if (/^4\d{8}$/.test(digits)) {
+  if (digits.startsWith("4")) {
     return `+61${digits}`;
   }
 
+  if (digits.startsWith("61")) {
+    return `+${digits}`;
+  }
+
   return null;
+}
+
+/** Best-effort E.164 for AU mobiles (used for matching and outbound dispatch). */
+export function toE164Phone(phone: string | null | undefined): string | null {
+  return formatOutboundPhoneE164(phone);
 }
 
 export function conversationPhoneKey(phone: string | null | undefined): string {

@@ -5,6 +5,12 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { composeSmsAdmin } from "@/lib/sms-module-admin";
 import { requireSmsApiAccess } from "@/lib/sms-auth";
+import {
+  TWILIO_MISSING_CREDS_ERROR,
+  getTwilioCredentials,
+  logTwilioAuthCheck,
+  validateTwilioCredentials,
+} from "@/lib/sms-service";
 import type { ComposeSmsInput, SmsTargetMode } from "@/lib/sms-types";
 
 function asStringArray(value: unknown): string[] {
@@ -55,6 +61,19 @@ export async function POST(request: Request) {
       input.worker_ids = asStringArray(raw.recipients);
     }
 
+    if (input.send_mode !== "scheduled") {
+      const creds = validateTwilioCredentials();
+      if (!creds.ok) {
+        const rawCreds = getTwilioCredentials();
+        logTwilioAuthCheck(rawCreds.accountSid, rawCreds.authToken);
+        return NextResponse.json(
+          { success: false, error: creds.error },
+          { status: 500 }
+        );
+      }
+      logTwilioAuthCheck(creds.accountSid, creds.authToken);
+    }
+
     const result = await composeSmsAdmin(auth.admin, {
       ...input,
       created_by: auth.workerId,
@@ -68,6 +87,11 @@ export async function POST(request: Request) {
       (result.sent > 0 || result.queued > 0);
 
     if (result.error && result.messages.length === 0) {
+      const status =
+        result.error === TWILIO_MISSING_CREDS_ERROR ||
+        result.dispatchErrors.some((item) => item.error === TWILIO_MISSING_CREDS_ERROR)
+          ? 500
+          : 400;
       return NextResponse.json(
         {
           success: false,
@@ -78,7 +102,7 @@ export async function POST(request: Request) {
           failed: result.failed,
           queued: result.queued,
         },
-        { status: 400 }
+        { status }
       );
     }
 
