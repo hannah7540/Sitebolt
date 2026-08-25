@@ -202,15 +202,17 @@ export default function WorkerIncidentReportModal({
     if (!file) return;
     setUploadingMedical(true);
     try {
-      const url = await uploadIncidentMedicalCertificate(
+      const result = await uploadIncidentMedicalCertificate(
         file,
         `${worker.id}-${Date.now()}`
       );
-      if (!url) {
-        showError("Failed to upload medical certificate.");
+      if (!result.url) {
+        const message = result.error ?? "Failed to upload medical certificate.";
+        setError(message);
+        showError(message);
         return;
       }
-      setMedicalUrls((current) => [...current, url]);
+      setMedicalUrls((current) => [...current, result.url!]);
     } finally {
       setUploadingMedical(false);
     }
@@ -269,9 +271,19 @@ export default function WorkerIncidentReportModal({
 
     setSaving(true);
     try {
-      const signatureUrl =
-        (await uploadIncidentSignature(signature, `${worker.id}-${Date.now()}`)) ||
-        signature;
+      const signatureUpload = await uploadIncidentSignature(
+        signature,
+        `${worker.id}-${Date.now()}`
+      );
+      if (!signatureUpload.url) {
+        const message =
+          signatureUpload.error ??
+          "Failed to upload signature to incident-attachments.";
+        setError(message);
+        showError(message);
+        setSaving(false);
+        return;
+      }
 
       const injured = projectWorkers.find((row) => row.id === injuredWorkerId);
       const treating = projectWorkers.find((row) => row.id === treatingPersonId);
@@ -312,18 +324,20 @@ export default function WorkerIncidentReportModal({
           whatCouldHavePrevented,
           recommendationsToPrevent,
           medicalCertificateUrls: medicalUrls,
-          submitterSignatureUrl: signatureUrl,
+          submitterSignatureUrl: signatureUpload.url,
         }),
       });
 
       const payload = (await response.json().catch(() => null)) as {
         error?: string;
+        hint?: string;
         report?: { reference_number?: string };
         emailSent?: boolean;
       } | null;
 
       if (!response.ok) {
-        const message = payload?.error ?? "Failed to submit incident report.";
+        const message = [payload?.error, payload?.hint].filter(Boolean).join(" ")
+          || "Failed to submit incident report.";
         setError(message);
         showError(message);
         return;

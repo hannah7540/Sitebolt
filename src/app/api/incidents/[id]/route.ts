@@ -5,9 +5,10 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { requireSwmsAdminAccess } from "@/lib/swms-api-auth";
 import {
+  formatIncidentTableError,
   INCIDENT_REPORTS_TABLE,
-  INCIDENT_STATUS_OPTIONS,
   normalizeIncidentReport,
+  INCIDENT_STATUS_OPTIONS,
   type IncidentStatus,
 } from "@/lib/incident-reports";
 
@@ -57,7 +58,10 @@ export async function PATCH(
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: formatIncidentTableError(error), table: INCIDENT_REPORTS_TABLE },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json({

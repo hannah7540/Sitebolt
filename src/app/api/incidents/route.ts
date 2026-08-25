@@ -6,14 +6,19 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedWorkerAccess, requireSwmsAdminAccess } from "@/lib/swms-api-auth";
 import {
   buildIncidentInsertPayload,
+  formatIncidentTableError,
   generateIncidentReferenceNumber,
   normalizeIncidentReport,
+  sanitizeTextArray,
+  sanitizeUuidArray,
   INCIDENT_REPORTS_TABLE,
+  INCIDENT_TABLE_NOT_READY_MESSAGE,
   type IncidentReportSubmitInput,
   type IncidentTreatmentDetails,
 } from "@/lib/incident-reports";
 import { sendIncidentNotificationEmails } from "@/lib/incident-report-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -23,9 +28,27 @@ function readBoolean(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item).trim()).filter(Boolean);
+async function resolveProjectUuid(
+  admin: SupabaseClient,
+  projectIdOrSlug: string
+): Promise<{ id: string | null; name: string | null }> {
+  const trimmed = projectIdOrSlug.trim();
+  if (!trimmed) return { id: null, name: null };
+
+  const { data, error } = await admin
+    .from("projects")
+    .select("id, project_name, slug")
+    .or(`id.eq.${trimmed},slug.eq.${trimmed}`)
+    .maybeSingle();
+
+  if (error || !data?.id) {
+    return { id: null, name: null };
+  }
+
+  return {
+    id: String(data.id),
+    name: data.project_name ? String(data.project_name) : null,
+  };
 }
 
 export async function GET() {
@@ -38,7 +61,10 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: formatIncidentTableError(error), reports: [], count: 0 },
+      { status: 400 }
+    );
   }
 
   const reports = ((data ?? []) as Record<string, unknown>[]).map(normalizeIncidentReport);
@@ -56,14 +82,18 @@ export async function POST(req: Request) {
 
   const raw = body as Record<string, unknown>;
   const treatmentDetails = readString(raw.treatmentDetails) as IncidentTreatmentDetails;
+  const projectKey = readString(raw.projectId);
+  const resolvedProject = await resolveProjectUuid(access.admin, projectKey);
+
   const input: IncidentReportSubmitInput = {
     submittedById: access.workerId,
     submittedByName:
       readString(raw.submittedByName) ||
       getWorkerDisplayName(access.worker, "Worker"),
     incidentDateTime: readString(raw.incidentDateTime),
-    projectId: readString(raw.projectId),
-    projectName: readString(raw.projectName) || "Project",
+    projectId: resolvedProject.id ?? projectKey,
+    projectName:
+      readString(raw.projectName) || resolvedProject.name || "Project",
     injuredWorkerId: readString(raw.injuredWorkerId) || null,
     injuredWorkerName: readString(raw.injuredWorkerName) || null,
     injuryDetails: readString(raw.injuryDetails) || null,
@@ -74,14 +104,14 @@ export async function POST(req: Request) {
     whatOccurred: readString(raw.whatOccurred),
     incidentLocationDetails: readString(raw.incidentLocationDetails),
     treatmentGiven: readString(raw.treatmentGiven) || null,
-    witnessIds: readStringArray(raw.witnessIds),
-    witnessNames: readStringArray(raw.witnessNames),
+    witnessIds: sanitizeUuidArray(raw.witnessIds),
+    witnessNames: sanitizeTextArray(raw.witnessNames),
     immediateCorrectiveActionRequired: readBoolean(raw.immediateCorrectiveActionRequired),
     isNotifiableUnderWhs: readBoolean(raw.isNotifiableUnderWhs),
     whatCausedToGoWrong: readString(raw.whatCausedToGoWrong) || null,
     whatCouldHavePrevented: readString(raw.whatCouldHavePrevented) || null,
     recommendationsToPrevent: readString(raw.recommendationsToPrevent) || null,
-    medicalCertificateUrls: readStringArray(raw.medicalCertificateUrls),
+    medicalCertificateUrls: sanitizeTextArray(raw.medicalCertificateUrls),
     submitterSignatureUrl: readString(raw.submitterSignatureUrl),
   };
 
@@ -90,6 +120,20 @@ export async function POST(req: Request) {
   }
   if (!input.projectId) {
     return NextResponse.json({ error: "Project is required." }, { status: 400 });
+  }
+  if (!resolvedProject.id) {
+    return NextResponse.json(
+      {
+        error:
+          "Selected project could not be resolved to a valid project UUID for incident_reports.project_id.",
+      },
+      { status: 400 }
+    );
+  }
+  input.projectId = resolvedProject.id;
+
+  if (!input.injuredWorkerId) {
+    return NextResponse.json({ error: "Injured worker is required." }, { status: 400 });
   }
   if (!input.whatOccurred) {
     return NextResponse.json({ error: "What occurred is required." }, { status: 400 });
@@ -103,6 +147,15 @@ export async function POST(req: Request) {
   if (!input.submitterSignatureUrl) {
     return NextResponse.json({ error: "Signature is required." }, { status: 400 });
   }
+  if (input.submitterSignatureUrl.startsWith("data:")) {
+    return NextResponse.json(
+      {
+        error:
+          "Signature must be uploaded to the incident-attachments bucket before submit.",
+      },
+      { status: 400 }
+    );
+  }
 
   const referenceNumber = await generateIncidentReferenceNumber(access.admin);
   const payload = buildIncidentInsertPayload(input, referenceNumber);
@@ -114,7 +167,18 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const message = formatIncidentTableError(error);
+    return NextResponse.json(
+      {
+        error: message,
+        table: INCIDENT_REPORTS_TABLE,
+        hint:
+          message === INCIDENT_TABLE_NOT_READY_MESSAGE
+            ? "Run supabase/migrations/129_incident_reports.sql and 130_incident_reports_schema_fix.sql"
+            : undefined,
+      },
+      { status: 400 }
+    );
   }
 
   const report = normalizeIncidentReport(data as Record<string, unknown>);

@@ -1,9 +1,20 @@
 import { fetchProjects, type DbProject } from "@/lib/project-resolver";
 import { supabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import {
+  isSupabaseRelationMissingError,
+  isSupabaseSchemaCacheError,
+  toSupabaseRequestError,
+} from "@/lib/supabase-errors";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
+
+export const INCIDENT_TABLE_NOT_READY_MESSAGE =
+  "Incident reports storage is not ready. Apply migrations 129/130 so the `incident_reports` table exists, then retry.";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const INCIDENT_TREATMENT_OPTIONS = [
   "None",
@@ -85,8 +96,73 @@ export type IncidentReportSubmitInput = {
 export type IncidentProjectOption = { id: string; name: string };
 
 function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item)).filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch {
+      // Postgres array literal: {a,b,c}
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        return trimmed
+          .slice(1, -1)
+          .split(",")
+          .map((part) => part.trim().replace(/^"|"$/g, ""))
+          .filter(Boolean);
+      }
+    }
+  }
+  return [];
+}
+
+export function sanitizeUuidArray(values: unknown): string[] {
+  return asStringArray(values).filter((value) => UUID_RE.test(value));
+}
+
+export function sanitizeTextArray(values: unknown): string[] {
+  return asStringArray(values);
+}
+
+export function formatIncidentTableError(error: unknown): string {
+  const normalized = toSupabaseRequestError(
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object" && "message" in error
+        ? {
+            message: String((error as { message?: unknown }).message ?? ""),
+            code:
+              "code" in error
+                ? String((error as { code?: unknown }).code ?? "")
+                : "",
+            details:
+              "details" in error
+                ? String((error as { details?: unknown }).details ?? "")
+                : "",
+            hint:
+              "hint" in error
+                ? String((error as { hint?: unknown }).hint ?? "")
+                : "",
+          }
+        : null
+  );
+  if (!normalized) return "Failed to access incident_reports.";
+  if (
+    isSupabaseRelationMissingError(normalized) ||
+    isSupabaseSchemaCacheError(normalized)
+  ) {
+    return INCIDENT_TABLE_NOT_READY_MESSAGE;
+  }
+  const message = normalized.message || "Failed to access incident_reports.";
+  if (message.toLowerCase().includes("incident_reports")) {
+    return `${message} (table: incident_reports)`;
+  }
+  return message;
 }
 
 function normalizeTreatment(value: unknown): IncidentTreatmentDetails {
@@ -126,8 +202,8 @@ export function normalizeIncidentReport(row: Record<string, unknown>): IncidentR
     what_occurred: String(row.what_occurred ?? ""),
     incident_location_details: String(row.incident_location_details ?? ""),
     treatment_given: row.treatment_given ? String(row.treatment_given) : null,
-    witness_ids: asStringArray(row.witness_ids),
-    witness_names: asStringArray(row.witness_names),
+    witness_ids: sanitizeUuidArray(row.witness_ids),
+    witness_names: sanitizeTextArray(row.witness_names),
     immediate_corrective_action_required: Boolean(row.immediate_corrective_action_required),
     is_notifiable_under_whs: Boolean(row.is_notifiable_under_whs),
     what_caused_to_go_wrong: row.what_caused_to_go_wrong
@@ -139,7 +215,7 @@ export function normalizeIncidentReport(row: Record<string, unknown>): IncidentR
     recommendations_to_prevent: row.recommendations_to_prevent
       ? String(row.recommendations_to_prevent)
       : null,
-    medical_certificate_urls: asStringArray(row.medical_certificate_urls),
+    medical_certificate_urls: sanitizeTextArray(row.medical_certificate_urls),
     submitter_signature_url: row.submitter_signature_url
       ? String(row.submitter_signature_url)
       : null,
@@ -179,8 +255,9 @@ export function incidentStatusBadgeClass(status: IncidentStatus): string {
   }
 }
 
+/** Unread = admin has not reviewed (`is_read_admin = false`). */
 export function isIncidentUnread(row: Pick<IncidentReportRecord, "is_read_admin" | "status">): boolean {
-  return !row.is_read_admin || row.status === "new";
+  return row.is_read_admin === false;
 }
 
 export async function generateIncidentReferenceNumber(
@@ -198,37 +275,48 @@ export async function generateIncidentReferenceNumber(
   return `INC-${yyyymmdd}-${suffix}`;
 }
 
+function nullIfBlankUuid(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || !UUID_RE.test(trimmed)) return null;
+  return trimmed;
+}
+
 export function buildIncidentInsertPayload(
   input: IncidentReportSubmitInput,
   referenceNumber: string
 ): Record<string, unknown> {
   const now = new Date().toISOString();
+  const witnessIds = sanitizeUuidArray(input.witnessIds);
+  const witnessNames = sanitizeTextArray(input.witnessNames).slice(0, witnessIds.length);
+  const medicalUrls = sanitizeTextArray(input.medicalCertificateUrls);
+
   return {
     reference_number: referenceNumber,
-    submitted_by_id: input.submittedById || null,
-    submitted_by_name: input.submittedByName,
+    submitted_by_id: nullIfBlankUuid(input.submittedById),
+    submitted_by_name: input.submittedByName?.trim() || null,
     incident_date_time: input.incidentDateTime,
-    project_id: input.projectId || null,
-    project_name: input.projectName,
-    injured_worker_id: input.injuredWorkerId || null,
-    injured_worker_name: input.injuredWorkerName || null,
+    project_id: nullIfBlankUuid(input.projectId),
+    project_name: input.projectName?.trim() || null,
+    injured_worker_id: nullIfBlankUuid(input.injuredWorkerId),
+    injured_worker_name: input.injuredWorkerName?.trim() || null,
     injury_details: input.injuryDetails?.trim() || null,
     treatment_details: input.treatmentDetails,
-    treating_person_id: input.treatingPersonId || null,
-    treating_person_name: input.treatingPersonName || null,
+    treating_person_id: nullIfBlankUuid(input.treatingPersonId),
+    treating_person_name: input.treatingPersonName?.trim() || null,
     offsite_treatment_location: input.offsiteTreatmentLocation?.trim() || null,
     what_occurred: input.whatOccurred.trim(),
     incident_location_details: input.incidentLocationDetails.trim(),
     treatment_given: input.treatmentGiven?.trim() || null,
-    witness_ids: input.witnessIds,
-    witness_names: input.witnessNames,
-    immediate_corrective_action_required: input.immediateCorrectiveActionRequired,
-    is_notifiable_under_whs: input.isNotifiableUnderWhs,
+    // Native Postgres arrays (uuid[] / text[]) — always send JS arrays.
+    witness_ids: witnessIds,
+    witness_names: witnessNames,
+    immediate_corrective_action_required: Boolean(input.immediateCorrectiveActionRequired),
+    is_notifiable_under_whs: Boolean(input.isNotifiableUnderWhs),
     what_caused_to_go_wrong: input.whatCausedToGoWrong?.trim() || null,
     what_could_have_prevented: input.whatCouldHavePrevented?.trim() || null,
     recommendations_to_prevent: input.recommendationsToPrevent?.trim() || null,
-    medical_certificate_urls: input.medicalCertificateUrls,
-    submitter_signature_url: input.submitterSignatureUrl,
+    medical_certificate_urls: medicalUrls,
+    submitter_signature_url: input.submitterSignatureUrl?.trim() || null,
     status: "new",
     is_read_admin: false,
     created_at: now,
@@ -253,7 +341,7 @@ export async function submitIncidentReport(
     .single();
 
   if (error) {
-    return { report: null, error: error.message };
+    return { report: null, error: formatIncidentTableError(error) };
   }
 
   return {
@@ -278,22 +366,33 @@ export async function fetchIncidentReports(options?: {
   if (options?.status && options.status !== "all") {
     query = query.eq("status", options.status);
   }
+  if (options?.unreadOnly) {
+    query = query.eq("is_read_admin", false);
+  }
 
   const { data, error } = await query;
   if (error) {
-    return { reports: [], error: error.message };
+    return { reports: [], error: formatIncidentTableError(error) };
   }
 
-  let reports = ((data ?? []) as Record<string, unknown>[]).map(normalizeIncidentReport);
-  if (options?.unreadOnly) {
-    reports = reports.filter(isIncidentUnread);
-  }
+  const reports = ((data ?? []) as Record<string, unknown>[]).map(normalizeIncidentReport);
   return { reports, error: null };
 }
 
 export async function countUnreadIncidentReports(): Promise<number> {
-  const { reports } = await fetchIncidentReports();
-  return reports.filter(isIncidentUnread).length;
+  if (!isSupabaseConfigured()) return 0;
+
+  const { count, error } = await supabase
+    .from(INCIDENT_REPORTS_TABLE)
+    .select("id", { count: "exact", head: true })
+    .eq("is_read_admin", false);
+
+  if (error) {
+    console.warn("[incident-reports] unread count failed:", formatIncidentTableError(error));
+    return 0;
+  }
+
+  return count ?? 0;
 }
 
 export async function updateIncidentReportAdmin(
@@ -321,7 +420,7 @@ export async function updateIncidentReportAdmin(
     .single();
 
   if (error) {
-    return { report: null, error: error.message };
+    return { report: null, error: formatIncidentTableError(error) };
   }
 
   return {
