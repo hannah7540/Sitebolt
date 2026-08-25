@@ -8,6 +8,11 @@ import { fetchWorkersForProject } from "@/lib/supabase";
 import {
   fetchIncidentProjectOptions,
   INCIDENT_TREATMENT_OPTIONS,
+  isValidIncidentUuid,
+  forceIncidentBoolean,
+  sanitizeIncidentTreatment,
+  sanitizeTextArray,
+  sanitizeUuidArray,
   workerOptionLabel,
   type IncidentTreatmentDetails,
 } from "@/lib/incident-reports";
@@ -28,6 +33,14 @@ import {
   modalOverlayClass,
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+
+function sanitizeProjectWorkers(workers: Worker[] | null | undefined): Worker[] {
+  if (!Array.isArray(workers)) return [];
+  return workers.filter(
+    (row): row is Worker =>
+      Boolean(row) && typeof row.id === "string" && row.id.trim().length > 0
+  );
+}
 
 interface WorkerIncidentReportModalProps {
   worker: Worker;
@@ -179,10 +192,18 @@ export default function WorkerIncidentReportModal({
       try {
         const workers = await fetchWorkersForProject(projectId);
         if (cancelled) return;
-        setProjectWorkers(workers);
+        setProjectWorkers(sanitizeProjectWorkers(workers));
         setInjuredWorkerId(null);
         setTreatingPersonId(null);
         setWitnessIds([]);
+      } catch (cause) {
+        if (cancelled) return;
+        setProjectWorkers([]);
+        const message =
+          cause instanceof Error
+            ? cause.message
+            : "Failed to load workers for this project.";
+        setError(message);
       } finally {
         if (!cancelled) setLoadingWorkers(false);
       }
@@ -198,9 +219,13 @@ export default function WorkerIncidentReportModal({
     [projects, projectId]
   );
 
+  const noWorkersAssigned =
+    Boolean(projectId) && !loadingWorkers && projectWorkers.length === 0;
+
   const handleMedicalFile = async (file: File | null) => {
     if (!file) return;
     setUploadingMedical(true);
+    setError(null);
     try {
       const result = await uploadIncidentMedicalCertificate(
         file,
@@ -213,6 +238,16 @@ export default function WorkerIncidentReportModal({
         return;
       }
       setMedicalUrls((current) => [...current, result.url!]);
+      if (result.usedFallback) {
+        showSuccess("Medical certificate saved locally (storage upload unavailable).");
+      }
+    } catch (cause) {
+      const message =
+        cause instanceof Error
+          ? cause.message
+          : "Failed to process medical certificate.";
+      setError(message);
+      showError(message);
     } finally {
       setUploadingMedical(false);
     }
@@ -232,11 +267,11 @@ export default function WorkerIncidentReportModal({
       setError("Date and time of incident is required.");
       return;
     }
-    if (!projectId) {
-      setError("Please select a project.");
+    if (!projectId || !isValidIncidentUuid(projectId)) {
+      setError("Please select a valid project before submitting.");
       return;
     }
-    if (!injuredWorkerId) {
+    if (!injuredWorkerId || !isValidIncidentUuid(injuredWorkerId)) {
       setError("Please search and select the injured worker.");
       return;
     }
@@ -248,9 +283,11 @@ export default function WorkerIncidentReportModal({
       setError("Please describe where the incident occurred.");
       return;
     }
-    if (isOnsiteTreatment && !treatingPersonId) {
-      setError("Select the treating person for onsite first aid.");
-      return;
+    if (isOnsiteTreatment) {
+      if (!treatingPersonId || !isValidIncidentUuid(treatingPersonId)) {
+        setError("Select the treating person for onsite first aid.");
+        return;
+      }
     }
     if (isOffsiteTreatment && !offsiteTreatmentLocation.trim()) {
       setError("Enter where offsite treatment was given.");
@@ -271,23 +308,36 @@ export default function WorkerIncidentReportModal({
 
     setSaving(true);
     try {
-      const signatureUpload = await uploadIncidentSignature(
-        signature,
-        `${worker.id}-${Date.now()}`
-      );
-      if (!signatureUpload.url) {
-        const message =
-          signatureUpload.error ??
-          "Failed to upload signature to incident-attachments.";
+      let signatureUrl: string | null = null;
+      try {
+        const signatureUpload = await uploadIncidentSignature(
+          signature,
+          `${worker.id}-${Date.now()}`
+        );
+        signatureUrl = signatureUpload.url;
+        if (!signatureUrl) {
+          // Final fallback: keep the canvas data URL so submit never drops the signature.
+          signatureUrl = signature.startsWith("data:") ? signature : null;
+        }
+      } catch {
+        signatureUrl = signature.startsWith("data:") ? signature : null;
+      }
+
+      if (!signatureUrl) {
+        const message = "Failed to capture signature for submission.";
         setError(message);
         showError(message);
         setSaving(false);
         return;
       }
 
-      const injured = projectWorkers.find((row) => row.id === injuredWorkerId);
-      const treating = projectWorkers.find((row) => row.id === treatingPersonId);
-      const witnesses = projectWorkers.filter((row) => witnessIds.includes(row.id));
+      const injured = projectWorkers.find((row) => row?.id === injuredWorkerId) ?? null;
+      const treating =
+        projectWorkers.find((row) => row?.id === treatingPersonId) ?? null;
+      const safeWitnessIds = sanitizeUuidArray(witnessIds);
+      const witnesses = projectWorkers.filter((row) =>
+        row?.id ? safeWitnessIds.includes(row.id) : false
+      );
 
       if (!injured) {
         setError("Selected injured worker is not assigned to this project.");
@@ -303,28 +353,30 @@ export default function WorkerIncidentReportModal({
           incidentDateTime: new Date(incidentDateTime).toISOString(),
           projectId,
           projectName: selectedProject?.name ?? "Project",
-          injuredWorkerId,
+          injuredWorkerId: injuredWorkerId || null,
           injuredWorkerName: workerOptionLabel(injured),
-          injuryDetails,
-          treatmentDetails,
-          treatingPersonId: isOnsiteTreatment ? treatingPersonId : null,
+          injuryDetails: injuryDetails.trim() || null,
+          treatmentDetails: sanitizeIncidentTreatment(treatmentDetails),
+          treatingPersonId: isOnsiteTreatment ? treatingPersonId || null : null,
           treatingPersonName:
             isOnsiteTreatment && treating ? workerOptionLabel(treating) : null,
           offsiteTreatmentLocation: isOffsiteTreatment
-            ? offsiteTreatmentLocation
+            ? offsiteTreatmentLocation.trim() || null
             : null,
-          whatOccurred,
-          incidentLocationDetails,
-          treatmentGiven,
-          witnessIds,
-          witnessNames: witnesses.map(workerOptionLabel),
-          immediateCorrectiveActionRequired,
-          isNotifiableUnderWhs,
-          whatCausedToGoWrong,
-          whatCouldHavePrevented,
-          recommendationsToPrevent,
-          medicalCertificateUrls: medicalUrls,
-          submitterSignatureUrl: signatureUpload.url,
+          whatOccurred: whatOccurred.trim(),
+          incidentLocationDetails: incidentLocationDetails.trim(),
+          treatmentGiven: treatmentGiven.trim() || null,
+          witnessIds: safeWitnessIds,
+          witnessNames: sanitizeTextArray(witnesses.map(workerOptionLabel)),
+          immediateCorrectiveActionRequired: forceIncidentBoolean(
+            immediateCorrectiveActionRequired
+          ),
+          isNotifiableUnderWhs: forceIncidentBoolean(isNotifiableUnderWhs),
+          whatCausedToGoWrong: whatCausedToGoWrong.trim() || null,
+          whatCouldHavePrevented: whatCouldHavePrevented.trim() || null,
+          recommendationsToPrevent: recommendationsToPrevent.trim() || null,
+          medicalCertificateUrls: sanitizeTextArray(medicalUrls),
+          submitterSignatureUrl: signatureUrl,
         }),
       });
 
@@ -332,6 +384,7 @@ export default function WorkerIncidentReportModal({
         error?: string;
         hint?: string;
         report?: { reference_number?: string };
+        emailQueued?: boolean;
         emailSent?: boolean;
       } | null;
 
@@ -429,6 +482,11 @@ export default function WorkerIncidentReportModal({
 
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
             <h3 className="text-sm font-semibold text-slate-900">Injury &amp; Treatment</h3>
+            {noWorkersAssigned ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                No workers assigned to this project
+              </p>
+            ) : null}
             <WorkerSearchSelect
               id="injured-worker"
               mode="single"
@@ -437,14 +495,16 @@ export default function WorkerIncidentReportModal({
               workers={projectWorkers}
               selected={injuredWorkerId}
               onChange={setInjuredWorkerId}
-              disabled={workersDisabled}
+              disabled={workersDisabled || noWorkersAssigned}
               allowClear
               placeholder={
                 loadingWorkers
                   ? "Loading project workers…"
-                  : projectId
-                    ? "Search and select injured worker…"
-                    : "Select a project first…"
+                  : noWorkersAssigned
+                    ? "No workers assigned to this project"
+                    : projectId
+                      ? "Search and select injured worker…"
+                      : "Select a project first…"
               }
               searchPlaceholder="Search project workers by name or email…"
               getWorkerLabel={workerOptionLabel}
@@ -490,9 +550,13 @@ export default function WorkerIncidentReportModal({
                 workers={projectWorkers}
                 selected={treatingPersonId}
                 onChange={setTreatingPersonId}
-                disabled={workersDisabled}
+                disabled={workersDisabled || noWorkersAssigned}
                 allowClear
-                placeholder="Search and select treating person…"
+                placeholder={
+                  noWorkersAssigned
+                    ? "No workers assigned to this project"
+                    : "Search and select treating person…"
+                }
                 searchPlaceholder="Search project workers by name or email…"
                 getWorkerLabel={workerOptionLabel}
               />
@@ -561,13 +625,15 @@ export default function WorkerIncidentReportModal({
             workers={projectWorkers}
             selected={witnessIds}
             onChange={setWitnessIds}
-            disabled={workersDisabled}
+            disabled={workersDisabled || noWorkersAssigned}
             placeholder={
               loadingWorkers
                 ? "Loading project workers…"
-                : projectId
-                  ? "Search and tag witnesses…"
-                  : "Select a project first…"
+                : noWorkersAssigned
+                  ? "No workers assigned to this project"
+                  : projectId
+                    ? "Search and tag witnesses…"
+                    : "Select a project first…"
             }
             searchPlaceholder="Search project workers by name or email…"
             getWorkerLabel={workerOptionLabel}

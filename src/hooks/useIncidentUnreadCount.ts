@@ -18,7 +18,13 @@ export function useIncidentUnreadCount(enabled = true): number {
         count?: number;
       } | null;
       if (response.ok) {
-        setCount(typeof payload?.count === "number" ? payload.count : 0);
+        const next =
+          typeof payload?.count === "number" && Number.isFinite(payload.count)
+            ? Math.max(0, Math.floor(payload.count))
+            : 0;
+        setCount(next);
+      } else {
+        setCount(0);
       }
     } catch {
       setCount(0);

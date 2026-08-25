@@ -2,30 +2,28 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { requireAuthenticatedWorkerAccess, requireSwmsAdminAccess } from "@/lib/swms-api-auth";
 import {
   buildIncidentInsertPayload,
+  forceIncidentBoolean,
   formatIncidentTableError,
   generateIncidentReferenceNumber,
+  isValidIncidentUuid,
   normalizeIncidentReport,
+  nullIfBlankUuid,
+  sanitizeIncidentTreatment,
   sanitizeTextArray,
   sanitizeUuidArray,
   INCIDENT_REPORTS_TABLE,
   type IncidentReportSubmitInput,
-  type IncidentTreatmentDetails,
 } from "@/lib/incident-reports";
-import { INCIDENT_ATTACHMENTS_BUCKET } from "@/lib/incident-report-upload";
 import { sendIncidentNotificationEmails } from "@/lib/incident-report-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function readBoolean(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
 }
 
 async function resolveProjectUuid(
@@ -67,7 +65,9 @@ export async function GET() {
     );
   }
 
-  const reports = ((data ?? []) as Record<string, unknown>[]).map(normalizeIncidentReport);
+  const reports = ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    normalizeIncidentReport(row)
+  );
   return NextResponse.json({ reports, count: reports.length });
 }
 
@@ -81,9 +81,31 @@ export async function POST(req: Request) {
   }
 
   const raw = body as Record<string, unknown>;
-  const treatmentDetails = readString(raw.treatmentDetails) as IncidentTreatmentDetails;
   const projectKey = readString(raw.projectId);
+  if (!projectKey) {
+    return NextResponse.json(
+      { error: "Please select a project before submitting." },
+      { status: 400 }
+    );
+  }
+
   const resolvedProject = await resolveProjectUuid(access.admin, projectKey);
+  const projectId = resolvedProject.id ?? (isValidIncidentUuid(projectKey) ? projectKey : null);
+  if (!projectId || !isValidIncidentUuid(projectId)) {
+    return NextResponse.json(
+      {
+        error:
+          "Selected project could not be resolved to a valid project UUID. Please select a project and try again.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const signatureUrl = readString(raw.submitterSignatureUrl);
+  // Storage URL preferred; data: URLs allowed as offline/upload failure fallback.
+  if (!signatureUrl) {
+    return NextResponse.json({ error: "Signature is required." }, { status: 400 });
+  }
 
   const input: IncidentReportSubmitInput = {
     submittedById: access.workerId,
@@ -91,47 +113,35 @@ export async function POST(req: Request) {
       readString(raw.submittedByName) ||
       getWorkerDisplayName(access.worker, "Worker"),
     incidentDateTime: readString(raw.incidentDateTime),
-    projectId: resolvedProject.id ?? projectKey,
+    projectId,
     projectName:
       readString(raw.projectName) || resolvedProject.name || "Project",
-    injuredWorkerId: readString(raw.injuredWorkerId) || null,
+    injuredWorkerId: nullIfBlankUuid(raw.injuredWorkerId),
     injuredWorkerName: readString(raw.injuredWorkerName) || null,
     injuryDetails: readString(raw.injuryDetails) || null,
-    treatmentDetails: treatmentDetails || "None",
-    treatingPersonId: readString(raw.treatingPersonId) || null,
+    treatmentDetails: sanitizeIncidentTreatment(raw.treatmentDetails),
+    treatingPersonId: nullIfBlankUuid(raw.treatingPersonId),
     treatingPersonName: readString(raw.treatingPersonName) || null,
     offsiteTreatmentLocation: readString(raw.offsiteTreatmentLocation) || null,
     whatOccurred: readString(raw.whatOccurred),
     incidentLocationDetails: readString(raw.incidentLocationDetails),
     treatmentGiven: readString(raw.treatmentGiven) || null,
-    witnessIds: sanitizeUuidArray(raw.witnessIds),
-    witnessNames: sanitizeTextArray(raw.witnessNames),
-    immediateCorrectiveActionRequired: readBoolean(raw.immediateCorrectiveActionRequired),
-    isNotifiableUnderWhs: readBoolean(raw.isNotifiableUnderWhs),
+    witnessIds: sanitizeUuidArray(raw.witnessIds ?? []),
+    witnessNames: sanitizeTextArray(raw.witnessNames ?? []),
+    immediateCorrectiveActionRequired: forceIncidentBoolean(
+      raw.immediateCorrectiveActionRequired
+    ),
+    isNotifiableUnderWhs: forceIncidentBoolean(raw.isNotifiableUnderWhs),
     whatCausedToGoWrong: readString(raw.whatCausedToGoWrong) || null,
     whatCouldHavePrevented: readString(raw.whatCouldHavePrevented) || null,
     recommendationsToPrevent: readString(raw.recommendationsToPrevent) || null,
-    medicalCertificateUrls: sanitizeTextArray(raw.medicalCertificateUrls),
-    submitterSignatureUrl: readString(raw.submitterSignatureUrl),
+    medicalCertificateUrls: sanitizeTextArray(raw.medicalCertificateUrls ?? []),
+    submitterSignatureUrl: signatureUrl,
   };
 
   if (!input.incidentDateTime) {
     return NextResponse.json({ error: "Incident date and time is required." }, { status: 400 });
   }
-  if (!input.projectId) {
-    return NextResponse.json({ error: "Project is required." }, { status: 400 });
-  }
-  if (!resolvedProject.id) {
-    return NextResponse.json(
-      {
-        error:
-          "Selected project could not be resolved to a valid project UUID for incident_reports.project_id.",
-      },
-      { status: 400 }
-    );
-  }
-  input.projectId = resolvedProject.id;
-
   if (!input.injuredWorkerId) {
     return NextResponse.json({ error: "Injured worker is required." }, { status: 400 });
   }
@@ -141,17 +151,6 @@ export async function POST(req: Request) {
   if (!input.incidentLocationDetails) {
     return NextResponse.json(
       { error: "Incident location details are required." },
-      { status: 400 }
-    );
-  }
-  if (!input.submitterSignatureUrl) {
-    return NextResponse.json({ error: "Signature is required." }, { status: 400 });
-  }
-  if (input.submitterSignatureUrl.startsWith("data:")) {
-    return NextResponse.json(
-      {
-        error: `Signature must be uploaded to the \`${INCIDENT_ATTACHMENTS_BUCKET}\` bucket before submit.`,
-      },
       { status: 400 }
     );
   }
@@ -177,20 +176,19 @@ export async function POST(req: Request) {
 
   const report = normalizeIncidentReport(data as Record<string, unknown>);
 
-  let emailSent = false;
-  let emailError: string | undefined;
-  try {
-    const emailResult = await sendIncidentNotificationEmails(access.admin, report);
-    emailSent = emailResult.sent;
-    emailError = emailResult.error;
-  } catch (cause) {
-    emailError = cause instanceof Error ? cause.message : "Failed to send notification email.";
-  }
+  // Never block form success on email delivery — queue in background.
+  after(() => {
+    void sendIncidentNotificationEmails(access.admin, report).catch((cause) => {
+      console.warn(
+        "[incidents] background email dispatch failed:",
+        cause instanceof Error ? cause.message : cause
+      );
+    });
+  });
 
   return NextResponse.json({
     success: true,
     report,
-    emailSent,
-    emailError,
+    emailQueued: true,
   });
 }

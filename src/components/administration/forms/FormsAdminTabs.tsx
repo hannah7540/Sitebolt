@@ -30,7 +30,9 @@ export default function FormsAdminTabs({
 }: FormsAdminTabsProps) {
   const liveUnread = useIncidentUnreadCount(unreadIncidents === undefined);
   const badgeCount =
-    typeof unreadIncidents === "number" ? unreadIncidents : liveUnread;
+    typeof unreadIncidents === "number" && Number.isFinite(unreadIncidents)
+      ? Math.max(0, Math.floor(unreadIncidents))
+      : liveUnread;
 
   return (
     <div className="space-y-4">

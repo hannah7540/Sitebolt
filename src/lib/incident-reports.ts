@@ -14,8 +14,24 @@ export const INCIDENT_REPORTS_TABLE = "incident_reports";
 export const INCIDENT_TABLE_MISSING_MESSAGE =
   "Could not reach the `incident_reports` table. Confirm it exists in Supabase and is exposed to the API, then retry.";
 
-const UUID_RE =
+export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidIncidentUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value.trim());
+}
+
+/** Force strict boolean; anything other than explicit true becomes false. */
+export function forceIncidentBoolean(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+export function nullIfBlankUuid(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || !UUID_RE.test(trimmed)) return null;
+  return trimmed;
+}
 
 export const INCIDENT_TREATMENT_OPTIONS = [
   "None",
@@ -171,11 +187,13 @@ export function formatIncidentTableError(error: unknown): string {
 }
 
 function normalizeTreatment(value: unknown): IncidentTreatmentDetails {
-  const text = String(value ?? "None");
+  const text = String(value ?? "None").trim();
   return (INCIDENT_TREATMENT_OPTIONS as readonly string[]).includes(text)
     ? (text as IncidentTreatmentDetails)
     : "None";
 }
+
+export { normalizeTreatment as sanitizeIncidentTreatment };
 
 function normalizeStatus(value: unknown): IncidentStatus {
   const text = String(value ?? "new");
@@ -184,50 +202,57 @@ function normalizeStatus(value: unknown): IncidentStatus {
     : "new";
 }
 
-export function normalizeIncidentReport(row: Record<string, unknown>): IncidentReportRecord {
+export function normalizeIncidentReport(
+  row: Record<string, unknown> | null | undefined
+): IncidentReportRecord {
+  const safe = row && typeof row === "object" ? row : {};
   return {
-    id: String(row.id ?? ""),
-    reference_number: String(row.reference_number ?? ""),
-    submitted_by_id: row.submitted_by_id ? String(row.submitted_by_id) : null,
-    submitted_by_name: row.submitted_by_name ? String(row.submitted_by_name) : null,
-    incident_date_time: String(row.incident_date_time ?? ""),
-    project_id: row.project_id ? String(row.project_id) : null,
-    project_name: row.project_name ? String(row.project_name) : null,
-    injured_worker_id: row.injured_worker_id ? String(row.injured_worker_id) : null,
-    injured_worker_name: row.injured_worker_name ? String(row.injured_worker_name) : null,
-    injury_details: row.injury_details ? String(row.injury_details) : null,
-    treatment_details: normalizeTreatment(row.treatment_details),
-    treating_person_id: row.treating_person_id ? String(row.treating_person_id) : null,
-    treating_person_name: row.treating_person_name
-      ? String(row.treating_person_name)
+    id: String(safe.id ?? ""),
+    reference_number: String(safe.reference_number ?? "—"),
+    submitted_by_id: nullIfBlankUuid(safe.submitted_by_id),
+    submitted_by_name: safe.submitted_by_name ? String(safe.submitted_by_name) : null,
+    incident_date_time: String(safe.incident_date_time ?? ""),
+    project_id: nullIfBlankUuid(safe.project_id),
+    project_name: safe.project_name ? String(safe.project_name) : null,
+    injured_worker_id: nullIfBlankUuid(safe.injured_worker_id),
+    injured_worker_name: safe.injured_worker_name
+      ? String(safe.injured_worker_name)
       : null,
-    offsite_treatment_location: row.offsite_treatment_location
-      ? String(row.offsite_treatment_location)
+    injury_details: safe.injury_details ? String(safe.injury_details) : null,
+    treatment_details: normalizeTreatment(safe.treatment_details),
+    treating_person_id: nullIfBlankUuid(safe.treating_person_id),
+    treating_person_name: safe.treating_person_name
+      ? String(safe.treating_person_name)
       : null,
-    what_occurred: String(row.what_occurred ?? ""),
-    incident_location_details: String(row.incident_location_details ?? ""),
-    treatment_given: row.treatment_given ? String(row.treatment_given) : null,
-    witness_ids: sanitizeUuidArray(row.witness_ids),
-    witness_names: sanitizeTextArray(row.witness_names),
-    immediate_corrective_action_required: Boolean(row.immediate_corrective_action_required),
-    is_notifiable_under_whs: Boolean(row.is_notifiable_under_whs),
-    what_caused_to_go_wrong: row.what_caused_to_go_wrong
-      ? String(row.what_caused_to_go_wrong)
+    offsite_treatment_location: safe.offsite_treatment_location
+      ? String(safe.offsite_treatment_location)
       : null,
-    what_could_have_prevented: row.what_could_have_prevented
-      ? String(row.what_could_have_prevented)
+    what_occurred: String(safe.what_occurred ?? ""),
+    incident_location_details: String(safe.incident_location_details ?? ""),
+    treatment_given: safe.treatment_given ? String(safe.treatment_given) : null,
+    witness_ids: sanitizeUuidArray(safe.witness_ids),
+    witness_names: sanitizeTextArray(safe.witness_names),
+    immediate_corrective_action_required: forceIncidentBoolean(
+      safe.immediate_corrective_action_required
+    ),
+    is_notifiable_under_whs: forceIncidentBoolean(safe.is_notifiable_under_whs),
+    what_caused_to_go_wrong: safe.what_caused_to_go_wrong
+      ? String(safe.what_caused_to_go_wrong)
       : null,
-    recommendations_to_prevent: row.recommendations_to_prevent
-      ? String(row.recommendations_to_prevent)
+    what_could_have_prevented: safe.what_could_have_prevented
+      ? String(safe.what_could_have_prevented)
       : null,
-    medical_certificate_urls: sanitizeTextArray(row.medical_certificate_urls),
-    submitter_signature_url: row.submitter_signature_url
-      ? String(row.submitter_signature_url)
+    recommendations_to_prevent: safe.recommendations_to_prevent
+      ? String(safe.recommendations_to_prevent)
       : null,
-    status: normalizeStatus(row.status),
-    is_read_admin: Boolean(row.is_read_admin),
-    created_at: String(row.created_at ?? ""),
-    updated_at: String(row.updated_at ?? ""),
+    medical_certificate_urls: sanitizeTextArray(safe.medical_certificate_urls),
+    submitter_signature_url: safe.submitter_signature_url
+      ? String(safe.submitter_signature_url)
+      : null,
+    status: normalizeStatus(safe.status),
+    is_read_admin: forceIncidentBoolean(safe.is_read_admin),
+    created_at: String(safe.created_at ?? ""),
+    updated_at: String(safe.updated_at ?? ""),
   };
 }
 
@@ -280,20 +305,14 @@ export async function generateIncidentReferenceNumber(
   return `INC-${yyyymmdd}-${suffix}`;
 }
 
-function nullIfBlankUuid(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? "";
-  if (!trimmed || !UUID_RE.test(trimmed)) return null;
-  return trimmed;
-}
-
 export function buildIncidentInsertPayload(
   input: IncidentReportSubmitInput,
   referenceNumber: string
 ): Record<string, unknown> {
   const now = new Date().toISOString();
-  const witnessIds = sanitizeUuidArray(input.witnessIds);
-  const witnessNames = sanitizeTextArray(input.witnessNames).slice(0, witnessIds.length);
-  const medicalUrls = sanitizeTextArray(input.medicalCertificateUrls);
+  const witnessIds = sanitizeUuidArray(input.witnessIds ?? []);
+  const witnessNames = sanitizeTextArray(input.witnessNames ?? []);
+  const medicalUrls = sanitizeTextArray(input.medicalCertificateUrls ?? []);
 
   return {
     reference_number: referenceNumber,
@@ -302,21 +321,24 @@ export function buildIncidentInsertPayload(
     incident_date_time: input.incidentDateTime,
     project_id: nullIfBlankUuid(input.projectId),
     project_name: input.projectName?.trim() || null,
+    // Never send "" for UUID columns — empty/invalid becomes null.
     injured_worker_id: nullIfBlankUuid(input.injuredWorkerId),
     injured_worker_name: input.injuredWorkerName?.trim() || null,
     injury_details: input.injuryDetails?.trim() || null,
-    treatment_details: input.treatmentDetails,
+    treatment_details: normalizeTreatment(input.treatmentDetails),
     treating_person_id: nullIfBlankUuid(input.treatingPersonId),
     treating_person_name: input.treatingPersonName?.trim() || null,
     offsite_treatment_location: input.offsiteTreatmentLocation?.trim() || null,
-    what_occurred: input.whatOccurred.trim(),
-    incident_location_details: input.incidentLocationDetails.trim(),
+    what_occurred: (input.whatOccurred ?? "").trim(),
+    incident_location_details: (input.incidentLocationDetails ?? "").trim(),
     treatment_given: input.treatmentGiven?.trim() || null,
-    // Native Postgres arrays (uuid[] / text[]) — always send JS arrays.
+    // Always native arrays — never "" or null for array columns.
     witness_ids: witnessIds,
     witness_names: witnessNames,
-    immediate_corrective_action_required: Boolean(input.immediateCorrectiveActionRequired),
-    is_notifiable_under_whs: Boolean(input.isNotifiableUnderWhs),
+    immediate_corrective_action_required: forceIncidentBoolean(
+      input.immediateCorrectiveActionRequired
+    ),
+    is_notifiable_under_whs: forceIncidentBoolean(input.isNotifiableUnderWhs),
     what_caused_to_go_wrong: input.whatCausedToGoWrong?.trim() || null,
     what_could_have_prevented: input.whatCouldHavePrevented?.trim() || null,
     recommendations_to_prevent: input.recommendationsToPrevent?.trim() || null,
@@ -463,13 +485,18 @@ export async function fetchIncidentProjectOptions(
 }
 
 export function workerOptionLabel(worker: {
-  id: string;
+  id?: string | null;
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   worker_name?: string | null;
-}): string {
-  return getWorkerDisplayName(worker, "Worker");
+} | null | undefined): string {
+  if (!worker) return "Worker";
+  try {
+    return getWorkerDisplayName(worker, "Worker");
+  } catch {
+    return "Worker";
+  }
 }
 
 export function buildIncidentCsv(reports: IncidentReportRecord[]): string {
@@ -486,17 +513,18 @@ export function buildIncidentCsv(reports: IncidentReportRecord[]): string {
   ];
   const lines = [headers.join(",")];
   for (const row of reports) {
+    if (!row) continue;
     const cells = [
-      row.reference_number,
-      row.incident_date_time,
+      row.reference_number || "",
+      row.incident_date_time || "",
       row.project_name ?? "",
       row.injured_worker_name ?? "",
-      row.treatment_details,
+      row.treatment_details || "None",
       row.is_notifiable_under_whs ? "Yes" : "No",
       row.submitted_by_name ?? "",
       incidentStatusLabel(row.status),
-      row.what_occurred,
-    ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`);
+      row.what_occurred || "",
+    ].map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`);
     lines.push(cells.join(","));
   }
   return lines.join("\n");

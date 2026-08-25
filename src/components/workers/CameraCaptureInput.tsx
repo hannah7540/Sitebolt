@@ -4,11 +4,19 @@ import { useRef, useState } from "react";
 import { Camera, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { labelClass } from "@/lib/ui-classes";
+import { isNativeMobileApp } from "@/lib/native-app";
 
 interface CameraCaptureInputProps {
   label?: string;
   onCapture: (file: File | null) => void;
   className?: string;
+}
+
+async function photoUriToFile(uri: string, fileName: string): Promise<File> {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  const type = blob.type || "image/jpeg";
+  return new File([blob], fileName, { type });
 }
 
 export default function CameraCaptureInput({
@@ -19,6 +27,7 @@ export default function CameraCaptureInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
 
   const applyFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -40,6 +49,47 @@ export default function CameraCaptureInput({
     e.target.value = "";
   };
 
+  const openNativeCamera = async (): Promise<boolean> => {
+    try {
+      const { Camera: CapCamera, CameraResultType, CameraSource } = await import(
+        "@capacitor/camera"
+      );
+      const photo = await CapCamera.getPhoto({
+        quality: 85,
+        allowEditing: false,
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Camera,
+      });
+      const uri = photo.webPath || photo.path;
+      if (!uri) return false;
+      const file = await photoUriToFile(
+        uri,
+        `incident-medical-${Date.now()}.${photo.format || "jpg"}`
+      );
+      applyFile(file);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    setError(null);
+    if (isNativeMobileApp()) {
+      setCapturing(true);
+      try {
+        const captured = await openNativeCamera();
+        if (captured) return;
+        // Fallback to standard file/camera input if Capacitor camera fails.
+        inputRef.current?.click();
+      } finally {
+        setCapturing(false);
+      }
+      return;
+    }
+    inputRef.current?.click();
+  };
+
   const clearPhoto = () => {
     setPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -53,7 +103,8 @@ export default function CameraCaptureInput({
     <div className={cn("space-y-2", className)}>
       <p className={labelClass}>{label}</p>
       <p className="text-xs text-slate-500">
-        Opens your device camera — gallery uploads are not permitted.
+        Opens your device camera — gallery uploads are not permitted via this control.
+        Use the file picker above for PDFs or existing images.
       </p>
 
       <input
@@ -68,11 +119,12 @@ export default function CameraCaptureInput({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+          onClick={() => void handleTakePhoto()}
+          disabled={capturing}
+          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
         >
           <Camera className="h-4 w-4" />
-          Take Photo
+          {capturing ? "Opening camera…" : "Take Photo"}
         </button>
         {preview && (
           <button

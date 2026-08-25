@@ -14,19 +14,25 @@ function workerMatchesQuery(worker: Worker, query: string): boolean {
   const q = query.toLowerCase().trim();
   if (!q) return true;
 
-  const name = getWorkerDisplayName(worker).toLowerCase();
-  const firstName = (worker.first_name ?? "").toLowerCase();
-  const lastName = (worker.last_name ?? "").toLowerCase();
-  const email = (worker.email ?? "").toLowerCase();
-  const trade = (worker.trade ?? "").toLowerCase();
+  try {
+    const name = getWorkerDisplayName(worker).toLowerCase();
+    const firstName = (worker?.first_name ?? "").toLowerCase();
+    const lastName = (worker?.last_name ?? "").toLowerCase();
+    const email = (worker?.email ?? "").toLowerCase();
+    const trade = (worker?.trade ?? "").toLowerCase();
+    const id = String(worker?.id ?? "").toLowerCase();
 
-  return (
-    name.includes(q) ||
-    firstName.includes(q) ||
-    lastName.includes(q) ||
-    email.includes(q) ||
-    trade.includes(q)
-  );
+    return (
+      name.includes(q) ||
+      firstName.includes(q) ||
+      lastName.includes(q) ||
+      email.includes(q) ||
+      trade.includes(q) ||
+      id.includes(q)
+    );
+  } catch {
+    return false;
+  }
 }
 
 type WorkerSearchSelectBaseProps = {
@@ -173,17 +179,28 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
 
   const activeWorkers = useMemo(
     () =>
-      [...workers]
-        .filter((worker) => !isWorkerRevoked(worker))
-        .sort((left, right) =>
-          getWorkerLabel(left).localeCompare(getWorkerLabel(right))
-        ),
+      [...(Array.isArray(workers) ? workers : [])]
+        .filter(
+          (worker): worker is Worker =>
+            Boolean(worker) &&
+            typeof worker.id === "string" &&
+            worker.id.trim().length > 0 &&
+            !isWorkerRevoked(worker)
+        )
+        .sort((left, right) => {
+          try {
+            return getWorkerLabel(left).localeCompare(getWorkerLabel(right));
+          } catch {
+            return 0;
+          }
+        }),
     [getWorkerLabel, workers]
   );
 
   const workerById = useMemo(() => {
     const map = new Map<string, Worker>();
-    for (const worker of workers) {
+    for (const worker of Array.isArray(workers) ? workers : []) {
+      if (!worker?.id) continue;
       map.set(worker.id, worker);
     }
     return map;
@@ -369,7 +386,9 @@ export default function WorkerSearchSelect(props: WorkerSearchSelectProps) {
           ) : null}
 
           {activeWorkers.length === 0 ? (
-            <p className="px-2 py-3 text-sm text-slate-500">No active workers available.</p>
+            <p className="px-2 py-3 text-sm text-slate-500">
+              No workers assigned to this project
+            </p>
           ) : filteredWorkers.length === 0 ? (
             <p className="px-2 py-3 text-sm text-slate-500">No workers match your search.</p>
           ) : (

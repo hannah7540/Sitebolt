@@ -53,14 +53,16 @@ export default function AdminIncidentRegisterTab() {
   }, [loadReports]);
 
   const filteredReports = useMemo(() => {
-    return reports.filter((row) => {
+    return (Array.isArray(reports) ? reports : []).filter((row) => {
+      if (!row || typeof row !== "object") return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       return true;
     });
   }, [reports, statusFilter]);
 
   const unreadCount = useMemo(
-    () => reports.filter(isIncidentUnread).length,
+    () =>
+      reports.filter((row) => row && isIncidentUnread(row)).length,
     [reports]
   );
 
@@ -169,7 +171,7 @@ export default function AdminIncidentRegisterTab() {
                     )}
                   >
                     <td className="px-4 py-3 font-semibold text-slate-900">
-                      {row.reference_number}
+                      {row.reference_number || "—"}
                       {isIncidentUnread(row) ? (
                         <span className="ml-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           NEW
@@ -179,11 +181,15 @@ export default function AdminIncidentRegisterTab() {
                     <td className="px-4 py-3 text-slate-600">
                       {formatIncidentDateTime(row.incident_date_time)}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{row.project_name ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-700">
-                      {row.injured_worker_name ?? "—"}
+                      {row.project_name?.trim() || "—"}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{row.treatment_details}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {row.injured_worker_name?.trim() || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {row.treatment_details || "None"}
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={cn(

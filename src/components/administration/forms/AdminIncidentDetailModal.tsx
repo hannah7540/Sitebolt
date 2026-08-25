@@ -49,7 +49,7 @@ export default function AdminIncidentDetailModal({
         <dt>Treatment Given</dt><dd>${report.treatment_given ?? "—"}</dd>
         <dt>What Occurred</dt><dd>${report.what_occurred || "—"}</dd>
         <dt>Location</dt><dd>${report.incident_location_details || "—"}</dd>
-        <dt>Witnesses</dt><dd>${report.witness_names.join(", ") || "—"}</dd>
+        <dt>Witnesses</dt><dd>${(Array.isArray(report.witness_names) ? report.witness_names : []).join(", ") || "—"}</dd>
         <dt>Notifiable</dt><dd>${report.is_notifiable_under_whs ? "Yes" : "No"}</dd>
         <dt>Immediate Corrective Action</dt><dd>${report.immediate_corrective_action_required ? "Yes" : "No"}</dd>
         <dt>Root Cause — What went wrong</dt><dd>${report.what_caused_to_go_wrong ?? "—"}</dd>
