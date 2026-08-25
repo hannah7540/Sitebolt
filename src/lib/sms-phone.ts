@@ -1,8 +1,8 @@
-/** Strip spaces, brackets, and dashes from a phone string. */
+/** Strip spaces, brackets, dashes, periods, and other non-phone characters. */
 export function stripPhoneFormatting(phone: string | null | undefined): string {
   return String(phone ?? "")
     .trim()
-    .replace(/[\s\-()]/g, "");
+    .replace(/[^0-9+]/g, "");
 }
 
 /** Digits-only phone string for comparisons. */
@@ -12,33 +12,55 @@ export function normalizePhoneDigits(phone: string | null | undefined): string {
 
 /**
  * Normalize phone numbers to a consistent AU E.164 form (+614XXXXXXXX).
- * Strips all non-digit characters except a leading '+', then converts 04… to +614….
+ * Strips spaces, brackets, hyphens, periods, and other formatting first.
  */
 export function normalizePhoneNumber(phone: string | null | undefined): string {
   const raw = String(phone ?? "").trim();
   if (!raw) return "";
 
-  const hasLeadingPlus = raw.startsWith("+");
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
+  const cleaned = raw.replace(/[^0-9+]/g, "").trim();
+  if (!cleaned) return "";
 
-  if (digits.startsWith("04")) {
-    return `+614${digits.slice(2)}`;
+  if (cleaned.startsWith("+614")) {
+    return cleaned;
   }
 
-  if (digits.startsWith("61")) {
-    return `+${digits}`;
+  if (cleaned.startsWith("+61")) {
+    return cleaned;
   }
 
-  if (digits.startsWith("4") && digits.length >= 9) {
-    return `+61${digits}`;
+  const digitsOnly = cleaned.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+
+  if (digitsOnly.startsWith("04")) {
+    return `+614${digitsOnly.slice(2)}`;
   }
 
-  if (hasLeadingPlus) {
-    return `+${digits}`;
+  if (digitsOnly.startsWith("614")) {
+    return `+${digitsOnly}`;
+  }
+
+  if (digitsOnly.startsWith("4") && digitsOnly.length === 9) {
+    return `+61${digitsOnly}`;
+  }
+
+  if (cleaned.startsWith("+")) {
+    return cleaned;
   }
 
   return "";
+}
+
+/** Normalize worker/contact phone for storage; returns null when blank. */
+export function sanitizeStoredPhoneNumber(
+  phone: string | null | undefined
+): string | null {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return null;
+  const normalized = normalizePhoneNumber(raw);
+  if (normalized) return normalized;
+  const cleaned = raw.replace(/[^0-9+]/g, "").trim();
+  return cleaned || null;
 }
 
 /** Match two phone numbers after E.164 normalization. */
@@ -63,38 +85,13 @@ export function getSmsContactPhone(message: {
 }
 
 /**
- * Format outbound AU numbers to E.164:
- * - Strip spaces, brackets, and dashes
- * - 04xxxxxxxx → +614xxxxxxxx
- * - 4xxxxxxxxx → +614xxxxxxxx
+ * Format outbound AU numbers to E.164 for Twilio dispatch.
  */
 export function formatOutboundPhoneE164(
   phone: string | null | undefined
 ): string | null {
-  const stripped = stripPhoneFormatting(phone);
-  if (!stripped) return null;
-
-  if (stripped.startsWith("+")) {
-    const digits = stripped.slice(1).replace(/\D/g, "");
-    return digits.length >= 8 ? `+${digits}` : null;
-  }
-
-  const digits = stripped.replace(/\D/g, "");
-  if (!digits) return null;
-
-  if (digits.startsWith("04")) {
-    return `+614${digits.slice(2)}`;
-  }
-
-  if (digits.startsWith("4")) {
-    return `+61${digits}`;
-  }
-
-  if (digits.startsWith("61")) {
-    return `+${digits}`;
-  }
-
-  return null;
+  const normalized = normalizePhoneNumber(phone);
+  return normalized || null;
 }
 
 /** Best-effort E.164 for AU mobiles (used for matching and outbound dispatch). */

@@ -19,6 +19,7 @@ import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignm
 import { applyWorkerInductionWorkflowRulesAdmin } from "@/lib/worker-induction-auto-assign";
 import { applyWorkerSwmsWorkflowRulesAdmin } from "@/lib/worker-swms-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
+import { sanitizeStoredPhoneNumber } from "@/lib/sms-phone";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
 import {
   isValidProfilePhotoUrl,
@@ -271,11 +272,11 @@ export async function POST(req: Request) {
     .from("workers")
     .update({
       ...nameFields,
-      phone: payload.phone,
+      phone: sanitizeStoredPhoneNumber(payload.phone),
       emergency_contact: payload.address,
       emergency_contact_name: payload.emergencyContactName,
       emergency_contact_relationship: payload.emergencyContactRelationship,
-      emergency_contact_phone: payload.emergencyContactPhone,
+      emergency_contact_phone: sanitizeStoredPhoneNumber(payload.emergencyContactPhone),
       bank_name: payload.bankName,
       bank_bsb: payload.bankBsb,
       bank_account_number: payload.bankAccountNumber,

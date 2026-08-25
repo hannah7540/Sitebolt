@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import { normalizePhoneNumber } from "@/lib/sms-phone";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { ingestInboundSmsAdmin } from "@/lib/sms-module-admin";
@@ -41,9 +42,11 @@ export async function POST(request: Request) {
 
   try {
     const payload = await parseTwilioForm(request);
+    const from =
+      normalizePhoneNumber(payload.from) || String(payload.from ?? "").trim();
     const admin = createSupabaseAdminClient();
     const result = await ingestInboundSmsAdmin(admin, {
-      from: payload.from,
+      from,
       body: payload.body,
       messageSid: payload.messageSid || null,
     });

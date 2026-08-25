@@ -1,4 +1,5 @@
 import { sanitizeWritePayload } from "./form-payload-utils";
+import { sanitizeStoredPhoneNumber } from "./sms-phone";
 
 export type TicketStatus = "valid" | "expires_soon" | "expired" | "unknown";
 
@@ -239,16 +240,38 @@ export const WORKER_DATE_FIELD_KEYS = [
 
 const WORKER_DATE_FIELD_PATTERN = /(^dob$|_date$|_expiry$)/;
 
+const WORKER_PHONE_FIELD_KEYS = ["phone", "emergency_contact_phone"] as const;
+
+function sanitizeWorkerPhoneFields(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next = { ...payload };
+
+  for (const key of WORKER_PHONE_FIELD_KEYS) {
+    if (!(key in next)) continue;
+    const value = next[key];
+    if (value == null) {
+      next[key] = null;
+      continue;
+    }
+    next[key] = sanitizeStoredPhoneNumber(String(value));
+  }
+
+  return next;
+}
+
 /** Normalize worker create/update payloads before Supabase insert or update. */
 export function sanitizeWorkerWritePayload(
   payload: Record<string, unknown>
 ): Record<string, unknown> {
   return sanitizeWorkerDateFields(
-    sanitizeWritePayload(payload, {
-      omitKeys: WORKER_WRITE_OMIT_FIELD_KEYS,
-      requiredTextKeys: ["first_name", "last_name", "email"],
-      dateFieldPattern: WORKER_DATE_FIELD_PATTERN,
-    })
+    sanitizeWorkerPhoneFields(
+      sanitizeWritePayload(payload, {
+        omitKeys: WORKER_WRITE_OMIT_FIELD_KEYS,
+        requiredTextKeys: ["first_name", "last_name", "email"],
+        dateFieldPattern: WORKER_DATE_FIELD_PATTERN,
+      })
+    )
   );
 }
 
