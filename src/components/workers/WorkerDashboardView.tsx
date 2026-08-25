@@ -945,27 +945,29 @@ export default function WorkerDashboardView({
       <header className="mobile-safe-area-top border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
         <div className="mx-auto flex max-w-lg items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
-            <button
-              type="button"
-              onClick={() => worker && setShowPhotoModal(true)}
-              disabled={!worker || isProfileLoading}
+            <div
               className={cn(
-                "group relative shrink-0 transition",
-                "disabled:cursor-not-allowed disabled:opacity-60"
+                "relative shrink-0",
+                (!worker || isProfileLoading) && "opacity-60"
               )}
-              aria-label="Edit profile photo"
             >
               <WorkerProfileAvatar
                 photoUrl={worker?.photo_url}
                 worker={worker ?? undefined}
                 displayName={profileName}
                 size="md"
-                ringClassName="ring-2 ring-orange-200 transition group-hover:ring-orange-400"
+                ringClassName="ring-2 ring-orange-200"
               />
-              <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 transition group-hover:bg-black/35">
-                <Camera className="h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => worker && setShowPhotoModal(true)}
+                disabled={!worker || isProfileLoading}
+                className="absolute -bottom-1 -right-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-white text-orange-600 shadow-sm transition hover:border-orange-400 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Edit profile photo"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
                 SiteBolt Worker

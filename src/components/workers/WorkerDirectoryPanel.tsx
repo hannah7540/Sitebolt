@@ -35,6 +35,7 @@ import { isCompanyEmployeeWorker, canResendWorkerInvite } from "@/lib/worker-uti
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
+import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
 import Toast from "@/components/ui/Toast";
@@ -562,6 +563,14 @@ export default function WorkerDirectoryPanel({
                 >
                   <td className="p-4">
                     <div className="flex flex-wrap items-center gap-2">
+                      <div onClick={(event) => event.stopPropagation()}>
+                        <WorkerProfileAvatar
+                          photoUrl={w.photo_url}
+                          worker={w}
+                          displayName={w.full_name}
+                          size="sm"
+                        />
+                      </div>
                       <p className="font-semibold text-slate-900">{w.full_name}</p>
                       {w.is_apprentice ? <WorkerApprenticeBadge /> : null}
                       <WorkerStateRegionBadge state={w.state} />

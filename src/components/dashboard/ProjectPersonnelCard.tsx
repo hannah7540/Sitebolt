@@ -4,6 +4,7 @@ import { Mail, Phone, UserRound } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import type { DbProject } from "@/lib/project-resolver";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -12,13 +13,6 @@ interface ProjectPersonnelCardProps {
   workers: Worker[];
   onEditPersonnel?: () => void;
   className?: string;
-}
-
-function workerInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return `${parts[0]![0] ?? ""}${parts[parts.length - 1]![0] ?? ""}`.toUpperCase();
 }
 
 function PersonnelRow({
@@ -57,18 +51,13 @@ function PersonnelRow({
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2">
-      {worker.photo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={worker.photo_url}
-          alt=""
-          className="h-10 w-10 shrink-0 rounded-full object-cover"
-        />
-      ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700">
-          {workerInitials(name)}
-        </div>
-      )}
+      <WorkerProfileAvatar
+        photoUrl={worker.photo_url}
+        worker={worker}
+        displayName={name}
+        size="md"
+        className="h-10 w-10 text-sm"
+      />
       <div className="min-w-0 flex-1">
         {!compact ? (
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

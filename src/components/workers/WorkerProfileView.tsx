@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Camera,
   Loader2,
   Lock,
   Mail,
   Phone,
   Save,
-  User,
 } from "lucide-react";
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
@@ -41,6 +41,7 @@ import WorkerCardsVocsEditor from "@/components/workers/WorkerCardsVocsEditor";
 import StateRegionSelector from "@/components/workers/StateRegionSelector";
 import WorkerInductionsTab from "@/components/workers/WorkerInductionsTab";
 import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
+import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "@/components/workers/WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
 import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
@@ -213,23 +214,23 @@ export default function WorkerProfileView({
       </button>
 
       <div className="mb-6 flex flex-wrap items-start gap-4">
-        <button
-          type="button"
-          onClick={() => setShowPhotoModal(true)}
-          className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-orange-200 bg-orange-50 transition hover:border-orange-400"
-          aria-label="Edit profile photo"
-        >
-          {currentWorker.photo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={currentWorker.photo_url}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <User className="h-8 w-8 text-orange-400" />
-          )}
-        </button>
+        <div className="relative shrink-0">
+          <WorkerProfileAvatar
+            photoUrl={currentWorker.photo_url}
+            worker={currentWorker}
+            displayName={currentWorker.full_name}
+            size="lg"
+            ringClassName="ring-2 ring-orange-200"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPhotoModal(true)}
+            className="absolute -bottom-1 -right-1 inline-flex h-8 w-8 items-center justify-center rounded-full border border-orange-200 bg-white text-orange-600 shadow-sm transition hover:border-orange-400 hover:bg-orange-50"
+            aria-label="Edit profile photo"
+          >
+            <Camera className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">

@@ -598,6 +598,7 @@ export default function Sidebar({
             photoUrl={profilePhotoUrl}
             displayName={profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
             size="md"
+            enableLightbox={false}
             ringClassName={cn(
               "ring-2",
               profileActive ? "ring-white/40" : "ring-orange-200"

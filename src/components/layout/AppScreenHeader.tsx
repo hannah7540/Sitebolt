@@ -55,6 +55,7 @@ export default function AppScreenHeader({
               photoUrl={profilePhotoUrl}
               displayName={profileName}
               size="sm"
+              enableLightbox={false}
             />
           </button>
         ) : null}
