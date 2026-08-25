@@ -11,6 +11,8 @@ import {
   INCIDENT_TREATMENT_OPTIONS,
   isValidIncidentUuid,
   forceIncidentBoolean,
+  nullIfBlankUuid,
+  resolveIncidentSubmitterId,
   sanitizeIncidentTreatment,
   sanitizeTextArray,
   sanitizeUuidArray,
@@ -347,17 +349,21 @@ export default function WorkerIncidentReportModal({
         return;
       }
 
+      const submitterId = await resolveIncidentSubmitterId(worker.id);
+
       const result = await submitIncidentReport({
-        submittedById: worker.id,
+        submittedById: submitterId ?? "",
         submittedByName: getWorkerDisplayName(worker, "Worker"),
         incidentDateTime: new Date(incidentDateTime).toISOString(),
-        projectId,
+        projectId: nullIfBlankUuid(projectId) ?? "",
         projectName: selectedProject?.name ?? "Project",
-        injuredWorkerId: injuredWorkerId || null,
+        injuredWorkerId: nullIfBlankUuid(injuredWorkerId),
         injuredWorkerName: workerOptionLabel(injured),
         injuryDetails: injuryDetails.trim() || null,
         treatmentDetails: sanitizeIncidentTreatment(treatmentDetails),
-        treatingPersonId: isOnsiteTreatment ? treatingPersonId || null : null,
+        treatingPersonId: isOnsiteTreatment
+          ? nullIfBlankUuid(treatingPersonId)
+          : null,
         treatingPersonName:
           isOnsiteTreatment && treating ? workerOptionLabel(treating) : null,
         offsiteTreatmentLocation: isOffsiteTreatment
@@ -366,7 +372,7 @@ export default function WorkerIncidentReportModal({
         whatOccurred: whatOccurred.trim(),
         incidentLocationDetails: incidentLocationDetails.trim(),
         treatmentGiven: treatmentGiven.trim() || null,
-        witnessIds: safeWitnessIds,
+        witnessIds: sanitizeUuidArray(witnessIds),
         witnessNames: sanitizeTextArray(witnesses.map(workerOptionLabel)),
         immediateCorrectiveActionRequired: forceIncidentBoolean(
           immediateCorrectiveActionRequired
@@ -404,8 +410,29 @@ export default function WorkerIncidentReportModal({
       showSuccess(
         `Incident ${result.report.reference_number ?? "report"} submitted successfully.`
       );
+
+      // Clear local form state before closing so reopen starts fresh.
+      setIncidentDateTime(toLocalDateTimeValue());
+      setInjuredWorkerId(null);
+      setInjuryDetails("");
+      setTreatmentDetails("None");
+      setTreatingPersonId(null);
+      setOffsiteTreatmentLocation("");
+      setWhatOccurred("");
+      setIncidentLocationDetails("");
+      setTreatmentGiven("");
+      setWitnessIds([]);
+      setImmediateCorrectiveActionRequired(null);
+      setIsNotifiableUnderWhs(null);
+      setWhatCausedToGoWrong("");
+      setWhatCouldHavePrevented("");
+      setRecommendationsToPrevent("");
+      setMedicalUrls([]);
+      setSignature("");
+      setError(null);
+
       onSubmitted();
-      window.setTimeout(() => onClose(), 350);
+      window.setTimeout(() => onClose(), 450);
     } catch (cause) {
       const message =
         cause instanceof Error ? cause.message : "Failed to submit incident report.";

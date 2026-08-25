@@ -11,6 +11,7 @@ import {
   stripMissingColumn,
 } from "@/lib/form-payload-utils";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import { fetchUserProfile, fetchWorkerIdForAuthUser } from "@/lib/auth-profile";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
 
@@ -96,6 +97,68 @@ export function nullIfBlankUuid(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed || !UUID_RE.test(trimmed)) return null;
   return trimmed;
+}
+
+/**
+ * Resolve the submitter worker UUID from the active Supabase auth session.
+ * Prefers profiles.worker_id / workers.auth_user_id mapping; falls back to
+ * auth user id only when it is a valid UUID. Never returns "".
+ */
+export async function resolveIncidentSubmitterId(
+  fallbackWorkerId?: string | null
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) {
+      console.warn("[incident-reports] auth.getUser failed:", error.message);
+    }
+    const authUser = data?.user ?? null;
+    if (authUser?.id) {
+      const profile = await fetchUserProfile(authUser.id);
+      const fromProfile = nullIfBlankUuid(profile?.worker_id);
+      if (fromProfile) return fromProfile;
+
+      const fromWorkers = await fetchWorkerIdForAuthUser(
+        authUser.id,
+        authUser.email
+      );
+      const workerId = nullIfBlankUuid(fromWorkers.workerId);
+      if (workerId) return workerId;
+
+      // Last resort: auth uid itself (nullable FK-safe if no workers FK exists).
+      const authId = nullIfBlankUuid(authUser.id);
+      if (authId) return authId;
+    }
+  } catch (cause) {
+    console.warn("[incident-reports] resolveIncidentSubmitterId failed:", cause);
+  }
+
+  return nullIfBlankUuid(fallbackWorkerId);
+}
+
+function parseForeignKeyColumnFromError(message: string): string | null {
+  const keyMatch = message.match(
+    /Key \(([a-zA-Z0-9_]+)\)=\([^)]+\) is not present/i
+  );
+  if (keyMatch?.[1]) return keyMatch[1];
+  const constraintMatch = message.match(
+    /foreign key constraint .*? on column "?([a-zA-Z0-9_]+)"?/i
+  );
+  if (constraintMatch?.[1]) return constraintMatch[1];
+  return null;
+}
+
+function isForeignKeyViolation(error: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!error) return false;
+  if (String(error.code ?? "") === "23503") return true;
+  const lower = String(error.message ?? "").toLowerCase();
+  return (
+    lower.includes("foreign key") ||
+    lower.includes("violates foreign key constraint")
+  );
 }
 
 export const INCIDENT_TREATMENT_OPTIONS = [
@@ -501,8 +564,8 @@ export function pickIncidentReportColumns(
 
 /**
  * Insert a row directly into public.incident_reports via the given Supabase client.
- * On PGRST204 (unknown column), strip that column and retry so name/schema drift
- * does not hard-fail the worker submission.
+ * On PGRST204 (unknown column) or FK 23503, strip/null the offending field and retry
+ * so schema drift or foreign-key blocks never hard-fail the worker submission.
  */
 export async function insertIncidentReportRow(
   client: { from: (relation: string) => unknown },
@@ -520,7 +583,7 @@ export async function insertIncidentReportRow(
     if (!error) {
       if (stripped.length > 0) {
         console.warn(
-          "[incident-reports] insert succeeded after stripping missing columns:",
+          "[incident-reports] insert succeeded after adjusting columns:",
           stripped
         );
       }
@@ -536,22 +599,47 @@ export async function insertIncidentReportRow(
     );
 
     const normalized = toSupabaseRequestError(error);
-    if (!normalized || !isSupabaseMissingColumnError(normalized)) {
+    if (!normalized) {
       return { report: null, error: formatIncidentTableError(error) };
     }
 
-    const missing =
-      parseMissingColumnFromError(normalized.message) ||
-      parseMissingColumnFromError(normalized.details || "");
-    if (!missing || !(missing in row)) {
-      return { report: null, error: formatIncidentTableError(error) };
+    if (isSupabaseMissingColumnError(normalized)) {
+      const missing =
+        parseMissingColumnFromError(normalized.message) ||
+        parseMissingColumnFromError(normalized.details || "");
+      if (!missing || !(missing in row)) {
+        return { report: null, error: formatIncidentTableError(error) };
+      }
+      console.warn(
+        `[incident-reports] PGRST204 missing column "${missing}" — stripping and retrying insert`
+      );
+      stripped.push(missing);
+      row = stripMissingColumn(row, missing);
+      continue;
     }
 
-    console.warn(
-      `[incident-reports] PGRST204 missing column "${missing}" — stripping and retrying insert`
-    );
-    stripped.push(missing);
-    row = stripMissingColumn(row, missing);
+    if (isForeignKeyViolation(normalized)) {
+      const fkColumn =
+        parseForeignKeyColumnFromError(normalized.message) ||
+        parseForeignKeyColumnFromError(normalized.details || "");
+      if (
+        fkColumn &&
+        (fkColumn === "submitted_by_id" ||
+          fkColumn === "injured_worker_id" ||
+          fkColumn === "treating_person_id" ||
+          fkColumn === "project_id") &&
+        fkColumn in row
+      ) {
+        console.warn(
+          `[incident-reports] FK violation on "${fkColumn}" — setting null and retrying insert`
+        );
+        stripped.push(`${fkColumn}->null`);
+        row = { ...row, [fkColumn]: null };
+        continue;
+      }
+    }
+
+    return { report: null, error: formatIncidentTableError(error) };
   }
 
   return {
@@ -567,8 +655,19 @@ export async function submitIncidentReport(
     return { report: null, error: "Supabase is not configured." };
   }
 
+  const sessionSubmitterId = await resolveIncidentSubmitterId(input.submittedById);
   const referenceNumber = await generateIncidentReferenceNumber();
-  const payload = buildIncidentInsertPayload(input, referenceNumber);
+  const payload = buildIncidentInsertPayload(
+    {
+      ...input,
+      submittedById: sessionSubmitterId ?? "",
+      // Sanitizer turns invalid/empty into null for all UUID fields.
+      projectId: nullIfBlankUuid(input.projectId) ?? "",
+      injuredWorkerId: nullIfBlankUuid(input.injuredWorkerId),
+      treatingPersonId: nullIfBlankUuid(input.treatingPersonId),
+    },
+    referenceNumber
+  );
   return insertIncidentReportRow(supabase, payload);
 }
 
