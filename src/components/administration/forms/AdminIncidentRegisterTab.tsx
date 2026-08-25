@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, Loader2 } from "lucide-react";
 import {
   buildIncidentCsv,
+  dispatchIncidentReportsRefresh,
   formatIncidentDateTime,
   incidentStatusBadgeClass,
   incidentStatusLabel,
   isIncidentUnread,
+  INCIDENT_REPORTS_REFRESH_EVENT,
   INCIDENT_STATUS_OPTIONS,
   type IncidentReportRecord,
   type IncidentStatus,
@@ -29,19 +31,25 @@ export default function AdminIncidentRegisterTab() {
   const loadReports = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/incidents", { cache: "no-store" });
+      const response = await fetch(`/api/incidents?_=${Date.now()}`, {
+        cache: "no-store",
+      });
       const payload = (await response.json().catch(() => null)) as {
         reports?: IncidentReportRecord[];
         error?: string;
       } | null;
       if (!response.ok) {
-        showError(payload?.error ?? "Failed to load incidents.");
+        const message = payload?.error ?? "Failed to load incidents.";
+        console.error("[AdminIncidentRegisterTab] load failed:", message);
+        showError(message);
         setReports([]);
         return;
       }
       setReports(Array.isArray(payload?.reports) ? payload.reports : []);
     } catch (cause) {
-      showError(cause instanceof Error ? cause.message : "Failed to load incidents.");
+      const message = cause instanceof Error ? cause.message : "Failed to load incidents.";
+      console.error("[AdminIncidentRegisterTab] load failed:", cause);
+      showError(message);
       setReports([]);
     } finally {
       setLoading(false);
@@ -50,6 +58,9 @@ export default function AdminIncidentRegisterTab() {
 
   useEffect(() => {
     void loadReports();
+    const onRefresh = () => void loadReports();
+    window.addEventListener(INCIDENT_REPORTS_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(INCIDENT_REPORTS_REFRESH_EVENT, onRefresh);
   }, [loadReports]);
 
   const filteredReports = useMemo(() => {
@@ -242,6 +253,7 @@ export default function AdminIncidentRegisterTab() {
               current.map((row) => (row.id === updated.id ? updated : row))
             );
             setDetailTarget(updated);
+            dispatchIncidentReportsRefresh();
             showSuccess("Incident updated.");
           }}
         />

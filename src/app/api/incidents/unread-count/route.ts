@@ -8,6 +8,7 @@ import {
   formatIncidentTableError,
   fromIncidentReports,
   INCIDENT_REPORTS_TABLE,
+  logIncidentSupabaseError,
 } from "@/lib/incident-reports";
 
 export async function GET() {
@@ -19,6 +20,7 @@ export async function GET() {
     .eq("is_read_admin", false);
 
   if (error) {
+    logIncidentSupabaseError("unread count failed", error);
     return NextResponse.json(
       { error: formatIncidentTableError(error), count: 0 },
       { status: 400 }

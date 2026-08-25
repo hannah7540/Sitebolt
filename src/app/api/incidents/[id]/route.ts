@@ -8,6 +8,7 @@ import {
   formatIncidentTableError,
   fromIncidentReports,
   INCIDENT_REPORTS_TABLE,
+  logIncidentSupabaseError,
   normalizeIncidentReport,
   INCIDENT_STATUS_OPTIONS,
   type IncidentStatus,
@@ -58,6 +59,7 @@ export async function PATCH(
     .single();
 
   if (error) {
+    logIncidentSupabaseError("PATCH incident_reports failed", error);
     return NextResponse.json(
       { error: formatIncidentTableError(error), table: INCIDENT_REPORTS_TABLE },
       { status: 400 }

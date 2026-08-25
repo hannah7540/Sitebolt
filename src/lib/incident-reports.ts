@@ -3,12 +3,19 @@ import { supabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
   isSupabaseRelationMissingError,
-  isSupabaseSchemaCacheError,
   toSupabaseRequestError,
 } from "@/lib/supabase-errors";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
+
+/** Dispatched after incident submit/update so lists and badges refresh. */
+export const INCIDENT_REPORTS_REFRESH_EVENT = "sitebolt:incident-reports-refresh";
+
+export function dispatchIncidentReportsRefresh(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(INCIDENT_REPORTS_REFRESH_EVENT));
+}
 
 /**
  * Bypass strict generated Database / PostgREST table-name type locks.
@@ -217,20 +224,24 @@ export function formatIncidentTableError(error: unknown): string {
   );
   if (!normalized) return "Failed to access incident_reports.";
 
-  // Table is provisioned in Supabase — do not block on schema-cache lag.
-  if (isSupabaseSchemaCacheError(normalized)) {
-    return "Incident reports are temporarily unavailable (API schema cache). Wait a moment and retry.";
-  }
-
   if (isSupabaseRelationMissingError(normalized)) {
     return INCIDENT_TABLE_MISSING_MESSAGE;
   }
 
-  const message = normalized.message || "Failed to access incident_reports.";
+  const parts = [normalized.message || "Failed to access incident_reports."];
+  if (normalized.code) parts.push(`code=${normalized.code}`);
+  if (normalized.details) parts.push(`details=${normalized.details}`);
+  if (normalized.hint) parts.push(`hint=${normalized.hint}`);
+  const message = parts.join(" | ");
   if (message.toLowerCase().includes("incident_reports")) {
-    return `${message} (table: incident_reports)`;
+    return message;
   }
-  return message;
+  return `${message} (table: incident_reports)`;
+}
+
+/** Log the raw Supabase/PostgREST error before any UI formatting. */
+export function logIncidentSupabaseError(context: string, error: unknown): void {
+  console.error(`[incident-reports] ${context}:`, error);
 }
 
 function normalizeTreatment(value: unknown): IncidentTreatmentDetails {
@@ -425,6 +436,7 @@ export async function insertIncidentReportRow(
     .single();
 
   if (error) {
+    logIncidentSupabaseError("insert into incident_reports failed", error);
     return { report: null, error: formatIncidentTableError(error) };
   }
 
@@ -467,6 +479,7 @@ export async function fetchIncidentReports(options?: {
 
   const { data, error } = await query;
   if (error) {
+    logIncidentSupabaseError("fetch incident_reports failed", error);
     return { reports: [], error: formatIncidentTableError(error) };
   }
 
@@ -513,6 +526,7 @@ export async function updateIncidentReportAdmin(
     .single();
 
   if (error) {
+    logIncidentSupabaseError("update incident_reports failed", error);
     return { report: null, error: formatIncidentTableError(error) };
   }
 

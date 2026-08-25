@@ -6,6 +6,7 @@ import type { DbProject } from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import { fetchWorkersForProject } from "@/lib/supabase";
 import {
+  dispatchIncidentReportsRefresh,
   fetchIncidentProjectOptions,
   INCIDENT_TREATMENT_OPTIONS,
   isValidIncidentUuid,
@@ -13,6 +14,7 @@ import {
   sanitizeIncidentTreatment,
   sanitizeTextArray,
   sanitizeUuidArray,
+  submitIncidentReport,
   workerOptionLabel,
   type IncidentTreatmentDetails,
 } from "@/lib/incident-reports";
@@ -345,59 +347,62 @@ export default function WorkerIncidentReportModal({
         return;
       }
 
-      const response = await fetch("/api/incidents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submittedByName: getWorkerDisplayName(worker, "Worker"),
-          incidentDateTime: new Date(incidentDateTime).toISOString(),
-          projectId,
-          projectName: selectedProject?.name ?? "Project",
-          injuredWorkerId: injuredWorkerId || null,
-          injuredWorkerName: workerOptionLabel(injured),
-          injuryDetails: injuryDetails.trim() || null,
-          treatmentDetails: sanitizeIncidentTreatment(treatmentDetails),
-          treatingPersonId: isOnsiteTreatment ? treatingPersonId || null : null,
-          treatingPersonName:
-            isOnsiteTreatment && treating ? workerOptionLabel(treating) : null,
-          offsiteTreatmentLocation: isOffsiteTreatment
-            ? offsiteTreatmentLocation.trim() || null
-            : null,
-          whatOccurred: whatOccurred.trim(),
-          incidentLocationDetails: incidentLocationDetails.trim(),
-          treatmentGiven: treatmentGiven.trim() || null,
-          witnessIds: safeWitnessIds,
-          witnessNames: sanitizeTextArray(witnesses.map(workerOptionLabel)),
-          immediateCorrectiveActionRequired: forceIncidentBoolean(
-            immediateCorrectiveActionRequired
-          ),
-          isNotifiableUnderWhs: forceIncidentBoolean(isNotifiableUnderWhs),
-          whatCausedToGoWrong: whatCausedToGoWrong.trim() || null,
-          whatCouldHavePrevented: whatCouldHavePrevented.trim() || null,
-          recommendationsToPrevent: recommendationsToPrevent.trim() || null,
-          medicalCertificateUrls: sanitizeTextArray(medicalUrls),
-          submitterSignatureUrl: signatureUrl,
-        }),
+      const result = await submitIncidentReport({
+        submittedById: worker.id,
+        submittedByName: getWorkerDisplayName(worker, "Worker"),
+        incidentDateTime: new Date(incidentDateTime).toISOString(),
+        projectId,
+        projectName: selectedProject?.name ?? "Project",
+        injuredWorkerId: injuredWorkerId || null,
+        injuredWorkerName: workerOptionLabel(injured),
+        injuryDetails: injuryDetails.trim() || null,
+        treatmentDetails: sanitizeIncidentTreatment(treatmentDetails),
+        treatingPersonId: isOnsiteTreatment ? treatingPersonId || null : null,
+        treatingPersonName:
+          isOnsiteTreatment && treating ? workerOptionLabel(treating) : null,
+        offsiteTreatmentLocation: isOffsiteTreatment
+          ? offsiteTreatmentLocation.trim() || null
+          : null,
+        whatOccurred: whatOccurred.trim(),
+        incidentLocationDetails: incidentLocationDetails.trim(),
+        treatmentGiven: treatmentGiven.trim() || null,
+        witnessIds: safeWitnessIds,
+        witnessNames: sanitizeTextArray(witnesses.map(workerOptionLabel)),
+        immediateCorrectiveActionRequired: forceIncidentBoolean(
+          immediateCorrectiveActionRequired
+        ),
+        isNotifiableUnderWhs: forceIncidentBoolean(isNotifiableUnderWhs),
+        whatCausedToGoWrong: whatCausedToGoWrong.trim() || null,
+        whatCouldHavePrevented: whatCouldHavePrevented.trim() || null,
+        recommendationsToPrevent: recommendationsToPrevent.trim() || null,
+        medicalCertificateUrls: sanitizeTextArray(medicalUrls),
+        submitterSignatureUrl: signatureUrl,
       });
 
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        hint?: string;
-        report?: { reference_number?: string };
-        emailQueued?: boolean;
-        emailSent?: boolean;
-      } | null;
-
-      if (!response.ok) {
-        const message = [payload?.error, payload?.hint].filter(Boolean).join(" ")
-          || "Failed to submit incident report.";
+      if (result.error || !result.report) {
+        const message = result.error ?? "Failed to submit incident report.";
+        console.error("[WorkerIncidentReportModal] submit failed:", message);
         setError(message);
         showError(message);
         return;
       }
 
+      // Non-blocking email alerts — must not block or fail the worker submission.
+      void fetch("/api/incidents/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ reportId: result.report.id }),
+      }).catch((cause) => {
+        console.warn(
+          "[WorkerIncidentReportModal] background email notify failed:",
+          cause
+        );
+      });
+
+      dispatchIncidentReportsRefresh();
       showSuccess(
-        `Incident ${payload?.report?.reference_number ?? "report"} submitted successfully.`
+        `Incident ${result.report.reference_number ?? "report"} submitted successfully.`
       );
       onSubmitted();
       window.setTimeout(() => onClose(), 350);

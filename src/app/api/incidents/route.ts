@@ -12,6 +12,7 @@ import {
   generateIncidentReferenceNumber,
   insertIncidentReportRow,
   isValidIncidentUuid,
+  logIncidentSupabaseError,
   normalizeIncidentReport,
   nullIfBlankUuid,
   sanitizeIncidentTreatment,
@@ -60,6 +61,7 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (error) {
+    logIncidentSupabaseError("GET incident_reports failed", error);
     return NextResponse.json(
       { error: formatIncidentTableError(error), reports: [], count: 0 },
       { status: 400 }
@@ -162,6 +164,7 @@ export async function POST(req: Request) {
   // Direct insert into public.incident_reports (schema-scrubbed column keys only).
   const inserted = await insertIncidentReportRow(access.admin, payload);
   if (inserted.error || !inserted.report) {
+    console.error("[api/incidents] insert failed:", inserted.error);
     return NextResponse.json(
       {
         error: inserted.error ?? "Failed to insert incident report.",
