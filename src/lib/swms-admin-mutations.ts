@@ -67,6 +67,10 @@ function buildInsertPayload(input: {
   const projectId = input.projectId?.trim() || null;
   const scope = input.swmsScope ?? (projectId ? "site_specific" : "company");
 
+  if (scope === "site_specific" && !projectId) {
+    throw new Error("project_id is required when swms_scope is site_specific.");
+  }
+
   const payload: Record<string, string | boolean> = {
     title: input.title.trim() || "Untitled SWMS",
     document_date: selectedDate,
@@ -77,11 +81,11 @@ function buildInsertPayload(input: {
     document_url: input.fileUrl,
     is_archived: false,
     status: "Active",
-    swms_scope: scope,
+    swms_scope: scope === "site_specific" ? "site_specific" : "company",
     version: input.version?.trim() || "1.0",
   };
 
-  if (projectId) payload.project_id = projectId;
+  if (scope === "site_specific" && projectId) payload.project_id = projectId;
   if (input.fileName?.trim()) payload.file_name = input.fileName.trim();
 
   return payload;

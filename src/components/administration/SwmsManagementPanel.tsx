@@ -15,6 +15,7 @@ import {
 import {
   deleteSwmsDocument,
   fetchSwmsList,
+  filterSiteSpecificSwmsByProject,
   filterSwmsDocumentsByAdminTab,
   formatSwmsVersionLabel,
   getSwmsDocumentDate,
@@ -27,14 +28,14 @@ import {
   type SwmsAdminTabFilter,
   type SwmsDocumentSummary,
 } from "@/lib/swms";
-import type { DbProject } from "@/lib/project-resolver";
+import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import UploadSwmsModal from "./UploadSwmsModal";
 import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
-import { cardClass } from "@/lib/ui-classes";
+import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 interface SwmsManagementPanelProps {
@@ -72,6 +73,9 @@ export default function SwmsManagementPanel({
   const [editTarget, setEditTarget] = useState<SwmsDocumentSummary | null>(null);
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [projectFilterId, setProjectFilterId] = useState("");
+
+  const activeProjects = useMemo(() => filterActiveProjects(projects), [projects]);
 
   const fetchSwmsListData = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -94,10 +98,20 @@ export default function SwmsManagementPanel({
     void fetchSwmsListData();
   }, [fetchSwmsListData]);
 
-  const filteredSwmsList = useMemo(
-    () => filterSwmsDocumentsByAdminTab(swmsList, activeTab),
-    [swmsList, activeTab]
-  );
+  const filteredSwmsList = useMemo(() => {
+    const byTab = filterSwmsDocumentsByAdminTab(swmsList, activeTab);
+    if (activeTab !== "site_specific") return byTab;
+    return filterSiteSpecificSwmsByProject(byTab, projectFilterId);
+  }, [swmsList, activeTab, projectFilterId]);
+
+  const emptyMessage =
+    activeTab === "archived"
+      ? "No archived SWMS documents."
+      : activeTab === "site_specific"
+        ? projectFilterId
+          ? "No site-specific SWMS for the selected project."
+          : "No site-specific SWMS documents."
+        : "No company SWMS templates in the master library.";
 
   const toggleArchive = async (item: SwmsDocumentSummary) => {
     const currentlyArchived = isSwmsItemArchived(item);
@@ -157,13 +171,6 @@ export default function SwmsManagementPanel({
     await fetchSwmsListData({ silent: true });
   };
 
-  const emptyMessage =
-    activeTab === "archived"
-      ? "No archived SWMS documents."
-      : activeTab === "site_specific"
-        ? "No site-specific SWMS documents."
-        : "No company SWMS templates in the master library.";
-
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -197,22 +204,42 @@ export default function SwmsManagementPanel({
         ) : null}
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {TAB_FILTERS.map((filter) => (
-          <button
-            key={filter.id}
-            type="button"
-            onClick={() => setActiveTab(filter.id)}
-            className={cn(
-              "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-              activeTab === filter.id
-                ? "border-orange-300 bg-orange-50 text-orange-700"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-            )}
-          >
-            {filter.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {TAB_FILTERS.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              onClick={() => setActiveTab(filter.id)}
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                activeTab === filter.id
+                  ? "border-orange-300 bg-orange-50 text-orange-700"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "site_specific" ? (
+          <label className="flex min-w-[220px] flex-col gap-1">
+            <span className={labelClass}>Filter by Project</span>
+            <select
+              className={inputClass}
+              value={projectFilterId}
+              onChange={(event) => setProjectFilterId(event.target.value)}
+            >
+              <option value="">All Projects</option>
+              {activeProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {successMessage ? (

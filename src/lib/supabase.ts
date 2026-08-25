@@ -3557,11 +3557,37 @@ export function resolveSwmsScope(
     | undefined
 ): SwmsScope {
   if (!doc) return "company";
+  // project_id always classifies as site-specific, even if scope was mis-tagged.
+  if (doc.project_id?.trim()) return "site_specific";
   const scope = String(doc.swms_scope ?? "").trim().toLowerCase();
   if (scope === "site_specific" || scope === "site-specific") return "site_specific";
-  if (scope === "company") return "company";
-  if (doc.project_id?.trim()) return "site_specific";
   return "company";
+}
+
+/** Company-wide master templates only (no project link). */
+export function isCompanySwmsDocument(
+  doc:
+    | {
+        swms_scope?: string | null;
+        project_id?: string | null;
+      }
+    | null
+    | undefined
+): boolean {
+  return resolveSwmsScope(doc) === "company" && !doc?.project_id?.trim();
+}
+
+/** Site-specific SWMS linked to a project (or explicitly scoped). */
+export function isSiteSpecificSwmsDocument(
+  doc:
+    | {
+        swms_scope?: string | null;
+        project_id?: string | null;
+      }
+    | null
+    | undefined
+): boolean {
+  return resolveSwmsScope(doc) === "site_specific" || Boolean(doc?.project_id?.trim());
 }
 
 export function resolveSwmsVersion(
@@ -3616,6 +3642,11 @@ function buildSwmsInsertPayload(input: {
   const selectedDate = resolveSwmsSelectedDate(input.documentDate);
   const projectId = nullIfBlank(input.projectId);
   const scope = input.swmsScope ?? (projectId ? "site_specific" : "company");
+
+  if (scope === "site_specific" && !projectId) {
+    throw new Error("project_id is required when swms_scope is site_specific.");
+  }
+
   const payload: Record<string, string | boolean> = {
     title: nullIfBlank(input.title) ?? "Untitled SWMS",
     document_date: selectedDate,
@@ -3626,14 +3657,14 @@ function buildSwmsInsertPayload(input: {
     document_url: input.uploadedUrl,
     is_archived: false,
     status: "Active",
-    swms_scope: scope,
+    swms_scope: scope === "site_specific" ? "site_specific" : "company",
     version: nullIfBlank(input.version) ?? "1.0",
   };
 
   const masterSwmsId = nullIfBlank(input.masterSwmsId);
   const previousVersionId = nullIfBlank(input.previousVersionId);
 
-  if (projectId) {
+  if (scope === "site_specific" && projectId) {
     payload.project_id = projectId;
   }
   if (masterSwmsId) {

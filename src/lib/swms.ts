@@ -25,6 +25,8 @@ import {
   resolveSwmsScope,
   resolveSwmsVersion,
   resolveSwmsTargetId,
+  isCompanySwmsDocument,
+  isSiteSpecificSwmsDocument,
   type SwmsDocumentRecord,
   type SwmsAssignmentRecord,
   type SwmsAssigneeType,
@@ -63,6 +65,8 @@ export {
   resolveSwmsTargetId,
   resolveSwmsScope,
   resolveSwmsVersion,
+  isCompanySwmsDocument,
+  isSiteSpecificSwmsDocument,
 };
 
 export type SwmsArchiveItem = {
@@ -240,13 +244,26 @@ export function filterSwmsDocumentsByAdminTab(
 ): SwmsDocumentSummary[] {
   return documents.filter((item) => {
     const isArchived = isSwmsItemArchived(item);
-    const scope = resolveSwmsScope(item);
 
     if (tab === "archived") return isArchived;
     if (isArchived) return false;
-    if (tab === "company") return scope === "company";
-    return scope === "site_specific";
+
+    // Company: master library only — never show rows with a project_id.
+    if (tab === "company") return isCompanySwmsDocument(item);
+
+    // Site-specific: project-linked (or explicitly scoped) SWMS only.
+    return isSiteSpecificSwmsDocument(item);
   });
+}
+
+/** Further narrow site-specific rows to a single project (or keep all). */
+export function filterSiteSpecificSwmsByProject(
+  documents: SwmsDocumentSummary[],
+  projectId: string | null | undefined
+): SwmsDocumentSummary[] {
+  const trimmed = projectId?.trim() ?? "";
+  if (!trimmed) return documents;
+  return documents.filter((item) => item.project_id?.trim() === trimmed);
 }
 
 function toSwmsDocument(record: SwmsDocumentRecord): SwmsDocument {
@@ -446,16 +463,42 @@ export async function createSiteSpecificSwmsDocument(input: {
   projectId: string;
   workerAssignments?: Array<{ id: string; name: string }>;
 }): Promise<{ error: string | null; document: SwmsDocumentSummary | null }> {
-  return createSwmsDocument({
+  const projectId = input.projectId?.trim() ?? "";
+  if (!projectId || !isValidSwmsId(projectId)) {
+    return {
+      error: "A valid project_id is required for site-specific SWMS.",
+      document: null,
+    };
+  }
+
+  const result = await createSwmsDocument({
     title: input.title,
     documentDate: input.documentDate,
     fileUrl: input.fileUrl,
     fileName: input.fileName,
-    projectId: input.projectId,
+    projectId,
     workerAssignments: input.workerAssignments,
     swmsScope: "site_specific",
     version: "1.0",
   });
+
+  if (result.error || !result.document) {
+    return result;
+  }
+
+  // Guard against mis-categorization so the row lands on the Site-Specific tab only.
+  if (
+    !result.document.project_id?.trim() ||
+    resolveSwmsScope(result.document) !== "site_specific"
+  ) {
+    return {
+      error:
+        "Site-specific SWMS was saved without a project link. Please try again.",
+      document: null,
+    };
+  }
+
+  return result;
 }
 
 export async function updateSwmsDocument(
