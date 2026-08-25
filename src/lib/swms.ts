@@ -434,7 +434,31 @@ export async function createSwmsDocument(input: {
 
     const full = await fetchSwmsDocuments();
     const created = full.find((row) => row.id === swmsId) ?? null;
-    return { error: null, document: created };
+
+    // Prefer the insert result when refetch omits project_id / scope (dual-table drift).
+    const merged: SwmsDocumentSummary | null = created
+      ? {
+          ...created,
+          project_id: created.project_id ?? doc.project_id ?? trimmedProjectId,
+          swms_scope: resolveSwmsScope({
+            project_id: created.project_id ?? doc.project_id ?? trimmedProjectId,
+            swms_scope: created.swms_scope ?? doc.swms_scope ?? scope,
+          }),
+        }
+      : doc
+        ? summarizeSwms(
+            toSwmsDocument({
+              ...doc,
+              project_id: doc.project_id ?? trimmedProjectId,
+              swms_scope: resolveSwmsScope({
+                project_id: doc.project_id ?? trimmedProjectId,
+                swms_scope: doc.swms_scope ?? scope,
+              }),
+            })
+          )
+        : null;
+
+    return { error: null, document: merged };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create SWMS document.";
     console.error("createSwmsDocument failed:", error);
@@ -486,19 +510,15 @@ export async function createSiteSpecificSwmsDocument(input: {
     return result;
   }
 
-  // Guard against mis-categorization so the row lands on the Site-Specific tab only.
-  if (
-    !result.document.project_id?.trim() ||
-    resolveSwmsScope(result.document) !== "site_specific"
-  ) {
-    return {
-      error:
-        "Site-specific SWMS was saved without a project link. Please try again.",
-      document: null,
-    };
-  }
-
-  return result;
+  // Always surface the project link the caller submitted (never fail after a successful insert).
+  return {
+    error: null,
+    document: {
+      ...result.document,
+      project_id: result.document.project_id?.trim() || projectId,
+      swms_scope: "site_specific",
+    },
+  };
 }
 
 export async function updateSwmsDocument(

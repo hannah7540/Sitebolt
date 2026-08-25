@@ -59,6 +59,8 @@ export default function UploadSiteSpecificSwmsModal({
       setError("Select a valid target project.");
       return;
     }
+
+    const selectedProjectId = projectId.trim();
     if (!file) {
       setError("Please upload a SWMS PDF.");
       return;
@@ -76,7 +78,7 @@ export default function UploadSiteSpecificSwmsModal({
       const { workerByProject } = await loadAssignmentMaps();
       const projectWorkers = filterWorkersForProject(
         workers,
-        projectId.trim(),
+        selectedProjectId,
         workerByProject
       )
         .filter((worker) => !worker.is_subcontractor)
@@ -85,14 +87,23 @@ export default function UploadSiteSpecificSwmsModal({
           name: getWorkerDisplayName(worker),
         }));
 
-      const { error: createError, document } = await createSiteSpecificSwmsDocument({
+      const insertPayload = {
         title: title.trim(),
         documentDate,
         fileUrl: url,
         fileName: file.name,
-        projectId: projectId.trim(),
+        projectId: selectedProjectId,
         workerAssignments: projectWorkers,
+      };
+      console.log("SWMS Insert Payload:", {
+        project_id: insertPayload.projectId,
+        swms_scope: "site_specific",
+        title: insertPayload.title,
       });
+
+      const { error: createError, document } = await createSiteSpecificSwmsDocument(
+        insertPayload
+      );
 
       if (createError || !document) {
         setError(createError ?? "Failed to save site-specific SWMS.");

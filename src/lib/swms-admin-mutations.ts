@@ -109,7 +109,13 @@ async function insertSwmsRowAdmin(
     "version",
   ] as const;
 
+  const requiredColumns =
+    String(payload.swms_scope) === "site_specific"
+      ? new Set(["project_id", "swms_scope"])
+      : new Set<string>();
+
   let currentPayload: Record<string, string | boolean> = { ...payload };
+  console.log("SWMS Insert Payload:", { table, payload: currentPayload });
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await admin
@@ -132,6 +138,12 @@ async function insertSwmsRowAdmin(
     );
 
     if (missingColumn) {
+      if (requiredColumns.has(missingColumn)) {
+        return {
+          data: null,
+          error: `Cannot save site-specific SWMS: required column "${missingColumn}" is missing on ${table}.`,
+        };
+      }
       const { [missingColumn]: _removed, ...rest } = currentPayload;
       currentPayload = rest;
       continue;

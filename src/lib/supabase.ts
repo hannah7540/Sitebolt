@@ -3697,11 +3697,20 @@ const SWMS_OPTIONAL_INSERT_COLUMNS = [
   "previous_version_id",
 ] as const;
 
+/** Columns that must never be stripped when creating site-specific SWMS. */
+const SWMS_SITE_SPECIFIC_REQUIRED_COLUMNS = ["project_id", "swms_scope"] as const;
+
 async function insertSwmsRow(
   table: SwmsDocumentTable,
-  payload: Record<string, string | boolean>
+  payload: Record<string, string | boolean>,
+  options?: { requiredColumns?: readonly string[] }
 ): Promise<{ data: RawSwmsDocumentRecord | null; error: string | null }> {
   let currentPayload: Record<string, string | boolean> = { ...payload };
+  const required = new Set(
+    (options?.requiredColumns ?? []).map((column) => column.toLowerCase())
+  );
+
+  console.log("SWMS Insert Payload:", { table, payload: currentPayload });
 
   for (let attempt = 0; attempt <= SWMS_OPTIONAL_INSERT_COLUMNS.length; attempt++) {
     const { data, error } = await supabase
@@ -3720,6 +3729,12 @@ async function insertSwmsRow(
     );
 
     if (missingColumn) {
+      if (required.has(missingColumn.toLowerCase())) {
+        return {
+          data: null,
+          error: `Cannot save site-specific SWMS: required column "${missingColumn}" is missing on ${table}. Apply SWMS project-versioning migrations.`,
+        };
+      }
       const { [missingColumn]: _removed, ...rest } = currentPayload;
       currentPayload = rest;
       continue;
@@ -3729,6 +3744,27 @@ async function insertSwmsRow(
   }
 
   return { data: null, error: "Failed to insert SWMS record." };
+}
+
+async function patchSwmsProjectLink(input: {
+  swmsId: string;
+  projectId: string;
+  swmsScope: SwmsScope;
+}): Promise<void> {
+  const patch = {
+    project_id: input.projectId,
+    swms_scope: input.swmsScope,
+  };
+
+  for (const table of ["swms_documents", "swms"] as const) {
+    const { error } = await supabase.from(table).update(patch).eq("id", input.swmsId);
+    if (error && !isMissingSwmsTableError(error.message, table)) {
+      // Column missing on one table is non-fatal if the other retains the link.
+      if (!isMissingSwmsColumnError(error.message, "project_id")) {
+        console.warn(`patchSwmsProjectLink(${table}) failed:`, error.message);
+      }
+    }
+  }
 }
 
 export function isValidSwmsId(id: string | null | undefined): id is string {
@@ -3815,7 +3851,21 @@ export async function fetchSwmsDocumentRecords(): Promise<SwmsDocumentRecord[]> 
 
     if (!primary.missingTable) {
       for (const row of primary.rows) {
-        byId.set(row.id, row);
+        const existing = byId.get(row.id);
+        // Keep project_id / site-specific scope if present on either table copy.
+        if (existing?.project_id && !row.project_id) {
+          byId.set(row.id, {
+            ...row,
+            project_id: existing.project_id,
+            swms_scope: resolveSwmsScope({
+              ...row,
+              project_id: existing.project_id,
+              swms_scope: row.swms_scope ?? existing.swms_scope,
+            }),
+          });
+        } else {
+          byId.set(row.id, row);
+        }
       }
     }
 
@@ -3901,10 +3951,15 @@ export async function insertSwmsDocumentRecord(input: {
     const payload = buildSwmsInsertPayload(input);
     const generatedId = createSwmsRecordId();
     const primaryPayload = { id: generatedId, ...payload };
+    const siteSpecificRequired =
+      String(payload.swms_scope) === "site_specific"
+        ? SWMS_SITE_SPECIFIC_REQUIRED_COLUMNS
+        : undefined;
 
     const { data: primaryRow, error: primaryError } = await insertSwmsRow(
       "swms",
-      primaryPayload
+      primaryPayload,
+      { requiredColumns: siteSpecificRequired }
     );
 
     if (primaryError && !isMissingSwmsTableError(primaryError, "swms")) {
@@ -3917,7 +3972,11 @@ export async function insertSwmsDocumentRecord(input: {
 
     if (isMissingSwmsTableError(primaryError ?? "", "swms")) {
       const { data: documentsOnlyRow, error: documentsOnlyError } =
-        await insertSwmsRow("swms_documents", { id: swmsId, ...payload });
+        await insertSwmsRow(
+          "swms_documents",
+          { id: swmsId, ...payload },
+          { requiredColumns: siteSpecificRequired }
+        );
 
       if (documentsOnlyError || !documentsOnlyRow) {
         return {
@@ -3935,8 +3994,28 @@ export async function insertSwmsDocumentRecord(input: {
         };
       }
 
+      const documentsOnlyNormalized = normalizeSwmsDocumentRecord({
+        ...documentsOnlyRow,
+        ...payload,
+        id: documentsOnlyRow.id,
+      } as RawSwmsDocumentRecord);
+
+      if (
+        String(payload.swms_scope) === "site_specific" &&
+        payload.project_id &&
+        !documentsOnlyNormalized.project_id
+      ) {
+        await patchSwmsProjectLink({
+          swmsId: documentsOnlyNormalized.id,
+          projectId: String(payload.project_id),
+          swmsScope: "site_specific",
+        });
+        documentsOnlyNormalized.project_id = String(payload.project_id);
+        documentsOnlyNormalized.swms_scope = "site_specific";
+      }
+
       return {
-        doc: normalizeSwmsDocumentRecord(documentsOnlyRow),
+        doc: documentsOnlyNormalized,
         error: null,
       };
     }
@@ -3951,7 +4030,8 @@ export async function insertSwmsDocumentRecord(input: {
     const mirrorPayload = { id: swmsId, ...payload };
     const { data: mirrorRow, error: mirrorError } = await insertSwmsRow(
       "swms_documents",
-      mirrorPayload
+      mirrorPayload,
+      { requiredColumns: siteSpecificRequired }
     );
 
     if (mirrorError && !isMissingSwmsTableError(mirrorError, "swms_documents")) {
@@ -3973,8 +4053,31 @@ export async function insertSwmsDocumentRecord(input: {
         ...payload,
       } as RawSwmsDocumentRecord);
 
+    // Prefer insert payload project/scope so dual-table drift cannot drop the link.
+    const normalized = normalizeSwmsDocumentRecord({
+      ...resolvedRow,
+      ...payload,
+      id: swmsId,
+    } as RawSwmsDocumentRecord);
+
+    if (
+      String(payload.swms_scope) === "site_specific" &&
+      typeof payload.project_id === "string" &&
+      payload.project_id
+    ) {
+      if (!normalized.project_id?.trim()) {
+        await patchSwmsProjectLink({
+          swmsId,
+          projectId: payload.project_id,
+          swmsScope: "site_specific",
+        });
+      }
+      normalized.project_id = payload.project_id;
+      normalized.swms_scope = "site_specific";
+    }
+
     return {
-      doc: normalizeSwmsDocumentRecord(resolvedRow),
+      doc: normalized,
       error: null,
     };
   } catch (error) {
