@@ -30,6 +30,7 @@ import {
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import UploadSwmsModal from "./UploadSwmsModal";
+import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
@@ -62,6 +63,7 @@ export default function SwmsManagementPanel({
   const [swmsList, setSwmsList] = useState<SwmsDocumentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
+  const [showSiteSpecificUpload, setShowSiteSpecificUpload] = useState(false);
   const [activeTab, setActiveTab] = useState<SwmsAdminTabFilter>("company");
   const [actionId, setActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -183,6 +185,16 @@ export default function SwmsManagementPanel({
             Add New Company SWMS
           </button>
         ) : null}
+        {activeTab === "site_specific" ? (
+          <button
+            type="button"
+            onClick={() => setShowSiteSpecificUpload(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" />
+            Add Site-Specific SWMS
+          </button>
+        ) : null}
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -262,7 +274,9 @@ export default function SwmsManagementPanel({
                         </span>
                       ) : null}
                       {!isCompany ? (
-                        <span>Project: {projectLabel(doc.project_id, projects)}</span>
+                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-800">
+                          {projectLabel(doc.project_id, projects)}
+                        </span>
                       ) : (
                         <span>Master library template</span>
                       )}
@@ -407,6 +421,15 @@ export default function SwmsManagementPanel({
       {showUpload ? (
         <UploadSwmsModal
           onClose={() => setShowUpload(false)}
+          onSaved={() => void fetchSwmsListData({ silent: true })}
+        />
+      ) : null}
+
+      {showSiteSpecificUpload ? (
+        <UploadSiteSpecificSwmsModal
+          projects={projects}
+          workers={_workers}
+          onClose={() => setShowSiteSpecificUpload(false)}
           onSaved={() => void fetchSwmsListData({ silent: true })}
         />
       ) : null}

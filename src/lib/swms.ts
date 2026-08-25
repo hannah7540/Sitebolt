@@ -346,15 +346,31 @@ export async function createSwmsDocument(input: {
   }
 
   try {
+    const trimmedProjectId = input.projectId?.trim() || null;
     const scope =
-      input.swmsScope ?? (input.projectId?.trim() ? "site_specific" : "company");
+      input.swmsScope ?? (trimmedProjectId ? "site_specific" : "company");
+
+    if (scope === "site_specific") {
+      if (!trimmedProjectId) {
+        return {
+          error: "A target project is required for site-specific SWMS.",
+          document: null,
+        };
+      }
+      if (!isValidSwmsId(trimmedProjectId)) {
+        return {
+          error: "Select a valid project before saving the site-specific SWMS.",
+          document: null,
+        };
+      }
+    }
 
     const { doc, error: docError } = await insertSwmsDocumentRecord({
       title: input.title,
       documentDate: input.documentDate,
       uploadedUrl: input.fileUrl,
       fileName: input.fileName,
-      projectId: input.projectId,
+      projectId: trimmedProjectId,
       swmsScope: scope,
       version: input.version,
       masterSwmsId: input.masterSwmsId,
@@ -418,6 +434,26 @@ export async function createCompanySwmsDocument(input: {
   return createSwmsDocument({
     ...input,
     swmsScope: "company",
+    version: "1.0",
+  });
+}
+
+export async function createSiteSpecificSwmsDocument(input: {
+  title: string;
+  documentDate?: string | null;
+  fileUrl: string;
+  fileName?: string | null;
+  projectId: string;
+  workerAssignments?: Array<{ id: string; name: string }>;
+}): Promise<{ error: string | null; document: SwmsDocumentSummary | null }> {
+  return createSwmsDocument({
+    title: input.title,
+    documentDate: input.documentDate,
+    fileUrl: input.fileUrl,
+    fileName: input.fileName,
+    projectId: input.projectId,
+    workerAssignments: input.workerAssignments,
+    swmsScope: "site_specific",
     version: "1.0",
   });
 }
