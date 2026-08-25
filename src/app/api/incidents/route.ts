@@ -10,6 +10,7 @@ import {
   formatIncidentTableError,
   fromIncidentReports,
   generateIncidentReferenceNumber,
+  insertIncidentReportRow,
   isValidIncidentUuid,
   normalizeIncidentReport,
   nullIfBlankUuid,
@@ -158,22 +159,19 @@ export async function POST(req: Request) {
   const referenceNumber = await generateIncidentReferenceNumber(access.admin);
   const payload = buildIncidentInsertPayload(input, referenceNumber);
 
-  const { data, error } = await fromIncidentReports(access.admin)
-    .insert([payload])
-    .select("*")
-    .single();
-
-  if (error) {
+  // Direct insert into public.incident_reports (schema-scrubbed column keys only).
+  const inserted = await insertIncidentReportRow(access.admin, payload);
+  if (inserted.error || !inserted.report) {
     return NextResponse.json(
       {
-        error: formatIncidentTableError(error),
+        error: inserted.error ?? "Failed to insert incident report.",
         table: INCIDENT_REPORTS_TABLE,
       },
       { status: 400 }
     );
   }
 
-  const report = normalizeIncidentReport(data as Record<string, unknown>);
+  const report = inserted.report;
 
   // Never block form success on email delivery — queue in background.
   after(() => {
@@ -187,6 +185,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     success: true,
+    table: INCIDENT_REPORTS_TABLE,
     report,
     emailQueued: true,
   });

@@ -397,18 +397,30 @@ export function buildIncidentInsertPayload(
   };
 }
 
-export async function submitIncidentReport(
-  input: IncidentReportSubmitInput
-): Promise<{ report: IncidentReportRecord | null; error: string | null }> {
-  if (!isSupabaseConfigured()) {
-    return { report: null, error: "Supabase is not configured." };
+/** Keep only known `incident_reports` columns — drop any stray client keys. */
+export function pickIncidentReportColumns(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {};
+  for (const key of INCIDENT_REPORT_SCHEMA_COLUMNS) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      cleaned[key] = payload[key];
+    }
   }
+  return cleaned;
+}
 
-  const referenceNumber = await generateIncidentReferenceNumber();
-  const payload = buildIncidentInsertPayload(input, referenceNumber);
-
-  const { data, error } = await fromIncidentReports(supabase)
-    .insert([payload])
+/**
+ * Insert a row directly into public.incident_reports via the given Supabase client.
+ * Used by the authenticated API (service role) and the browser client helper.
+ */
+export async function insertIncidentReportRow(
+  client: { from: (relation: string) => unknown },
+  payload: Record<string, unknown>
+): Promise<{ report: IncidentReportRecord | null; error: string | null }> {
+  const row = pickIncidentReportColumns(payload);
+  const { data, error } = await fromIncidentReports(client)
+    .insert([row])
     .select("*")
     .single();
 
@@ -420,6 +432,18 @@ export async function submitIncidentReport(
     report: normalizeIncidentReport(data as Record<string, unknown>),
     error: null,
   };
+}
+
+export async function submitIncidentReport(
+  input: IncidentReportSubmitInput
+): Promise<{ report: IncidentReportRecord | null; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    return { report: null, error: "Supabase is not configured." };
+  }
+
+  const referenceNumber = await generateIncidentReferenceNumber();
+  const payload = buildIncidentInsertPayload(input, referenceNumber);
+  return insertIncidentReportRow(supabase, payload);
 }
 
 export async function fetchIncidentReports(options?: {

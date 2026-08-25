@@ -17,6 +17,7 @@ export function createSupabaseAdminClient(): SupabaseClient {
 
   if (!adminClient) {
     adminClient = createClient(readSupabaseUrl(), getServiceRoleKey(), {
+      db: { schema: "public" },
       auth: {
         persistSession: false,
         autoRefreshToken: false,
