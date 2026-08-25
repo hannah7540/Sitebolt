@@ -17,11 +17,16 @@ import { useRouter } from "next/navigation";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import {
   COMPLIANCE_ALERT_FILTER_OPTIONS,
+  COMPANY_INSURANCE_ALERT_WINDOW_DAYS,
+  FLEET_PLANT_REGISTRATION_ALERT_WINDOW_DAYS,
+  HEAVY_VEHICLE_ALERT_WINDOW_DAYS,
+  WORKER_TICKET_ALERT_WINDOW_DAYS,
   filterComplianceAlerts,
   getComplianceAlertStatus,
   type ComplianceAlertFilter,
   type ComplianceAlertItem,
 } from "@/lib/compliance-alerts-hub";
+import { DEDUPE_WINDOW_DAYS } from "@/lib/expiry-alerts";
 import {
   fetchExpiryAlertSettings,
   formatSecondaryRecipientsForInput,
@@ -176,6 +181,8 @@ export default function OrganisationAlertsPanel() {
         skipped?: boolean;
         reason?: string;
         emailsSent?: number;
+        complianceItemsIncluded?: number;
+        errors?: string[];
       };
 
       if (!response.ok) {
@@ -183,10 +190,14 @@ export default function OrganisationAlertsPanel() {
         return;
       }
 
+      if (payload.errors && payload.errors.length > 0) {
+        setError(payload.errors.join(" · "));
+      }
+
       setSuccessMessage(
         payload.skipped
           ? (payload.reason ?? "Expiry check skipped.")
-          : `Automated check complete. ${payload.emailsSent ?? 0} email(s) sent.`
+          : `Automated check complete. ${payload.emailsSent ?? 0} email(s) sent for ${payload.complianceItemsIncluded ?? 0} alert item(s).`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run expiry check.");
@@ -205,6 +216,34 @@ export default function OrganisationAlertsPanel() {
           Unified compliance alerts for heavy vehicle checks, fleet and plant registrations,
           worker tickets, and company insurance policies.
         </p>
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <p className="font-semibold text-slate-800">Configured alert thresholds</p>
+          <ul className="mt-1 list-inside list-disc space-y-0.5">
+            <li>
+              Heavy Vehicle Checks: <strong>{HEAVY_VEHICLE_ALERT_WINDOW_DAYS} days</strong> (8 weeks)
+              before due
+            </li>
+            <li>
+              Fleet &amp; Plant Registrations:{" "}
+              <strong>{FLEET_PLANT_REGISTRATION_ALERT_WINDOW_DAYS} days</strong> before expiry
+            </li>
+            <li>
+              Worker Tickets / Licenses / VOCs:{" "}
+              <strong>{WORKER_TICKET_ALERT_WINDOW_DAYS} days</strong> before expiry
+            </li>
+            <li>
+              Company Insurances: <strong>{COMPANY_INSURANCE_ALERT_WINDOW_DAYS} days</strong> before
+              expiry (includes expired)
+            </li>
+            <li>
+              Email dedupe window: <strong>{DEDUPE_WINDOW_DAYS} days</strong> per alert item
+            </li>
+            <li>
+              Plant service due (hours): not a day-based Organisation Alert — tracked via plant
+              hours / pre-starts
+            </li>
+          </ul>
+        </div>
       </div>
 
       {successMessage ? (

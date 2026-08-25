@@ -2,6 +2,7 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL 
 if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'placeholder';
 if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
 if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = 'placeholder';
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchAllWorkerVocs,
   fetchCompanyInsurances,
@@ -18,13 +19,35 @@ import { normalizeSecurityRole } from "./security-roles";
 import { fetchExpiryAlertSettings } from "./expiry-alert-settings";
 import { sendEmail } from "./email-service";
 import {
+  buildComplianceAlertDigestEmail,
   buildInsuranceExpiryDigestEmail,
-  buildWorkerExpiryDigestEmail,
   buildWorkerDirectNotifyEmail,
+  buildWorkerExpiryDigestEmail,
 } from "./expiry-alert-email";
+import {
+  COMPLIANCE_ALERT_FILTER_OPTIONS,
+  fetchComplianceAlerts,
+  type ComplianceAlertFilter,
+  type ComplianceAlertItem,
+} from "./compliance-alerts-hub";
+import { isSupabaseAdminConfigured } from "./supabase/env";
+import { createSupabaseAdminClient } from "./supabase/admin";
 
-export type ExpiryEntityType = "worker_qualification" | "company_insurance";
-export type ExpiryAlertKind = "worker_digest" | "insurance_digest" | "manual_worker_notify";
+export type ExpiryEntityType =
+  | "worker_qualification"
+  | "company_insurance"
+  | "compliance_alert"
+  | "heavy_vehicle_check"
+  | "fleet_registration"
+  | "plant_registration"
+  | "worker_ticket";
+
+export type ExpiryAlertKind =
+  | "worker_digest"
+  | "insurance_digest"
+  | "manual_worker_notify"
+  | "compliance_digest"
+  | "compliance_item";
 
 export interface UpcomingWorkerQualificationExpiry {
   entityType: "worker_qualification";
@@ -64,12 +87,25 @@ export interface ExpiryAlertRunResult {
   reason?: string;
   workerItemsIncluded: number;
   insuranceItemsIncluded: number;
+  complianceItemsIncluded: number;
   emailsAttempted: number;
   emailsSent: number;
   errors: string[];
+  thresholds?: Record<string, number | string>;
 }
 
 const DEDUPE_WINDOW_DAYS = 7;
+
+/** Published thresholds for Organisation -> Alerts (days before due/expiry). */
+export const ORGANISATION_ALERT_THRESHOLDS = {
+  heavy_vehicle_check_days: 56,
+  fleet_plant_registration_days: 14,
+  worker_ticket_license_voc_days: 30,
+  company_insurance_days: 30,
+  email_dedupe_window_days: DEDUPE_WINDOW_DAYS,
+  service_due_hours:
+    "Not configured as a day-based Organisation Alert (tracked via plant hours/pre-starts).",
+} as const;
 
 function isMissingTableError(message: string, table: string): boolean {
   const lower = message.toLowerCase();
@@ -195,11 +231,12 @@ export async function fetchExpiryAlertRecipients(workers: Worker[]): Promise<str
   const settings = await fetchExpiryAlertSettings();
 
   const designatedEmails = workers
-    .filter((worker) =>
-      settings.notification_recipient_worker_ids.includes(worker.id) &&
-      Boolean(worker.email?.trim()) &&
-      !worker.is_revoked &&
-      !worker.is_archived
+    .filter(
+      (worker) =>
+        settings.notification_recipient_worker_ids.includes(worker.id) &&
+        Boolean(worker.email?.trim()) &&
+        !worker.is_revoked &&
+        !worker.is_archived
     )
     .map((worker) => worker.email!.trim());
 
@@ -287,182 +324,242 @@ export async function logExpiryAlerts(
   return { error: null };
 }
 
-function buildLogEntriesForDigest<T extends UpcomingExpiryItem>(
-  items: T[],
-  recipients: string[],
-  alertKind: ExpiryAlertKind
-): Array<{
-  entityType: ExpiryEntityType;
-  entityId: string;
-  entityKey: string;
-  alertKind: ExpiryAlertKind;
-  recipientEmail: string;
-}> {
-  const logs: Array<{
-    entityType: ExpiryEntityType;
-    entityId: string;
-    entityKey: string;
-    alertKind: ExpiryAlertKind;
-    recipientEmail: string;
-  }> = [];
-
-  for (const item of items) {
-    for (const recipient of recipients) {
-      logs.push({
-        entityType: item.entityType,
-        entityId: item.entityId,
-        entityKey: item.entityKey,
-        alertKind,
-        recipientEmail: recipient,
-      });
-    }
+function mapAlertEntityType(alert: ComplianceAlertItem): ExpiryEntityType {
+  switch (alert.category) {
+    case "heavy_vehicle_check":
+      return "heavy_vehicle_check";
+    case "fleet_registration":
+      return "fleet_registration";
+    case "plant_registration":
+      return "plant_registration";
+    case "worker_ticket":
+      return "worker_ticket";
+    case "company_insurance":
+      return "company_insurance";
+    default:
+      return "compliance_alert";
   }
+}
 
-  return logs;
+function digestLabelForFilter(filterId: Exclude<ComplianceAlertFilter, "all">): string {
+  return (
+    COMPLIANCE_ALERT_FILTER_OPTIONS.find((option) => option.id === filterId)?.label ??
+    "Compliance Alerts"
+  );
+}
+
+function groupAlertsByFilter(
+  alerts: ComplianceAlertItem[]
+): Map<Exclude<ComplianceAlertFilter, "all">, ComplianceAlertItem[]> {
+  const map = new Map<Exclude<ComplianceAlertFilter, "all">, ComplianceAlertItem[]>();
+  for (const alert of alerts) {
+    const list = map.get(alert.filterGroup) ?? [];
+    list.push(alert);
+    map.set(alert.filterGroup, list);
+  }
+  return map;
+}
+
+async function safeSendEmail(input: {
+  to: string[];
+  subject: string;
+  html: string;
+  text: string;
+}): Promise<{ sent: boolean; error?: string }> {
+  try {
+    const result = await sendEmail(input);
+    return { sent: result.sent, error: result.error };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "Email dispatch failed.";
+    console.error("[expiry-alerts] sendEmail threw:", cause);
+    return { sent: false, error: message };
+  }
 }
 
 export async function runExpiryAlertCheck(options?: {
   force?: boolean;
+  admin?: SupabaseClient;
 }): Promise<ExpiryAlertRunResult> {
-  const settings = await fetchExpiryAlertSettings();
-  if (!settings.automated_emails_enabled && !options?.force) {
+  const thresholds = { ...ORGANISATION_ALERT_THRESHOLDS };
+
+  try {
+    const settings = await fetchExpiryAlertSettings();
+    if (!settings.automated_emails_enabled && !options?.force) {
+      return {
+        skipped: true,
+        reason: "Automated expiry emails are disabled.",
+        workerItemsIncluded: 0,
+        insuranceItemsIncluded: 0,
+        complianceItemsIncluded: 0,
+        emailsAttempted: 0,
+        emailsSent: 0,
+        errors: [],
+        thresholds,
+      };
+    }
+
+    const admin =
+      options?.admin ??
+      (isSupabaseAdminConfigured() ? createSupabaseAdminClient() : undefined);
+
+    const [workers, compliance] = await Promise.all([
+      fetchWorkers(),
+      fetchComplianceAlerts({ admin }),
+    ]);
+
+    const recipients = await fetchExpiryAlertRecipients(workers);
+    const errors: string[] = [];
+    let emailsAttempted = 0;
+    let emailsSent = 0;
+
+    if (recipients.length === 0) {
+      return {
+        skipped: true,
+        reason: "No admin or secondary recipient emails configured.",
+        workerItemsIncluded: 0,
+        insuranceItemsIncluded: 0,
+        complianceItemsIncluded: compliance.alerts.length,
+        emailsAttempted: 0,
+        emailsSent: 0,
+        errors: ["No recipients found."],
+        thresholds,
+      };
+    }
+
+    const allKeys = compliance.alerts.map((alert) => alert.id);
+    const recentlyAlerted = await fetchRecentlyAlertedEntityKeys(allKeys);
+    const pendingAlerts = compliance.alerts.filter(
+      (alert) => !recentlyAlerted.has(alert.id)
+    );
+
+    const grouped = groupAlertsByFilter(pendingAlerts);
+
+    for (const [filterId, alerts] of grouped.entries()) {
+      if (alerts.length === 0) continue;
+
+      emailsAttempted += 1;
+      const email = buildComplianceAlertDigestEmail(
+        digestLabelForFilter(filterId),
+        alerts
+      );
+      const result = await safeSendEmail({
+        to: recipients,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+      });
+
+      if (result.sent) {
+        emailsSent += 1;
+        await logExpiryAlerts(
+          alerts.flatMap((alert) =>
+            recipients.map((recipientEmail) => ({
+              entityType: mapAlertEntityType(alert),
+              entityId: alert.sourceId,
+              entityKey: alert.id,
+              alertKind: "compliance_digest" as const,
+              recipientEmail,
+            }))
+          )
+        );
+      } else if (result.error) {
+        errors.push(`${filterId}: ${result.error}`);
+      }
+    }
+
+    const workerCount = pendingAlerts.filter((a) => a.filterGroup === "worker_ticket").length;
+    const insuranceCount = pendingAlerts.filter(
+      (a) => a.filterGroup === "company_insurance"
+    ).length;
+
+    return {
+      skipped: false,
+      workerItemsIncluded: workerCount,
+      insuranceItemsIncluded: insuranceCount,
+      complianceItemsIncluded: pendingAlerts.length,
+      emailsAttempted,
+      emailsSent,
+      errors,
+      thresholds,
+    };
+  } catch (cause) {
+    const message =
+      cause instanceof Error ? cause.message : "Expiry alert check failed unexpectedly.";
+    console.error("[expiry-alerts] runExpiryAlertCheck failed:", cause);
     return {
       skipped: true,
-      reason: "Automated expiry emails are disabled.",
+      reason: message,
       workerItemsIncluded: 0,
       insuranceItemsIncluded: 0,
+      complianceItemsIncluded: 0,
       emailsAttempted: 0,
       emailsSent: 0,
-      errors: [],
+      errors: [message],
+      thresholds,
     };
   }
-
-  const summary = await fetchUpcomingExpiries();
-  const allKeys = [
-    ...summary.workerQualifications.map((item) => item.entityKey),
-    ...summary.insurances.map((item) => item.entityKey),
-  ];
-
-  const recentlyAlerted = await fetchRecentlyAlertedEntityKeys(allKeys);
-
-  const workerItems = summary.workerQualifications.filter(
-    (item) => !recentlyAlerted.has(item.entityKey)
-  );
-  const insuranceItems = summary.insurances.filter(
-    (item) => !recentlyAlerted.has(item.entityKey)
-  );
-
-  const recipients = summary.adminRecipients;
-  const errors: string[] = [];
-  let emailsAttempted = 0;
-  let emailsSent = 0;
-
-  if (recipients.length === 0) {
-    return {
-      skipped: true,
-      reason: "No admin or secondary recipient emails configured.",
-      workerItemsIncluded: workerItems.length,
-      insuranceItemsIncluded: insuranceItems.length,
-      emailsAttempted: 0,
-      emailsSent: 0,
-      errors: ["No recipients found."],
-    };
-  }
-
-  if (workerItems.length > 0) {
-    emailsAttempted += 1;
-    const email = buildWorkerExpiryDigestEmail(workerItems);
-    const result = await sendEmail({
-      to: recipients,
-      subject: email.subject,
-      html: email.html,
-      text: email.text,
-    });
-
-    if (result.sent) {
-      emailsSent += 1;
-      await logExpiryAlerts(
-        buildLogEntriesForDigest(workerItems, recipients, "worker_digest")
-      );
-    } else if (result.error) {
-      errors.push(result.error);
-    }
-  }
-
-  if (insuranceItems.length > 0) {
-    emailsAttempted += 1;
-    const email = buildInsuranceExpiryDigestEmail(insuranceItems);
-    const result = await sendEmail({
-      to: recipients,
-      subject: email.subject,
-      html: email.html,
-      text: email.text,
-    });
-
-    if (result.sent) {
-      emailsSent += 1;
-      await logExpiryAlerts(
-        buildLogEntriesForDigest(insuranceItems, recipients, "insurance_digest")
-      );
-    } else if (result.error) {
-      errors.push(result.error);
-    }
-  }
-
-  return {
-    skipped: false,
-    workerItemsIncluded: workerItems.length,
-    insuranceItemsIncluded: insuranceItems.length,
-    emailsAttempted,
-    emailsSent,
-    errors,
-  };
 }
 
 export async function notifyWorkerAboutExpiries(
   workerId: string
 ): Promise<{ error: string | null; sent: boolean; itemCount: number }> {
-  const summary = await fetchUpcomingExpiries();
-  const items = summary.workerQualifications.filter((item) => item.workerId === workerId);
+  try {
+    const summary = await fetchUpcomingExpiries();
+    const items = summary.workerQualifications.filter((item) => item.workerId === workerId);
 
-  if (items.length === 0) {
-    return { error: "No upcoming expiries for this worker.", sent: false, itemCount: 0 };
-  }
+    if (items.length === 0) {
+      return { error: "No upcoming expiries for this worker.", sent: false, itemCount: 0 };
+    }
 
-  const workerEmail = items[0]?.workerEmail?.trim();
-  if (!workerEmail) {
-    return { error: "Worker does not have an email address on file.", sent: false, itemCount: 0 };
-  }
+    const workerEmail = items[0]?.workerEmail?.trim();
+    if (!workerEmail) {
+      return {
+        error: "Worker does not have an email address on file.",
+        sent: false,
+        itemCount: 0,
+      };
+    }
 
-  const email = buildWorkerDirectNotifyEmail(items);
-  const result = await sendEmail({
-    to: [workerEmail],
-    subject: email.subject,
-    html: email.html,
-    text: email.text,
-  });
+    const email = buildWorkerDirectNotifyEmail(items);
+    const result = await safeSendEmail({
+      to: [workerEmail],
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
 
-  if (!result.sent) {
+    if (!result.sent) {
+      return {
+        error: result.error ?? "Failed to send notification email.",
+        sent: false,
+        itemCount: items.length,
+      };
+    }
+
+    await logExpiryAlerts(
+      items.map((item) => ({
+        entityType: item.entityType,
+        entityId: item.entityId,
+        entityKey: item.entityKey,
+        alertKind: "manual_worker_notify" as const,
+        recipientEmail: workerEmail,
+      }))
+    );
+
+    return { error: null, sent: true, itemCount: items.length };
+  } catch (cause) {
+    console.error("[expiry-alerts] notifyWorkerAboutExpiries failed:", cause);
     return {
-      error: result.error ?? "Failed to send notification email.",
+      error: cause instanceof Error ? cause.message : "Failed to notify worker.",
       sent: false,
-      itemCount: items.length,
+      itemCount: 0,
     };
   }
-
-  await logExpiryAlerts(
-    items.map((item) => ({
-      entityType: item.entityType,
-      entityId: item.entityId,
-      entityKey: item.entityKey,
-      alertKind: "manual_worker_notify" as const,
-      recipientEmail: workerEmail,
-    }))
-  );
-
-  return { error: null, sent: true, itemCount: items.length };
 }
 
-export { WARNING_DAYS as EXPIRY_ALERT_WINDOW_DAYS, DEDUPE_WINDOW_DAYS };
-
-
+export {
+  WARNING_DAYS as EXPIRY_ALERT_WINDOW_DAYS,
+  DEDUPE_WINDOW_DAYS,
+  buildWorkerExpiryDigestEmail,
+  buildInsuranceExpiryDigestEmail,
+};

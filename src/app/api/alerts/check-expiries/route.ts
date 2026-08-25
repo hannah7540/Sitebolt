@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { runExpiryAlertCheck } from "@/lib/expiry-alerts";
+import { runExpiryAlertCheck, ORGANISATION_ALERT_THRESHOLDS } from "@/lib/expiry-alerts";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
@@ -14,12 +20,36 @@ function isAuthorized(request: Request): boolean {
   return false;
 }
 
+async function runCheck(force = false) {
+  try {
+    const admin = isSupabaseAdminConfigured()
+      ? createSupabaseAdminClient()
+      : undefined;
+    return await runExpiryAlertCheck({ force, admin });
+  } catch (cause) {
+    const message =
+      cause instanceof Error ? cause.message : "Alert check failed unexpectedly.";
+    console.error("[api/alerts/check-expiries] failed:", cause);
+    return {
+      skipped: true,
+      reason: message,
+      workerItemsIncluded: 0,
+      insuranceItemsIncluded: 0,
+      complianceItemsIncluded: 0,
+      emailsAttempted: 0,
+      emailsSent: 0,
+      errors: [message],
+      thresholds: { ...ORGANISATION_ALERT_THRESHOLDS },
+    };
+  }
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const result = await runExpiryAlertCheck();
+  const result = await runCheck(false);
   return NextResponse.json(result);
 }
 
@@ -36,8 +66,6 @@ export async function POST(request: Request) {
     force = false;
   }
 
-  const result = await runExpiryAlertCheck({ force });
+  const result = await runCheck(force);
   return NextResponse.json(result);
 }
-
-export const dynamic = 'force-dynamic';
