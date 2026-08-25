@@ -16,6 +16,7 @@ import {
   uploadIncidentSignature,
 } from "@/lib/incident-report-upload";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import CameraCaptureInput from "@/components/workers/CameraCaptureInput";
 import { StableSignaturePad } from "@/components/workers/StableSignaturePad";
 import Toast from "@/components/ui/Toast";
@@ -41,6 +42,66 @@ function toLocalDateTimeValue(date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function YesNoToggle({
+  id,
+  label,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  id: string;
+  label: string;
+  value: boolean | null;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <fieldset className="rounded-xl border border-slate-200 px-3 py-3">
+      <legend className="px-1 text-sm font-medium text-slate-800">{label}</legend>
+      <div
+        className="mt-2 grid grid-cols-2 gap-2"
+        role="radiogroup"
+        aria-label={label}
+      >
+        <button
+          type="button"
+          id={`${id}-yes`}
+          role="radio"
+          aria-checked={value === true}
+          disabled={disabled}
+          onClick={() => onChange(true)}
+          className={cn(
+            "rounded-lg border px-3 py-2.5 text-sm font-semibold transition",
+            value === true
+              ? "border-orange-500 bg-orange-500 text-white shadow-sm"
+              : "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50",
+            disabled && "cursor-not-allowed opacity-60"
+          )}
+        >
+          Yes
+        </button>
+        <button
+          type="button"
+          id={`${id}-no`}
+          role="radio"
+          aria-checked={value === false}
+          disabled={disabled}
+          onClick={() => onChange(false)}
+          className={cn(
+            "rounded-lg border px-3 py-2.5 text-sm font-semibold transition",
+            value === false
+              ? "border-slate-700 bg-slate-800 text-white shadow-sm"
+              : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50",
+            disabled && "cursor-not-allowed opacity-60"
+          )}
+        >
+          No
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
 export default function WorkerIncidentReportModal({
   worker,
   seedProjects = [],
@@ -58,19 +119,19 @@ export default function WorkerIncidentReportModal({
 
   const [incidentDateTime, setIncidentDateTime] = useState(toLocalDateTimeValue());
   const [projectId, setProjectId] = useState(defaultProjectId ?? "");
-  const [injuredWorkerId, setInjuredWorkerId] = useState("");
+  const [injuredWorkerId, setInjuredWorkerId] = useState<string | null>(null);
   const [injuryDetails, setInjuryDetails] = useState("");
   const [treatmentDetails, setTreatmentDetails] =
     useState<IncidentTreatmentDetails>("None");
-  const [treatingPersonId, setTreatingPersonId] = useState("");
+  const [treatingPersonId, setTreatingPersonId] = useState<string | null>(null);
   const [offsiteTreatmentLocation, setOffsiteTreatmentLocation] = useState("");
   const [whatOccurred, setWhatOccurred] = useState("");
   const [incidentLocationDetails, setIncidentLocationDetails] = useState("");
   const [treatmentGiven, setTreatmentGiven] = useState("");
   const [witnessIds, setWitnessIds] = useState<string[]>([]);
   const [immediateCorrectiveActionRequired, setImmediateCorrectiveActionRequired] =
-    useState(false);
-  const [isNotifiableUnderWhs, setIsNotifiableUnderWhs] = useState(false);
+    useState<boolean | null>(null);
+  const [isNotifiableUnderWhs, setIsNotifiableUnderWhs] = useState<boolean | null>(null);
   const [whatCausedToGoWrong, setWhatCausedToGoWrong] = useState("");
   const [whatCouldHavePrevented, setWhatCouldHavePrevented] = useState("");
   const [recommendationsToPrevent, setRecommendationsToPrevent] = useState("");
@@ -119,8 +180,8 @@ export default function WorkerIncidentReportModal({
         const workers = await fetchWorkersForProject(projectId);
         if (cancelled) return;
         setProjectWorkers(workers);
-        setInjuredWorkerId("");
-        setTreatingPersonId("");
+        setInjuredWorkerId(null);
+        setTreatingPersonId(null);
         setWitnessIds([]);
       } finally {
         if (!cancelled) setLoadingWorkers(false);
@@ -136,12 +197,6 @@ export default function WorkerIncidentReportModal({
     () => projects.find((row) => row.id === projectId) ?? null,
     [projects, projectId]
   );
-
-  const toggleWitness = (id: string) => {
-    setWitnessIds((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-    );
-  };
 
   const handleMedicalFile = async (file: File | null) => {
     if (!file) return;
@@ -179,6 +234,10 @@ export default function WorkerIncidentReportModal({
       setError("Please select a project.");
       return;
     }
+    if (!injuredWorkerId) {
+      setError("Please search and select the injured worker.");
+      return;
+    }
     if (!whatOccurred.trim()) {
       setError("Please describe what occurred.");
       return;
@@ -193,6 +252,14 @@ export default function WorkerIncidentReportModal({
     }
     if (isOffsiteTreatment && !offsiteTreatmentLocation.trim()) {
       setError("Enter where offsite treatment was given.");
+      return;
+    }
+    if (immediateCorrectiveActionRequired === null) {
+      setError("Select Yes or No for immediate corrective action.");
+      return;
+    }
+    if (isNotifiableUnderWhs === null) {
+      setError("Select Yes or No for whether the incident is notifiable.");
       return;
     }
     if (!signature.trim()) {
@@ -210,6 +277,12 @@ export default function WorkerIncidentReportModal({
       const treating = projectWorkers.find((row) => row.id === treatingPersonId);
       const witnesses = projectWorkers.filter((row) => witnessIds.includes(row.id));
 
+      if (!injured) {
+        setError("Selected injured worker is not assigned to this project.");
+        setSaving(false);
+        return;
+      }
+
       const response = await fetch("/api/incidents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -218,11 +291,11 @@ export default function WorkerIncidentReportModal({
           incidentDateTime: new Date(incidentDateTime).toISOString(),
           projectId,
           projectName: selectedProject?.name ?? "Project",
-          injuredWorkerId: injuredWorkerId || null,
-          injuredWorkerName: injured ? workerOptionLabel(injured) : null,
+          injuredWorkerId,
+          injuredWorkerName: workerOptionLabel(injured),
           injuryDetails,
           treatmentDetails,
-          treatingPersonId: isOnsiteTreatment ? treatingPersonId || null : null,
+          treatingPersonId: isOnsiteTreatment ? treatingPersonId : null,
           treatingPersonName:
             isOnsiteTreatment && treating ? workerOptionLabel(treating) : null,
           offsiteTreatmentLocation: isOffsiteTreatment
@@ -246,6 +319,7 @@ export default function WorkerIncidentReportModal({
       const payload = (await response.json().catch(() => null)) as {
         error?: string;
         report?: { reference_number?: string };
+        emailSent?: boolean;
       } | null;
 
       if (!response.ok) {
@@ -269,6 +343,8 @@ export default function WorkerIncidentReportModal({
       setSaving(false);
     }
   };
+
+  const workersDisabled = !projectId || loadingWorkers || saving;
 
   return (
     <div className={modalOverlayClass}>
@@ -339,25 +415,26 @@ export default function WorkerIncidentReportModal({
 
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
             <h3 className="text-sm font-semibold text-slate-900">Injury &amp; Treatment</h3>
-            <div>
-              <label className={labelClass} htmlFor="injured-worker">
-                Details of injured worker
-              </label>
-              <select
-                id="injured-worker"
-                value={injuredWorkerId}
-                onChange={(e) => setInjuredWorkerId(e.target.value)}
-                className={inputClass}
-                disabled={!projectId || loadingWorkers}
-              >
-                <option value="">No injury / not applicable</option>
-                {projectWorkers.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {workerOptionLabel(row)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <WorkerSearchSelect
+              id="injured-worker"
+              mode="single"
+              label="Details of injured worker"
+              required
+              workers={projectWorkers}
+              selected={injuredWorkerId}
+              onChange={setInjuredWorkerId}
+              disabled={workersDisabled}
+              allowClear
+              placeholder={
+                loadingWorkers
+                  ? "Loading project workers…"
+                  : projectId
+                    ? "Search and select injured worker…"
+                    : "Select a project first…"
+              }
+              searchPlaceholder="Search project workers by name or email…"
+              getWorkerLabel={workerOptionLabel}
+            />
             <div>
               <label className={labelClass} htmlFor="injury-details">
                 Injury details
@@ -391,25 +468,20 @@ export default function WorkerIncidentReportModal({
               </div>
             </fieldset>
             {isOnsiteTreatment ? (
-              <div>
-                <label className={labelClass} htmlFor="treating-person">
-                  Treating person (onsite) *
-                </label>
-                <select
-                  id="treating-person"
-                  value={treatingPersonId}
-                  onChange={(e) => setTreatingPersonId(e.target.value)}
-                  className={inputClass}
-                  disabled={loadingWorkers}
-                >
-                  <option value="">Select treating person…</option>
-                  {projectWorkers.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {workerOptionLabel(row)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <WorkerSearchSelect
+                id="treating-person"
+                mode="single"
+                label="Treating person (onsite)"
+                required
+                workers={projectWorkers}
+                selected={treatingPersonId}
+                onChange={setTreatingPersonId}
+                disabled={workersDisabled}
+                allowClear
+                placeholder="Search and select treating person…"
+                searchPlaceholder="Search project workers by name or email…"
+                getWorkerLabel={workerOptionLabel}
+              />
             ) : null}
             {isOffsiteTreatment ? (
               <div>
@@ -468,58 +540,40 @@ export default function WorkerIncidentReportModal({
             </div>
           </div>
 
-          <div>
-            <p className={labelClass}>Names of any witnesses</p>
-            {loadingWorkers ? (
-              <p className="text-sm text-slate-500">Loading project workers…</p>
-            ) : projectWorkers.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Select a project with assigned workers to choose witnesses.
-              </p>
-            ) : (
-              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                {projectWorkers.map((row) => (
-                  <label
-                    key={row.id}
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={witnessIds.includes(row.id)}
-                      onChange={() => toggleWitness(row.id)}
-                    />
-                    {workerOptionLabel(row)}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+          <WorkerSearchSelect
+            id="incident-witnesses"
+            mode="multiple"
+            label="Names of any witnesses"
+            workers={projectWorkers}
+            selected={witnessIds}
+            onChange={setWitnessIds}
+            disabled={workersDisabled}
+            placeholder={
+              loadingWorkers
+                ? "Loading project workers…"
+                : projectId
+                  ? "Search and tag witnesses…"
+                  : "Select a project first…"
+            }
+            searchPlaceholder="Search project workers by name or email…"
+            getWorkerLabel={workerOptionLabel}
+          />
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={immediateCorrectiveActionRequired}
-                onChange={(e) => setImmediateCorrectiveActionRequired(e.target.checked)}
-              />
-              <span>
-                Immediate corrective action needed to prevent danger to other workers,
-                plant, or the environment?
-              </span>
-            </label>
-            <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={isNotifiableUnderWhs}
-                onChange={(e) => setIsNotifiableUnderWhs(e.target.checked)}
-              />
-              <span>
-                Is the incident notifiable under health &amp; safety legislation? (If
-                unsure contact your PM)
-              </span>
-            </label>
+            <YesNoToggle
+              id="corrective-action"
+              label="Does immediate corrective action need to be taken to prevent danger to other workers/plant/environment? *"
+              value={immediateCorrectiveActionRequired}
+              onChange={setImmediateCorrectiveActionRequired}
+              disabled={saving}
+            />
+            <YesNoToggle
+              id="notifiable-whs"
+              label="Is the incident notifiable under the health & safety legislation? (If unsure contact your PM) *"
+              value={isNotifiableUnderWhs}
+              onChange={setIsNotifiableUnderWhs}
+              disabled={saving}
+            />
           </div>
 
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
@@ -576,7 +630,12 @@ export default function WorkerIncidentReportModal({
               <ul className="space-y-1 text-sm text-slate-600">
                 {medicalUrls.map((url) => (
                   <li key={url}>
-                    <a href={url} target="_blank" rel="noreferrer" className="text-orange-600 underline">
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-orange-600 underline"
+                    >
                       View uploaded file
                     </a>
                   </li>
