@@ -116,9 +116,9 @@ export function deduplicateTimesheetProjects(
   ).sort((left, right) => (left.project || "").localeCompare(right.project || ""));
 }
 
+/** Dropdown label: clean project name only (no project codes). */
 export function formatTimesheetProjectOptionLabel(project: TimesheetProject): string {
-  const name = project.project?.trim() || project.client?.trim() || "Unnamed project";
-  return project.code?.trim() ? `${name} (${project.code.trim()})` : name;
+  return project.project?.trim() || project.client?.trim() || "Unnamed project";
 }
 
 function mapOrganisationProjectToTimesheetProject(project: DbProject): TimesheetProject {
