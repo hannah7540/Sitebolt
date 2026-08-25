@@ -20,6 +20,7 @@ import {
   LogOut,
   KeyRound,
   Mail,
+  MessageSquareText,
   MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   type DbProject,
 } from "@/lib/project-resolver";
 import { useIncidentUnreadCount } from "@/hooks/useIncidentUnreadCount";
+import { useSmsUnreadCount } from "@/hooks/useSmsUnreadCount";
 import {
   extractProjectIdFromPathname,
   resolveProjectNavHref,
@@ -120,6 +122,7 @@ interface SidebarMenuChild {
   title: string;
   href: string;
   icon: LucideIcon;
+  badge?: number;
 }
 
 interface SidebarMenuGroup {
@@ -841,7 +844,7 @@ function AccountsSection({
   );
 }
 
-function buildCommunicationMenu(): SidebarMenuGroup | null {
+function buildCommunicationMenu(smsUnreadCount = 0): SidebarMenuGroup | null {
   return {
     title: "Communication",
     icon: MessagesSquare,
@@ -852,6 +855,12 @@ function buildCommunicationMenu(): SidebarMenuGroup | null {
         title: "Emails",
         href: "/emails",
         icon: Mail,
+      },
+      {
+        title: "SMS",
+        href: "/sms",
+        icon: MessageSquareText,
+        badge: smsUnreadCount,
       },
     ],
   };
@@ -864,7 +873,8 @@ function CommunicationSection({
   menu: SidebarMenuGroup;
   pathname: string | null;
 }) {
-  const isCommunicationRoute = pathname?.startsWith("/emails") ?? false;
+  const isCommunicationRoute =
+    (pathname?.startsWith("/emails") || pathname?.startsWith("/sms")) ?? false;
   const [open, setOpen] = useState(menu.defaultExpanded || isCommunicationRoute);
   const SectionIcon = menu.icon;
 
@@ -905,6 +915,7 @@ function CommunicationSection({
                 icon={item.icon}
                 active={isActive}
                 depth={1}
+                badge={item.badge}
               />
             );
           })}
@@ -915,7 +926,8 @@ function CommunicationSection({
 }
 
 function EmailsSection({ pathname }: { pathname: string | null }) {
-  const menu = buildCommunicationMenu();
+  const smsUnreadCount = useSmsUnreadCount(true);
+  const menu = buildCommunicationMenu(smsUnreadCount);
   if (!menu) return null;
   return <CommunicationSection menu={menu} pathname={pathname} />;
 }

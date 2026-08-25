@@ -69,6 +69,10 @@ export function isEmailsPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/emails"));
 }
 
+export function isSmsPath(pathname: string | null | undefined): boolean {
+  return Boolean(pathname?.startsWith("/sms"));
+}
+
 export function canAccessEmailsRoute(role: SecurityRole): boolean {
   return role === "owner" || role === "full_access";
 }

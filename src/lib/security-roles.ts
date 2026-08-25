@@ -122,6 +122,11 @@ export function canAccessEmailsModule(role: SecurityRole): boolean {
   return canManageSecuritySettings(role);
 }
 
+/** SMS Communication Hub shares Emails module access. */
+export function canAccessSmsModule(role: SecurityRole): boolean {
+  return canAccessEmailsModule(role);
+}
+
 /** Owner and Full Access can assign worker security roles from the directory. */
 export function canManageWorkerSecurityRole(role: SecurityRole): boolean {
   return canManageSecuritySettings(role);

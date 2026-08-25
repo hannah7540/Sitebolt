@@ -41,6 +41,7 @@ import {
   canAccessOrganisationRoute,
   filterProjectsForRole,
   isEmailsPath,
+  isSmsPath,
   isOrganisationPath,
   isPayRulesPath,
   isTimesheetsPath,
@@ -236,7 +237,8 @@ export default function AdminConsoleShell({
       return;
     }
 
-    const emailsRoute = requireEmailsAccess || isEmailsPath(pathname);
+    const emailsRoute =
+      requireEmailsAccess || isEmailsPath(pathname) || isSmsPath(pathname);
     if (emailsRoute && !canAccessEmailsModule(sessionRole)) {
       router.replace("/?access=emails_denied");
       return;

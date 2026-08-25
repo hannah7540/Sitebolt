@@ -26,6 +26,7 @@ export const NATIVE_BLOCKED_PATH_PREFIXES = [
   "/organisation",
   "/accounts",
   "/emails",
+  "/sms",
   "/billing",
   "/settings",
 ] as const;
