@@ -41,6 +41,7 @@ function mapSmsRow(row: Record<string, unknown>): SmsMessageRow {
     worker_id: row.worker_id ? String(row.worker_id) : null,
     project_id: row.project_id ? String(row.project_id) : null,
     is_read: Boolean(row.is_read),
+    is_completed: Boolean(row.is_completed),
     scheduled_at: row.scheduled_at ? String(row.scheduled_at) : null,
     recurrence: row.recurrence ? String(row.recurrence) : null,
     twilio_sid: row.twilio_sid ? String(row.twilio_sid) : null,
@@ -156,7 +157,8 @@ export async function fetchUnreadSmsCountAdmin(
     .from("sms_messages")
     .select("id", { count: "exact", head: true })
     .eq("direction", "inbound")
-    .eq("is_read", false);
+    .eq("is_read", false)
+    .eq("is_completed", false);
 
   if (error) {
     console.error("[sms] unread count:", error.message);
@@ -207,8 +209,14 @@ export async function fetchSmsMessagesAdmin(
   return { messages, error: null };
 }
 
-export function buildSmsThreads(messages: SmsMessageRow[]): SmsThreadSummary[] {
-  type ThreadAcc = SmsThreadSummary & { hasInbound: boolean };
+export function buildSmsThreads(
+  messages: SmsMessageRow[],
+  folder: "inbox" | "completed" = "inbox"
+): SmsThreadSummary[] {
+  type ThreadAcc = SmsThreadSummary & {
+    hasInbound: boolean;
+    allCompleted: boolean;
+  };
   const byKey = new Map<string, ThreadAcc>();
   const workerToKey = new Map<string, string>();
 
@@ -232,6 +240,14 @@ export function buildSmsThreads(messages: SmsMessageRow[]): SmsThreadSummary[] {
     return `msg:${message.id}`;
   }
 
+  function isUnreadInbound(message: SmsMessageRow): boolean {
+    return (
+      message.direction === "inbound" &&
+      !message.is_read &&
+      !message.is_completed
+    );
+  }
+
   for (const message of messages) {
     const contactPhone = getSmsContactPhone(message);
     const key = resolveThreadKey(message);
@@ -245,18 +261,21 @@ export function buildSmsThreads(messages: SmsMessageRow[]): SmsThreadSummary[] {
         phone_number: contactPhone || message.from_number,
         last_message: message.message_body,
         last_at: message.created_at,
-        unread_count:
-          message.direction === "inbound" && !message.is_read ? 1 : 0,
+        unread_count: isUnreadInbound(message) ? 1 : 0,
         message_count: 1,
+        is_completed: message.is_completed,
         hasInbound: message.direction === "inbound",
+        allCompleted: message.is_completed,
       });
       continue;
     }
 
     existing.message_count += 1;
+    existing.allCompleted = existing.allCompleted && message.is_completed;
+    existing.is_completed = existing.allCompleted;
     if (message.direction === "inbound") {
       existing.hasInbound = true;
-      if (!message.is_read) existing.unread_count += 1;
+      if (isUnreadInbound(message)) existing.unread_count += 1;
     }
     if (
       new Date(message.created_at).getTime() > new Date(existing.last_at).getTime()
@@ -270,8 +289,11 @@ export function buildSmsThreads(messages: SmsMessageRow[]): SmsThreadSummary[] {
   }
 
   return Array.from(byKey.values())
-    .filter((thread) => thread.hasInbound)
-    .map(({ hasInbound: _hasInbound, ...thread }) => thread)
+    .filter((thread) => {
+      if (!thread.hasInbound) return false;
+      return folder === "completed" ? thread.allCompleted : !thread.allCompleted;
+    })
+    .map(({ hasInbound: _hasInbound, allCompleted: _allCompleted, ...thread }) => thread)
     .sort(
       (a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
     );
@@ -344,6 +366,32 @@ export async function markSmsThreadReadAdmin(
 
   if (updateError) return { error: updateError.message, updated: 0 };
   return { error: null, updated: unreadIds.length };
+}
+
+export async function setSmsThreadCompletedAdmin(
+  admin: AdminClient,
+  input: {
+    workerId?: string | null;
+    phone?: string | null;
+    is_completed: boolean;
+  }
+): Promise<{ error: string | null; updated: number }> {
+  const { messages, error } = await fetchSmsThreadMessagesAdmin(admin, input);
+  if (error) return { error, updated: 0 };
+
+  const ids = messages.map((row) => row.id);
+  if (ids.length === 0) return { error: null, updated: 0 };
+
+  const { error: updateError } = await admin
+    .from("sms_messages")
+    .update({
+      is_completed: input.is_completed,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", ids);
+
+  if (updateError) return { error: updateError.message, updated: 0 };
+  return { error: null, updated: ids.length };
 }
 
 export async function composeSmsAdmin(
@@ -575,6 +623,22 @@ export async function ingestInboundSmsAdmin(
     getTwilioFromNumber() ||
     "";
 
+  const { messages: existingThread } = await fetchSmsThreadMessagesAdmin(admin, {
+    workerId: matched?.id ?? null,
+    phone: from,
+  });
+
+  if (existingThread.some((row) => row.is_completed)) {
+    const reopenIds = existingThread.map((row) => row.id);
+    await admin
+      .from("sms_messages")
+      .update({
+        is_completed: false,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", reopenIds);
+  }
+
   const { data, error } = await admin
     .from("sms_messages")
     .insert([
@@ -587,6 +651,7 @@ export async function ingestInboundSmsAdmin(
         worker_id: matched?.id ?? null,
         project_id: null,
         is_read: false,
+        is_completed: false,
         twilio_sid: input.messageSid?.trim() || null,
       },
     ])

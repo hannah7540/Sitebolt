@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CheckCircle2,
   Inbox,
   Loader2,
   MessageSquareText,
   Plus,
+  RotateCcw,
   Send,
   X,
 } from "lucide-react";
@@ -18,8 +20,10 @@ import { canAccessEmailsModule } from "@/lib/security-roles";
 import {
   fetchSmsMessages,
   fetchSmsThread,
+  fetchUnreadSmsCount,
   markSmsThreadRead,
   replySms,
+  setSmsThreadCompleted,
   type SmsFolder,
   type SmsMessageRow,
   type SmsThreadSummary,
@@ -51,7 +55,16 @@ export default function SmsModulePanel() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [replyBody, setReplyBody] = useState("");
   const [replySaving, setReplySaving] = useState(false);
+  const [threadActionSaving, setThreadActionSaving] = useState(false);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
+
+  const isThreadFolder = folder === "inbox" || folder === "completed";
+
+  const refreshUnreadBadge = useCallback(async () => {
+    const count = await fetchUnreadSmsCount();
+    setUnreadCount(count);
+    refreshSmsUnreadCount();
+  }, []);
 
   const loadData = useCallback(async (folderOverride?: SmsFolder) => {
     if (!canAccess) return;
@@ -67,19 +80,14 @@ export default function SmsModulePanel() {
       } else {
         setMessages(result.messages);
         setThreads(result.threads ?? []);
-        if (activeFolder === "inbox") {
-          setUnreadCount(
-            (result.threads ?? []).reduce((sum, thread) => sum + thread.unread_count, 0)
-          );
-        }
       }
-      refreshSmsUnreadCount();
+      await refreshUnreadBadge();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load SMS.");
     } finally {
       setLoading(false);
     }
-  }, [canAccess, folder]);
+  }, [canAccess, folder, refreshUnreadBadge]);
 
   useEffect(() => {
     void loadData();
@@ -103,8 +111,11 @@ export default function SmsModulePanel() {
           workerId: thread.worker_id,
           phone: thread.phone_number,
         });
-        refreshSmsUnreadCount();
-        void loadData();
+        setSelectedThread((current) =>
+          current ? { ...current, unread_count: 0 } : current
+        );
+        await refreshUnreadBadge();
+        void loadData(folder);
       }
     } finally {
       setThreadLoading(false);
@@ -143,15 +154,68 @@ export default function SmsModulePanel() {
             : current
         );
       }
-      void loadData("inbox");
+      await markSmsThreadRead({
+        workerId: selectedThread.worker_id,
+        phone: selectedThread.phone_number,
+      });
+      setSelectedThread((current) =>
+        current ? { ...current, unread_count: 0 } : current
+      );
+      await refreshUnreadBadge();
+      void loadData(folder);
     } finally {
       setReplySaving(false);
+    }
+  };
+
+  const handleCompleteThread = async () => {
+    if (!selectedThread) return;
+    setThreadActionSaving(true);
+    try {
+      const result = await setSmsThreadCompleted({
+        workerId: selectedThread.worker_id,
+        phone: selectedThread.phone_number,
+        is_completed: true,
+      });
+      if (result.error) {
+        showError(result.error);
+        return;
+      }
+      showSuccess("Conversation marked as completed.");
+      setSelectedThread(null);
+      setThreadMessages([]);
+      void loadData("inbox");
+    } finally {
+      setThreadActionSaving(false);
+    }
+  };
+
+  const handleReopenThread = async () => {
+    if (!selectedThread) return;
+    setThreadActionSaving(true);
+    try {
+      const result = await setSmsThreadCompleted({
+        workerId: selectedThread.worker_id,
+        phone: selectedThread.phone_number,
+        is_completed: false,
+      });
+      if (result.error) {
+        showError(result.error);
+        return;
+      }
+      showSuccess("Conversation moved back to Inbox.");
+      setSelectedThread(null);
+      setThreadMessages([]);
+      void loadData("completed");
+    } finally {
+      setThreadActionSaving(false);
     }
   };
 
   const folderButtons = useMemo(
     () => [
       { id: "inbox" as const, label: "Inbox", icon: Inbox, badge: unreadCount },
+      { id: "completed" as const, label: "Completed", icon: CheckCircle2, badge: 0 },
       { id: "sent" as const, label: "Sent Items", icon: Send, badge: 0 },
     ],
     [unreadCount]
@@ -207,6 +271,7 @@ export default function SmsModulePanel() {
               onClick={() => {
                 setFolder(item.id);
                 setSelectedThread(null);
+                setThreadMessages([]);
               }}
               className={cn(
                 "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium",
@@ -238,13 +303,15 @@ export default function SmsModulePanel() {
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
           Loading messages…
         </div>
-      ) : folder === "inbox" ? (
+      ) : isThreadFolder ? (
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className={cn("divide-y divide-slate-100 overflow-hidden p-0", cardClass)}>
             {threads.length === 0 ? (
               <div className="p-6 text-center text-sm text-slate-500">
                 <MessageSquareText className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-                No inbound SMS conversations yet.
+                {folder === "completed"
+                  ? "No completed SMS conversations yet."
+                  : "No active SMS conversations yet."}
               </div>
             ) : (
               threads.map((thread) => (
@@ -297,14 +364,45 @@ export default function SmsModulePanel() {
                     </p>
                     <p className="text-xs text-slate-500">{selectedThread.phone_number}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedThread(null)}
-                    className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                    aria-label="Close thread"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {folder === "inbox" ? (
+                      <button
+                        type="button"
+                        disabled={threadActionSaving}
+                        onClick={() => void handleCompleteThread()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        {threadActionSaving ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        Complete
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={threadActionSaving}
+                        onClick={() => void handleReopenThread()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {threadActionSaving ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        )}
+                        Reopen / Move to Inbox
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedThread(null)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Close thread"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -340,32 +438,34 @@ export default function SmsModulePanel() {
                   )}
                 </div>
 
-                <div className="border-t border-slate-200 p-4">
-                  <label className="block space-y-1">
-                    <span className={labelClass}>Reply</span>
-                    <textarea
-                      className={cn(inputClass, "min-h-[80px]")}
-                      value={replyBody}
-                      onChange={(event) => setReplyBody(event.target.value)}
-                      placeholder="Type a reply…"
-                    />
-                  </label>
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      type="button"
-                      disabled={replySaving || !replyBody.trim()}
-                      onClick={() => void handleReply()}
-                      className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
-                    >
-                      {replySaving ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                      Send Reply
-                    </button>
+                {folder === "inbox" ? (
+                  <div className="border-t border-slate-200 p-4">
+                    <label className="block space-y-1">
+                      <span className={labelClass}>Reply</span>
+                      <textarea
+                        className={cn(inputClass, "min-h-[80px]")}
+                        value={replyBody}
+                        onChange={(event) => setReplyBody(event.target.value)}
+                        placeholder="Type a reply…"
+                      />
+                    </label>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        disabled={replySaving || !replyBody.trim()}
+                        onClick={() => void handleReply()}
+                        className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+                      >
+                        {replySaving ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                        Send Reply
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </>
             )}
           </div>
@@ -420,7 +520,7 @@ export default function SmsModulePanel() {
           onSent={(summary) => {
             setFolder("sent");
             void loadData("sent");
-            refreshSmsUnreadCount();
+            void refreshUnreadBadge();
             if (summary?.warning) {
               showError(summary.warning);
               return;

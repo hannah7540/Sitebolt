@@ -9,7 +9,7 @@ export type SmsMessageStatus =
 
 export type SmsTargetMode = "all_workers" | "by_project" | "selected_workers";
 
-export type SmsFolder = "inbox" | "sent";
+export type SmsFolder = "inbox" | "sent" | "completed";
 
 export type SmsSendMode = "immediate" | "scheduled";
 
@@ -27,6 +27,7 @@ export interface SmsMessageRow {
   worker_id: string | null;
   project_id: string | null;
   is_read: boolean;
+  is_completed: boolean;
   scheduled_at: string | null;
   recurrence: string | null;
   twilio_sid: string | null;
@@ -53,6 +54,7 @@ export interface SmsThreadSummary {
   last_at: string;
   unread_count: number;
   message_count: number;
+  is_completed: boolean;
 }
 
 export interface ComposeSmsInput {

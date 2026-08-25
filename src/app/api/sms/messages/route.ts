@@ -10,12 +10,18 @@ import {
 import { requireSmsApiAccess } from "@/lib/sms-auth";
 import type { SmsFolder } from "@/lib/sms-types";
 
+function parseSmsFolder(value: string | null): SmsFolder {
+  if (value === "sent") return "sent";
+  if (value === "completed") return "completed";
+  return "inbox";
+}
+
 export async function GET(request: Request) {
   const auth = await requireSmsApiAccess();
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
-  const folder = (searchParams.get("folder") === "sent" ? "sent" : "inbox") as SmsFolder;
+  const folder = parseSmsFolder(searchParams.get("folder"));
 
   const result = await fetchSmsMessagesAdmin(auth.admin, folder);
   if (result.error) {
@@ -24,6 +30,12 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     messages: result.messages,
-    threads: folder === "inbox" ? buildSmsThreads(result.messages) : undefined,
+    threads:
+      folder === "sent"
+        ? undefined
+        : buildSmsThreads(
+            result.messages,
+            folder === "completed" ? "completed" : "inbox"
+          ),
   });
 }

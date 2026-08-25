@@ -76,6 +76,23 @@ export async function markSmsThreadRead(input: {
   return { error: null };
 }
 
+export async function setSmsThreadCompleted(input: {
+  workerId?: string | null;
+  phone?: string | null;
+  is_completed: boolean;
+}): Promise<{ error: string | null }> {
+  const response = await fetch("/api/sms/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = await parseJson<{ error?: string }>(response);
+  if (!response.ok) {
+    return { error: payload.error ?? "Failed to update conversation status." };
+  }
+  return { error: null };
+}
+
 export async function composeSms(input: ComposeSmsInput): Promise<{
   success?: boolean;
   error: string | null;
