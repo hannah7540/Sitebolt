@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Loader2, X } from "lucide-react";
 import {
   formatIncidentDateTime,
@@ -32,13 +32,19 @@ export default function AdminIncidentDetailModal({
   const [status, setStatus] = useState<IncidentStatus>(report.status);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const markedReadRef = useRef(report.is_read_admin);
+
+  const witnessLabel = useMemo(() => {
+    const names = Array.isArray(report.witness_names) ? report.witness_names : [];
+    return names.map((name) => String(name ?? "").trim()).filter(Boolean).join(", ");
+  }, [report.witness_names]);
 
   const printHtml = useMemo(() => {
     return `
-      <html><head><title>${report.reference_number}</title>
+      <html><head><title>${report.reference_number || "Incident"}</title>
       <style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a}h1{font-size:20px}dt{font-weight:700;margin-top:12px}dd{margin:4px 0 0}</style>
       </head><body>
-      <h1>Incident ${report.reference_number}</h1>
+      <h1>Incident ${report.reference_number || "—"}</h1>
       <dl>
         <dt>Date/Time</dt><dd>${formatIncidentDateTime(report.incident_date_time)}</dd>
         <dt>Project</dt><dd>${report.project_name ?? "—"}</dd>
@@ -49,7 +55,7 @@ export default function AdminIncidentDetailModal({
         <dt>Treatment Given</dt><dd>${report.treatment_given ?? "—"}</dd>
         <dt>What Occurred</dt><dd>${report.what_occurred || "—"}</dd>
         <dt>Location</dt><dd>${report.incident_location_details || "—"}</dd>
-        <dt>Witnesses</dt><dd>${(Array.isArray(report.witness_names) ? report.witness_names : []).join(", ") || "—"}</dd>
+        <dt>Witnesses</dt><dd>${witnessLabel || "—"}</dd>
         <dt>Notifiable</dt><dd>${report.is_notifiable_under_whs ? "Yes" : "No"}</dd>
         <dt>Immediate Corrective Action</dt><dd>${report.immediate_corrective_action_required ? "Yes" : "No"}</dd>
         <dt>Root Cause — What went wrong</dt><dd>${report.what_caused_to_go_wrong ?? "—"}</dd>
@@ -58,7 +64,7 @@ export default function AdminIncidentDetailModal({
       </dl>
       </body></html>
     `;
-  }, [report]);
+  }, [report, witnessLabel]);
 
   const handleSave = async (next?: {
     status?: IncidentStatus;
@@ -70,6 +76,7 @@ export default function AdminIncidentDetailModal({
       const response = await fetch(`/api/incidents/${report.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           status: next?.status ?? status,
           is_read_admin: next?.is_read_admin ?? true,
@@ -85,12 +92,38 @@ export default function AdminIncidentDetailModal({
       }
       onUpdated(payload.report);
       setStatus(payload.report.status);
+      if (payload.report.is_read_admin) markedReadRef.current = true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to update incident.");
     } finally {
       setSaving(false);
     }
   };
+
+  // Mark unread incidents as read when the admin opens the detail view.
+  useEffect(() => {
+    if (markedReadRef.current || report.is_read_admin || !report.id) return;
+    markedReadRef.current = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/incidents/${report.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ is_read_admin: true }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          report?: IncidentReportRecord;
+        } | null;
+        if (response.ok && payload?.report) {
+          onUpdated(payload.report);
+        }
+      } catch (cause) {
+        console.error("[AdminIncidentDetailModal] mark-as-read failed:", cause);
+        markedReadRef.current = false;
+      }
+    })();
+  }, [onUpdated, report.id, report.is_read_admin]);
 
   const handleExportPdf = () => {
     const popup = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
@@ -106,10 +139,12 @@ export default function AdminIncidentDetailModal({
       <div className={cn(modalClass, "max-h-[92vh] max-w-3xl overflow-y-auto")}>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">{report.reference_number}</h2>
+            <h2 className="text-lg font-bold text-slate-900">
+              {report.reference_number || "Incident"}
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
               {formatIncidentDateTime(report.incident_date_time)} ·{" "}
-              {report.project_name ?? "No project"}
+              {report.project_name?.trim() || "No project"}
             </p>
           </div>
           <button
@@ -139,10 +174,7 @@ export default function AdminIncidentDetailModal({
             value={report.offsite_treatment_location}
           />
           <Detail label="Treatment given" value={report.treatment_given} />
-          <Detail
-            label="Witnesses"
-            value={report.witness_names.join(", ") || null}
-          />
+          <Detail label="Witnesses" value={witnessLabel || null} />
           <Detail
             label="Immediate corrective action"
             value={report.immediate_corrective_action_required ? "Yes" : "No"}
@@ -165,11 +197,14 @@ export default function AdminIncidentDetailModal({
           body={report.recommendations_to_prevent}
         />
 
-        {report.medical_certificate_urls.length > 0 ? (
+        {(Array.isArray(report.medical_certificate_urls)
+          ? report.medical_certificate_urls
+          : []
+        ).length > 0 ? (
           <div className="mt-4 space-y-2">
             <h3 className="text-sm font-semibold text-slate-900">Medical certificates</h3>
             <div className="flex flex-wrap gap-2">
-              {report.medical_certificate_urls.map((url) => (
+              {(report.medical_certificate_urls ?? []).map((url) => (
                 <a
                   key={url}
                   href={url}

@@ -3,8 +3,13 @@ import { supabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
   isSupabaseRelationMissingError,
+  isSupabaseMissingColumnError,
   toSupabaseRequestError,
 } from "@/lib/supabase-errors";
+import {
+  parseMissingColumnFromError,
+  stripMissingColumn,
+} from "@/lib/form-payload-utils";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
@@ -60,9 +65,15 @@ export const INCIDENT_REPORT_SCHEMA_COLUMNS = [
   "submitter_signature_url",
   "status",
   "is_read_admin",
-  "created_at",
-  "updated_at",
 ] as const;
+
+/**
+ * Columns sent on INSERT. Omits created_at/updated_at (DB defaults).
+ * Includes ID + denormalized name columns for register display without joins.
+ */
+export const INCIDENT_REPORT_INSERT_COLUMNS = INCIDENT_REPORT_SCHEMA_COLUMNS;
+
+const INCIDENT_INSERT_COLUMN_SET = new Set<string>(INCIDENT_REPORT_INSERT_COLUMNS);
 
 /** Shown only when Postgres reports the relation is truly missing. */
 export const INCIDENT_TABLE_MISSING_MESSAGE =
@@ -366,14 +377,13 @@ export async function generateIncidentReferenceNumber(
 export function buildIncidentInsertPayload(
   input: IncidentReportSubmitInput,
   referenceNumber: string
-): Record<(typeof INCIDENT_REPORT_SCHEMA_COLUMNS)[number], unknown> {
-  const now = new Date().toISOString();
+): Record<string, unknown> {
   const witnessIds = sanitizeUuidArray(input.witnessIds ?? []);
   const witnessNames = sanitizeTextArray(input.witnessNames ?? []);
   const medicalUrls = sanitizeTextArray(input.medicalCertificateUrls ?? []);
 
-  // Keys must match public.incident_reports exactly (no camelCase / aliases).
-  return {
+  // Keys must match public.incident_reports exactly (no camelCase / UI state).
+  const payload: Record<string, unknown> = {
     reference_number: referenceNumber,
     submitted_by_id: nullIfBlankUuid(input.submittedById),
     submitted_by_name: input.submittedByName?.trim() || null,
@@ -403,46 +413,150 @@ export function buildIncidentInsertPayload(
     submitter_signature_url: input.submitterSignatureUrl?.trim() || null,
     status: "new",
     is_read_admin: false,
-    created_at: now,
-    updated_at: now,
   };
+
+  return sanitizeIncidentInsertPayload(payload);
 }
 
-/** Keep only known `incident_reports` columns — drop any stray client keys. */
-export function pickIncidentReportColumns(
+/**
+ * Strip non-database keys (UI state, previews, camelCase leftovers) and
+ * normalize UUID / array / boolean fields so PostgREST never gets "".
+ */
+export function sanitizeIncidentInsertPayload(
   payload: Record<string, unknown>
 ): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {};
-  for (const key of INCIDENT_REPORT_SCHEMA_COLUMNS) {
-    if (Object.prototype.hasOwnProperty.call(payload, key)) {
-      cleaned[key] = payload[key];
+
+  for (const key of INCIDENT_REPORT_INSERT_COLUMNS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+
+    if (
+      key === "witness_ids" ||
+      key === "witness_names" ||
+      key === "medical_certificate_urls"
+    ) {
+      cleaned[key] =
+        key === "witness_ids"
+          ? sanitizeUuidArray(value ?? [])
+          : sanitizeTextArray(value ?? []);
+      continue;
+    }
+
+    if (
+      key === "immediate_corrective_action_required" ||
+      key === "is_notifiable_under_whs" ||
+      key === "is_read_admin"
+    ) {
+      cleaned[key] = forceIncidentBoolean(value);
+      continue;
+    }
+
+    if (
+      key === "submitted_by_id" ||
+      key === "project_id" ||
+      key === "injured_worker_id" ||
+      key === "treating_person_id"
+    ) {
+      cleaned[key] = nullIfBlankUuid(value);
+      continue;
+    }
+
+    if (key === "treatment_details") {
+      cleaned[key] = normalizeTreatment(value);
+      continue;
+    }
+
+    if (key === "status") {
+      cleaned[key] = "new";
+      continue;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      cleaned[key] = trimmed.length > 0 ? trimmed : null;
+      continue;
+    }
+
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+
+  // Drop any accidental non-schema keys that slipped onto the object.
+  for (const key of Object.keys(payload)) {
+    if (!INCIDENT_INSERT_COLUMN_SET.has(key)) {
+      // intentionally omitted
     }
   }
+
   return cleaned;
+}
+
+/** Keep only known `incident_reports` insert columns — drop any stray client keys. */
+export function pickIncidentReportColumns(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return sanitizeIncidentInsertPayload(payload);
 }
 
 /**
  * Insert a row directly into public.incident_reports via the given Supabase client.
- * Used by the authenticated API (service role) and the browser client helper.
+ * On PGRST204 (unknown column), strip that column and retry so name/schema drift
+ * does not hard-fail the worker submission.
  */
 export async function insertIncidentReportRow(
   client: { from: (relation: string) => unknown },
   payload: Record<string, unknown>
 ): Promise<{ report: IncidentReportRecord | null; error: string | null }> {
-  const row = pickIncidentReportColumns(payload);
-  const { data, error } = await fromIncidentReports(client)
-    .insert([row])
-    .select("*")
-    .single();
+  let row = sanitizeIncidentInsertPayload(payload);
+  const stripped: string[] = [];
 
-  if (error) {
-    logIncidentSupabaseError("insert into incident_reports failed", error);
-    return { report: null, error: formatIncidentTableError(error) };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const { data, error } = await fromIncidentReports(client)
+      .insert([row])
+      .select("*")
+      .single();
+
+    if (!error) {
+      if (stripped.length > 0) {
+        console.warn(
+          "[incident-reports] insert succeeded after stripping missing columns:",
+          stripped
+        );
+      }
+      return {
+        report: normalizeIncidentReport(data as Record<string, unknown>),
+        error: null,
+      };
+    }
+
+    logIncidentSupabaseError(
+      `insert into incident_reports failed (attempt ${attempt + 1})`,
+      error
+    );
+
+    const normalized = toSupabaseRequestError(error);
+    if (!normalized || !isSupabaseMissingColumnError(normalized)) {
+      return { report: null, error: formatIncidentTableError(error) };
+    }
+
+    const missing =
+      parseMissingColumnFromError(normalized.message) ||
+      parseMissingColumnFromError(normalized.details || "");
+    if (!missing || !(missing in row)) {
+      return { report: null, error: formatIncidentTableError(error) };
+    }
+
+    console.warn(
+      `[incident-reports] PGRST204 missing column "${missing}" — stripping and retrying insert`
+    );
+    stripped.push(missing);
+    row = stripMissingColumn(row, missing);
   }
 
   return {
-    report: normalizeIncidentReport(data as Record<string, unknown>),
-    error: null,
+    report: null,
+    error: "Failed to insert incident report after stripping unknown columns.",
   };
 }
 
