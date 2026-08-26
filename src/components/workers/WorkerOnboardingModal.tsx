@@ -79,7 +79,6 @@ const emptyForm = (): Partial<WorkerOnboardingInput> => ({
   bank_name: "",
   super_fund: "",
   super_member_number: "",
-  super_usi: "",
   redundancy_fund_name: "",
   redundancy_member_number: "",
   assigned_project_id: null,
@@ -809,13 +808,6 @@ export default function WorkerOnboardingModal({
                     className={inputClass}
                     value={form.super_member_number ?? ""}
                     onChange={(e) => set("super_member_number", e.target.value)}
-                  />
-                </Field>
-                <Field label="USI">
-                  <input
-                    className={inputClass}
-                    value={form.super_usi ?? ""}
-                    onChange={(e) => set("super_usi", e.target.value)}
                   />
                 </Field>
               </DocSection>

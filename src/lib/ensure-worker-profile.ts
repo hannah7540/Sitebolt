@@ -329,7 +329,6 @@ function mapWorkerRowToOnboardingRecord(
     super_fund: typeof row.super_fund === "string" ? row.super_fund : null,
     super_member_number:
       typeof row.super_member_number === "string" ? row.super_member_number : null,
-    super_usi: typeof row.super_usi === "string" ? row.super_usi : null,
     tfn: typeof row.tfn === "string" ? row.tfn : null,
     redundancy_fund_name:
       typeof row.redundancy_fund_name === "string"
@@ -417,7 +416,6 @@ export function buildFallbackOnboardingRecord(
       bank_account_number: partial?.bank_account_number ?? null,
       super_fund: partial?.super_fund ?? null,
       super_member_number: partial?.super_member_number ?? null,
-      super_usi: partial?.super_usi ?? null,
       tfn: partial?.tfn ?? null,
       redundancy_fund_name: partial?.redundancy_fund_name ?? null,
       redundancy_member_number: partial?.redundancy_member_number ?? null,

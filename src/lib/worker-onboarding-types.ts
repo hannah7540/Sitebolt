@@ -12,7 +12,6 @@ export interface WorkerOnboardingFormPayload {
   bankAccountNumber: string;
   superFund: string;
   superMemberNumber: string;
-  superUsi: string;
   tfn: string;
   redundancyFundName: string;
   redundancyMemberNumber: string;
@@ -50,7 +49,6 @@ export interface WorkerOnboardingRecord {
   bank_account_number: string | null;
   super_fund: string | null;
   super_member_number: string | null;
-  super_usi: string | null;
   tfn: string | null;
   redundancy_fund_name: string | null;
   redundancy_member_number: string | null;

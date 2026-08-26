@@ -825,12 +825,7 @@ function FinancialInfoTab({
         <p className="text-sm font-semibold text-slate-900">Superannuation fund</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <LockedField label="Fund name" value={worker.super_fund} />
-          <LockedField
-            label="USI / member number"
-            value={
-              [worker.super_usi, worker.super_member_number].filter(Boolean).join(" · ") || null
-            }
-          />
+          <LockedField label="Member number" value={worker.super_member_number} />
         </div>
       </div>
 

@@ -41,7 +41,6 @@ interface OnboardingFormState {
   bankAccountNumber: string;
   superFund: string;
   superMemberNumber: string;
-  superUsi: string;
   tfn: string;
   redundancyFundName: string;
   redundancyMemberNumber: string;
@@ -156,7 +155,6 @@ function populateFormFromWorker(worker: WorkerOnboardingRecord): OnboardingFormS
     bankAccountNumber: worker.bank_account_number ?? "",
     superFund: worker.super_fund ?? "",
     superMemberNumber: worker.super_member_number ?? "",
-    superUsi: worker.super_usi ?? "",
     tfn: worker.tfn ?? "",
     redundancyFundName: worker.redundancy_fund_name ?? "",
     redundancyMemberNumber: worker.redundancy_member_number ?? "",
@@ -243,7 +241,6 @@ export default function OnboardingForm() {
     bankAccountNumber: "",
     superFund: "",
     superMemberNumber: "",
-    superUsi: "",
     tfn: "",
     redundancyFundName: "",
     redundancyMemberNumber: "",
@@ -390,7 +387,6 @@ export default function OnboardingForm() {
           bankAccountNumber: form.bankAccountNumber,
           superFund: form.superFund,
           superMemberNumber: form.superMemberNumber,
-          superUsi: form.superUsi,
           tfn: form.tfn,
           redundancyFundName: form.redundancyFundName,
           redundancyMemberNumber: form.redundancyMemberNumber,
@@ -626,14 +622,6 @@ export default function OnboardingForm() {
                       onChange={(event) =>
                         setField("superMemberNumber", event.target.value)
                       }
-                    />
-                  </Field>
-                  <Field label="USI" className="sm:col-span-2">
-                    <input
-                      type="text"
-                      className={inputClass}
-                      value={form.superUsi}
-                      onChange={(event) => setField("superUsi", event.target.value)}
                     />
                   </Field>
                 </div>
