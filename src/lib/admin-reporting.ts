@@ -489,6 +489,7 @@ export function buildComplianceExpiryReportCsv(
     );
 
     for (const entry of entries) {
+      if (!cardCategoryRequiresExpiry(entry.category)) continue;
       if (!entry.expiry_date) continue;
       const remaining = daysUntil(entry.expiry_date);
       if (remaining === null) continue;
