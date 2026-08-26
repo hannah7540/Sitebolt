@@ -10,10 +10,9 @@ import {
 import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import type { DbProject } from "@/lib/project-resolver";
-import type { LeaveRequest, Worker } from "@/lib/supabase";
+import type { Worker } from "@/lib/supabase";
 import type { SiteFormType } from "@/lib/site-forms";
 import { fetchWorkerRfis } from "@/lib/rfi-service";
-import WorkerLeaveRequestsWidget from "@/components/workers/WorkerLeaveRequestsWidget";
 import WorkerRFITile from "@/components/workers/WorkerRFITile";
 import WorkerRFIPanel from "@/components/workers/WorkerRFIPanel";
 import WorkerSubmitRFIModal from "@/components/workers/SubmitRFIModal";
@@ -70,20 +69,16 @@ interface WorkerFormsSubDashboardProps {
   worker: Worker;
   projects: DbProject[];
   defaultProjectId?: string | null;
-  leaveRequests: LeaveRequest[];
   onBack: () => void;
   onOpenSiteForm: (formType: SiteFormType) => void;
-  onSubmitLeave: () => void;
 }
 
 export default function WorkerFormsSubDashboard({
   worker,
   projects,
   defaultProjectId,
-  leaveRequests,
   onBack,
   onOpenSiteForm,
-  onSubmitLeave,
 }: WorkerFormsSubDashboardProps) {
   const [selectedForm, setSelectedForm] = useState<FormsHubModal>(null);
   const [assignedRfiCount, setAssignedRfiCount] = useState(0);
@@ -162,7 +157,7 @@ export default function WorkerFormsSubDashboard({
       <div>
         <h2 className="text-lg font-bold text-slate-900">Forms & Safety Submissions</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Complete site safety forms below. Manage leave requests in the section underneath.
+          Complete site safety forms, RFIs, requests, and incident reports below.
         </p>
       </div>
 
@@ -235,11 +230,6 @@ export default function WorkerFormsSubDashboard({
           onSubmitted={closeActiveForm}
         />
       ) : null}
-
-      <WorkerLeaveRequestsWidget
-        leaveRequests={leaveRequests}
-        onSubmitLeave={onSubmitLeave}
-      />
     </div>
   );
 }
@@ -247,8 +237,7 @@ export default function WorkerFormsSubDashboard({
 export function FormsHubPreviewBadges() {
   return (
     <p className="text-xs leading-relaxed text-slate-500">
-      Toolbox Talks • Pre-Starts • Safety Walks • RFI • Request Form • Incident Reports •
-      Leave Requests
+      Toolbox Talks • Pre-Starts • Safety Walks • RFI • Request Form • Incident Reports
     </p>
   );
 }

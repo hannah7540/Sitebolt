@@ -9,11 +9,13 @@ import { cardClass } from "@/lib/ui-classes";
 interface WorkerLeaveRequestsWidgetProps {
   leaveRequests: LeaveRequest[];
   onSubmitLeave: () => void;
+  onViewPast: () => void;
 }
 
 export default function WorkerLeaveRequestsWidget({
   leaveRequests,
   onSubmitLeave,
+  onViewPast,
 }: WorkerLeaveRequestsWidgetProps) {
   const pendingCount = countPendingLeave(leaveRequests);
   const latest = leaveRequests[0];
@@ -31,11 +33,11 @@ export default function WorkerLeaveRequestsWidget({
             Submit and track time-off requests
           </p>
         </div>
-        {pendingCount > 0 && (
+        {pendingCount > 0 ? (
           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
             {pendingCount} pending
           </span>
-        )}
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -60,14 +62,23 @@ export default function WorkerLeaveRequestsWidget({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmitLeave}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
-      >
-        <Plus className="h-4 w-4" />
-        Submit Leave Request
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onSubmitLeave}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
+        >
+          <Plus className="h-4 w-4" />
+          Submit Leave Request
+        </button>
+        <button
+          type="button"
+          onClick={onViewPast}
+          className="text-sm font-medium text-orange-600 hover:text-orange-700 hover:underline"
+        >
+          View Past Requests
+        </button>
+      </div>
     </div>
   );
 }

@@ -46,8 +46,9 @@ export const MY_PROFILE_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
   { id: "details", position: 2, isVisible: true },
   { id: "forms_hub", position: 3, isVisible: true },
   { id: "timesheets", position: 4, isVisible: true },
-  { id: "inductions", position: 5, isVisible: true },
-  { id: "itcs", position: 6, isVisible: true },
+  { id: "leave", position: 5, isVisible: true },
+  { id: "inductions", position: 6, isVisible: true },
+  { id: "itcs", position: 7, isVisible: true },
 ];
 
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {

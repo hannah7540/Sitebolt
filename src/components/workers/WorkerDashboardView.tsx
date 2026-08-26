@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Clock,
   MapPin,
+  CalendarOff,
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc, WorkerTimesheet, LeaveRequest } from "@/lib/supabase";
 import {
@@ -40,6 +41,8 @@ import WorkerTimesheetsWidget from "./WorkerTimesheetsWidget";
 import WorkerTimesheetModal from "./WorkerTimesheetModal";
 import WorkerTimesheetHistoryDrawer from "./WorkerTimesheetHistoryDrawer";
 import WorkerLeaveSubmitModal from "./WorkerLeaveSubmitModal";
+import WorkerLeaveRequestsWidget from "./WorkerLeaveRequestsWidget";
+import WorkerLeaveHistoryDrawer from "./WorkerLeaveHistoryDrawer";
 import WorkerSwmsWidget from "./WorkerSwmsWidget";
 import WorkerPhotoEditModal from "./WorkerPhotoEditModal";
 import SiteSafetyFormModal from "./SiteSafetyFormModal";
@@ -88,6 +91,7 @@ const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
   "assigned_projects",
   "swms",
   "forms_hub",
+  "leave",
   "itcs",
 ]);
 
@@ -97,7 +101,6 @@ const REMOVED_PROFILE_WIDGET_IDS = new Set(["plant_prestarts"]);
 /** Widgets relocated into the Forms sub-dashboard — hidden from the main grid. */
 const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
   "prestart",
-  "leave",
   "toolbox",
   "safety_walk",
 ]);
@@ -131,7 +134,7 @@ const WIDGETS: DashboardWidget[] = [
   {
     id: "forms_hub",
     title: "Forms & Safety Submissions",
-    description: "Toolbox talks, pre-starts, safety walks & leave",
+    description: "Toolbox talks, pre-starts, safety walks & site forms",
     icon: <ClipboardList className="h-6 w-6" />,
     accent: "border-orange-200 bg-orange-50 text-orange-600",
     available: true,
@@ -141,6 +144,14 @@ const WIDGETS: DashboardWidget[] = [
     title: "My Timesheets",
     description: "Log hours & view history",
     icon: <Clock className="h-6 w-6" />,
+    accent: "border-orange-200 bg-orange-50 text-orange-600",
+    available: true,
+  },
+  {
+    id: "leave",
+    title: "Leave Requests",
+    description: "Submit and track time-off requests",
+    icon: <CalendarOff className="h-6 w-6" />,
     accent: "border-orange-200 bg-orange-50 text-orange-600",
     available: true,
   },
@@ -216,6 +227,7 @@ export default function WorkerDashboardView({
   const [showTimesheetSubmit, setShowTimesheetSubmit] = useState(false);
   const [showTimesheetHistory, setShowTimesheetHistory] = useState(false);
   const [showLeaveSubmit, setShowLeaveSubmit] = useState(false);
+  const [showLeaveHistory, setShowLeaveHistory] = useState(false);
   const [activeSiteForm, setActiveSiteForm] = useState<SiteFormType | null>(null);
   const [comingSoon, setComingSoon] = useState<string | null>(null);
   const [formProjectWarning, setFormProjectWarning] = useState<string | null>(null);
@@ -588,6 +600,10 @@ export default function WorkerDashboardView({
       setShowLeaveSubmit(false);
       return true;
     }
+    if (showLeaveHistory) {
+      setShowLeaveHistory(false);
+      return true;
+    }
     if (showTimesheetHistory) {
       setShowTimesheetHistory(false);
       return true;
@@ -626,6 +642,7 @@ export default function WorkerDashboardView({
     showHiddenDrawer,
     showInductionsModal,
     showLeaveSubmit,
+    showLeaveHistory,
     showPhotoModal,
     showTimesheetHistory,
     showTimesheetSubmit,
@@ -760,6 +777,16 @@ export default function WorkerDashboardView({
           todayIso={todayIso}
           onSubmitToday={() => setShowTimesheetSubmit(true)}
           onViewPast={() => setShowTimesheetHistory(true)}
+        />
+      );
+    }
+
+    if (widgetId === "leave") {
+      return (
+        <WorkerLeaveRequestsWidget
+          leaveRequests={leaveRequests}
+          onSubmitLeave={() => setShowLeaveSubmit(true)}
+          onViewPast={() => setShowLeaveHistory(true)}
         />
       );
     }
@@ -1062,10 +1089,8 @@ export default function WorkerDashboardView({
             worker={worker}
             projects={grantedProjects}
             defaultProjectId={selectedProjectId}
-            leaveRequests={leaveRequests}
             onBack={() => setShowFormsSubDashboard(false)}
             onOpenSiteForm={openSiteForm}
-            onSubmitLeave={() => setShowLeaveSubmit(true)}
           />
         ) : (
           <>
@@ -1167,6 +1192,13 @@ export default function WorkerDashboardView({
           allowedProjectIds={grantedProjectIds}
           onClose={() => setShowLeaveSubmit(false)}
           onSubmitted={loadData}
+        />
+      )}
+
+      {showLeaveHistory && (
+        <WorkerLeaveHistoryDrawer
+          leaveRequests={leaveRequests}
+          onClose={() => setShowLeaveHistory(false)}
         />
       )}
 
