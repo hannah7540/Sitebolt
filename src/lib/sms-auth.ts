@@ -2,9 +2,16 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
-import { canAccessEmailsModule, normalizeSecurityRole } from "@/lib/security-roles";
+import {
+  canAccessSmsModule,
+  isWorkerCommunicationsRole,
+  normalizeSecurityRole,
+} from "@/lib/security-roles";
 
-/** SMS hub shares Emails module access (owner / full_access). */
+export const SMS_WORKER_FORBIDDEN_ERROR =
+  "Forbidden: General workers cannot access communication dispatches";
+
+/** SMS hub: administrative roles only (never general / field workers). */
 export async function requireSmsApiAccess(): Promise<
   | {
       ok: true;
@@ -44,14 +51,16 @@ export async function requireSmsApiAccess(): Promise<
     .eq("email", user.email ?? "")
     .maybeSingle();
 
-  const role = normalizeSecurityRole(
-    (workerRow as { security_role?: string } | null)?.security_role
-  );
+  const rawRole = (workerRow as { security_role?: string } | null)?.security_role;
+  const role = normalizeSecurityRole(rawRole);
 
-  if (!canAccessEmailsModule(role)) {
+  if (isWorkerCommunicationsRole(rawRole) || !canAccessSmsModule(role)) {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+      response: NextResponse.json(
+        { error: SMS_WORKER_FORBIDDEN_ERROR },
+        { status: 403 }
+      ),
     };
   }
 

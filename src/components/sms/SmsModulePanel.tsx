@@ -16,7 +16,7 @@ import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { refreshSmsUnreadCount } from "@/hooks/useSmsUnreadCount";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
-import { canAccessEmailsModule } from "@/lib/security-roles";
+import { canAccessSmsModule } from "@/lib/security-roles";
 import {
   fetchSmsMessages,
   fetchSmsThread,
@@ -39,7 +39,7 @@ function formatDateTime(value: string | null | undefined): string {
 export default function SmsModulePanel() {
   const { sessionRole, workers, projects, loading: sessionLoading } =
     useAdminConsole();
-  const canAccess = canAccessEmailsModule(sessionRole);
+  const canAccess = canAccessSmsModule(sessionRole);
 
   const [folder, setFolder] = useState<SmsFolder>("inbox");
   const [messages, setMessages] = useState<SmsMessageRow[]>([]);
@@ -234,7 +234,7 @@ export default function SmsModulePanel() {
     return (
       <div className={cn("p-6", cardClass)}>
         <p className="text-sm text-slate-600">
-          You do not have access to the SMS Communication Hub.
+          Access Denied: You do not have permission to view communications.
         </p>
       </div>
     );

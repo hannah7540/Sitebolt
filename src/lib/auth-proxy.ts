@@ -45,6 +45,8 @@ const AUTH_REQUIRED_PREFIXES = [
   "/admin",
   "/settings",
   "/account",
+  "/emails",
+  "/sms",
 ] as const;
 
 /** Project-scoped admin roles land on the main project console. */

@@ -40,6 +40,7 @@ import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
   canAccessAccountsArea,
   canAccessEmailsModule,
+  canAccessSmsModule,
   canAccessPayRules,
   canManageAdministration,
   canManageOrganisation,
@@ -530,6 +531,8 @@ export default function Sidebar({
   const showOrganisation = canManageOrganisation(sessionRole);
   const showAdministration = canManageAdministration(sessionRole);
   const showEmails = canAccessEmailsModule(sessionRole);
+  const showSms = canAccessSmsModule(sessionRole);
+  const showCommunication = showEmails || showSms;
   const showSecurity = canManageSecuritySettings(sessionRole);
   const accountsMenu = useMemo(
     () =>
@@ -656,7 +659,13 @@ export default function Sidebar({
           <AccountsSection menu={accountsMenu} pathname={pathname} />
         ) : null}
 
-        {showEmails ? <EmailsSection pathname={pathname} /> : null}
+        {showCommunication ? (
+          <EmailsSection
+            pathname={pathname}
+            showEmails={showEmails}
+            showSms={showSms}
+          />
+        ) : null}
 
         {showOrganisation && (
           <OrganisationSection
@@ -844,25 +853,35 @@ function AccountsSection({
   );
 }
 
-function buildCommunicationMenu(smsUnreadCount = 0): SidebarMenuGroup | null {
+function buildCommunicationMenu(options: {
+  showEmails: boolean;
+  showSms: boolean;
+  smsUnreadCount?: number;
+}): SidebarMenuGroup | null {
+  const children: SidebarMenuGroup["children"] = [];
+  if (options.showEmails) {
+    children.push({
+      title: "Emails",
+      href: "/emails",
+      icon: Mail,
+    });
+  }
+  if (options.showSms) {
+    children.push({
+      title: "SMS",
+      href: "/sms",
+      icon: MessageSquareText,
+      badge: options.smsUnreadCount ?? 0,
+    });
+  }
+  if (children.length === 0) return null;
+
   return {
     title: "Communication",
     icon: MessagesSquare,
     isCollapsible: true,
     defaultExpanded: true,
-    children: [
-      {
-        title: "Emails",
-        href: "/emails",
-        icon: Mail,
-      },
-      {
-        title: "SMS",
-        href: "/sms",
-        icon: MessageSquareText,
-        badge: smsUnreadCount,
-      },
-    ],
+    children,
   };
 }
 
@@ -925,9 +944,21 @@ function CommunicationSection({
   );
 }
 
-function EmailsSection({ pathname }: { pathname: string | null }) {
-  const smsUnreadCount = useSmsUnreadCount(true);
-  const menu = buildCommunicationMenu(smsUnreadCount);
+function EmailsSection({
+  pathname,
+  showEmails,
+  showSms,
+}: {
+  pathname: string | null;
+  showEmails: boolean;
+  showSms: boolean;
+}) {
+  const smsUnreadCount = useSmsUnreadCount(showSms);
+  const menu = buildCommunicationMenu({
+    showEmails,
+    showSms,
+    smsUnreadCount,
+  });
   if (!menu) return null;
   return <CommunicationSection menu={menu} pathname={pathname} />;
 }

@@ -56,12 +56,25 @@ export const SECURITY_ROLE_DESCRIPTIONS: Record<SecurityRole, string> = {
 
 const LEGACY_ADMIN_ACCESS = "admin_access";
 
+/** Roles that must never access Communications / SMS admin modules. */
+const DISALLOWED_COMMUNICATIONS_ROLE_ALIASES = new Set([
+  "worker",
+  "general_worker",
+  "field_worker",
+  "general worker",
+  "field worker",
+]);
+
 export function normalizeSecurityRole(
   role: string | null | undefined
 ): SecurityRole {
   const normalized = String(role ?? "")
     .trim()
     .toLowerCase();
+
+  if (DISALLOWED_COMMUNICATIONS_ROLE_ALIASES.has(normalized)) {
+    return "general_worker";
+  }
 
   if (normalized === LEGACY_ADMIN_ACCESS || normalized === "admin") {
     return "project_super_admin";
@@ -117,14 +130,40 @@ export function canManageSecuritySettings(role: SecurityRole): boolean {
   return role === "owner" || role === "full_access";
 }
 
-/** Owner and Full Access can use the EMAIL's communication module. */
+/** True when the role is a field / general worker (no Communications access). */
+export function isWorkerCommunicationsRole(
+  role: SecurityRole | string | null | undefined
+): boolean {
+  const normalized = String(role ?? "")
+    .trim()
+    .toLowerCase();
+  if (DISALLOWED_COMMUNICATIONS_ROLE_ALIASES.has(normalized)) return true;
+  return normalizeSecurityRole(role) === "general_worker";
+}
+
+/**
+ * Communications (Emails + SMS) is for administrative roles only.
+ * General / field workers are always denied.
+ */
+export function canAccessCommunicationsModule(
+  role: SecurityRole | string | null | undefined
+): boolean {
+  if (isWorkerCommunicationsRole(role)) return false;
+  return canAccessAdminConsole(normalizeSecurityRole(role));
+}
+
+/** Owner and Full Access can use the Emails module. */
 export function canAccessEmailsModule(role: SecurityRole): boolean {
+  if (isWorkerCommunicationsRole(role)) return false;
   return canManageSecuritySettings(role);
 }
 
-/** SMS Communication Hub shares Emails module access. */
+/**
+ * SMS Communication Hub: any non-worker administrative role
+ * (owner, full_access, super_admin, project_super_admin, project_admin).
+ */
 export function canAccessSmsModule(role: SecurityRole): boolean {
-  return canAccessEmailsModule(role);
+  return canAccessCommunicationsModule(role);
 }
 
 /** Owner and Full Access can assign worker security roles from the directory. */

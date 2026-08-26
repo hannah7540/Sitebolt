@@ -29,6 +29,7 @@ import {
   canAccessAccountsArea,
   canAccessAdminConsole,
   canAccessEmailsModule,
+  canAccessSmsModule,
   canAccessPayRules,
   canAddAccountsTimesheets,
   canManageAccountsTimesheets,
@@ -67,6 +68,7 @@ interface AdminConsoleShellProps {
   requireOrganisationAccess?: boolean;
   requirePayRulesAccess?: boolean;
   requireEmailsAccess?: boolean;
+  requireSmsAccess?: boolean;
 }
 
 export default function AdminConsoleShell({
@@ -75,6 +77,7 @@ export default function AdminConsoleShell({
   requireOrganisationAccess = false,
   requirePayRulesAccess = false,
   requireEmailsAccess = false,
+  requireSmsAccess = false,
 }: AdminConsoleShellProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -237,10 +240,19 @@ export default function AdminConsoleShell({
       return;
     }
 
-    const emailsRoute =
-      requireEmailsAccess || isEmailsPath(pathname) || isSmsPath(pathname);
+    const emailsRoute = requireEmailsAccess || isEmailsPath(pathname);
     if (emailsRoute && !canAccessEmailsModule(sessionRole)) {
-      router.replace("/?access=emails_denied");
+      setAccessDenied(
+        "Access Denied: You do not have permission to view communications."
+      );
+      return;
+    }
+
+    const smsRoute = requireSmsAccess || isSmsPath(pathname);
+    if (smsRoute && !canAccessSmsModule(sessionRole)) {
+      setAccessDenied(
+        "Access Denied: You do not have permission to view communications."
+      );
       return;
     }
 
@@ -256,6 +268,7 @@ export default function AdminConsoleShell({
     requireOrganisationAccess,
     requirePayRulesAccess,
     requireEmailsAccess,
+    requireSmsAccess,
     pathname,
     router,
   ]);

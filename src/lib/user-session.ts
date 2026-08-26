@@ -100,6 +100,18 @@ export async function resolveDashboardWorkerId(options?: {
 }
 
 export function isGeneralWorkerRole(role: string | null | undefined): boolean {
+  const raw = String(role ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    raw === "worker" ||
+    raw === "general_worker" ||
+    raw === "field_worker" ||
+    raw === "general worker" ||
+    raw === "field worker"
+  ) {
+    return true;
+  }
   return normalizeSecurityRole(role) === "general_worker";
 }
 

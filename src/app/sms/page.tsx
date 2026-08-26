@@ -5,7 +5,7 @@ import SmsModulePanel from "@/components/sms/SmsModulePanel";
 
 export default function SmsPage() {
   return (
-    <AdminConsoleShell requireEmailsAccess>
+    <AdminConsoleShell requireSmsAccess>
       <SmsModulePanel />
     </AdminConsoleShell>
   );
