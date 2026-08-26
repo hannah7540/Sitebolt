@@ -12,7 +12,7 @@ import {
 import { fetchOrganizationFleet, type OrganizationFleetVehicle } from "./organization-fleet";
 import { updateFleetDocumentCompliance, type FleetDocumentType } from "./organization-fleet";
 import { collectExpiringFleetAlerts } from "./fleet-utils";
-import { hydrateCardsVocsFromWorker, serializeCardsVocs } from "./worker-cards-vocs";
+import { hydrateCardsVocsFromWorker, serializeCardsVocs, cardCategoryRequiresExpiry } from "./worker-cards-vocs";
 import {
   hydratePlantDocumentsFromLegacy,
   parsePlantDocuments,
@@ -238,6 +238,7 @@ export function collectWorkerTicketAlerts(
 
     const entries = hydrateCardsVocsFromWorker(worker, vocsByWorker.get(worker.id) ?? []);
     for (const entry of entries) {
+      if (!cardCategoryRequiresExpiry(entry.category)) continue;
       if (!isWithinWindow(entry.expiry_date, WORKER_TICKET_ALERT_WINDOW_DAYS)) continue;
 
       const daysRemaining = daysUntil(entry.expiry_date)!;

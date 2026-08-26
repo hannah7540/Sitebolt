@@ -684,7 +684,9 @@ function CardsVocsTab({
       const { error: statusError } = await updateWorkerStatusFromVocs(
         worker.id,
         worker.drivers_licence_expiry,
-        serialized.map((entry) => entry.expiry_date)
+        serialized
+          .filter((entry) => entry.category !== "white_card")
+          .map((entry) => entry.expiry_date)
       );
       if (statusError) {
         setError(statusError);

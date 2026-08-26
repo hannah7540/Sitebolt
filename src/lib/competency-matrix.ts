@@ -1,6 +1,7 @@
 import type { Worker, WorkerVoc } from "./supabase";
 import {
   hydrateCardsVocsFromWorker,
+  cardCategoryRequiresExpiry,
   type WorkerCardVocEntry,
 } from "./worker-cards-vocs";
 import { getWorkerDisplayName, getTicketStatus, type TicketStatus } from "./worker-utils";
@@ -132,7 +133,8 @@ export function resolveCompetencyCell(
     return { status: "missing", display: "-" };
   }
 
-  if (!entry.expiry_date) {
+  // White Cards never expire — show on-file without expiry status.
+  if (!cardCategoryRequiresExpiry(entry.category) || !entry.expiry_date) {
     return { status: "no_expiry", display: "Yes" };
   }
 

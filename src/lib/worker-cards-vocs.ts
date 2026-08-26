@@ -42,6 +42,13 @@ export const WORKER_CARD_CATEGORY_DEFAULTS: Record<WorkerCardCategory, string> =
   first_aid: "First Aid Certificate",
 };
 
+/** White Cards do not expire and must never require or enforce an expiry date. */
+export function cardCategoryRequiresExpiry(
+  category: WorkerCardCategory | string | null | undefined
+): boolean {
+  return category !== "white_card";
+}
+
 function normalizeText(value: unknown): string {
   if (value == null) return "";
   return String(value).trim();
@@ -96,7 +103,9 @@ export function parseCardsVocs(raw: unknown): WorkerCardVocEntry[] {
           WORKER_CARD_CATEGORY_DEFAULTS[category],
         ticket_number: optionalText(row.ticket_number),
         issue_date: optionalText(row.issue_date),
-        expiry_date: optionalText(row.expiry_date),
+        expiry_date: cardCategoryRequiresExpiry(category)
+          ? optionalText(row.expiry_date)
+          : null,
         document_url: optionalText(row.document_url),
         document_url_back: optionalText(row.document_url_back),
       } satisfies WorkerCardVocEntry;
@@ -117,7 +126,9 @@ export function serializeCardsVocs(entries: WorkerCardVocEntry[]): WorkerCardVoc
       ticket_name: ticketName,
       ticket_number: optionalText(entry.ticket_number),
       issue_date: optionalText(entry.issue_date),
-      expiry_date: optionalText(entry.expiry_date),
+      expiry_date: cardCategoryRequiresExpiry(entry.category)
+        ? optionalText(entry.expiry_date)
+        : null,
       document_url: optionalText(entry.document_url),
       document_url_back: optionalText(entry.document_url_back),
     };

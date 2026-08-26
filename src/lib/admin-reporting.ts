@@ -18,7 +18,7 @@ import {
   isActiveMatrixWorker,
   type CompetencyMatrixRow,
 } from "./competency-matrix";
-import { hydrateCardsVocsFromWorker } from "./worker-cards-vocs";
+import { hydrateCardsVocsFromWorker, cardCategoryRequiresExpiry } from "./worker-cards-vocs";
 import { daysUntil, getTicketStatus } from "./worker-utils";
 import {
   enrichItemsWithWorkerNames,
@@ -196,7 +196,7 @@ function computeCompetencyCoverage(
           entry.document_url
       );
       if (!hasRecord) return false;
-      if (!entry.expiry_date) return true;
+      if (!cardCategoryRequiresExpiry(entry.category) || !entry.expiry_date) return true;
       const status = getTicketStatus(entry.expiry_date);
       return status === "valid" || status === "expires_soon";
     });

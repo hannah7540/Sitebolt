@@ -5,6 +5,7 @@ import { ExternalLink, Pencil, Plus, Trash2, ZoomIn } from "lucide-react";
 import {
   WORKER_CARD_CATEGORIES,
   WORKER_CARD_CATEGORY_LABELS,
+  cardCategoryRequiresExpiry,
   createEmptyCardVocEntry,
   type WorkerCardCategory,
   type WorkerCardVocEntry,
@@ -104,17 +105,19 @@ function EntryForm({
             }
           />
         </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Expiry date</span>
-          <input
-            type="date"
-            className={inputClass}
-            value={entry.expiry_date ?? ""}
-            onChange={(e) =>
-              onChange({ ...entry, expiry_date: e.target.value || null })
-            }
-          />
-        </label>
+        {entry.category !== "white_card" ? (
+          <label className="block space-y-1">
+            <span className={labelClass}>Expiry date</span>
+            <input
+              type="date"
+              className={inputClass}
+              value={entry.expiry_date ?? ""}
+              onChange={(e) =>
+                onChange({ ...entry, expiry_date: e.target.value || null })
+              }
+            />
+          </label>
+        ) : null}
       </div>
       <DocumentCapture
         label="Document attachment"
@@ -164,7 +167,8 @@ function EntrySummary({
   onDelete: () => void;
   canEdit: boolean;
 }) {
-  const status = getTicketStatus(entry.expiry_date);
+  const requiresExpiry = cardCategoryRequiresExpiry(entry.category);
+  const status = requiresExpiry ? getTicketStatus(entry.expiry_date) : "valid";
   const badgeStyles = {
     valid: "bg-emerald-100 text-emerald-800",
     expires_soon: "bg-amber-100 text-amber-800",
@@ -204,7 +208,9 @@ function EntrySummary({
           <p className="text-sm text-slate-500">No. {entry.ticket_number}</p>
         ) : null}
         <p className="mt-1 text-xs text-slate-500">
-          Issued: {entry.issue_date ?? "—"} · Expires: {entry.expiry_date ?? "—"}
+          {requiresExpiry
+            ? `Issued: ${entry.issue_date ?? "—"} · Expires: ${entry.expiry_date ?? "—"}`
+            : `Issued: ${entry.issue_date ?? "—"} · No expiry required`}
         </p>
 
         {images.length > 0 ? (
@@ -242,7 +248,7 @@ function EntrySummary({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn("rounded px-2 py-0.5 text-xs font-bold", badgeStyles[status])}>
-          {getTicketBadgeLabel(status)}
+          {requiresExpiry ? getTicketBadgeLabel(status) : "On File"}
         </span>
         <button
           type="button"
@@ -290,7 +296,11 @@ export default function WorkerCardsVocsEditor({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const updateEntry = (updated: WorkerCardVocEntry) => {
-    onChange(entries.map((row) => (row.id === updated.id ? updated : row)));
+    const next =
+      updated.category === "white_card"
+        ? { ...updated, expiry_date: null }
+        : updated;
+    onChange(entries.map((row) => (row.id === next.id ? next : row)));
   };
 
   const removeEntry = (id: string) => {

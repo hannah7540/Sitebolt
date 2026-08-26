@@ -13,7 +13,7 @@ import {
   type Worker,
   type WorkerVoc,
 } from "./supabase";
-import { hydrateCardsVocsFromWorker } from "./worker-cards-vocs";
+import { hydrateCardsVocsFromWorker, cardCategoryRequiresExpiry } from "./worker-cards-vocs";
 import { daysUntil, getWorkerDisplayName, WARNING_DAYS } from "./worker-utils";
 import { normalizeSecurityRole } from "./security-roles";
 import { fetchExpiryAlertSettings } from "./expiry-alert-settings";
@@ -157,6 +157,7 @@ export function collectWorkerQualificationExpiries(
     );
 
     for (const entry of entries) {
+      if (!cardCategoryRequiresExpiry(entry.category)) continue;
       if (!isWithinExpiryAlertWindow(entry.expiry_date)) continue;
 
       const daysRemaining = daysUntil(entry.expiry_date)!;
