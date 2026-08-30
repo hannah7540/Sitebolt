@@ -174,6 +174,10 @@ export default function WorkerMyDetailsPanel({
   const [lastName, setLastName] = useState(initialNames.lastName);
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [dob, setDob] = useState(worker.dob ?? "");
+  const [addressLine1, setAddressLine1] = useState(worker.address_line_1 ?? "");
+  const [addressLine2, setAddressLine2] = useState(worker.address_line_2 ?? "");
+  const [suburb, setSuburb] = useState(worker.suburb ?? "");
+  const [postcode, setPostcode] = useState(worker.postcode ?? "");
   const [emergencyName, setEmergencyName] = useState(
     worker.emergency_contact_name ?? ""
   );
@@ -276,6 +280,10 @@ export default function WorkerMyDetailsPanel({
         last_name: lastName.trim(),
         phone: phone.trim() || null,
         dob: nullIfBlankWorkerDate(dob),
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
+        suburb: suburb.trim() || null,
+        postcode: postcode.trim() || null,
         emergency_contact_name: emergencyName.trim() || null,
         emergency_contact_phone: emergencyPhone.trim() || null,
         emergency_contact_relationship: emergencyRelationship.trim() || null,
@@ -354,6 +362,10 @@ export default function WorkerMyDetailsPanel({
         full_name: buildWorkerFullName(firstName, lastName),
         phone: phone.trim() || null,
         dob: dob || null,
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
+        suburb: suburb.trim() || null,
+        postcode: postcode.trim() || null,
         emergency_contact_name: emergencyName.trim() || null,
         emergency_contact_phone: emergencyPhone.trim() || null,
         emergency_contact_relationship: emergencyRelationship.trim() || null,
@@ -451,6 +463,38 @@ export default function WorkerMyDetailsPanel({
                 className={inputClass}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+              />
+            </Field>
+            <Field label="Address Line 1">
+              <input
+                className={inputClass}
+                value={addressLine1}
+                onChange={(e) => setAddressLine1(e.target.value)}
+                autoComplete="address-line1"
+              />
+            </Field>
+            <Field label="Address Line 2 (Optional)">
+              <input
+                className={inputClass}
+                value={addressLine2}
+                onChange={(e) => setAddressLine2(e.target.value)}
+                autoComplete="address-line2"
+              />
+            </Field>
+            <Field label="Suburb / City">
+              <input
+                className={inputClass}
+                value={suburb}
+                onChange={(e) => setSuburb(e.target.value)}
+                autoComplete="address-level2"
+              />
+            </Field>
+            <Field label="Postal / Zip Code">
+              <input
+                className={inputClass}
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                autoComplete="postal-code"
               />
             </Field>
             <Field label="Date of Birth">

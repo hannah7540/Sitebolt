@@ -2,8 +2,11 @@ export interface WorkerOnboardingFormPayload {
   fullName: string;
   email: string;
   phone: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  suburb: string;
   state: string;
+  postcode: string;
   emergencyContactName: string;
   emergencyContactRelationship: string;
   emergencyContactPhone: string;
@@ -40,7 +43,10 @@ export interface WorkerOnboardingRecord {
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
-  address: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  suburb: string | null;
+  postcode: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   emergency_contact_relationship: string | null;

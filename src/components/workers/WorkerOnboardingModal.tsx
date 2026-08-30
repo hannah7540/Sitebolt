@@ -62,6 +62,10 @@ const emptyForm = (): Partial<WorkerOnboardingInput> => ({
   last_name: "",
   email: "",
   phone: "",
+  address_line_1: "",
+  address_line_2: "",
+  suburb: "",
+  postcode: "",
   emergency_contact_name: "",
   emergency_contact_phone: "",
   emergency_contact_relationship: "",
@@ -271,6 +275,10 @@ export default function WorkerOnboardingModal({
         last_name: (form.last_name ?? "").trim(),
         email: (form.email ?? "").trim(),
         phone: nullIfBlankWorkerText(form.phone),
+        address_line_1: nullIfBlankWorkerText(form.address_line_1),
+        address_line_2: nullIfBlankWorkerText(form.address_line_2),
+        suburb: nullIfBlankWorkerText(form.suburb),
+        postcode: nullIfBlankWorkerText(form.postcode),
         assigned_project_id: resolvedProjectId,
         state: form.state,
         is_apprentice: form.is_apprentice ?? false,
@@ -492,6 +500,38 @@ export default function WorkerOnboardingModal({
                   onChange={(e) => set("phone", e.target.value)}
                 />
               </Field>
+              <Field label="Address Line 1">
+                <input
+                  className={inputClass}
+                  value={form.address_line_1 ?? ""}
+                  onChange={(e) => set("address_line_1", e.target.value)}
+                  autoComplete="address-line1"
+                />
+              </Field>
+              <Field label="Address Line 2 (Optional)">
+                <input
+                  className={inputClass}
+                  value={form.address_line_2 ?? ""}
+                  onChange={(e) => set("address_line_2", e.target.value)}
+                  autoComplete="address-line2"
+                />
+              </Field>
+              <Field label="Suburb / City">
+                <input
+                  className={inputClass}
+                  value={form.suburb ?? ""}
+                  onChange={(e) => set("suburb", e.target.value)}
+                  autoComplete="address-level2"
+                />
+              </Field>
+              <Field label="Postal / Zip Code">
+                <input
+                  className={inputClass}
+                  value={form.postcode ?? ""}
+                  onChange={(e) => set("postcode", e.target.value)}
+                  autoComplete="postal-code"
+                />
+              </Field>
               <StateRegionSelector
                 id="onboarding-quick-state"
                 value={(form.state as WorkerStateRegion | null) ?? null}
@@ -572,6 +612,38 @@ export default function WorkerOnboardingModal({
                   className={inputClass}
                   value={form.phone ?? ""}
                   onChange={(e) => set("phone", e.target.value)}
+                />
+              </Field>
+              <Field label="Address Line 1">
+                <input
+                  className={inputClass}
+                  value={form.address_line_1 ?? ""}
+                  onChange={(e) => set("address_line_1", e.target.value)}
+                  autoComplete="address-line1"
+                />
+              </Field>
+              <Field label="Address Line 2 (Optional)">
+                <input
+                  className={inputClass}
+                  value={form.address_line_2 ?? ""}
+                  onChange={(e) => set("address_line_2", e.target.value)}
+                  autoComplete="address-line2"
+                />
+              </Field>
+              <Field label="Suburb / City">
+                <input
+                  className={inputClass}
+                  value={form.suburb ?? ""}
+                  onChange={(e) => set("suburb", e.target.value)}
+                  autoComplete="address-level2"
+                />
+              </Field>
+              <Field label="Postal / Zip Code">
+                <input
+                  className={inputClass}
+                  value={form.postcode ?? ""}
+                  onChange={(e) => set("postcode", e.target.value)}
+                  autoComplete="postal-code"
                 />
               </Field>
               <StateRegionSelector

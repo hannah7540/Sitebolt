@@ -77,6 +77,10 @@ export interface Worker {
   full_name: string;
   email: string;
   phone: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  suburb: string | null;
+  postcode: string | null;
   emergency_contact: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
@@ -151,6 +155,10 @@ const WORKER_SELECT_COLUMNS = [
   "worker_name",
   "email",
   "phone",
+  "address_line_1",
+  "address_line_2",
+  "suburb",
+  "postcode",
   "emergency_contact",
   "emergency_contact_name",
   "emergency_contact_phone",
@@ -351,6 +359,10 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     full_name,
     email,
     phone: row.phone ?? null,
+    address_line_1: row.address_line_1 ?? null,
+    address_line_2: row.address_line_2 ?? null,
+    suburb: row.suburb ?? null,
+    postcode: row.postcode ?? null,
     emergency_contact: row.emergency_contact ?? null,
     emergency_contact_name: row.emergency_contact_name ?? null,
     emergency_contact_phone: row.emergency_contact_phone ?? null,

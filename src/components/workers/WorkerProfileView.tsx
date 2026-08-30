@@ -337,6 +337,10 @@ function BasicInfoTab({
   const [lastName, setLastName] = useState(nameParts.lastName);
   const [email, setEmail] = useState(worker.email);
   const [phone, setPhone] = useState(worker.phone ?? "");
+  const [addressLine1, setAddressLine1] = useState(worker.address_line_1 ?? "");
+  const [addressLine2, setAddressLine2] = useState(worker.address_line_2 ?? "");
+  const [suburb, setSuburb] = useState(worker.suburb ?? "");
+  const [postcode, setPostcode] = useState(worker.postcode ?? "");
   const [trade, setTrade] = useState(worker.trade ?? "");
   const [isApprentice, setIsApprentice] = useState(worker.is_apprentice ?? false);
   const [hasCompanyVehicle, setHasCompanyVehicle] = useState(
@@ -368,6 +372,10 @@ function BasicInfoTab({
     setLastName(parts.lastName);
     setEmail(worker.email);
     setPhone(worker.phone ?? "");
+    setAddressLine1(worker.address_line_1 ?? "");
+    setAddressLine2(worker.address_line_2 ?? "");
+    setSuburb(worker.suburb ?? "");
+    setPostcode(worker.postcode ?? "");
     setTrade(worker.trade ?? "");
     setIsApprentice(worker.is_apprentice ?? false);
     setHasCompanyVehicle(worker.has_company_vehicle ?? false);
@@ -428,6 +436,10 @@ function BasicInfoTab({
         full_name: fullName,
         email: email.trim(),
         phone: phone.trim() || null,
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
+        suburb: suburb.trim() || null,
+        postcode: postcode.trim() || null,
         trade: trade.trim() || null,
         is_apprentice: isApprentice,
         has_company_vehicle: hasCompanyVehicle,
@@ -483,6 +495,10 @@ function BasicInfoTab({
         full_name: fullName,
         email: email.trim(),
         phone: phone.trim() || null,
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
+        suburb: suburb.trim() || null,
+        postcode: postcode.trim() || null,
         trade: trade.trim() || null,
         is_apprentice: isApprentice,
         has_company_vehicle: hasCompanyVehicle,
@@ -533,6 +549,42 @@ function BasicInfoTab({
         <label className="block space-y-1">
           <span className={labelClass}>Phone</span>
           <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </label>
+        <label className="block space-y-1 sm:col-span-2">
+          <span className={labelClass}>Address Line 1</span>
+          <input
+            className={inputClass}
+            value={addressLine1}
+            onChange={(e) => setAddressLine1(e.target.value)}
+            autoComplete="address-line1"
+          />
+        </label>
+        <label className="block space-y-1 sm:col-span-2">
+          <span className={labelClass}>Address Line 2 (Optional)</span>
+          <input
+            className={inputClass}
+            value={addressLine2}
+            onChange={(e) => setAddressLine2(e.target.value)}
+            autoComplete="address-line2"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Suburb / City</span>
+          <input
+            className={inputClass}
+            value={suburb}
+            onChange={(e) => setSuburb(e.target.value)}
+            autoComplete="address-level2"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Postal / Zip Code</span>
+          <input
+            className={inputClass}
+            value={postcode}
+            onChange={(e) => setPostcode(e.target.value)}
+            autoComplete="postal-code"
+          />
         </label>
         <label className="block space-y-1">
           <span className={labelClass}>Role / trade</span>

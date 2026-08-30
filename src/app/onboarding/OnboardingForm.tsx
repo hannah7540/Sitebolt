@@ -31,8 +31,11 @@ interface OnboardingFormState {
   fullName: string;
   email: string;
   phone: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  suburb: string;
   state: WorkerStateRegion | null;
+  postcode: string;
   emergencyContactName: string;
   emergencyContactRelationship: string;
   emergencyContactPhone: string;
@@ -88,7 +91,6 @@ function Field({
 function validateStep1(form: OnboardingFormState): string | null {
   if (!form.fullName.trim()) return "Full name is required.";
   if (!form.phone.trim()) return "Phone number is required.";
-  if (!form.address.trim()) return "Address is required.";
   if (!form.state) return "State / Region is required.";
   if (!form.emergencyContactName.trim()) return "Emergency contact name is required.";
   if (!form.emergencyContactRelationship.trim()) {
@@ -145,8 +147,11 @@ function populateFormFromWorker(worker: WorkerOnboardingRecord): OnboardingFormS
     fullName: getWorkerDisplayName(worker, ""),
     email: worker.email ?? "",
     phone: worker.phone ?? "",
-    address: worker.address ?? "",
+    addressLine1: worker.address_line_1 ?? "",
+    addressLine2: worker.address_line_2 ?? "",
+    suburb: worker.suburb ?? "",
     state: (worker.state as WorkerStateRegion | null) ?? null,
+    postcode: worker.postcode ?? "",
     emergencyContactName: worker.emergency_contact_name ?? "",
     emergencyContactRelationship: worker.emergency_contact_relationship ?? "",
     emergencyContactPhone: worker.emergency_contact_phone ?? "",
@@ -231,8 +236,11 @@ export default function OnboardingForm() {
     fullName: "",
     email: "",
     phone: "",
-    address: "",
+    addressLine1: "",
+    addressLine2: "",
+    suburb: "",
     state: null,
+    postcode: "",
     emergencyContactName: "",
     emergencyContactRelationship: "",
     emergencyContactPhone: "",
@@ -377,8 +385,11 @@ export default function OnboardingForm() {
           fullName: form.fullName,
           email: form.email,
           phone: form.phone,
-          address: form.address,
+          addressLine1: form.addressLine1,
+          addressLine2: form.addressLine2,
+          suburb: form.suburb,
           state: form.state ?? "",
+          postcode: form.postcode,
           emergencyContactName: form.emergencyContactName,
           emergencyContactRelationship: form.emergencyContactRelationship,
           emergencyContactPhone: form.emergencyContactPhone,
@@ -510,13 +521,40 @@ export default function OnboardingForm() {
                   autoComplete="tel"
                 />
               </Field>
-              <Field label="Address" required>
+              <Field label="Address Line 1" className="sm:col-span-2">
                 <input
                   type="text"
                   className={inputClass}
-                  value={form.address}
-                  onChange={(event) => setField("address", event.target.value)}
-                  autoComplete="street-address"
+                  value={form.addressLine1}
+                  onChange={(event) => setField("addressLine1", event.target.value)}
+                  autoComplete="address-line1"
+                />
+              </Field>
+              <Field label="Address Line 2 (Optional)" className="sm:col-span-2">
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.addressLine2}
+                  onChange={(event) => setField("addressLine2", event.target.value)}
+                  autoComplete="address-line2"
+                />
+              </Field>
+              <Field label="Suburb / City">
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.suburb}
+                  onChange={(event) => setField("suburb", event.target.value)}
+                  autoComplete="address-level2"
+                />
+              </Field>
+              <Field label="Postal / Zip Code">
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.postcode}
+                  onChange={(event) => setField("postcode", event.target.value)}
+                  autoComplete="postal-code"
                 />
               </Field>
               <div className="sm:col-span-2">

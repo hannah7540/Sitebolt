@@ -83,7 +83,11 @@ export default function WorkerInductionPortalPage() {
 
   const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [suburb, setSuburb] = useState("");
   const [stateRegion, setStateRegion] = useState<WorkerStateRegion | null>(null);
+  const [postcode, setPostcode] = useState("");
   const [emergencyName, setEmergencyName] = useState("");
   const [emergencyPhone, setEmergencyPhone] = useState("");
   const [emergencyRelationship, setEmergencyRelationship] = useState("");
@@ -126,7 +130,11 @@ export default function WorkerInductionPortalPage() {
         setWorker(w);
         setPhone(w.phone ?? "");
         setDob(w.dob ?? "");
+        setAddressLine1(w.address_line_1 ?? w.emergency_contact ?? "");
+        setAddressLine2(w.address_line_2 ?? "");
+        setSuburb(w.suburb ?? "");
         setStateRegion(normalizeWorkerStateRegion(w.state));
+        setPostcode(w.postcode ?? "");
         setEmergencyName(w.emergency_contact_name ?? "");
         setEmergencyPhone(w.emergency_contact_phone ?? "");
         setEmergencyRelationship(w.emergency_contact_relationship ?? "");
@@ -246,6 +254,10 @@ export default function WorkerInductionPortalPage() {
       const { error: updateError } = await updateWorker(workerId, {
         phone: phone.trim() || null,
         dob: nullIfBlankWorkerDate(dob),
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
+        suburb: suburb.trim() || null,
+        postcode: postcode.trim() || null,
         state: stateRegion,
         emergency_contact_name: emergencyName.trim(),
         emergency_contact_phone: emergencyPhone.trim(),
@@ -401,6 +413,42 @@ export default function WorkerInductionPortalPage() {
                 className={inputClass}
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
+              />
+            </Field>
+            <Field label="Address Line 1">
+              <input
+                type="text"
+                className={inputClass}
+                value={addressLine1}
+                onChange={(e) => setAddressLine1(e.target.value)}
+                autoComplete="address-line1"
+              />
+            </Field>
+            <Field label="Address Line 2 (Optional)">
+              <input
+                type="text"
+                className={inputClass}
+                value={addressLine2}
+                onChange={(e) => setAddressLine2(e.target.value)}
+                autoComplete="address-line2"
+              />
+            </Field>
+            <Field label="Suburb / City">
+              <input
+                type="text"
+                className={inputClass}
+                value={suburb}
+                onChange={(e) => setSuburb(e.target.value)}
+                autoComplete="address-level2"
+              />
+            </Field>
+            <Field label="Postal / Zip Code">
+              <input
+                type="text"
+                className={inputClass}
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                autoComplete="postal-code"
               />
             </Field>
             <StateRegionSelector

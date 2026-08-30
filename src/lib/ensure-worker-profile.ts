@@ -306,8 +306,16 @@ function mapWorkerRowToOnboardingRecord(
     first_name: typeof row.first_name === "string" ? row.first_name : null,
     last_name: typeof row.last_name === "string" ? row.last_name : null,
     phone: typeof row.phone === "string" ? row.phone : null,
-    address:
-      typeof row.emergency_contact === "string" ? row.emergency_contact : null,
+    address_line_1:
+      typeof row.address_line_1 === "string"
+        ? row.address_line_1
+        : typeof row.emergency_contact === "string"
+          ? row.emergency_contact
+          : null,
+    address_line_2:
+      typeof row.address_line_2 === "string" ? row.address_line_2 : null,
+    suburb: typeof row.suburb === "string" ? row.suburb : null,
+    postcode: typeof row.postcode === "string" ? row.postcode : null,
     emergency_contact_name:
       typeof row.emergency_contact_name === "string"
         ? row.emergency_contact_name
@@ -406,7 +414,10 @@ export function buildFallbackOnboardingRecord(
       first_name: partial?.first_name ?? (parts.firstName || null),
       last_name: partial?.last_name ?? (parts.lastName || null),
       phone: partial?.phone ?? null,
-      emergency_contact: partial?.address ?? null,
+      address_line_1: partial?.address_line_1 ?? null,
+      address_line_2: partial?.address_line_2 ?? null,
+      suburb: partial?.suburb ?? null,
+      postcode: partial?.postcode ?? null,
       emergency_contact_name: partial?.emergency_contact_name ?? null,
       emergency_contact_phone: partial?.emergency_contact_phone ?? null,
       emergency_contact_relationship:
@@ -434,7 +445,8 @@ export function buildFallbackOnboardingRecord(
 }
 
 const WORKER_ONBOARDING_SELECT_VARIANTS = [
-  "id, email, full_name, first_name, last_name, phone, photo_url, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
+  "id, email, full_name, first_name, last_name, phone, photo_url, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
+  "id, email, full_name, first_name, last_name, phone, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number, onboarding_completed",
   "id, email, full_name, phone, trade",

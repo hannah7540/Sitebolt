@@ -22,6 +22,10 @@ import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { sanitizeStoredPhoneNumber } from "@/lib/sms-phone";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
 import {
+  formatWorkerResidentialAddress,
+  normalizeWorkerResidentialAddress,
+} from "@/lib/worker-address";
+import {
   isValidProfilePhotoUrl,
   PROFILE_PHOTO_API_REQUIRED_MESSAGE,
 } from "@/lib/worker-profile-photo-validation";
@@ -49,8 +53,11 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
     fullName: readString(raw.fullName),
     email: readString(raw.email),
     phone: readString(raw.phone),
-    address: readString(raw.address),
+    addressLine1: readString(raw.addressLine1 ?? raw.address),
+    addressLine2: readString(raw.addressLine2),
+    suburb: readString(raw.suburb),
     state: readString(raw.state),
+    postcode: readString(raw.postcode),
     emergencyContactName: readString(raw.emergencyContactName),
     emergencyContactRelationship: readString(raw.emergencyContactRelationship),
     emergencyContactPhone: readString(raw.emergencyContactPhone),
@@ -92,7 +99,6 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
 function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string | null {
   if (!payload.fullName) return "Full name is required.";
   if (!payload.phone) return "Phone number is required.";
-  if (!payload.address) return "Address is required.";
   if (!normalizeWorkerStateRegion(payload.state)) {
     return "State / Region is required.";
   }
@@ -267,12 +273,25 @@ export async function POST(req: Request) {
     ? normalizeWorkerStateRegion(workerStateRaw) ?? workerStateRaw.trim().toUpperCase()
     : null;
 
+  const residentialAddress = normalizeWorkerResidentialAddress({
+    address_line_1: payload.addressLine1,
+    address_line_2: payload.addressLine2,
+    suburb: payload.suburb,
+    postcode: payload.postcode,
+  });
+  const formattedAddress = formatWorkerResidentialAddress({
+    ...residentialAddress,
+    state: workerState,
+  });
+
   const { error: updateError } = await admin
     .from("workers")
     .update({
       ...nameFields,
       phone: sanitizeStoredPhoneNumber(payload.phone),
-      emergency_contact: payload.address,
+      ...residentialAddress,
+      // Legacy freeform column — keep in sync for older readers.
+      emergency_contact: formattedAddress || null,
       emergency_contact_name: payload.emergencyContactName,
       emergency_contact_relationship: payload.emergencyContactRelationship,
       emergency_contact_phone: sanitizeStoredPhoneNumber(payload.emergencyContactPhone),
