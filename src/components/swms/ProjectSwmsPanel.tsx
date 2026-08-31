@@ -24,11 +24,12 @@ import {
   type SwmsDocumentSummary,
 } from "@/lib/swms";
 import {
+  fetchWorkerIdsForProject,
   filterWorkersForProject,
   loadAssignmentMaps,
 } from "@/lib/project-assignments";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
-import type { Worker } from "@/lib/supabase";
+import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
 import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
 import { cardClass } from "@/lib/ui-classes";
@@ -83,18 +84,37 @@ export default function ProjectSwmsPanel({
     setActionError(null);
 
     try {
-      const [{ workerByProject }, swmsRows] = await Promise.all([
+      const [{ workerByProject }, swmsRows, junctionWorkerIds] = await Promise.all([
         loadAssignmentMaps(),
         fetchProjectSwmsDocuments(projectId),
+        fetchWorkerIdsForProject(projectId),
       ]);
 
-      const assignedWorkers = filterWorkersForProject(
+      const fromFilter = filterWorkersForProject(
         workers,
         projectId,
         workerByProject
-      ).filter((worker) => !worker.is_subcontractor);
+      );
+      const byId = new Map(workers.map((worker) => [worker.id, worker]));
+      const merged = new Map<string, Worker>();
 
-      setProjectWorkers(assignedWorkers);
+      for (const worker of fromFilter) {
+        if (!worker.is_subcontractor && !isWorkerRevoked(worker)) {
+          merged.set(worker.id, worker);
+        }
+      }
+      for (const workerId of junctionWorkerIds) {
+        const worker = byId.get(workerId);
+        if (worker && !worker.is_subcontractor && !isWorkerRevoked(worker)) {
+          merged.set(worker.id, worker);
+        }
+      }
+
+      setProjectWorkers(
+        [...merged.values()].sort((a, b) =>
+          getWorkerDisplayName(a).localeCompare(getWorkerDisplayName(b))
+        )
+      );
       setDocuments(swmsRows);
     } catch (error) {
       setActionError(
@@ -399,6 +419,7 @@ export default function ProjectSwmsPanel({
           projectId={projectId}
           projectName={projectName}
           projectWorkers={projectWorkers}
+          workers={workers}
           onClose={() => setAssignTarget(null)}
           onAssigned={() => {
             setSuccessMessage("SWMS assignments updated.");

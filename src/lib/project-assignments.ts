@@ -534,7 +534,21 @@ export function filterWorkersForProject(
   if (!projectId) return [];
   return workers.filter((worker) => {
     const junctionIds = junctionMap.get(worker.id) ?? [];
-    const ids = new Set([...getWorkerAssignedProjectIds(worker), ...junctionIds]);
+    const ids = new Set<string>([
+      ...getWorkerAssignedProjectIds(worker),
+      ...junctionIds,
+    ]);
+    // Legacy / alternate columns that getWorkerAssignedProjectIds may skip
+    // (e.g. non-UUID legacy values are filtered there, but project_id is still set).
+    const assignedSingle = worker.assigned_project_id?.trim();
+    const projectCol = worker.project_id?.trim();
+    if (assignedSingle) ids.add(assignedSingle);
+    if (projectCol) ids.add(projectCol);
+    if (Array.isArray(worker.assigned_project_ids)) {
+      for (const id of worker.assigned_project_ids) {
+        if (typeof id === "string" && id.trim()) ids.add(id.trim());
+      }
+    }
     return ids.has(projectId);
   });
 }
