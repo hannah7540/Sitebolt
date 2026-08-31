@@ -111,6 +111,39 @@ export function isGeneralEquipmentAssetType(type: AssetType | string): boolean {
   return normalizeAssetType(type) === "general_equipment";
 }
 
+export function getAssetCategoryPrefix(type: AssetType | string): string {
+  switch (normalizeAssetType(type)) {
+    case "laptop":
+      return "LAP";
+    case "ipad":
+      return "IPAD";
+    case "laser":
+      return "LAS";
+    case "pressure_gauge":
+      return "PG";
+    case "assigned_accounts":
+      return "ACC";
+    case "general_equipment":
+      return "EQ";
+    default:
+      return "AST";
+  }
+}
+
+/** Unique fallback when the form leaves asset_number blank. */
+export function generateUniqueAssetNumber(type: AssetType | string): string {
+  const categoryPrefix = getAssetCategoryPrefix(type);
+  return `${categoryPrefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+export function resolveAssetNumber(
+  value: string | null | undefined,
+  type: AssetType | string
+): string {
+  const trimmed = value?.trim();
+  return trimmed || generateUniqueAssetNumber(type);
+}
+
 /** Lasers / pressure gauges no longer collect or display a separate Name field. */
 export function assetTypeHidesNameField(type: AssetType | string): boolean {
   const normalized = normalizeAssetType(type);
@@ -463,13 +496,11 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     nullIfBlank(input.project_id) ?? nullIfBlank(input.assigned_project_id);
   const workerId = nullIfBlankUuid(input.assigned_worker_id);
   const displayName = resolveAssetDisplayName({ ...input, asset_type: type });
-  const assetNumber =
-    nullIfBlank(input.asset_number) ||
-    nullIfBlank(input.serial_number) ||
-    `${type}-${Date.now().toString().slice(-6)}`;
+  const assetNumber = resolveAssetNumber(input.asset_number, type);
 
   const base: Record<string, unknown> = {
     asset_number: assetNumber,
+    reference_number: assetNumber,
     name: displayName,
     // Write both columns so either live schema works after the type check was dropped.
     asset_type: type,
@@ -528,6 +559,7 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     return sanitizeWritePayload({
       ...base,
       asset_number: accountReference,
+      reference_number: accountReference,
       name: accountName,
       account_name: accountName,
       account_reference: accountReference,
@@ -614,29 +646,16 @@ export function buildAssetInputFromForm(values: {
 }): AssetInput {
   const singular = ASSET_TYPE_SINGULAR_LABELS[values.assetType];
   const stamp = Date.now().toString().slice(-4);
-  const prefix =
-    values.assetType === "ipad"
-      ? "IPAD"
-      : values.assetType === "laptop"
-        ? "LAP"
-        : values.assetType === "assigned_accounts"
-          ? "ACC"
-          : values.assetType === "laser"
-            ? "LAS"
-            : values.assetType === "pressure_gauge"
-              ? "PG"
-              : values.assetType === "general_equipment"
-                ? "EQ"
-                : "AST";
+  const generatedNumber = generateUniqueAssetNumber(values.assetType);
 
   if (isMobileDeviceAssetType(values.assetType)) {
-    const ref = values.assetNumber.trim();
+    const ref = values.assetNumber.trim() || generatedNumber;
     return {
       asset_type: values.assetType,
       category: values.assetType,
-      asset_number: ref || `${prefix}-${Date.now().toString().slice(-6)}`,
+      asset_number: ref,
       // Fallback name: laptop_ref / ipad_ref || "Laptop" / "iPad"
-      name: ref || singular,
+      name: values.assetNumber.trim() || singular,
       status: values.status ?? "active",
       make: undefined,
       model: undefined,
@@ -648,10 +667,7 @@ export function buildAssetInputFromForm(values: {
   }
 
   if (isGeneralEquipmentAssetType(values.assetType)) {
-    const ref =
-      values.assetNumber.trim() ||
-      values.serialNumber.trim() ||
-      `${prefix}-${Date.now().toString().slice(-6)}`;
+    const ref = values.assetNumber.trim() || generatedNumber;
     return {
       asset_type: values.assetType,
       category: values.assetType,
@@ -672,7 +688,7 @@ export function buildAssetInputFromForm(values: {
     const accountReference =
       values.accountReference.trim() ||
       values.assetNumber.trim() ||
-      `${prefix}-${Date.now().toString().slice(-6)}`;
+      generatedNumber;
     return {
       asset_type: values.assetType,
       category: values.assetType,
@@ -686,10 +702,7 @@ export function buildAssetInputFromForm(values: {
   }
 
   const serial = values.serialNumber.trim();
-  const assetNumber =
-    values.assetNumber.trim() ||
-    serial ||
-    `${prefix}-${Date.now().toString().slice(-6)}`;
+  const assetNumber = values.assetNumber.trim() || generatedNumber;
   // name = serial_number || `${category} #xxxx`
   const name = serial || `${singular} #${stamp}`;
 
@@ -733,6 +746,7 @@ const OPTIONAL_ASSET_COLUMNS = [
   "make",
   "model",
   "serial_number",
+  "reference_number",
   "vendor_id",
   "updated_at",
 ] as const;
@@ -794,6 +808,24 @@ async function upsertAssetRow(options: {
       current.assigned_worker_id
     ) {
       current = { ...current, assigned_worker_id: null };
+      continue;
+    }
+
+    // Duplicate asset_number — regenerate a unique identifier and retry inserts.
+    if (
+      options.mode === "insert" &&
+      (lower.includes("asset_number") || lower.includes("reference_number")) &&
+      (lower.includes("duplicate") ||
+        lower.includes("unique") ||
+        lower.includes("already exists"))
+    ) {
+      const type = String(current.asset_type ?? current.category ?? "AST");
+      const nextNumber = generateUniqueAssetNumber(type);
+      current = {
+        ...current,
+        asset_number: nextNumber,
+        reference_number: nextNumber,
+      };
       continue;
     }
 
