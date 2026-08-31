@@ -13,6 +13,7 @@ import {
   calculateDailyTotalsFromSlots,
   isTimesheetPending,
   normalizeTimesheetStatus,
+  toTimesheetDateKey,
   validateTimesheetWorkDate,
   type TimesheetActivitySlot,
   type TimesheetBreakSlot,
@@ -113,7 +114,10 @@ export function mapTimesheetRow(row: Record<string, unknown>): WorkerTimesheet {
   return {
     id: String(row.id),
     worker_id: String(row.worker_id),
-    work_date: String(row.work_date),
+    work_date:
+      toTimesheetDateKey(
+        row.work_date != null ? String(row.work_date) : null
+      ) || String(row.work_date ?? ""),
     project_id: row.project_id ? String(row.project_id) : null,
     project_name: row.project_name ? String(row.project_name) : null,
     worker_trade: row.worker_trade ? String(row.worker_trade) : null,
@@ -382,8 +386,13 @@ export function sumPayWeekDailyHours(
   startIso: string,
   endIso: string
 ): number {
+  const startKey = toTimesheetDateKey(startIso);
+  const endKey = toTimesheetDateKey(endIso);
   return timesheets
-    .filter((row) => row.work_date >= startIso && row.work_date <= endIso)
+    .filter((row) => {
+      const workKey = toTimesheetDateKey(row.work_date);
+      return Boolean(workKey) && workKey >= startKey && workKey <= endKey;
+    })
     .reduce(
       (sum, row) =>
         sum + Number(row.daily_total_hours ?? row.total_hours ?? 0),
@@ -395,11 +404,14 @@ export function getTodayTimesheetEntry(
   timesheets: WorkerTimesheet[],
   workDate: string
 ): WorkerTimesheet | null {
+  const target = toTimesheetDateKey(workDate);
   return (
     timesheets.find(
       (row) =>
-        row.work_date === workDate &&
+        toTimesheetDateKey(row.work_date) === target &&
         (row.is_draft || isTimesheetPending(row.status))
-    ) ?? null
+    ) ??
+    timesheets.find((row) => toTimesheetDateKey(row.work_date) === target) ??
+    null
   );
 }

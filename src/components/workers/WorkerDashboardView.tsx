@@ -46,7 +46,7 @@ import WorkerLeaveHistoryDrawer from "./WorkerLeaveHistoryDrawer";
 import WorkerSwmsWidget from "./WorkerSwmsWidget";
 import WorkerPhotoEditModal from "./WorkerPhotoEditModal";
 import SiteSafetyFormModal from "./SiteSafetyFormModal";
-import { localIsoDate } from "@/lib/timesheet-utils";
+import { localIsoDate, toTimesheetDateKey } from "@/lib/timesheet-utils";
 import { mapTimesheetRow } from "@/lib/timesheet-entries";
 import type { SiteFormType } from "@/lib/site-forms";
 import { cardClass } from "@/lib/ui-classes";
@@ -573,9 +573,14 @@ export default function WorkerDashboardView({
 
   const weekTimesheets = useMemo(
     () =>
-      timesheets.filter(
-        (t) => t.work_date >= payWeekStartIso && t.work_date <= payWeekEndIso
-      ),
+      timesheets.filter((t) => {
+        const workKey = toTimesheetDateKey(t.work_date);
+        return (
+          Boolean(workKey) &&
+          workKey >= payWeekStartIso &&
+          workKey <= payWeekEndIso
+        );
+      }),
     [timesheets, payWeekStartIso, payWeekEndIso]
   );
 

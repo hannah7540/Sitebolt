@@ -20,7 +20,9 @@ import {
   localIsoDate,
   addDaysToIsoDate,
   isAdvanceTimesheetDate,
+  sumTodaysTimesheetHours,
   TIMESHEET_MAX_ADVANCE_DAYS,
+  toTimesheetDateKey,
   validateBreakSlot,
   validateTimesheetWorkDate,
   type TimesheetActivitySlot,
@@ -220,11 +222,10 @@ export default function WorkerTimesheetModal({
   );
 
   const todayTotal = useMemo(() => {
-    const entry = timesheets.find((row) => row.work_date === todayIso);
-    if (workDate === todayIso) {
+    if (toTimesheetDateKey(workDate) === toTimesheetDateKey(todayIso)) {
       return totals.dailyTotalHours;
     }
-    return Number(entry?.daily_total_hours ?? entry?.total_hours ?? 0);
+    return sumTodaysTimesheetHours(timesheets, todayIso);
   }, [timesheets, todayIso, workDate, totals.dailyTotalHours]);
 
   const workerTrade = selectedTask?.name ?? resolveWorkerTrade(worker);

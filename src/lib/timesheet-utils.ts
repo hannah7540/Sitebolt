@@ -194,6 +194,56 @@ export function localIsoDate(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * Normalize a timesheet work date to local calendar YYYY-MM-DD.
+ * Handles date-only strings and UTC/offset ISO timestamps without
+ * treating `toISOString().slice(0, 10)` as the local day.
+ */
+export function toTimesheetDateKey(
+  value: string | Date | null | undefined
+): string {
+  if (value == null) return "";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "" : localIsoDate(value);
+  }
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+
+  // Postgres `date` and already-normalized keys.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  // Date-only prefix on a datetime string — prefer local calendar day when
+  // a full timestamp is parseable (avoids UTC-day drift for "today").
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return localIsoDate(parsed);
+  }
+
+  const datePrefix = trimmed.split("T")[0]?.split(" ")[0] ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePrefix) ? datePrefix : "";
+}
+
+/** Sum hours for all timesheet rows whose work_date is today's local date. */
+export function sumTodaysTimesheetHours(
+  timesheets: Array<{
+    work_date?: string | null;
+    daily_total_hours?: number | null;
+    total_hours?: number | null;
+    hours?: number | string | null;
+  }>,
+  today: string = localIsoDate()
+): number {
+  const todayKey = toTimesheetDateKey(today) || localIsoDate();
+  return timesheets.reduce((sum, row) => {
+    if (toTimesheetDateKey(row.work_date) !== todayKey) return sum;
+    const hours = Number(
+      row.daily_total_hours ?? row.total_hours ?? row.hours ?? 0
+    );
+    return sum + (Number.isFinite(hours) ? hours : 0);
+  }, 0);
+}
+
 export const TIMESHEET_MAX_ADVANCE_DAYS = 30;
 
 export function addDaysToIsoDate(isoDate: string, days: number): string {

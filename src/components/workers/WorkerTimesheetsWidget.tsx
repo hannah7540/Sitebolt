@@ -3,12 +3,14 @@
 import { Clock, Plus } from "lucide-react";
 import type { WorkerTimesheet } from "@/lib/supabase";
 import {
-  formatTimesheetHours,
+  formatTimesheetHoursLabel,
   getWeekTimesheetSummary,
+  localIsoDate,
+  sumTodaysTimesheetHours,
+  toTimesheetDateKey,
   weekSummaryStatusClass,
 } from "@/lib/timesheet-utils";
-import { localIsoDate, formatTimesheetHoursLabel } from "@/lib/timesheet-utils";
-import { getPayWeekRange, formatPayWeekRange } from "@/lib/pay-week-utils";
+import { formatPayWeekRange } from "@/lib/pay-week-utils";
 import { sumPayWeekDailyHours } from "@/lib/timesheet-entries";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
@@ -40,10 +42,10 @@ export default function WorkerTimesheetsWidget({
     payWeekStartIso,
     payWeekEndIso
   );
-  const todayEntry = weekTimesheets.find((row) => row.work_date === todayIso);
-  const todayTotal = Number(
-    todayEntry?.daily_total_hours ?? todayEntry?.total_hours ?? 0
-  );
+  // Prefer a freshly computed local date so midnight rollover / prop drift
+  // cannot zero out today's total while weekly still includes the entries.
+  const todayKey = toTimesheetDateKey(todayIso) || localIsoDate();
+  const todayTotal = sumTodaysTimesheetHours(weekTimesheets, todayKey);
 
   return (
     <div
