@@ -646,8 +646,6 @@ async function createSwmsAssignmentsAdmin(
     return { error: null, created: 0, createdWorkerIds: [], skipped: 0 };
   }
 
-  // Always use the service-role client for validation + insert so RLS cannot
-  // hide existing swms_documents rows (migration 090 dropped anon policies).
   if (!isSupabaseAdminConfigured()) {
     return {
       error: "Server admin client is not configured (SUPABASE_SERVICE_ROLE_KEY).",
@@ -656,160 +654,35 @@ async function createSwmsAssignmentsAdmin(
       skipped: 0,
     };
   }
-  const admin = createSupabaseAdminClient();
 
-  console.log("--- SWMS ASSIGNMENT DEBUG ---");
-  console.log("Received ID:", swmsId);
-  console.log("Project ID:", projectId ?? null);
-  console.log("Hints:", hints ?? null);
+  // Service-role client bypasses RLS. Do NOT pre-SELECT swms_documents —
+  // Postgres FK on swms_assignments.swms_id validates the reference on insert.
+  const supabaseAdmin = createSupabaseAdminClient();
 
-  const { data: doc, error: docError } = await admin
-    .from("swms_documents")
-    .select("id, title, project_id")
-    .eq("id", swmsId)
-    .maybeSingle();
+  // Prefer an explicit document id from hints when it differs from a relation id.
+  const hintDocId = [
+    hints?.swms_document_id,
+    hints?.document_id,
+    hints?.swms_id,
+  ]
+    .map((value) => String(value ?? "").trim())
+    .find((value) => isValidSwmsId(value) && value !== swmsId);
 
-  console.log("Doc check result:", { data: doc, error: docError });
+  const canonicalSwmsId = hintDocId || swmsId;
+  const trimmedProjectId = projectId?.trim() || "";
 
-  let validDocId: string | null = null;
-
-  if (docError) {
-    console.error("[swms-assign] swms_documents SELECT failed (admin client):", docError);
-    return {
-      error: `Failed to validate swms_id against swms_documents: ${docError.message}`,
-      created: 0,
-      createdWorkerIds: [],
-      skipped: 0,
-    };
-  }
-
-  if (doc?.id) {
-    validDocId = String((doc as { id: string }).id).trim();
-    console.log("Matched swms_documents.id directly:", validDocId);
-  } else {
-    // Auto-fallback only when the primary SELECT returned no row (not an RLS error).
-    const { data: projSwms, error: projError } = await admin
-      .from("project_swms")
-      .select("swms_document_id, swms_id, document_id")
-      .eq("id", swmsId)
-      .maybeSingle();
-    console.log("project_swms check:", { data: projSwms, error: projError });
-
-    if (projSwms) {
-      const row = projSwms as {
-        swms_document_id?: string | null;
-        swms_id?: string | null;
-        document_id?: string | null;
-      };
-      validDocId =
-        [row.swms_document_id, row.swms_id, row.document_id]
-          .map((value) => String(value ?? "").trim())
-          .find((value) => isValidSwmsId(value)) ?? null;
-    }
-
-    if (!validDocId) {
-      const { data: legacySwms, error: legacyError } = await admin
-        .from("swms")
-        .select("id, document_id, swms_document_id, swms_id")
-        .eq("id", swmsId)
-        .maybeSingle();
-      console.log("legacy swms check:", { data: legacySwms, error: legacyError });
-
-      if (legacySwms) {
-        const row = legacySwms as {
-          id?: string;
-          document_id?: string | null;
-          swms_document_id?: string | null;
-          swms_id?: string | null;
-        };
-        validDocId =
-          [row.document_id, row.swms_document_id, row.swms_id, row.id]
-            .map((value) => String(value ?? "").trim())
-            .find((value) => isValidSwmsId(value)) ?? null;
-      }
-    }
-
-    if (!validDocId && hints) {
-      validDocId =
-        [hints.swms_document_id, hints.document_id, hints.swms_id]
-          .map((value) => String(value ?? "").trim())
-          .find((value) => isValidSwmsId(value)) ?? null;
-      if (validDocId) console.log("Resolved via request hints:", validDocId);
-    }
-
-    // Re-verify fallback id against swms_documents with the service-role client.
-    if (validDocId && validDocId !== swmsId) {
-      const { data: fallbackDoc, error: fallbackError } = await admin
-        .from("swms_documents")
-        .select("id")
-        .eq("id", validDocId)
-        .maybeSingle();
-      console.log("Fallback doc check result:", {
-        data: fallbackDoc,
-        error: fallbackError,
-      });
-      if (fallbackError) {
-        return {
-          error: `Failed to validate resolved swms_id against swms_documents: ${fallbackError.message}`,
-          created: 0,
-          createdWorkerIds: [],
-          skipped: 0,
-        };
-      }
-      if (!fallbackDoc?.id) {
-        // Last resort: mirror/ensure parent into swms_documents.
-        const parent = await ensureSwmsDocumentsParentAdmin(admin, validDocId, hints);
-        if (parent.error || !parent.swmsId) {
-          return {
-            error:
-              parent.error ??
-              `Invalid swms_id for assignment (must reference swms_documents.id). Received: ${swmsId}`,
-            created: 0,
-            createdWorkerIds: [],
-            skipped: 0,
-          };
-        }
-        validDocId = parent.swmsId;
-      } else {
-        validDocId = String((fallbackDoc as { id: string }).id).trim();
-      }
-    } else if (validDocId === swmsId) {
-      // Legacy row id equals documents id but primary select missed it — try ensure/mirror.
-      const parent = await ensureSwmsDocumentsParentAdmin(admin, swmsId, hints);
-      if (parent.error || !parent.swmsId) {
-        console.log("--- SWMS ASSIGNMENT DEBUG ---");
-        console.log("Received ID:", swmsId);
-        console.log("Primary SELECT returned null with no error (possible RLS/client issue)");
-        return {
-          error: `Invalid swms_id for assignment (must reference swms_documents.id). Received: ${swmsId}`,
-          created: 0,
-          createdWorkerIds: [],
-          skipped: 0,
-        };
-      }
-      validDocId = parent.swmsId;
-    }
-  }
-
-  if (!validDocId) {
-    console.log("--- SWMS ASSIGNMENT DEBUG ---");
-    console.log("Received ID:", swmsId);
-    console.log("No matching document after admin SELECT + fallbacks");
-    return {
-      error: `Invalid swms_id for assignment (must reference swms_documents.id). Received: ${swmsId}`,
-      created: 0,
-      createdWorkerIds: [],
-      skipped: 0,
-    };
-  }
-
-  const canonicalSwmsId = validDocId;
-  console.log("Using swms_documents.id for assignment insert:", canonicalSwmsId);
+  console.info("[swms-assign] insert without manual document pre-check", {
+    swms_id: canonicalSwmsId,
+    received_id: swmsId,
+    project_id: trimmedProjectId || null,
+    worker_count: workerIds.length,
+  });
 
   const uniqueIds = Array.from(
     new Set(workerIds.map((id) => id.trim()).filter(Boolean))
   );
-  const { data: workers, error: workersError } = await admin
+
+  const { data: workers, error: workersError } = await supabaseAdmin
     .from("workers")
     .select("id, full_name, first_name, last_name")
     .in("id", uniqueIds);
@@ -830,32 +703,44 @@ async function createSwmsAssignmentsAdmin(
     ])
   );
 
-  const { data: existing, error: existingError } = await admin
+  // Best-effort dedupe — if this SELECT is blocked, proceed and rely on unique index.
+  let existingIds = new Set<string>();
+  const { data: existing, error: existingError } = await supabaseAdmin
     .from("swms_assignments")
     .select("assignee_id")
     .eq("swms_id", canonicalSwmsId)
     .eq("assignee_type", "worker");
 
-  if (existingError) {
-    return {
-      error: existingError.message,
-      created: 0,
-      createdWorkerIds: [],
-      skipped: 0,
-    };
+  if (!existingError) {
+    existingIds = new Set(
+      (existing ?? []).map((row) =>
+        String((row as { assignee_id?: string }).assignee_id ?? "")
+      )
+    );
+  } else {
+    console.warn(
+      "[swms-assign] existing-assignment lookup skipped:",
+      existingError.message
+    );
   }
-
-  const existingIds = new Set(
-    (existing ?? []).map((row) =>
-      String((row as { assignee_id?: string }).assignee_id ?? "")
-    )
-  );
 
   const toCreate = uniqueIds.filter((workerId) => !existingIds.has(workerId));
   const skipped = uniqueIds.length - toCreate.length;
-  const trimmedProjectId = projectId?.trim() || "";
 
-  const rows: Array<Record<string, string>> = toCreate.map((workerId) => {
+  if (toCreate.length === 0) {
+    return { error: null, created: 0, createdWorkerIds: [], skipped };
+  }
+
+  const optionalColumns = [
+    "worker_name",
+    "name",
+    "token",
+    "signature_token",
+    "worker_id",
+    "project_id",
+  ] as const;
+
+  let currentRows: Array<Record<string, string>> = toCreate.map((workerId) => {
     const worker = workerMap.get(workerId);
     const name = worker ? resolveWorkerDisplayName(worker) : "Worker";
     const token = createSwmsSigningToken();
@@ -870,7 +755,7 @@ async function createSwmsAssignmentsAdmin(
       signing_token: token,
       token,
       signature_token: token,
-      // Schema CHECK allows 'Pending' | 'Signed' (capitalised).
+      // DB CHECK: ('Pending', 'Signed')
       status: "Pending",
     };
     if (trimmedProjectId && isValidSwmsId(trimmedProjectId)) {
@@ -879,34 +764,23 @@ async function createSwmsAssignmentsAdmin(
     return row;
   });
 
-  if (rows.length === 0) {
-    return { error: null, created: 0, createdWorkerIds: [], skipped };
-  }
-
-  console.info("[swms-assign] inserting assignments", {
-    swms_id: canonicalSwmsId,
-    count: rows.length,
-    project_id: trimmedProjectId || null,
-  });
-
-  const optionalColumns = [
-    "worker_name",
-    "name",
-    "token",
-    "signature_token",
-    "worker_id",
-    "project_id",
-  ] as const;
-
-  let currentRows: Array<Record<string, string>> = rows.map((row) => ({ ...row }));
-
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
-    const { error } = await admin.from("swms_assignments").insert(currentRows);
+    const { data, error } = await supabaseAdmin
+      .from("swms_assignments")
+      .insert(currentRows)
+      .select("assignee_id");
+
     if (!error) {
+      const createdWorkerIds = (data ?? []).map((row) =>
+        String((row as { assignee_id?: string }).assignee_id ?? "")
+      ).filter(Boolean);
       return {
         error: null,
         created: currentRows.length,
-        createdWorkerIds: currentRows.map((row) => row.assignee_id),
+        createdWorkerIds:
+          createdWorkerIds.length > 0
+            ? createdWorkerIds
+            : currentRows.map((row) => row.assignee_id),
         skipped,
       };
     }
@@ -927,15 +801,14 @@ async function createSwmsAssignmentsAdmin(
       };
     }
 
+    // Surface the real Postgres FK / constraint error — do not invent a
+    // "document not found" message from a failed application-level SELECT.
     if (
       lower.includes("swms_assignments_swms_id_fkey") ||
       (lower.includes("foreign key") && lower.includes("swms_id"))
     ) {
-      console.log("--- SWMS ASSIGNMENT DEBUG ---");
-      console.log("Received ID:", swmsId);
-      console.log("FK failure for swms_documents.id:", canonicalSwmsId);
       return {
-        error: `Invalid swms_id for assignment (must reference swms_documents.id). Received: ${canonicalSwmsId}`,
+        error: error.message,
         created: 0,
         createdWorkerIds: [],
         skipped,
@@ -944,10 +817,10 @@ async function createSwmsAssignmentsAdmin(
 
     const missingColumn = optionalColumns.find(
       (field) =>
-        error.message.toLowerCase().includes(field.toLowerCase()) &&
-        (error.message.toLowerCase().includes("does not exist") ||
-          error.message.toLowerCase().includes("could not find") ||
-          error.message.toLowerCase().includes("schema cache"))
+        lower.includes(field.toLowerCase()) &&
+        (lower.includes("does not exist") ||
+          lower.includes("could not find") ||
+          lower.includes("schema cache"))
     );
 
     if (missingColumn) {
