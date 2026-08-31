@@ -17,6 +17,9 @@ export async function POST(request: Request) {
 
   let body: {
     swms_id?: string;
+    /** Explicit parent document id when swms_id is a project/legacy relation id. */
+    swms_document_id?: string;
+    document_id?: string;
     worker_ids?: string[];
     project_id?: string;
     /** When true with project_id, resolve and assign all current project members. */
@@ -33,20 +36,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const swmsId = body.swms_id?.trim();
-  if (!swmsId || !isValidSwmsId(swmsId)) {
-    console.error("[swms-assign] reject request — invalid swms_id:", body.swms_id);
+  // Prefer explicit document FK fields over a project-SWMS relation id.
+  const requestSwmsId = [
+    body.swms_document_id,
+    body.document_id,
+    body.swms_id,
+  ]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .find((value) => isValidSwmsId(value));
+
+  if (!requestSwmsId) {
+    console.error("[swms-assign] reject request — invalid swms_id:", {
+      swms_id: body.swms_id,
+      swms_document_id: body.swms_document_id,
+      document_id: body.document_id,
+    });
     return NextResponse.json(
       {
         error:
-          "swms_id must be a valid UUID referencing swms_documents.id (not a project id or template slug).",
+          "swms_id must be a valid UUID referencing swms_documents.id (use swms_document_id when assigning from a project SWMS relation).",
       },
       { status: 400 }
     );
   }
 
   console.info("[swms-assign] request", {
-    swms_id: swmsId,
+    swms_id: requestSwmsId,
+    raw_swms_id: body.swms_id,
+    swms_document_id: body.swms_document_id,
+    document_id: body.document_id,
     mode: body.mode,
     project_id: body.project_id,
     worker_count: Array.isArray(body.worker_ids) ? body.worker_ids.length : 0,
@@ -74,7 +92,7 @@ export async function POST(request: Request) {
       const { data } = await access.admin
         .from("swms_documents")
         .select("title")
-        .eq("id", swmsId)
+        .eq("id", requestSwmsId)
         .maybeSingle();
       swmsTitle = String((data as { title?: string } | null)?.title ?? "SWMS");
     }
@@ -122,7 +140,7 @@ export async function POST(request: Request) {
   const { error, created, createdWorkerIds, skipped } = await assignSwmsWorkersAdmin(
     access.admin,
     {
-      swmsId,
+      swmsId: requestSwmsId,
       workerIds,
       projectId,
     }
@@ -139,7 +157,7 @@ export async function POST(request: Request) {
       const { data } = await access.admin
         .from("swms_documents")
         .select("title")
-        .eq("id", swmsId)
+        .eq("id", requestSwmsId)
         .maybeSingle();
       swmsTitle = String((data as { title?: string } | null)?.title ?? "SWMS");
     }

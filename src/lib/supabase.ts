@@ -3456,6 +3456,10 @@ export interface SwmsDocumentRecord {
   version?: string;
   master_swms_id?: string | null;
   previous_version_id?: string | null;
+  /** Parent swms_documents.id when this row is a project/legacy relation. */
+  swms_id?: string | null;
+  document_id?: string | null;
+  swms_document_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -3478,6 +3482,9 @@ type RawSwmsDocumentRecord = Record<string, unknown> & {
   version?: string | null;
   master_swms_id?: string | null;
   previous_version_id?: string | null;
+  swms_id?: string | null;
+  document_id?: string | null;
+  swms_document_id?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -3621,7 +3628,12 @@ export function resolveSwmsVersion(
 
 function normalizeSwmsDocumentRecord(row: RawSwmsDocumentRecord): SwmsDocumentRecord {
   const documentUrl = resolveSwmsDocumentUrl(row);
-  const normalized = {
+  const linkedSwmsId = row.swms_id ? String(row.swms_id).trim() : "";
+  const linkedDocumentId = row.document_id ? String(row.document_id).trim() : "";
+  const linkedSwmsDocumentId = row.swms_document_id
+    ? String(row.swms_document_id).trim()
+    : "";
+  const normalized: SwmsDocumentRecord = {
     id: String(row.id ?? ""),
     title: String(row.title ?? "").trim(),
     document_date: resolveSwmsDocumentDate(row),
@@ -3639,6 +3651,11 @@ function normalizeSwmsDocumentRecord(row: RawSwmsDocumentRecord): SwmsDocumentRe
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+  if (isValidSwmsId(linkedSwmsId)) normalized.swms_id = linkedSwmsId;
+  if (isValidSwmsId(linkedDocumentId)) normalized.document_id = linkedDocumentId;
+  if (isValidSwmsId(linkedSwmsDocumentId)) {
+    normalized.swms_document_id = linkedSwmsDocumentId;
+  }
   return normalized;
 }
 
@@ -3817,6 +3834,82 @@ export function resolveSwmsTargetId(
       record?.swmsId ||
       ""
   ).trim();
+}
+
+/**
+ * Resolve the `swms_documents.id` to use for `swms_assignments.swms_id`.
+ * Project/legacy SWMS rows often have their own relation `id` while the parent
+ * document PK lives on `swms_id` / `document_id` / `swms_document_id`.
+ */
+export function resolveSwmsDocumentsId(
+  item:
+    | {
+        id?: string | null;
+        swms_id?: string | null;
+        doc_id?: string | null;
+        document_id?: string | null;
+        swms_document_id?: string | null;
+        _id?: string | null;
+        swmsId?: string | null;
+      }
+    | Record<string, unknown>
+    | string
+    | null
+    | undefined
+): string {
+  if (!item) return "";
+  if (typeof item === "string") {
+    const trimmed = item.trim();
+    return isValidSwmsId(trimmed) ? trimmed : "";
+  }
+
+  const record = item as Record<string, unknown>;
+  const candidates = [
+    record.swms_document_id,
+    record.document_id,
+    record.swms_id,
+    record.swmsId,
+    record.doc_id,
+    record.id,
+    record._id,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate ?? "").trim();
+    if (isValidSwmsId(value)) return value;
+  }
+  return "";
+}
+
+/** Collect distinct UUID candidates that might identify a swms_documents row. */
+export function collectSwmsDocumentIdCandidates(
+  item:
+    | Record<string, unknown>
+    | string
+    | null
+    | undefined
+): string[] {
+  if (!item) return [];
+  if (typeof item === "string") {
+    return isValidSwmsId(item.trim()) ? [item.trim()] : [];
+  }
+
+  const record = item as Record<string, unknown>;
+  const values = [
+    record.swms_document_id,
+    record.document_id,
+    record.swms_id,
+    record.swmsId,
+    record.doc_id,
+    record.id,
+    record._id,
+  ];
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (isValidSwmsId(trimmed) && !out.includes(trimmed)) out.push(trimmed);
+  }
+  return out;
 }
 
 function createSwmsRecordId(): string {
@@ -4335,113 +4428,156 @@ async function insertSwmsAssignmentRows(
 }
 
 async function ensureSwmsDocumentsParentClient(
-  swmsId: string
+  rawSwmsId: string
 ): Promise<{ swmsId: string | null; error: string | null }> {
-  if (!isValidSwmsId(swmsId)) {
+  const candidates = collectSwmsDocumentIdCandidates(rawSwmsId);
+  if (candidates.length === 0) {
     return {
       swmsId: null,
       error: "A valid SWMS document UUID is required before creating assignments.",
     };
   }
 
-  const { data: documentsRow, error: documentsError } = await supabase
-    .from("swms_documents")
-    .select("id")
-    .eq("id", swmsId)
-    .maybeSingle();
-
-  if (documentsError && !isMissingSwmsTableError(documentsError.message, "swms_documents")) {
-    return { swmsId: null, error: documentsError.message };
-  }
-
-  if (documentsRow && String((documentsRow as { id?: string }).id ?? "") === swmsId) {
-    return { swmsId, error: null };
-  }
-
-  const { data: legacyRow, error: legacyError } = await supabase
-    .from("swms")
-    .select("*")
-    .eq("id", swmsId)
-    .maybeSingle();
-
-  if (legacyError && !isMissingSwmsTableError(legacyError.message, "swms")) {
-    return { swmsId: null, error: legacyError.message };
-  }
-
-  if (!legacyRow) {
-    console.error(
-      "[swms-assign] client: swms_id missing from swms_documents and swms:",
-      swmsId
-    );
-    return {
-      swmsId: null,
-      error: `SWMS document was not found (id=${swmsId}). Refresh and try again.`,
-    };
-  }
-
-  const row = legacyRow as Record<string, unknown>;
-  const title = String(row.title ?? "").trim() || "Untitled SWMS";
-  const documentDate =
-    String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
-    new Date().toISOString().slice(0, 10);
-  const fileUrl = String(
-    row.file_url ?? row.doc_url ?? row.document_url ?? ""
-  ).trim();
-  if (!fileUrl) {
-    return {
-      swmsId: null,
-      error:
-        "Cannot sync SWMS into swms_documents: the legacy row is missing a document file URL.",
-    };
-  }
-
-  const projectId = row.project_id ? String(row.project_id).trim() : "";
-  const scopeRaw = String(row.swms_scope ?? "").trim();
-  const scope =
-    scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
-
-  const mirrorPayload: Record<string, string | boolean> = {
-    id: swmsId,
-    title,
-    document_date: documentDate,
-    issue_date: documentDate,
-    date: documentDate,
-    file_url: fileUrl,
-    doc_url: fileUrl,
-    document_url: fileUrl,
-    is_archived: Boolean(row.is_archived),
-    status: String(row.status ?? "Active"),
-    swms_scope: scope,
-    version: String(row.version ?? "1.0"),
+  const verifyInDocuments = async (id: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from("swms_documents")
+      .select("id")
+      .eq("id", id)
+      .maybeSingle();
+    if (error && !isMissingSwmsTableError(error.message, "swms_documents")) {
+      return null;
+    }
+    const found = String((data as { id?: string } | null)?.id ?? "").trim();
+    return found && found === id ? found : null;
   };
-  if (scope === "site_specific" && projectId) {
-    mirrorPayload.project_id = projectId;
+
+  for (const candidate of candidates) {
+    const found = await verifyInDocuments(candidate);
+    if (found) return { swmsId: found, error: null };
   }
-  if (row.file_name) mirrorPayload.file_name = String(row.file_name);
 
-  console.info("[swms-assign] client mirroring legacy swms into swms_documents:", swmsId);
-  const { error: mirrorError } = await insertSwmsRow("swms_documents", mirrorPayload, {
-    requiredColumns:
-      scope === "site_specific" ? SWMS_SITE_SPECIFIC_REQUIRED_COLUMNS : undefined,
-  });
+  for (const candidate of candidates) {
+    const { data, error } = await supabase
+      .from("swms_documents")
+      .select("id")
+      .eq("swms_id", candidate)
+      .limit(1)
+      .maybeSingle();
 
-  if (mirrorError && !isMissingSwmsTableError(mirrorError, "swms_documents")) {
-    const lower = mirrorError.toLowerCase();
-    if (
-      !(
-        lower.includes("duplicate key") ||
-        lower.includes("unique constraint") ||
-        lower.includes("already exists")
-      )
-    ) {
-      return {
-        swmsId: null,
-        error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrorError}).`,
-      };
+    if (error) {
+      if (isMissingSwmsColumnError(error.message, "swms_id")) break;
+      continue;
+    }
+
+    const found = String((data as { id?: string } | null)?.id ?? "").trim();
+    if (isValidSwmsId(found) && (await verifyInDocuments(found))) {
+      return { swmsId: found, error: null };
     }
   }
 
-  return { swmsId, error: null };
+  for (const candidate of candidates) {
+    const { data: legacyRow, error: legacyError } = await supabase
+      .from("swms")
+      .select("*")
+      .eq("id", candidate)
+      .maybeSingle();
+
+    if (legacyError && !isMissingSwmsTableError(legacyError.message, "swms")) {
+      return { swmsId: null, error: legacyError.message };
+    }
+    if (!legacyRow) continue;
+
+    const row = legacyRow as Record<string, unknown>;
+    const linkedCandidates = collectSwmsDocumentIdCandidates(row).filter(
+      (id) => id !== candidate
+    );
+    for (const linked of linkedCandidates) {
+      const found = await verifyInDocuments(linked);
+      if (found) return { swmsId: found, error: null };
+    }
+
+    const title = String(row.title ?? "").trim() || "Untitled SWMS";
+    const documentDate =
+      String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
+      new Date().toISOString().slice(0, 10);
+    const fileUrl = String(
+      row.file_url ?? row.doc_url ?? row.document_url ?? ""
+    ).trim();
+    if (!fileUrl) {
+      return {
+        swmsId: null,
+        error:
+          "Cannot sync SWMS into swms_documents: the project/legacy SWMS row is missing a document file URL.",
+      };
+    }
+
+    const projectId = row.project_id ? String(row.project_id).trim() : "";
+    const scopeRaw = String(row.swms_scope ?? "").trim();
+    const scope =
+      scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
+
+    const mirrorPayload: Record<string, string | boolean> = {
+      id: candidate,
+      title,
+      document_date: documentDate,
+      issue_date: documentDate,
+      date: documentDate,
+      file_url: fileUrl,
+      doc_url: fileUrl,
+      document_url: fileUrl,
+      is_archived: Boolean(row.is_archived),
+      status: String(row.status ?? "Active"),
+      swms_scope: scope,
+      version: String(row.version ?? "1.0"),
+    };
+    if (scope === "site_specific" && projectId) {
+      mirrorPayload.project_id = projectId;
+    }
+    if (row.file_name) mirrorPayload.file_name = String(row.file_name);
+
+    console.info(
+      "[swms-assign] client mirroring project/legacy swms into swms_documents:",
+      candidate
+    );
+    const { data: mirroredRow, error: mirrorError } = await insertSwmsRow(
+      "swms_documents",
+      mirrorPayload,
+      {
+        requiredColumns:
+          scope === "site_specific" ? SWMS_SITE_SPECIFIC_REQUIRED_COLUMNS : undefined,
+      }
+    );
+
+    if (
+      mirrorError &&
+      !isMissingSwmsTableError(mirrorError, "swms_documents")
+    ) {
+      const lower = mirrorError.toLowerCase();
+      if (
+        !(
+          lower.includes("duplicate key") ||
+          lower.includes("unique constraint") ||
+          lower.includes("already exists")
+        )
+      ) {
+        return {
+          swmsId: null,
+          error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrorError}).`,
+        };
+      }
+    }
+
+    const mirroredId = String(mirroredRow?.id ?? candidate).trim();
+    const verified = await verifyInDocuments(mirroredId);
+    if (verified) return { swmsId: verified, error: null };
+    const fallback = await verifyInDocuments(candidate);
+    if (fallback) return { swmsId: fallback, error: null };
+  }
+
+  return {
+    swmsId: null,
+    error: `SWMS document was not found in swms_documents (tried: ${candidates.join(", ")}).`,
+  };
 }
 
 export async function insertSwmsAssignmentRecords(input: {

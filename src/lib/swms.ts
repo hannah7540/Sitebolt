@@ -25,6 +25,8 @@ import {
   resolveSwmsScope,
   resolveSwmsVersion,
   resolveSwmsTargetId,
+  resolveSwmsDocumentsId,
+  collectSwmsDocumentIdCandidates,
   isCompanySwmsDocument,
   isSiteSpecificSwmsDocument,
   type SwmsDocumentRecord,
@@ -63,6 +65,8 @@ export {
   insertSwmsAssignmentRecords,
   createSwmsSigningToken,
   resolveSwmsTargetId,
+  resolveSwmsDocumentsId,
+  collectSwmsDocumentIdCandidates,
   resolveSwmsScope,
   resolveSwmsVersion,
   isCompanySwmsDocument,
@@ -572,6 +576,8 @@ export async function ensureSwmsWorkerAssignments(
 /** Admin/project assign via API — dedupes pending rows and notifies workers. */
 export async function assignSwmsWorkersRequest(input: {
   swmsId: string;
+  /** Optional explicit parent document id when swmsId is a project relation id. */
+  swmsDocumentId?: string | null;
   workerIds?: string[];
   projectId?: string | null;
   assignAllProjectMembers?: boolean;
@@ -585,11 +591,14 @@ export async function assignSwmsWorkersRequest(input: {
   createdWorkerIds: string[];
 }> {
   try {
+    const documentId = input.swmsDocumentId?.trim() || undefined;
     const response = await fetch("/api/admin/swms/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         swms_id: input.swmsId,
+        swms_document_id: documentId,
+        document_id: documentId,
         worker_ids: input.workerIds ?? [],
         project_id: input.projectId ?? undefined,
         assign_all_project_members: Boolean(input.assignAllProjectMembers),

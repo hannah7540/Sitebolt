@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  collectSwmsDocumentIdCandidates,
   createSwmsSigningToken,
   isValidSwmsId,
   resolveSwmsDocumentDate,
@@ -242,15 +243,17 @@ export type SwmsAssignResult = {
 
 /**
  * `swms_assignments.swms_id` references `swms_documents(id)`.
- * List UIs merge legacy `swms` rows, so an id may exist only there.
- * Ensure a matching `swms_documents` parent exists before inserting assignments.
+ * Incoming ids may be:
+ * - a real `swms_documents.id`
+ * - a legacy / project relation row id (`swms.id`) that points at documents via `swms_id`
+ * Resolve and verify the parent documents PK before inserting assignments.
  */
 export async function ensureSwmsDocumentsParentAdmin(
   admin: SupabaseClient,
   rawSwmsId: string
 ): Promise<{ swmsId: string | null; error: string | null }> {
-  const swmsId = String(rawSwmsId ?? "").trim();
-  if (!isValidSwmsId(swmsId)) {
+  const candidates = collectSwmsDocumentIdCandidates(rawSwmsId);
+  if (candidates.length === 0) {
     console.error("[swms-assign] invalid swms_id before assignment:", rawSwmsId);
     return {
       swmsId: null,
@@ -258,126 +261,196 @@ export async function ensureSwmsDocumentsParentAdmin(
     };
   }
 
-  const { data: documentsRow, error: documentsError } = await admin
-    .from("swms_documents")
-    .select("id")
-    .eq("id", swmsId)
-    .maybeSingle();
-
-  if (documentsError) {
-    const lower = documentsError.message.toLowerCase();
-    if (
-      !(
-        lower.includes("does not exist") ||
-        lower.includes("schema cache") ||
-        lower.includes("could not find")
-      )
-    ) {
-      return { swmsId: null, error: documentsError.message };
-    }
-  }
-
-  if (documentsRow && String((documentsRow as { id?: string }).id ?? "") === swmsId) {
-    return { swmsId, error: null };
-  }
-
-  const { data: legacyRow, error: legacyError } = await admin
-    .from("swms")
-    .select("*")
-    .eq("id", swmsId)
-    .maybeSingle();
-
-  if (legacyError) {
-    const lower = legacyError.message.toLowerCase();
-    if (
-      !(
-        lower.includes("does not exist") ||
-        lower.includes("schema cache") ||
-        lower.includes("could not find")
-      )
-    ) {
-      return { swmsId: null, error: legacyError.message };
-    }
-  }
-
-  if (!legacyRow) {
-    console.error(
-      "[swms-assign] swms_id missing from swms_documents and swms:",
-      swmsId
-    );
-    return {
-      swmsId: null,
-      error: `SWMS document was not found (id=${swmsId}). Refresh the list and try again.`,
-    };
-  }
-
-  const row = legacyRow as Record<string, unknown>;
-  const title = String(row.title ?? "").trim() || "Untitled SWMS";
-  const documentDate =
-    String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
-    new Date().toISOString().slice(0, 10);
-  const fileUrl = String(
-    row.file_url ?? row.doc_url ?? row.document_url ?? ""
-  ).trim();
-
-  if (!fileUrl) {
-    return {
-      swmsId: null,
-      error:
-        "Cannot sync SWMS into swms_documents: the legacy row is missing a document file URL.",
-    };
-  }
-
-  const projectId = row.project_id ? String(row.project_id).trim() : "";
-  const scopeRaw = String(row.swms_scope ?? "").trim();
-  const scope =
-    scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
-
-  const mirrorPayload: Record<string, string | boolean> = {
-    id: swmsId,
-    title,
-    document_date: documentDate,
-    issue_date: documentDate,
-    date: documentDate,
-    file_url: fileUrl,
-    doc_url: fileUrl,
-    document_url: fileUrl,
-    is_archived: Boolean(row.is_archived),
-    status: String(row.status ?? "Active"),
-    swms_scope: scope,
-    version: String(row.version ?? "1.0"),
-  };
-  if (scope === "site_specific" && projectId) {
-    mirrorPayload.project_id = projectId;
-  }
-  if (row.file_name) mirrorPayload.file_name = String(row.file_name);
-
-  console.info("[swms-assign] mirroring legacy swms row into swms_documents:", swmsId);
-  const mirrored = await insertSwmsRowAdmin(admin, "swms_documents", mirrorPayload);
-  if (mirrored.error) {
-    const lower = mirrored.error.toLowerCase();
-    if (
-      lower.includes("duplicate key") ||
-      lower.includes("unique constraint") ||
-      lower.includes("already exists")
-    ) {
-      return { swmsId, error: null };
-    }
-
-    const { data: again } = await admin
+  const verifyInDocuments = async (
+    id: string
+  ): Promise<string | null> => {
+    const { data, error } = await admin
       .from("swms_documents")
       .select("id")
-      .eq("id", swmsId)
+      .eq("id", id)
       .maybeSingle();
-    if (again?.id) return { swmsId, error: null };
+    if (error) {
+      const lower = error.message.toLowerCase();
+      if (
+        !(
+          lower.includes("does not exist") ||
+          lower.includes("schema cache") ||
+          lower.includes("could not find")
+        )
+      ) {
+        console.error("[swms-assign] swms_documents lookup failed:", error.message);
+      }
+      return null;
+    }
+    const found = String((data as { id?: string } | null)?.id ?? "").trim();
+    return found && found === id ? found : null;
+  };
 
-    return {
-      swmsId: null,
-      error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrored.error}).`,
-    };
+  // 1) Direct PK match on swms_documents.
+  for (const candidate of candidates) {
+    const found = await verifyInDocuments(candidate);
+    if (found) {
+      console.info("[swms-assign] resolved swms_documents.id directly:", found);
+      return { swmsId: found, error: null };
+    }
   }
 
-  return { swmsId, error: null };
+  // 2) Optional reverse link: swms_documents.swms_id = candidate.
+  for (const candidate of candidates) {
+    const { data, error } = await admin
+      .from("swms_documents")
+      .select("id")
+      .eq("swms_id", candidate)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      const lower = error.message.toLowerCase();
+      if (
+        lower.includes("swms_id") &&
+        (lower.includes("does not exist") ||
+          lower.includes("schema cache") ||
+          lower.includes("could not find"))
+      ) {
+        break;
+      }
+      continue;
+    }
+
+    const found = String((data as { id?: string } | null)?.id ?? "").trim();
+    if (isValidSwmsId(found) && (await verifyInDocuments(found))) {
+      console.info(
+        "[swms-assign] resolved via swms_documents.swms_id link:",
+        { from: candidate, to: found }
+      );
+      return { swmsId: found, error: null };
+    }
+  }
+
+  // 3) Legacy / project relation row in `swms` — prefer its linked document id.
+  for (const candidate of candidates) {
+    const { data: legacyRow, error: legacyError } = await admin
+      .from("swms")
+      .select("*")
+      .eq("id", candidate)
+      .maybeSingle();
+
+    if (legacyError) {
+      const lower = legacyError.message.toLowerCase();
+      if (
+        !(
+          lower.includes("does not exist") ||
+          lower.includes("schema cache") ||
+          lower.includes("could not find")
+        )
+      ) {
+        return { swmsId: null, error: legacyError.message };
+      }
+      continue;
+    }
+
+    if (!legacyRow) continue;
+
+    const row = legacyRow as Record<string, unknown>;
+    const linkedCandidates = collectSwmsDocumentIdCandidates(row).filter(
+      (id) => id !== candidate
+    );
+
+    for (const linked of linkedCandidates) {
+      const found = await verifyInDocuments(linked);
+      if (found) {
+        console.info(
+          "[swms-assign] resolved via legacy/project swms.swms_id:",
+          { relationId: candidate, documentId: found }
+        );
+        return { swmsId: found, error: null };
+      }
+    }
+
+    // 4) Last resort: mirror the legacy row into swms_documents under the same id.
+    const title = String(row.title ?? "").trim() || "Untitled SWMS";
+    const documentDate =
+      String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
+      new Date().toISOString().slice(0, 10);
+    const fileUrl = String(
+      row.file_url ?? row.doc_url ?? row.document_url ?? ""
+    ).trim();
+
+    if (!fileUrl) {
+      return {
+        swmsId: null,
+        error:
+          "Cannot sync SWMS into swms_documents: the project/legacy SWMS row is missing a document file URL.",
+      };
+    }
+
+    const projectId = row.project_id ? String(row.project_id).trim() : "";
+    const scopeRaw = String(row.swms_scope ?? "").trim();
+    const scope =
+      scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
+
+    const mirrorPayload: Record<string, string | boolean> = {
+      id: candidate,
+      title,
+      document_date: documentDate,
+      issue_date: documentDate,
+      date: documentDate,
+      file_url: fileUrl,
+      doc_url: fileUrl,
+      document_url: fileUrl,
+      is_archived: Boolean(row.is_archived),
+      status: String(row.status ?? "Active"),
+      swms_scope: scope,
+      version: String(row.version ?? "1.0"),
+    };
+    if (scope === "site_specific" && projectId) {
+      mirrorPayload.project_id = projectId;
+    }
+    if (row.file_name) mirrorPayload.file_name = String(row.file_name);
+
+    console.info(
+      "[swms-assign] mirroring project/legacy swms row into swms_documents:",
+      candidate
+    );
+    const mirrored = await insertSwmsRowAdmin(admin, "swms_documents", mirrorPayload);
+    if (mirrored.error) {
+      const lower = mirrored.error.toLowerCase();
+      if (
+        !(
+          lower.includes("duplicate key") ||
+          lower.includes("unique constraint") ||
+          lower.includes("already exists")
+        )
+      ) {
+        return {
+          swmsId: null,
+          error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrored.error}).`,
+        };
+      }
+    }
+
+    const mirroredId = String(
+      (mirrored.data as { id?: string } | null)?.id ?? candidate
+    ).trim();
+    const verified = await verifyInDocuments(mirroredId);
+    if (verified) {
+      return { swmsId: verified, error: null };
+    }
+
+    const fallbackVerified = await verifyInDocuments(candidate);
+    if (fallbackVerified) {
+      return { swmsId: fallbackVerified, error: null };
+    }
+  }
+
+  console.error(
+    "[swms-assign] could not resolve swms_documents.id from candidates:",
+    candidates
+  );
+  return {
+    swmsId: null,
+    error: `SWMS document was not found in swms_documents (tried: ${candidates.join(", ")}). The Project SWMS relation id cannot be used directly — refresh and try again.`,
+  };
 }
 
 async function createSwmsAssignmentsAdmin(

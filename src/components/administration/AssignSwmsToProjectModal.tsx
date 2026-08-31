@@ -12,7 +12,7 @@ import {
   assignSwmsWorkersRequest,
   pushSwmsToProject,
   resolveSwmsScope,
-  resolveSwmsTargetId,
+  resolveSwmsDocumentsId,
   type SwmsDocumentSummary,
 } from "@/lib/swms";
 import { notifySwmsAssignmentsClientSide } from "@/lib/swms-assignment-notify-client";
@@ -78,7 +78,8 @@ export default function AssignSwmsToProjectModal({
     setError(null);
     setSuccess(null);
 
-    const canonicalSwmsId = resolveSwmsTargetId(swms) || swms.id?.trim() || "";
+    const relationOrRowId = String(swms.id ?? "").trim();
+    const canonicalSwmsId = resolveSwmsDocumentsId(swms);
     if (!canonicalSwmsId) {
       setError("This SWMS is missing a valid document id. Refresh and try again.");
       setSaving(false);
@@ -119,8 +120,7 @@ export default function AssignSwmsToProjectModal({
             return;
           }
 
-          const createdSwmsId =
-            resolveSwmsTargetId(document) || document.id?.trim() || "";
+          const createdSwmsId = resolveSwmsDocumentsId(document);
           if (!createdSwmsId) {
             setError(
               "Push succeeded but the site-specific SWMS id was missing. Refresh and assign workers manually."
@@ -130,7 +130,8 @@ export default function AssignSwmsToProjectModal({
 
           notifySwmsAssignmentsClientSide(projectWorkers.map((w) => w.id));
           void assignSwmsWorkersRequest({
-            swmsId: createdSwmsId,
+            swmsId: String(document.id ?? createdSwmsId),
+            swmsDocumentId: createdSwmsId,
             workerIds: projectWorkers.map((w) => w.id),
             notifyOnly: true,
             swmsTitle: swms.title,
@@ -147,7 +148,8 @@ export default function AssignSwmsToProjectModal({
         }
 
         const result = await assignSwmsWorkersRequest({
-          swmsId: canonicalSwmsId,
+          swmsId: relationOrRowId || canonicalSwmsId,
+          swmsDocumentId: canonicalSwmsId,
           projectId,
           assignAllProjectMembers: true,
           mode: "project",
@@ -182,7 +184,8 @@ export default function AssignSwmsToProjectModal({
       }
 
       const result = await assignSwmsWorkersRequest({
-        swmsId: canonicalSwmsId,
+        swmsId: relationOrRowId || canonicalSwmsId,
+        swmsDocumentId: canonicalSwmsId,
         workerIds: selectedWorkerIds,
         projectId: linkedProjectId || undefined,
         mode: "workers",
