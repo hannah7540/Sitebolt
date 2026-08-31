@@ -41,14 +41,13 @@ export const ORGANISATION_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
 ];
 
 export const MY_PROFILE_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
-  { id: "assigned_projects", position: 0, isVisible: true },
-  { id: "swms", position: 1, isVisible: true },
+  { id: "timesheets", position: 0, isVisible: true },
+  { id: "leave", position: 1, isVisible: true },
   { id: "details", position: 2, isVisible: true },
   { id: "forms_hub", position: 3, isVisible: true },
-  { id: "timesheets", position: 4, isVisible: true },
-  { id: "leave", position: 5, isVisible: true },
+  { id: "itcs", position: 4, isVisible: true },
+  { id: "swms", position: 5, isVisible: true },
   { id: "inductions", position: 6, isVisible: true },
-  { id: "itcs", position: 7, isVisible: true },
 ];
 
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ChevronRight,
+  History,
   MessageSquare,
   ShieldCheck,
   Sun,
 } from "lucide-react";
 import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
+import { useWorkerHistoryLayer } from "@/hooks/useWorkerHistoryLayer";
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import type { SiteFormType } from "@/lib/site-forms";
@@ -20,6 +22,7 @@ import WorkerRequestModal from "@/components/workers/WorkerRequestModal";
 import WorkerRequestTile from "@/components/workers/WorkerRequestTile";
 import WorkerIncidentReportModal from "@/components/workers/WorkerIncidentReportModal";
 import WorkerIncidentReportTile from "@/components/workers/WorkerIncidentReportTile";
+import WorkerPastSubmissionsPanel from "@/components/workers/WorkerPastSubmissionsPanel";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -81,42 +84,14 @@ export default function WorkerFormsSubDashboard({
   onOpenSiteForm,
 }: WorkerFormsSubDashboardProps) {
   const [selectedForm, setSelectedForm] = useState<FormsHubModal>(null);
+  const [showPastSubmissions, setShowPastSubmissions] = useState(false);
   const [assignedRfiCount, setAssignedRfiCount] = useState(0);
   const [rfiRefreshKey, setRfiRefreshKey] = useState(0);
 
-  const openRfiForm = () => {
-    try {
-      console.info("[WorkerFormsSubDashboard] Opening RFI modal");
-      setSelectedForm("rfi");
-    } catch (error) {
-      console.error("[WorkerFormsSubDashboard] Failed to open RFI modal:", error);
-    }
-  };
-
-  const openRequestForm = () => {
-    try {
-      console.info("[WorkerFormsSubDashboard] Opening Request Form modal");
-      setSelectedForm("request");
-    } catch (error) {
-      console.error("[WorkerFormsSubDashboard] Failed to open Request Form modal:", error);
-    }
-  };
-
-  const openIncidentForm = () => {
-    try {
-      console.info("[WorkerFormsSubDashboard] Opening Incident Report modal");
-      setSelectedForm("incident");
-    } catch (error) {
-      console.error(
-        "[WorkerFormsSubDashboard] Failed to open Incident Report modal:",
-        error
-      );
-    }
-  };
-
-  const closeActiveForm = () => {
-    setSelectedForm(null);
-  };
+  const openRfiForm = () => setSelectedForm("rfi");
+  const openRequestForm = () => setSelectedForm("request");
+  const openIncidentForm = () => setSelectedForm("incident");
+  const closeActiveForm = () => setSelectedForm(null);
 
   const loadAssignedCount = useCallback(async () => {
     const result = await fetchWorkerRfis(worker.id);
@@ -136,11 +111,30 @@ export default function WorkerFormsSubDashboard({
       closeActiveForm();
       return true;
     }
+    if (showPastSubmissions) {
+      setShowPastSubmissions(false);
+      return true;
+    }
     onBack();
     return true;
-  }, [onBack, selectedForm]);
+  }, [onBack, selectedForm, showPastSubmissions]);
 
   useMobileBackHandler(handleMobileBack, true);
+  useWorkerHistoryLayer(showPastSubmissions, () => setShowPastSubmissions(false), "forms-past");
+  useWorkerHistoryLayer(
+    Boolean(selectedForm),
+    closeActiveForm,
+    `forms-modal-${selectedForm ?? "none"}`
+  );
+
+  if (showPastSubmissions) {
+    return (
+      <WorkerPastSubmissionsPanel
+        worker={worker}
+        onBack={() => setShowPastSubmissions(false)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4 worker-mobile-content-pad lg:pb-0">
@@ -194,6 +188,26 @@ export default function WorkerFormsSubDashboard({
         <WorkerRequestTile onClick={openRequestForm} />
         <WorkerIncidentReportTile onClick={openIncidentForm} />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowPastSubmissions(true)}
+        className={cn(
+          cardClass,
+          "flex w-full items-center gap-3 border-orange-200 bg-orange-50/60 p-4 text-left transition hover:border-orange-300 hover:bg-orange-50"
+        )}
+      >
+        <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-600">
+          <History className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold text-slate-900">View Past Submissions</span>
+          <span className="mt-0.5 block text-xs text-slate-500">
+            Filter and review completed toolbox talks, pre-starts, RFIs, and more
+          </span>
+        </span>
+        <ChevronRight className="h-4 w-4 text-slate-400" />
+      </button>
 
       <WorkerRFIPanel
         key={rfiRefreshKey}

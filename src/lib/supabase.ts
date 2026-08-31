@@ -3089,6 +3089,7 @@ const SITE_FORM_ORDER_COLUMNS = ["created_at", "submitted_at"] as const;
 export async function fetchSiteForms(options?: {
   projectId?: string;
   formType?: import("./site-forms").SiteFormType;
+  workerId?: string;
   limit?: number;
 }): Promise<import("./site-forms").SiteFormSubmission[]> {
   if (!isSupabaseConfigured()) return [];
@@ -3116,6 +3117,9 @@ export async function fetchSiteForms(options?: {
       if (options?.formType) {
         query = query.eq("form_type", options.formType);
       }
+      if (options?.workerId) {
+        query = query.eq("worker_id", options.workerId);
+      }
       if (options?.limit) {
         query = query.limit(options.limit);
       }
@@ -3138,6 +3142,9 @@ export async function fetchSiteForms(options?: {
         }
         if (options?.formType) {
           fallbackQuery = fallbackQuery.eq("form_type", options.formType);
+        }
+        if (options?.workerId) {
+          fallbackQuery = fallbackQuery.eq("worker_id", options.workerId);
         }
         if (options?.limit) {
           fallbackQuery = fallbackQuery.limit(options.limit);
@@ -3167,6 +3174,7 @@ export async function fetchSiteForms(options?: {
 export async function fetchPlantPrestarts(options?: {
   projectId?: string;
   plantIds?: string[];
+  workerId?: string;
   limit?: number;
   startDate?: string;
   endDate?: string;
@@ -3266,10 +3274,12 @@ export async function fetchPlantPrestarts(options?: {
   }
 
   const seen = new Set<string>();
+  const workerId = options?.workerId?.trim() || null;
   return results
     .filter((row) => {
       if (seen.has(row.id)) return false;
       seen.add(row.id);
+      if (workerId && row.operator_worker_id !== workerId) return false;
       return true;
     })
     .sort(

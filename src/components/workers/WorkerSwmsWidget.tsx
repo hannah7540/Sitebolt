@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 
 interface WorkerSwmsWidgetProps {
   workerId: string;
+  onPendingCountChange?: (count: number) => void;
+  openAssignmentId?: string | null;
 }
 
 type WorkerSwmsRow = SwmsAssignment & { swms?: SwmsDocument };
@@ -140,7 +142,11 @@ function AssignmentSection({
   );
 }
 
-export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
+export default function WorkerSwmsWidget({
+  workerId,
+  onPendingCountChange,
+  openAssignmentId,
+}: WorkerSwmsWidgetProps) {
   const [assignments, setAssignments] = useState<WorkerSwmsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SwmsTab>("pending");
@@ -237,6 +243,20 @@ export default function WorkerSwmsWidget({ workerId }: WorkerSwmsWidgetProps) {
     [assignments]
   );
   const pendingCount = countPendingSwmsAssignments(assignments);
+
+  useEffect(() => {
+    onPendingCountChange?.(pendingCount);
+  }, [onPendingCountChange, pendingCount]);
+
+  useEffect(() => {
+    const targetId = openAssignmentId?.trim();
+    if (!targetId || assignments.length === 0) return;
+    const match = assignments.find((row) => row.id === targetId);
+    if (match) {
+      setSelectedAssignment(match);
+      setActiveTab(match.status === "Pending" ? "pending" : "signed");
+    }
+  }, [assignments, openAssignmentId]);
 
   const pendingCompany = useMemo(
     () =>

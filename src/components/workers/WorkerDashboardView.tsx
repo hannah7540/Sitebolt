@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -83,12 +83,18 @@ import {
 } from "@/lib/security-roles";
 import { isNativeMobileApp } from "@/lib/native-app";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
+import { useWorkerHistoryLayer } from "@/hooks/useWorkerHistoryLayer";
+import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvider";
+import {
+  parseWorkerDeepLink,
+  prioritizeWorkerDashboardWidgets,
+} from "@/lib/worker-deep-links";
+import { useSearchParams } from "next/navigation";
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
 /** Widgets that span the full grid width on the worker profile dashboard. */
 const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
-  "assigned_projects",
   "swms",
   "forms_hub",
   "leave",
@@ -96,7 +102,7 @@ const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
 ]);
 
 /** Widgets removed from My Profile — filter saved layouts that still reference them. */
-const REMOVED_PROFILE_WIDGET_IDS = new Set(["plant_prestarts"]);
+const REMOVED_PROFILE_WIDGET_IDS = new Set(["plant_prestarts", "assigned_projects"]);
 
 /** Widgets relocated into the Forms sub-dashboard — hidden from the main grid. */
 const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
@@ -237,6 +243,10 @@ export default function WorkerDashboardView({
   const [activeInductionAssignment, setActiveInductionAssignment] =
     useState<FormWorkerAssignment | null>(null);
   const [showFormsSubDashboard, setShowFormsSubDashboard] = useState(false);
+  const [pendingSwmsCount, setPendingSwmsCount] = useState(0);
+  const [deepLinkSwmsId, setDeepLinkSwmsId] = useState<string | null>(null);
+  const { companyName } = useCompanyBranding();
+  const searchParams = useSearchParams();
 
   const resolvedRole = useMemo(
     () => sessionRole ?? normalizeSecurityRole(worker?.security_role),
@@ -649,6 +659,72 @@ export default function WorkerDashboardView({
   ]);
 
   useMobileBackHandler(handleHardwareBack, true);
+  useWorkerHistoryLayer(showFormsSubDashboard, () => setShowFormsSubDashboard(false), "forms-hub");
+  useWorkerHistoryLayer(showDetails, () => setShowDetails(false), "my-details");
+  useWorkerHistoryLayer(showTimesheetSubmit, () => setShowTimesheetSubmit(false), "timesheet-submit");
+  useWorkerHistoryLayer(showTimesheetHistory, () => setShowTimesheetHistory(false), "timesheet-history");
+  useWorkerHistoryLayer(showLeaveSubmit, () => setShowLeaveSubmit(false), "leave-submit");
+  useWorkerHistoryLayer(showLeaveHistory, () => setShowLeaveHistory(false), "leave-history");
+  useWorkerHistoryLayer(showInductionsModal, () => setShowInductionsModal(false), "inductions-modal");
+  useWorkerHistoryLayer(
+    Boolean(activeInductionAssignment),
+    () => setActiveInductionAssignment(null),
+    "induction-viewer"
+  );
+  useWorkerHistoryLayer(
+    Boolean(activeSiteForm),
+    () => setActiveSiteForm(null),
+    "site-form"
+  );
+
+  const deepLinkAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const target = parseWorkerDeepLink(searchParams);
+    if (!target || target.type === "dashboard") return;
+
+    if (target.type === "induction" && target.assignmentId && pendingInductions.length === 0) {
+      // Wait until outstanding inductions finish loading before resolving the target.
+      return;
+    }
+
+    deepLinkAppliedRef.current = true;
+
+    switch (target.type) {
+      case "swms":
+        setDeepLinkSwmsId(target.assignmentId ?? null);
+        break;
+      case "induction":
+        if (target.assignmentId) {
+          const match = pendingInductions.find((row) => row.id === target.assignmentId);
+          if (match) {
+            setActiveInductionAssignment(match);
+          } else {
+            setShowInductionsModal(true);
+          }
+        } else {
+          setShowInductionsModal(true);
+        }
+        break;
+      case "forms_hub":
+        setShowFormsSubDashboard(true);
+        break;
+      case "timesheets":
+        setShowTimesheetSubmit(true);
+        break;
+      case "leave":
+        setShowLeaveSubmit(true);
+        break;
+      case "details":
+        setShowDetails(true);
+        break;
+      case "itcs":
+        break;
+      default:
+        break;
+    }
+  }, [pendingInductions, searchParams]);
 
   const openSiteForm = (formType: SiteFormType) => {
     if (!selectedProjectId) {
@@ -758,12 +834,14 @@ export default function WorkerDashboardView({
   );
 
   const renderProfileWidget = (widgetId: string) => {
-    if (widgetId === "assigned_projects") {
-      return renderAssignedProjectsWidget();
-    }
-
     if (widgetId === "swms") {
-      return worker ? <WorkerSwmsWidget workerId={worker.id} /> : null;
+      return worker ? (
+        <WorkerSwmsWidget
+          workerId={worker.id}
+          onPendingCountChange={setPendingSwmsCount}
+          openAssignmentId={deepLinkSwmsId}
+        />
+      ) : null;
     }
 
     if (widgetId === "timesheets") {
@@ -927,12 +1005,33 @@ export default function WorkerDashboardView({
 
   const widgetsToRender = useMemo(() => {
     const source = layout.editMode ? layout.orderedWidgets : layout.visibleWidgets;
-    return source.filter(
+    const filtered = source.filter(
       (widget) =>
         !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id) &&
         !REMOVED_PROFILE_WIDGET_IDS.has(widget.id)
     );
-  }, [layout.editMode, layout.orderedWidgets, layout.visibleWidgets]);
+
+    if (layout.editMode) return filtered;
+
+    const prioritizedIds = prioritizeWorkerDashboardWidgets(
+      filtered.map((widget) => widget.id),
+      {
+        pendingSwms: pendingSwmsCount,
+        pendingInductions: pendingInductions.length,
+      }
+    );
+
+    const byId = new Map(filtered.map((widget) => [widget.id, widget]));
+    return prioritizedIds
+      .map((id) => byId.get(id))
+      .filter((widget): widget is (typeof filtered)[number] => Boolean(widget));
+  }, [
+    layout.editMode,
+    layout.orderedWidgets,
+    layout.visibleWidgets,
+    pendingInductions.length,
+    pendingSwmsCount,
+  ]);
   const hiddenWidgetIds = layout.hiddenWidgets.map((widget) => widget.id);
 
   if ((loading || resolvingWorker) && !loadingTimedOut && !worker) {
@@ -996,12 +1095,44 @@ export default function WorkerDashboardView({
               </button>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
-                SiteBolt Worker
-              </p>
               <h1 className="truncate text-lg font-bold text-slate-900">
                 {profileName}
               </h1>
+              <p className="mt-0.5 truncate text-sm text-slate-600">
+                {companyName}
+                {selectedProjectName ? (
+                  <>
+                    <span className="mx-1.5 text-slate-300">·</span>
+                    <span className="font-medium text-slate-800">{selectedProjectName}</span>
+                  </>
+                ) : grantedProjects.length > 0 ? (
+                  <>
+                    <span className="mx-1.5 text-slate-300">·</span>
+                    <span className="font-medium text-slate-800">
+                      {grantedProjects[0]?.name}
+                    </span>
+                  </>
+                ) : activeProjects[0] ? (
+                  <>
+                    <span className="mx-1.5 text-slate-300">·</span>
+                    <span className="font-medium text-slate-800">{activeProjects[0]}</span>
+                  </>
+                ) : null}
+              </p>
+              {grantedProjects.length > 1 ? (
+                <select
+                  className="mt-2 w-full max-w-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  value={selectedProjectId ?? ""}
+                  onChange={(e) => setSelectedProjectId(e.target.value || null)}
+                  aria-label="Select assigned project"
+                >
+                  {grantedProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span
                   className={cn(
@@ -1022,6 +1153,11 @@ export default function WorkerDashboardView({
                     )}
                   >
                     {getTicketBadgeLabel(ticketStatus)}
+                  </span>
+                )}
+                {(pendingSwmsCount > 0 || pendingInductions.length > 0) && (
+                  <span className="rounded bg-orange-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-800">
+                    {pendingSwmsCount + pendingInductions.length} pending
                   </span>
                 )}
               </div>
