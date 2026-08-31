@@ -4,7 +4,12 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { requireSwmsAdminAccess } from "@/lib/swms-api-auth";
-import { assignSwmsWorkersAdmin } from "@/lib/swms-admin-mutations";
+import {
+  assignSwmsWorkersAdmin,
+  resolveProjectMemberWorkerIdsAdmin,
+} from "@/lib/swms-admin-mutations";
+import { notifyWorkersOfSwmsAssignment } from "@/lib/swms-assignment-notify";
+import { isValidSwmsId } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   const access = await requireSwmsAdminAccess();
@@ -14,6 +19,12 @@ export async function POST(request: Request) {
     swms_id?: string;
     worker_ids?: string[];
     project_id?: string;
+    /** When true with project_id, resolve and assign all current project members. */
+    assign_all_project_members?: boolean;
+    mode?: "project" | "workers";
+    swms_title?: string;
+    /** Skip inserts; email/notify workers who already received assignments. */
+    notify_only?: boolean;
   };
 
   try {
@@ -23,26 +34,112 @@ export async function POST(request: Request) {
   }
 
   const swmsId = body.swms_id?.trim();
-  const workerIds = Array.isArray(body.worker_ids)
+  if (!swmsId || !isValidSwmsId(swmsId)) {
+    return NextResponse.json({ error: "swms_id is required." }, { status: 400 });
+  }
+
+  const projectId = body.project_id?.trim() || undefined;
+  const mode =
+    body.mode ??
+    (body.assign_all_project_members || (projectId && !body.worker_ids?.length)
+      ? "project"
+      : "workers");
+
+  /** Notify-only path (e.g. after client-side push/clone already inserted rows). */
+  if (body.notify_only) {
+    const notifyIds = Array.isArray(body.worker_ids)
+      ? body.worker_ids.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+    if (notifyIds.length === 0) {
+      return NextResponse.json({ ok: true, notified: { emailed: 0, errors: [] } });
+    }
+
+    let swmsTitle = body.swms_title?.trim() || "";
+    if (!swmsTitle) {
+      const { data } = await access.admin
+        .from("swms_documents")
+        .select("title")
+        .eq("id", swmsId)
+        .maybeSingle();
+      swmsTitle = String((data as { title?: string } | null)?.title ?? "SWMS");
+    }
+
+    const notify = await notifyWorkersOfSwmsAssignment(access.admin, {
+      workerIds: notifyIds,
+      swmsTitle,
+    });
+    return NextResponse.json({ ok: true, notified: notify });
+  }
+
+  let workerIds = Array.isArray(body.worker_ids)
     ? body.worker_ids.map((id) => String(id).trim()).filter(Boolean)
     : [];
 
-  if (!swmsId) {
-    return NextResponse.json({ error: "swms_id is required." }, { status: 400 });
-  }
-  if (workerIds.length === 0) {
-    return NextResponse.json({ error: "worker_ids must include at least one worker." }, { status: 400 });
+  if (mode === "project" || body.assign_all_project_members) {
+    if (!projectId) {
+      return NextResponse.json(
+        { error: "project_id is required when assigning to a full project." },
+        { status: 400 }
+      );
+    }
+
+    const resolved = await resolveProjectMemberWorkerIdsAdmin(access.admin, projectId);
+    if (resolved.error) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    workerIds = resolved.workerIds;
+
+    if (workerIds.length === 0) {
+      return NextResponse.json(
+        { error: "No workers are currently assigned to the selected project." },
+        { status: 400 }
+      );
+    }
   }
 
-  const { error, created } = await assignSwmsWorkersAdmin(access.admin, {
-    swmsId,
-    workerIds,
-    projectId: body.project_id,
-  });
+  if (workerIds.length === 0) {
+    return NextResponse.json(
+      { error: "Select at least one worker, or choose a project with members." },
+      { status: 400 }
+    );
+  }
+
+  const { error, created, createdWorkerIds, skipped } = await assignSwmsWorkersAdmin(
+    access.admin,
+    {
+      swmsId,
+      workerIds,
+      projectId,
+    }
+  );
 
   if (error) {
     return NextResponse.json({ error }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, created });
+  let notify: { emailed: number; errors: string[] } = { emailed: 0, errors: [] };
+  if (createdWorkerIds.length > 0) {
+    let swmsTitle = body.swms_title?.trim() || "";
+    if (!swmsTitle) {
+      const { data } = await access.admin
+        .from("swms_documents")
+        .select("title")
+        .eq("id", swmsId)
+        .maybeSingle();
+      swmsTitle = String((data as { title?: string } | null)?.title ?? "SWMS");
+    }
+
+    notify = await notifyWorkersOfSwmsAssignment(access.admin, {
+      workerIds: createdWorkerIds,
+      swmsTitle,
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    created,
+    skipped,
+    created_worker_ids: createdWorkerIds,
+    notified: notify,
+  });
 }

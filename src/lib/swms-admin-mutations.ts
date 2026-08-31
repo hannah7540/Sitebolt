@@ -233,13 +233,20 @@ export async function fetchSwmsListAdmin(
   return { swms, error: null };
 }
 
+export type SwmsAssignResult = {
+  error: string | null;
+  created: number;
+  createdWorkerIds: string[];
+  skipped: number;
+};
+
 async function createSwmsAssignmentsAdmin(
   admin: SupabaseClient,
   swmsId: string,
   workerIds: string[]
-): Promise<{ error: string | null; created: number }> {
+): Promise<SwmsAssignResult> {
   if (!isValidSwmsId(swmsId) || workerIds.length === 0) {
-    return { error: null, created: 0 };
+    return { error: null, created: 0, createdWorkerIds: [], skipped: 0 };
   }
 
   const uniqueIds = Array.from(new Set(workerIds.map((id) => id.trim()).filter(Boolean)));
@@ -249,7 +256,12 @@ async function createSwmsAssignmentsAdmin(
     .in("id", uniqueIds);
 
   if (workersError) {
-    return { error: workersError.message, created: 0 };
+    return {
+      error: workersError.message,
+      created: 0,
+      createdWorkerIds: [],
+      skipped: 0,
+    };
   }
 
   const workerMap = new Map(
@@ -263,36 +275,42 @@ async function createSwmsAssignmentsAdmin(
     .eq("assignee_type", "worker");
 
   if (existingError) {
-    return { error: existingError.message, created: 0 };
+    return {
+      error: existingError.message,
+      created: 0,
+      createdWorkerIds: [],
+      skipped: 0,
+    };
   }
 
   const existingIds = new Set(
     (existing ?? []).map((row) => String((row as { assignee_id?: string }).assignee_id ?? ""))
   );
 
-  const rows: Array<Record<string, string>> = uniqueIds
-    .filter((workerId) => !existingIds.has(workerId))
-    .map((workerId) => {
-      const worker = workerMap.get(workerId);
-      const name = worker ? resolveWorkerDisplayName(worker) : "Worker";
-      const token = createSwmsSigningToken();
-      return {
-        swms_id: swmsId,
-        assignee_type: "worker",
-        assignee_id: workerId,
-        worker_id: workerId,
-        assignee_name: name,
-        worker_name: name,
-        name,
-        signing_token: token,
-        token,
-        signature_token: token,
-        status: "Pending",
-      };
-    });
+  const toCreate = uniqueIds.filter((workerId) => !existingIds.has(workerId));
+  const skipped = uniqueIds.length - toCreate.length;
+
+  const rows: Array<Record<string, string>> = toCreate.map((workerId) => {
+    const worker = workerMap.get(workerId);
+    const name = worker ? resolveWorkerDisplayName(worker) : "Worker";
+    const token = createSwmsSigningToken();
+    return {
+      swms_id: swmsId,
+      assignee_type: "worker",
+      assignee_id: workerId,
+      worker_id: workerId,
+      assignee_name: name,
+      worker_name: name,
+      name,
+      signing_token: token,
+      token,
+      signature_token: token,
+      status: "Pending",
+    };
+  });
 
   if (rows.length === 0) {
-    return { error: null, created: 0 };
+    return { error: null, created: 0, createdWorkerIds: [], skipped };
   }
 
   const optionalColumns = [
@@ -308,7 +326,12 @@ async function createSwmsAssignmentsAdmin(
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { error } = await admin.from("swms_assignments").insert(currentRows);
     if (!error) {
-      return { error: null, created: currentRows.length };
+      return {
+        error: null,
+        created: currentRows.length,
+        createdWorkerIds: currentRows.map((row) => row.assignee_id),
+        skipped,
+      };
     }
 
     const lower = error.message.toLowerCase();
@@ -318,7 +341,12 @@ async function createSwmsAssignmentsAdmin(
       lower.includes("already exists")
     ) {
       // Concurrent/idempotent assign — treat as skipped, not failure.
-      return { error: null, created: 0 };
+      return {
+        error: null,
+        created: 0,
+        createdWorkerIds: [],
+        skipped: uniqueIds.length,
+      };
     }
 
     const missingColumn = optionalColumns.find(
@@ -337,10 +365,88 @@ async function createSwmsAssignmentsAdmin(
       continue;
     }
 
-    return { error: error.message, created: 0 };
+    return {
+      error: error.message,
+      created: 0,
+      createdWorkerIds: [],
+      skipped,
+    };
   }
 
-  return { error: "Failed to create SWMS assignments.", created: 0 };
+  return {
+    error: "Failed to create SWMS assignments.",
+    created: 0,
+    createdWorkerIds: [],
+    skipped,
+  };
+}
+
+/** Resolve worker ids currently attached to a project (junction + worker fields). */
+export async function resolveProjectMemberWorkerIdsAdmin(
+  admin: SupabaseClient,
+  projectId: string
+): Promise<{ workerIds: string[]; error: string | null }> {
+  const trimmed = projectId.trim();
+  if (!trimmed) {
+    return { workerIds: [], error: "project_id is required." };
+  }
+
+  const ids = new Set<string>();
+
+  const { data: junctionRows, error: junctionError } = await admin
+    .from("project_worker_assignments")
+    .select("worker_id")
+    .eq("project_id", trimmed);
+
+  if (junctionError) {
+    const lower = junctionError.message.toLowerCase();
+    if (
+      !(
+        lower.includes("does not exist") ||
+        lower.includes("schema cache") ||
+        lower.includes("could not find")
+      )
+    ) {
+      return { workerIds: [], error: junctionError.message };
+    }
+  } else {
+    for (const row of junctionRows ?? []) {
+      const id = String((row as { worker_id?: string }).worker_id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  }
+
+  const { data: workers, error: workersError } = await admin
+    .from("workers")
+    .select("id, assigned_project_id, assigned_project_ids, project_id, is_subcontractor")
+    .eq("is_subcontractor", false);
+
+  if (workersError) {
+    return { workerIds: [], error: workersError.message };
+  }
+
+  for (const row of workers ?? []) {
+    const worker = row as {
+      id?: string;
+      assigned_project_id?: string | null;
+      project_id?: string | null;
+      assigned_project_ids?: string[] | null;
+    };
+    const id = String(worker.id ?? "").trim();
+    if (!id) continue;
+    if (worker.assigned_project_id === trimmed || worker.project_id === trimmed) {
+      ids.add(id);
+      continue;
+    }
+    if (
+      Array.isArray(worker.assigned_project_ids) &&
+      worker.assigned_project_ids.includes(trimmed)
+    ) {
+      ids.add(id);
+    }
+  }
+
+  return { workerIds: [...ids], error: null };
 }
 
 export async function createSwmsDocumentAdmin(
@@ -491,9 +597,14 @@ export async function assignSwmsWorkersAdmin(
     workerIds: string[];
     projectId?: string | null;
   }
-): Promise<{ error: string | null; created: number }> {
+): Promise<SwmsAssignResult> {
   if (!isValidSwmsId(input.swmsId)) {
-    return { error: "A valid SWMS document id is required.", created: 0 };
+    return {
+      error: "A valid SWMS document id is required.",
+      created: 0,
+      createdWorkerIds: [],
+      skipped: 0,
+    };
   }
 
   if (input.projectId?.trim()) {
@@ -505,7 +616,12 @@ export async function assignSwmsWorkersAdmin(
     if (projectError) {
       const lower = projectError.message.toLowerCase();
       if (!lower.includes("does not exist") && !lower.includes("schema cache")) {
-        return { error: projectError.message, created: 0 };
+        return {
+          error: projectError.message,
+          created: 0,
+          createdWorkerIds: [],
+          skipped: 0,
+        };
       }
     }
 

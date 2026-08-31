@@ -10,10 +10,10 @@ import {
   FileText,
   Loader2,
   PenLine,
+  UserPlus,
 } from "lucide-react";
 import {
   buildSwmsWorkerSignOffMatrix,
-  ensureSwmsWorkerAssignments,
   fetchProjectSwmsDocuments,
   formatSwmsVersionLabel,
   getSwmsDocumentDate,
@@ -30,6 +30,7 @@ import {
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import type { Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
+import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -60,12 +61,11 @@ export default function ProjectSwmsPanel({
   const [documents, setDocuments] = useState<SwmsDocumentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [projectWorkers, setProjectWorkers] = useState<Array<{ id: string; name: string }>>(
-    []
-  );
+  const [projectWorkers, setProjectWorkers] = useState<Worker[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [reminderId, setReminderId] = useState<string | null>(null);
+  const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
   const [signAssignment, setSignAssignment] = useState<
     (SwmsAssignment & { swms?: SwmsDocument }) | null
   >(null);
@@ -88,21 +88,14 @@ export default function ProjectSwmsPanel({
         fetchProjectSwmsDocuments(projectId),
       ]);
 
-      const assignedWorkers = filterWorkersForProject(workers, projectId, workerByProject)
-        .filter((worker) => !worker.is_subcontractor)
-        .map((worker) => ({
-          id: worker.id,
-          name: getWorkerDisplayName(worker),
-        }));
+      const assignedWorkers = filterWorkersForProject(
+        workers,
+        projectId,
+        workerByProject
+      ).filter((worker) => !worker.is_subcontractor);
 
       setProjectWorkers(assignedWorkers);
-
-      for (const doc of swmsRows) {
-        await ensureSwmsWorkerAssignments(doc.id, assignedWorkers);
-      }
-
-      const refreshed = await fetchProjectSwmsDocuments(projectId);
-      setDocuments(refreshed);
+      setDocuments(swmsRows);
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "Failed to load project SWMS."
@@ -116,6 +109,15 @@ export default function ProjectSwmsPanel({
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const projectWorkerSummaries = useMemo(
+    () =>
+      projectWorkers.map((worker) => ({
+        id: worker.id,
+        name: getWorkerDisplayName(worker),
+      })),
+    [projectWorkers]
+  );
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
@@ -217,7 +219,7 @@ export default function ProjectSwmsPanel({
           {documents.map((doc) => {
             const expanded = expandedIds.has(doc.id);
             const matrix = buildSwmsWorkerSignOffMatrix(
-              projectWorkers,
+              projectWorkerSummaries,
               doc.assignments ?? []
             );
             const documentUrl = getSwmsDocumentUrl(doc);
@@ -225,12 +227,12 @@ export default function ProjectSwmsPanel({
 
             return (
               <article key={doc.id} className={cn("overflow-hidden", cardClass)}>
-                <button
-                  type="button"
-                  onClick={() => toggleExpanded(doc.id)}
-                  className="flex w-full items-start justify-between gap-3 p-5 text-left hover:bg-slate-50/80"
-                >
-                  <div className="min-w-0 flex-1">
+                <div className="flex w-full items-start justify-between gap-3 p-5">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(doc.id)}
+                    className="min-w-0 flex-1 text-left hover:opacity-90"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       {expanded ? (
                         <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -255,19 +257,28 @@ export default function ProjectSwmsPanel({
                       <span className="text-emerald-700">{doc.signedCount} signed</span>
                       <span className="text-red-600">{doc.pendingCount} pending</span>
                     </div>
-                  </div>
-                  {documentUrl ? (
-                    <a
-                      href={documentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(event) => event.stopPropagation()}
-                      className="shrink-0 text-sm font-medium text-orange-600 hover:underline"
+                  </button>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAssignTarget(doc)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-orange-200 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50"
                     >
-                      View PDF
-                    </a>
-                  ) : null}
-                </button>
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Assign Workers
+                    </button>
+                    {documentUrl ? (
+                      <a
+                        href={documentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-medium text-orange-600 hover:underline"
+                      >
+                        View PDF
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
 
                 {expanded ? (
                   <div className="border-t border-slate-200 px-5 pb-5">
@@ -347,7 +358,15 @@ export default function ProjectSwmsPanel({
                                   </div>
                                 ) : row.assignment && row.status === "Signed" ? (
                                   <span className="text-xs text-slate-500">Complete</span>
-                                ) : null}
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAssignTarget(doc)}
+                                    className="text-xs font-semibold text-orange-600 hover:underline"
+                                  >
+                                    Assign…
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -369,6 +388,20 @@ export default function ProjectSwmsPanel({
           onSigned={() => {
             setSignAssignment(null);
             setSuccessMessage(`SWMS "${signSwmsTitle}" signed successfully.`);
+            void loadData();
+          }}
+        />
+      ) : null}
+
+      {assignTarget && projectId ? (
+        <ProjectAssignSwmsModal
+          swms={assignTarget}
+          projectId={projectId}
+          projectName={projectName}
+          projectWorkers={projectWorkers}
+          onClose={() => setAssignTarget(null)}
+          onAssigned={() => {
+            setSuccessMessage("SWMS assignments updated.");
             void loadData();
           }}
         />

@@ -58,7 +58,7 @@ function projectLabel(
 }
 
 export default function SwmsManagementPanel({
-  workers: _workers,
+  workers,
   projects,
 }: SwmsManagementPanelProps) {
   const [swmsList, setSwmsList] = useState<SwmsDocumentSummary[]>([]);
@@ -353,7 +353,7 @@ export default function SwmsManagementPanel({
                           className="inline-flex items-center gap-1 rounded-lg border border-orange-200 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50 disabled:opacity-50"
                         >
                           <Send className="h-3.5 w-3.5" />
-                          Assign / Push to Project
+                          Assign SWMS
                         </button>
                         <button
                           type="button"
@@ -381,6 +381,15 @@ export default function SwmsManagementPanel({
                         >
                           <Pencil className="h-3.5 w-3.5" />
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => setAssignTarget(doc)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-orange-200 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50 disabled:opacity-50"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Assign SWMS
                         </button>
                         <button
                           type="button"
@@ -455,7 +464,7 @@ export default function SwmsManagementPanel({
       {showSiteSpecificUpload ? (
         <UploadSiteSpecificSwmsModal
           projects={projects}
-          workers={_workers}
+          workers={workers}
           onClose={() => setShowSiteSpecificUpload(false)}
           onSaved={() => void fetchSwmsListData({ silent: true })}
         />
@@ -473,7 +482,7 @@ export default function SwmsManagementPanel({
         <AssignSwmsToProjectModal
           swms={assignTarget}
           projects={projects}
-          workers={_workers}
+          workers={workers}
           onClose={() => setAssignTarget(null)}
           onAssigned={() => void fetchSwmsListData({ silent: true })}
         />

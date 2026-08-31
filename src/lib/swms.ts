@@ -569,6 +569,70 @@ export async function ensureSwmsWorkerAssignments(
   return { error, created: error ? 0 : missing.length };
 }
 
+/** Admin/project assign via API — dedupes pending rows and notifies workers. */
+export async function assignSwmsWorkersRequest(input: {
+  swmsId: string;
+  workerIds?: string[];
+  projectId?: string | null;
+  assignAllProjectMembers?: boolean;
+  mode?: "project" | "workers";
+  swmsTitle?: string;
+  notifyOnly?: boolean;
+}): Promise<{
+  error: string | null;
+  created: number;
+  skipped: number;
+  createdWorkerIds: string[];
+}> {
+  try {
+    const response = await fetch("/api/admin/swms/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        swms_id: input.swmsId,
+        worker_ids: input.workerIds ?? [],
+        project_id: input.projectId ?? undefined,
+        assign_all_project_members: Boolean(input.assignAllProjectMembers),
+        mode: input.mode,
+        swms_title: input.swmsTitle,
+        notify_only: Boolean(input.notifyOnly),
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      created?: number;
+      skipped?: number;
+      created_worker_ids?: string[];
+    };
+
+    if (!response.ok) {
+      return {
+        error: payload.error ?? "Failed to assign SWMS.",
+        created: 0,
+        skipped: 0,
+        createdWorkerIds: [],
+      };
+    }
+
+    return {
+      error: null,
+      created: Number(payload.created ?? 0),
+      skipped: Number(payload.skipped ?? 0),
+      createdWorkerIds: Array.isArray(payload.created_worker_ids)
+        ? payload.created_worker_ids
+        : [],
+    };
+  } catch (cause) {
+    return {
+      error: cause instanceof Error ? cause.message : "Failed to assign SWMS.",
+      created: 0,
+      skipped: 0,
+      createdWorkerIds: [],
+    };
+  }
+}
+
 export async function pushSwmsToProject(input: {
   masterSwms: SwmsDocumentSummary;
   projectId: string;
