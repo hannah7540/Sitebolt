@@ -1,91 +1,50 @@
-/** Public asset path for the SiteBolt email banner (under /public). */
-export const EMAIL_BANNER_PATH = "/images/sitebolt-email-banner.png";
+/**
+ * Public Supabase Storage URL for the SiteBolt email signature banner.
+ * Absolute https URL required so Gmail/Outlook can load the image.
+ */
+export const SITEBOLT_EMAIL_BANNER_URL =
+  "https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/public-assets/SiteBold-Email-Banner.jpg";
 
 /** Marker so the team footer is appended at most once. */
 export const TEAM_EMAIL_FOOTER_MARKER = 'data-sitebolt-team-footer="true"';
 
-const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-
-function stripTrailingSlash(value: string): string {
-  return value.replace(/\/$/, "");
-}
-
-function isLocalHostUrl(value: string): boolean {
-  return (
-    value.includes("localhost") ||
-    value.includes("127.0.0.1") ||
-    value.startsWith("http://0.0.0.0")
-  );
-}
-
-/**
- * Absolute origin for email image URLs.
- * Prefers public production host so inboxes can fetch the asset.
- */
-export function getEmailAssetBaseUrl(): string {
-  const candidates = [
-    process.env.NEXT_PUBLIC_APP_URL?.trim(),
-    process.env.NEXT_PUBLIC_SITE_URL?.trim(),
-    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-      : "",
-    process.env.VERCEL_URL?.trim()
-      ? `https://${process.env.VERCEL_URL.trim()}`
-      : "",
-    PRODUCTION_SITE_URL,
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const normalized = stripTrailingSlash(candidate);
-    if (!normalized || isLocalHostUrl(normalized)) continue;
-    return normalized;
-  }
-
-  return PRODUCTION_SITE_URL;
-}
-
-/**
- * Full absolute banner URL for email clients.
- * Optional EMAIL_BANNER_URL overrides app hosting (Supabase Storage / CDN / S3).
- */
+/** Always the public Supabase Storage banner URL. */
 export function getEmailBannerAbsoluteUrl(): string {
-  const override = process.env.EMAIL_BANNER_URL?.trim();
-  if (override && /^https?:\/\//i.test(override)) {
-    return override;
-  }
-
-  return `${getEmailAssetBaseUrl()}${EMAIL_BANNER_PATH}`;
+  return SITEBOLT_EMAIL_BANNER_URL;
 }
 
+/**
+ * Outlook/Gmail-compatible signature footer with hosted banner image.
+ * Applied automatically via sendEmail() and direct Resend invite/reset paths.
+ */
 export function buildTeamEmailFooterHtml(): string {
-  const bannerImageUrl = getEmailBannerAbsoluteUrl();
   return `
-<div ${TEAM_EMAIL_FOOTER_MARKER} style="margin-top: 32px; padding-top: 8px; font-family: Arial, Helvetica, sans-serif;">
-  <p style="margin-top: 24px; margin-bottom: 12px; font-size: 15px; color: #334155; font-weight: 500;">The Site-Bolt Team</p>
-  <!--[if mso]>
-  <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td>
-  <![endif]-->
-  <img
-    src="${bannerImageUrl}"
-    alt="SiteBolt Site Management Software"
-    width="560"
-    style="display: block; width: 100%; max-width: 560px; height: auto; margin: 12px 0; border: 0; outline: none; text-decoration: none;"
-  />
-  <!--[if mso]>
-  </td></tr></table>
-  <![endif]-->
-</div>`.trim();
+<table ${TEAM_EMAIL_FOOTER_MARKER} role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+  <tr>
+    <td>
+      <p style="margin: 0 0 12px 0; font-size: 15px; font-weight: 600; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        The Site-Bolt Team
+      </p>
+      <img
+        src="${SITEBOLT_EMAIL_BANNER_URL}"
+        alt="SiteBolt Site Management Software"
+        width="560"
+        style="display: block; width: 100%; max-width: 560px; height: auto; border: 0; outline: none; text-decoration: none; border-radius: 8px;"
+      />
+    </td>
+  </tr>
+</table>`.trim();
 }
 
 export function buildTeamEmailFooterText(): string {
-  return `\n\nThe Site-Bolt Team\n${getEmailBannerAbsoluteUrl()}\n`;
+  return `\n\nThe Site-Bolt Team\n${SITEBOLT_EMAIL_BANNER_URL}\n`;
 }
 
 export function hasTeamEmailFooter(html: string): boolean {
   return (
     html.includes(TEAM_EMAIL_FOOTER_MARKER) ||
-    html.includes('alt="SiteBolt Site Management Software"')
+    html.includes('alt="SiteBolt Site Management Software"') ||
+    html.includes("SiteBold-Email-Banner.jpg")
   );
 }
 
