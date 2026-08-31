@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import MobileFriendlyPdfViewer from "@/components/ui/MobileFriendlyPdfViewer";
 import {
   getSwmsAssigneeName,
   getSwmsDocumentUrl,
@@ -141,19 +142,10 @@ export default function WorkerSwmsSignModal({
 
         {swmsDocumentUrl ? (
           <div className={sectionClass}>
-            <iframe
-              title={swms?.title ?? "SWMS document"}
-              src={swmsDocumentUrl}
-              className="h-[420px] w-full rounded-lg border border-slate-200 bg-white"
+            <MobileFriendlyPdfViewer
+              documentUrl={swmsDocumentUrl}
+              title={swms?.title ?? "SWMS Document Preview"}
             />
-            <a
-              href={swmsDocumentUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block text-sm font-medium text-orange-600 hover:underline"
-            >
-              Open Document in New Tab
-            </a>
           </div>
         ) : null}
 
