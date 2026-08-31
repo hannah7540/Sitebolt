@@ -189,29 +189,29 @@ export default function ProjectAssignSwmsModal({
     setError(null);
     setSuccess(null);
 
+    // Prefer parent document id over project/relation row id.
+    const selectedDocumentId = String(
+      swms.swms_document_id || swms.swms_id || swms.document_id || swms.id || ""
+    ).trim();
     const relationOrRowId = String(swms.id ?? "").trim();
-    const canonicalSwmsId = resolveSwmsDocumentsId(swms);
+    const canonicalSwmsId =
+      resolveSwmsDocumentsId(swms) || selectedDocumentId;
+
     if (!canonicalSwmsId) {
       setError("This SWMS is missing a valid document id. Refresh and try again.");
       setSaving(false);
       return;
     }
 
-    const linkedDocumentId = [
-      swms.swms_document_id,
-      swms.document_id,
-      swms.swms_id,
-    ]
-      .map((value) => String(value ?? "").trim())
-      .find((value) => value && value !== relationOrRowId);
-
     const swmsHints = {
       id: relationOrRowId || canonicalSwmsId,
       project_swms_id: relationOrRowId || null,
       relation_id: relationOrRowId || null,
-      swms_id: linkedDocumentId || swms.swms_id || null,
-      document_id: linkedDocumentId || swms.document_id || null,
-      swms_document_id: linkedDocumentId || swms.swms_document_id || null,
+      swms_id: swms.swms_id ? String(swms.swms_id).trim() : null,
+      document_id: swms.document_id ? String(swms.document_id).trim() : null,
+      swms_document_id: swms.swms_document_id
+        ? String(swms.swms_document_id).trim()
+        : null,
       project_id: swms.project_id ?? projectId,
       title: swms.title,
     };
@@ -221,7 +221,7 @@ export default function ProjectAssignSwmsModal({
         mode === "all_members"
           ? await assignSwmsWorkersRequest({
               swmsId: relationOrRowId || canonicalSwmsId,
-              swmsDocumentId: canonicalSwmsId,
+              swmsDocumentId: selectedDocumentId || canonicalSwmsId,
               swmsHints,
               workerIds: members.map((worker) => worker.id),
               projectId,
@@ -230,7 +230,7 @@ export default function ProjectAssignSwmsModal({
             })
           : await assignSwmsWorkersRequest({
               swmsId: relationOrRowId || canonicalSwmsId,
-              swmsDocumentId: canonicalSwmsId,
+              swmsDocumentId: selectedDocumentId || canonicalSwmsId,
               swmsHints,
               workerIds: selectedIds,
               projectId,
