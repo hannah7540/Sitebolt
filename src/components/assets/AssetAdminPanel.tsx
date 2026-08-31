@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
+  LASER_TYPE_LABELS,
   addAsset,
   assignAssetToProject,
   buildAssetProjectMap,
@@ -225,8 +226,6 @@ export default function AssetAdminPanel({
   const renderAssetRow = (asset: Asset, type: AssetType) => {
     const projectName = getProjectName(asset) ?? "—";
     const cellClass = "rounded-lg bg-white px-2 py-3 align-middle text-sm text-slate-700";
-    const calibrationOrTest =
-      asset.next_calibration_due_date || asset.next_service_due_date || "—";
 
     if (isMobileDeviceAssetType(type)) {
       return (
@@ -241,17 +240,39 @@ export default function AssetAdminPanel({
       );
     }
 
-    if (type === "laser" || type === "pressure_gauge") {
+    if (type === "laser") {
       return (
         <tr key={asset.id} className="align-top">
           <td className={cn(cellClass, "font-semibold text-slate-900")}>
-            {asset.serial_number || asset.asset_number || "—"}
+            {asset.asset_number || "—"}
           </td>
-          <td className={cellClass}>{calibrationOrTest}</td>
+          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
           <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>{asset.make || "—"}</td>
+          <td className={cellClass}>{asset.model || "—"}</td>
+          <td className={cellClass}>{asset.serial_number || "—"}</td>
           <td className={cellClass}>
-            <StatusBadge status={asset.status} />
+            {asset.laser_type ? LASER_TYPE_LABELS[asset.laser_type] : "—"}
           </td>
+          <td className={cellClass}>{asset.next_service_due_date || "—"}</td>
+          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
+    if (type === "pressure_gauge") {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.asset_number || "—"}
+          </td>
+          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
+          <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>{asset.make || "—"}</td>
+          <td className={cellClass}>{asset.model || "—"}</td>
+          <td className={cellClass}>{asset.serial_number || "—"}</td>
+          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
           <td className={cellClass}>{renderActionButtons(asset)}</td>
         </tr>
       );

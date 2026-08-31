@@ -154,6 +154,7 @@ export function getAssetReferenceLabel(type: AssetType | string): string {
   const normalized = normalizeAssetType(type);
   if (normalized === "laptop") return "Laptop Ref";
   if (normalized === "ipad") return "iPad Ref";
+  if (normalized === "laser" || normalized === "pressure_gauge") return "Ref #";
   if (normalized === "assigned_accounts") return "Account Reference";
   return "Asset #";
 }
@@ -193,18 +194,26 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
       return ["iPad Ref", "Assigned Worker", "Assigned Project", "Actions"];
     case "laser":
       return [
-        "Serial Number",
-        "Calibration / Test Date",
+        "Ref #",
+        "Assigned Worker",
         "Assigned Project",
-        "Status",
+        "Make",
+        "Model",
+        "Serial #",
+        "Type",
+        "Next Service",
+        "Next Calibration",
         "Actions",
       ];
     case "pressure_gauge":
       return [
-        "Serial Number",
-        "Calibration Date",
+        "Ref #",
+        "Assigned Worker",
         "Assigned Project",
-        "Status",
+        "Make",
+        "Model",
+        "Serial #",
+        "Next Calibration",
         "Actions",
       ];
     case "assigned_accounts":
@@ -236,7 +245,6 @@ function nullIfBlankUuid(value: string | null | undefined): string | null {
 function resolveAssetDisplayName(input: AssetInput): string {
   const type = input.asset_type;
   const singular = ASSET_TYPE_SINGULAR_LABELS[type] ?? "Asset";
-  const stamp = Date.now().toString().slice(-4);
 
   if (isMobileDeviceAssetType(type)) {
     return (
@@ -247,10 +255,10 @@ function resolveAssetDisplayName(input: AssetInput): string {
   }
   if (assetTypeHidesNameField(type)) {
     return (
-      input.serial_number?.trim() ||
       input.asset_number.trim() ||
+      input.serial_number?.trim() ||
       input.name?.trim() ||
-      `${singular} #${stamp}`
+      "Asset"
     );
   }
   if (isAssignedAccountsAssetType(type)) {
@@ -330,7 +338,9 @@ export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
 function normalizeAsset(row: Record<string, unknown>): Asset {
   return {
     id: String(row.id ?? ""),
-    asset_number: String(row.asset_number ?? ""),
+    asset_number: String(
+      row.asset_number ?? row.reference_number ?? row.ref_number ?? ""
+    ),
     name: String(row.name ?? ""),
     asset_type: normalizeAssetType(row.asset_type ?? row.category),
     category: String(row.category ?? row.asset_type ?? "").trim() || null,
@@ -338,8 +348,14 @@ function normalizeAsset(row: Record<string, unknown>): Asset {
     model: (row.model as string | null) ?? null,
     serial_number: (row.serial_number as string | null) ?? null,
     status: (row.status as AssetStatus) ?? "active",
-    next_service_due_date: (row.next_service_due_date as string | null) ?? null,
-    next_calibration_due_date: (row.next_calibration_due_date as string | null) ?? null,
+    next_service_due_date:
+      (row.next_service_due_date as string | null) ??
+      (row.next_service_date as string | null) ??
+      null,
+    next_calibration_due_date:
+      (row.next_calibration_due_date as string | null) ??
+      (row.next_calibration_date as string | null) ??
+      null,
     assigned_project_id:
       (row.assigned_project_id as string | null) ??
       (row.project_id as string | null) ??
@@ -352,7 +368,10 @@ function normalizeAsset(row: Record<string, unknown>): Asset {
       ? String(row.assigned_worker_id)
       : null,
     assigned_worker_ids: normalizeWorkerIdArray(row.assigned_worker_ids),
-    laser_type: normalizeLaserType(row.laser_type),
+    laser_type: normalizeLaserType(
+      row.laser_type ??
+        (row.is_pipe === true ? "pipe" : row.is_rotating === true ? "rotating" : null)
+    ),
     account_name: (row.account_name as string | null) ?? null,
     account_reference: (row.account_reference as string | null) ?? null,
     service_contact_name: (row.service_contact_name as string | null) ?? null,
@@ -586,12 +605,17 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
   if (type === "laser") {
     return sanitizeWritePayload({
       ...base,
+      ref_number: assetNumber,
       make: nullIfBlank(input.make),
       model: nullIfBlank(input.model),
       serial_number: nullIfBlank(input.serial_number),
       laser_type: input.laser_type ?? null,
+      is_pipe: input.laser_type === "pipe",
+      is_rotating: input.laser_type === "rotating",
       next_service_due_date: serviceDate,
+      next_service_date: serviceDate,
       next_calibration_due_date: calibrationDate,
+      next_calibration_date: calibrationDate,
       service_contact_name: nullIfBlank(input.service_contact_name),
       service_contact_company: nullIfBlank(input.service_contact_company),
       service_contact_phone: nullIfBlank(input.service_contact_phone),
@@ -606,12 +630,17 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
   // pressure_gauge and any other calibrated equipment
   return sanitizeWritePayload({
     ...base,
+    ref_number: assetNumber,
     make: nullIfBlank(input.make),
     model: nullIfBlank(input.model),
     serial_number: nullIfBlank(input.serial_number),
     laser_type: null,
+    is_pipe: null,
+    is_rotating: null,
     next_service_due_date: null,
+    next_service_date: null,
     next_calibration_due_date: calibrationDate,
+    next_calibration_date: calibrationDate,
     service_contact_name: nullIfBlank(input.service_contact_name),
     service_contact_company: nullIfBlank(input.service_contact_company),
     service_contact_phone: nullIfBlank(input.service_contact_phone),
@@ -645,7 +674,6 @@ export function buildAssetInputFromForm(values: {
   serviceContactEmail: string;
 }): AssetInput {
   const singular = ASSET_TYPE_SINGULAR_LABELS[values.assetType];
-  const stamp = Date.now().toString().slice(-4);
   const generatedNumber = generateUniqueAssetNumber(values.assetType);
 
   if (isMobileDeviceAssetType(values.assetType)) {
@@ -703,8 +731,7 @@ export function buildAssetInputFromForm(values: {
 
   const serial = values.serialNumber.trim();
   const assetNumber = values.assetNumber.trim() || generatedNumber;
-  // name = serial_number || `${category} #xxxx`
-  const name = serial || `${singular} #${stamp}`;
+  const name = values.assetNumber.trim() || serial || "Asset";
 
   return {
     asset_type: values.assetType,
@@ -747,6 +774,11 @@ const OPTIONAL_ASSET_COLUMNS = [
   "model",
   "serial_number",
   "reference_number",
+  "ref_number",
+  "next_service_date",
+  "next_calibration_date",
+  "is_pipe",
+  "is_rotating",
   "vendor_id",
   "updated_at",
 ] as const;
