@@ -4334,6 +4334,116 @@ async function insertSwmsAssignmentRows(
   return { error: "Failed to insert SWMS assignments." };
 }
 
+async function ensureSwmsDocumentsParentClient(
+  swmsId: string
+): Promise<{ swmsId: string | null; error: string | null }> {
+  if (!isValidSwmsId(swmsId)) {
+    return {
+      swmsId: null,
+      error: "A valid SWMS document UUID is required before creating assignments.",
+    };
+  }
+
+  const { data: documentsRow, error: documentsError } = await supabase
+    .from("swms_documents")
+    .select("id")
+    .eq("id", swmsId)
+    .maybeSingle();
+
+  if (documentsError && !isMissingSwmsTableError(documentsError.message, "swms_documents")) {
+    return { swmsId: null, error: documentsError.message };
+  }
+
+  if (documentsRow && String((documentsRow as { id?: string }).id ?? "") === swmsId) {
+    return { swmsId, error: null };
+  }
+
+  const { data: legacyRow, error: legacyError } = await supabase
+    .from("swms")
+    .select("*")
+    .eq("id", swmsId)
+    .maybeSingle();
+
+  if (legacyError && !isMissingSwmsTableError(legacyError.message, "swms")) {
+    return { swmsId: null, error: legacyError.message };
+  }
+
+  if (!legacyRow) {
+    console.error(
+      "[swms-assign] client: swms_id missing from swms_documents and swms:",
+      swmsId
+    );
+    return {
+      swmsId: null,
+      error: `SWMS document was not found (id=${swmsId}). Refresh and try again.`,
+    };
+  }
+
+  const row = legacyRow as Record<string, unknown>;
+  const title = String(row.title ?? "").trim() || "Untitled SWMS";
+  const documentDate =
+    String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
+    new Date().toISOString().slice(0, 10);
+  const fileUrl = String(
+    row.file_url ?? row.doc_url ?? row.document_url ?? ""
+  ).trim();
+  if (!fileUrl) {
+    return {
+      swmsId: null,
+      error:
+        "Cannot sync SWMS into swms_documents: the legacy row is missing a document file URL.",
+    };
+  }
+
+  const projectId = row.project_id ? String(row.project_id).trim() : "";
+  const scopeRaw = String(row.swms_scope ?? "").trim();
+  const scope =
+    scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
+
+  const mirrorPayload: Record<string, string | boolean> = {
+    id: swmsId,
+    title,
+    document_date: documentDate,
+    issue_date: documentDate,
+    date: documentDate,
+    file_url: fileUrl,
+    doc_url: fileUrl,
+    document_url: fileUrl,
+    is_archived: Boolean(row.is_archived),
+    status: String(row.status ?? "Active"),
+    swms_scope: scope,
+    version: String(row.version ?? "1.0"),
+  };
+  if (scope === "site_specific" && projectId) {
+    mirrorPayload.project_id = projectId;
+  }
+  if (row.file_name) mirrorPayload.file_name = String(row.file_name);
+
+  console.info("[swms-assign] client mirroring legacy swms into swms_documents:", swmsId);
+  const { error: mirrorError } = await insertSwmsRow("swms_documents", mirrorPayload, {
+    requiredColumns:
+      scope === "site_specific" ? SWMS_SITE_SPECIFIC_REQUIRED_COLUMNS : undefined,
+  });
+
+  if (mirrorError && !isMissingSwmsTableError(mirrorError, "swms_documents")) {
+    const lower = mirrorError.toLowerCase();
+    if (
+      !(
+        lower.includes("duplicate key") ||
+        lower.includes("unique constraint") ||
+        lower.includes("already exists")
+      )
+    ) {
+      return {
+        swmsId: null,
+        error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrorError}).`,
+      };
+    }
+  }
+
+  return { swmsId, error: null };
+}
+
 export async function insertSwmsAssignmentRecords(input: {
   swmsId: string;
   workerAssignments: Array<{ id: string; name: string; signingToken: string }>;
@@ -4347,7 +4457,12 @@ export async function insertSwmsAssignmentRecords(input: {
   }
 
   try {
-    const swmsId = input.swmsId.trim();
+    const parent = await ensureSwmsDocumentsParentClient(input.swmsId.trim());
+    if (parent.error || !parent.swmsId) {
+      return { error: parent.error ?? "SWMS document parent is missing." };
+    }
+
+    const swmsId = parent.swmsId;
     const rows = [
       ...input.workerAssignments.map((worker) =>
         buildSwmsAssignmentInsertPayload({

@@ -35,8 +35,23 @@ export async function POST(request: Request) {
 
   const swmsId = body.swms_id?.trim();
   if (!swmsId || !isValidSwmsId(swmsId)) {
-    return NextResponse.json({ error: "swms_id is required." }, { status: 400 });
+    console.error("[swms-assign] reject request — invalid swms_id:", body.swms_id);
+    return NextResponse.json(
+      {
+        error:
+          "swms_id must be a valid UUID referencing swms_documents.id (not a project id or template slug).",
+      },
+      { status: 400 }
+    );
   }
+
+  console.info("[swms-assign] request", {
+    swms_id: swmsId,
+    mode: body.mode,
+    project_id: body.project_id,
+    worker_count: Array.isArray(body.worker_ids) ? body.worker_ids.length : 0,
+    notify_only: Boolean(body.notify_only),
+  });
 
   const projectId = body.project_id?.trim() || undefined;
   const mode =

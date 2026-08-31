@@ -240,6 +240,146 @@ export type SwmsAssignResult = {
   skipped: number;
 };
 
+/**
+ * `swms_assignments.swms_id` references `swms_documents(id)`.
+ * List UIs merge legacy `swms` rows, so an id may exist only there.
+ * Ensure a matching `swms_documents` parent exists before inserting assignments.
+ */
+export async function ensureSwmsDocumentsParentAdmin(
+  admin: SupabaseClient,
+  rawSwmsId: string
+): Promise<{ swmsId: string | null; error: string | null }> {
+  const swmsId = String(rawSwmsId ?? "").trim();
+  if (!isValidSwmsId(swmsId)) {
+    console.error("[swms-assign] invalid swms_id before assignment:", rawSwmsId);
+    return {
+      swmsId: null,
+      error: "A valid SWMS document UUID is required before assigning workers.",
+    };
+  }
+
+  const { data: documentsRow, error: documentsError } = await admin
+    .from("swms_documents")
+    .select("id")
+    .eq("id", swmsId)
+    .maybeSingle();
+
+  if (documentsError) {
+    const lower = documentsError.message.toLowerCase();
+    if (
+      !(
+        lower.includes("does not exist") ||
+        lower.includes("schema cache") ||
+        lower.includes("could not find")
+      )
+    ) {
+      return { swmsId: null, error: documentsError.message };
+    }
+  }
+
+  if (documentsRow && String((documentsRow as { id?: string }).id ?? "") === swmsId) {
+    return { swmsId, error: null };
+  }
+
+  const { data: legacyRow, error: legacyError } = await admin
+    .from("swms")
+    .select("*")
+    .eq("id", swmsId)
+    .maybeSingle();
+
+  if (legacyError) {
+    const lower = legacyError.message.toLowerCase();
+    if (
+      !(
+        lower.includes("does not exist") ||
+        lower.includes("schema cache") ||
+        lower.includes("could not find")
+      )
+    ) {
+      return { swmsId: null, error: legacyError.message };
+    }
+  }
+
+  if (!legacyRow) {
+    console.error(
+      "[swms-assign] swms_id missing from swms_documents and swms:",
+      swmsId
+    );
+    return {
+      swmsId: null,
+      error: `SWMS document was not found (id=${swmsId}). Refresh the list and try again.`,
+    };
+  }
+
+  const row = legacyRow as Record<string, unknown>;
+  const title = String(row.title ?? "").trim() || "Untitled SWMS";
+  const documentDate =
+    String(row.document_date ?? row.issue_date ?? row.date ?? "").trim() ||
+    new Date().toISOString().slice(0, 10);
+  const fileUrl = String(
+    row.file_url ?? row.doc_url ?? row.document_url ?? ""
+  ).trim();
+
+  if (!fileUrl) {
+    return {
+      swmsId: null,
+      error:
+        "Cannot sync SWMS into swms_documents: the legacy row is missing a document file URL.",
+    };
+  }
+
+  const projectId = row.project_id ? String(row.project_id).trim() : "";
+  const scopeRaw = String(row.swms_scope ?? "").trim();
+  const scope =
+    scopeRaw === "site_specific" || projectId ? "site_specific" : "company";
+
+  const mirrorPayload: Record<string, string | boolean> = {
+    id: swmsId,
+    title,
+    document_date: documentDate,
+    issue_date: documentDate,
+    date: documentDate,
+    file_url: fileUrl,
+    doc_url: fileUrl,
+    document_url: fileUrl,
+    is_archived: Boolean(row.is_archived),
+    status: String(row.status ?? "Active"),
+    swms_scope: scope,
+    version: String(row.version ?? "1.0"),
+  };
+  if (scope === "site_specific" && projectId) {
+    mirrorPayload.project_id = projectId;
+  }
+  if (row.file_name) mirrorPayload.file_name = String(row.file_name);
+
+  console.info("[swms-assign] mirroring legacy swms row into swms_documents:", swmsId);
+  const mirrored = await insertSwmsRowAdmin(admin, "swms_documents", mirrorPayload);
+  if (mirrored.error) {
+    const lower = mirrored.error.toLowerCase();
+    if (
+      lower.includes("duplicate key") ||
+      lower.includes("unique constraint") ||
+      lower.includes("already exists")
+    ) {
+      return { swmsId, error: null };
+    }
+
+    const { data: again } = await admin
+      .from("swms_documents")
+      .select("id")
+      .eq("id", swmsId)
+      .maybeSingle();
+    if (again?.id) return { swmsId, error: null };
+
+    return {
+      swmsId: null,
+      error: `Cannot assign workers: failed to sync SWMS into swms_documents (${mirrored.error}).`,
+    };
+  }
+
+  return { swmsId, error: null };
+}
+
 async function createSwmsAssignmentsAdmin(
   admin: SupabaseClient,
   swmsId: string,
@@ -248,6 +388,17 @@ async function createSwmsAssignmentsAdmin(
   if (!isValidSwmsId(swmsId) || workerIds.length === 0) {
     return { error: null, created: 0, createdWorkerIds: [], skipped: 0 };
   }
+
+  const parent = await ensureSwmsDocumentsParentAdmin(admin, swmsId);
+  if (parent.error || !parent.swmsId) {
+    return {
+      error: parent.error ?? "SWMS document parent is missing.",
+      created: 0,
+      createdWorkerIds: [],
+      skipped: 0,
+    };
+  }
+  const canonicalSwmsId = parent.swmsId;
 
   const uniqueIds = Array.from(new Set(workerIds.map((id) => id.trim()).filter(Boolean)));
   const { data: workers, error: workersError } = await admin
@@ -271,7 +422,7 @@ async function createSwmsAssignmentsAdmin(
   const { data: existing, error: existingError } = await admin
     .from("swms_assignments")
     .select("assignee_id")
-    .eq("swms_id", swmsId)
+    .eq("swms_id", canonicalSwmsId)
     .eq("assignee_type", "worker");
 
   if (existingError) {
@@ -295,7 +446,7 @@ async function createSwmsAssignmentsAdmin(
     const name = worker ? resolveWorkerDisplayName(worker) : "Worker";
     const token = createSwmsSigningToken();
     return {
-      swms_id: swmsId,
+      swms_id: canonicalSwmsId,
       assignee_type: "worker",
       assignee_id: workerId,
       worker_id: workerId,
@@ -312,6 +463,11 @@ async function createSwmsAssignmentsAdmin(
   if (rows.length === 0) {
     return { error: null, created: 0, createdWorkerIds: [], skipped };
   }
+
+  console.info(
+    "[swms-assign] inserting assignments",
+    { swms_id: canonicalSwmsId, count: rows.length }
+  );
 
   const optionalColumns = [
     "worker_name",
@@ -346,6 +502,18 @@ async function createSwmsAssignmentsAdmin(
         created: 0,
         createdWorkerIds: [],
         skipped: uniqueIds.length,
+      };
+    }
+
+    if (
+      lower.includes("swms_assignments_swms_id_fkey") ||
+      (lower.includes("foreign key") && lower.includes("swms_id"))
+    ) {
+      return {
+        error: `Invalid swms_id for assignment (must reference swms_documents.id). Received: ${canonicalSwmsId}`,
+        created: 0,
+        createdWorkerIds: [],
+        skipped,
       };
     }
 
@@ -480,7 +648,23 @@ export async function createSwmsDocumentAdmin(
     }
     resolvedRow = documentsOnly.data;
   } else {
-    await insertSwmsRowAdmin(admin, "swms_documents", { id: swmsId, ...payload });
+    const mirrored = await insertSwmsRowAdmin(admin, "swms_documents", {
+      id: swmsId,
+      ...payload,
+    });
+    if (mirrored.error) {
+      const lower = mirrored.error.toLowerCase();
+      const duplicate =
+        lower.includes("duplicate key") ||
+        lower.includes("unique constraint") ||
+        lower.includes("already exists");
+      if (!duplicate) {
+        return {
+          swms: null,
+          error: `SWMS saved to swms but failed to mirror into swms_documents: ${mirrored.error}`,
+        };
+      }
+    }
   }
 
   let workerIds = input.workerIds ?? [];
@@ -598,20 +782,25 @@ export async function assignSwmsWorkersAdmin(
     projectId?: string | null;
   }
 ): Promise<SwmsAssignResult> {
-  if (!isValidSwmsId(input.swmsId)) {
+  const resolvedParent = await ensureSwmsDocumentsParentAdmin(admin, input.swmsId);
+  if (resolvedParent.error || !resolvedParent.swmsId) {
     return {
-      error: "A valid SWMS document id is required.",
+      error:
+        resolvedParent.error ??
+        "A valid SWMS document id is required.",
       created: 0,
       createdWorkerIds: [],
       skipped: 0,
     };
   }
 
+  const swmsId = resolvedParent.swmsId;
+
   if (input.projectId?.trim()) {
     const { error: projectError } = await admin
       .from("swms_documents")
       .update({ project_id: input.projectId.trim(), updated_at: new Date().toISOString() })
-      .eq("id", input.swmsId);
+      .eq("id", swmsId);
 
     if (projectError) {
       const lower = projectError.message.toLowerCase();
@@ -628,10 +817,10 @@ export async function assignSwmsWorkersAdmin(
     await admin
       .from("swms")
       .update({ project_id: input.projectId.trim(), updated_at: new Date().toISOString() })
-      .eq("id", input.swmsId);
+      .eq("id", swmsId);
   }
 
-  return createSwmsAssignmentsAdmin(admin, input.swmsId, input.workerIds);
+  return createSwmsAssignmentsAdmin(admin, swmsId, input.workerIds);
 }
 
 export async function fetchWorkerSwmsAssignmentsAdmin(

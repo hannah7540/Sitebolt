@@ -12,6 +12,7 @@ import {
   assignSwmsWorkersRequest,
   pushSwmsToProject,
   resolveSwmsScope,
+  resolveSwmsTargetId,
   type SwmsDocumentSummary,
 } from "@/lib/swms";
 import { notifySwmsAssignmentsClientSide } from "@/lib/swms-assignment-notify-client";
@@ -77,6 +78,13 @@ export default function AssignSwmsToProjectModal({
     setError(null);
     setSuccess(null);
 
+    const canonicalSwmsId = resolveSwmsTargetId(swms) || swms.id?.trim() || "";
+    if (!canonicalSwmsId) {
+      setError("This SWMS is missing a valid document id. Refresh and try again.");
+      setSaving(false);
+      return;
+    }
+
     try {
       if (mode === "full_project") {
         if (!projectId.trim()) {
@@ -111,9 +119,18 @@ export default function AssignSwmsToProjectModal({
             return;
           }
 
+          const createdSwmsId =
+            resolveSwmsTargetId(document) || document.id?.trim() || "";
+          if (!createdSwmsId) {
+            setError(
+              "Push succeeded but the site-specific SWMS id was missing. Refresh and assign workers manually."
+            );
+            return;
+          }
+
           notifySwmsAssignmentsClientSide(projectWorkers.map((w) => w.id));
           void assignSwmsWorkersRequest({
-            swmsId: document.id,
+            swmsId: createdSwmsId,
             workerIds: projectWorkers.map((w) => w.id),
             notifyOnly: true,
             swmsTitle: swms.title,
@@ -130,7 +147,7 @@ export default function AssignSwmsToProjectModal({
         }
 
         const result = await assignSwmsWorkersRequest({
-          swmsId: swms.id,
+          swmsId: canonicalSwmsId,
           projectId,
           assignAllProjectMembers: true,
           mode: "project",
@@ -165,7 +182,7 @@ export default function AssignSwmsToProjectModal({
       }
 
       const result = await assignSwmsWorkersRequest({
-        swmsId: swms.id,
+        swmsId: canonicalSwmsId,
         workerIds: selectedWorkerIds,
         projectId: linkedProjectId || undefined,
         mode: "workers",

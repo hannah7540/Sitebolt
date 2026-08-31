@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, Send, Users, UserRound, X } from "lucide-react";
 import {
   assignSwmsWorkersRequest,
+  resolveSwmsTargetId,
   type SwmsDocumentSummary,
 } from "@/lib/swms";
 import { notifySwmsAssignmentsClientSide } from "@/lib/swms-assignment-notify-client";
@@ -188,11 +189,18 @@ export default function ProjectAssignSwmsModal({
     setError(null);
     setSuccess(null);
 
+    const canonicalSwmsId = resolveSwmsTargetId(swms) || swms.id?.trim() || "";
+    if (!canonicalSwmsId) {
+      setError("This SWMS is missing a valid document id. Refresh and try again.");
+      setSaving(false);
+      return;
+    }
+
     try {
       const result =
         mode === "all_members"
           ? await assignSwmsWorkersRequest({
-              swmsId: swms.id,
+              swmsId: canonicalSwmsId,
               // Prefer explicit ids from the resolved member list so assignment
               // works even if server-side project lookup differs.
               workerIds: members.map((worker) => worker.id),
@@ -201,7 +209,7 @@ export default function ProjectAssignSwmsModal({
               swmsTitle: swms.title,
             })
           : await assignSwmsWorkersRequest({
-              swmsId: swms.id,
+              swmsId: canonicalSwmsId,
               workerIds: selectedIds,
               projectId,
               mode: "workers",
