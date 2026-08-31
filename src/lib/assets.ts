@@ -26,11 +26,16 @@ export type AssetType =
 
 export type AssetStatus = "active" | "in_service_calibration";
 
+/** Active Asset Management categories — never include General Equipment. */
 export const ASSET_TYPES: AssetType[] = [
   "laptop",
   "ipad",
   "laser",
   "pressure_gauge",
+];
+
+const KNOWN_ASSET_TYPES: AssetType[] = [
+  ...ASSET_TYPES,
   "assigned_accounts",
   "general_equipment",
 ];
@@ -62,24 +67,26 @@ const LEGACY_ASSET_TYPE_ALIASES: Record<string, AssetType> = {
   "pressure gauges": "pressure_gauge",
   "pressure gauge": "pressure_gauge",
   "assigned accounts": "assigned_accounts",
-  "general equipment": "general_equipment",
-  equipment: "general_equipment",
-  general: "general_equipment",
 };
 
 export function isAssetType(value: string): value is AssetType {
+  return (KNOWN_ASSET_TYPES as readonly string[]).includes(value);
+}
+
+export function isManagedAssetType(value: string): value is AssetType {
   return (ASSET_TYPES as readonly string[]).includes(value);
 }
 
 export function normalizeAssetType(value: unknown): AssetType {
   const raw = String(value ?? "").trim();
-  if (!raw) return "general_equipment";
+  if (!raw) return "laptop";
+  if (isManagedAssetType(raw)) return raw;
   if (isAssetType(raw)) return raw;
   const aliased = LEGACY_ASSET_TYPE_ALIASES[raw.toLowerCase()];
   if (aliased) return aliased;
   const slug = raw.toLowerCase().replace(/[\s-]+/g, "_");
-  if (isAssetType(slug)) return slug;
-  return "general_equipment";
+  if (isManagedAssetType(slug) || isAssetType(slug)) return slug as AssetType;
+  return "laptop";
 }
 
 export function getAssetTypeLabel(type: string): string {
@@ -107,10 +114,6 @@ export function isAssignedAccountsAssetType(type: AssetType): boolean {
   return type === "assigned_accounts";
 }
 
-export function isGeneralEquipmentAssetType(type: AssetType | string): boolean {
-  return normalizeAssetType(type) === "general_equipment";
-}
-
 export function getAssetCategoryPrefix(type: AssetType | string): string {
   switch (normalizeAssetType(type)) {
     case "laptop":
@@ -123,8 +126,6 @@ export function getAssetCategoryPrefix(type: AssetType | string): string {
       return "PG";
     case "assigned_accounts":
       return "ACC";
-    case "general_equipment":
-      return "EQ";
     default:
       return "AST";
   }
@@ -218,8 +219,6 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
       ];
     case "assigned_accounts":
       return ["Account Name", "Account Reference", "Assigned To", "Actions"];
-    case "general_equipment":
-      return ["Asset #", "Name", "Assigned Project", "Status", "Actions"];
     default:
       return ["Asset", "Actions"];
   }
@@ -287,6 +286,7 @@ export function groupAssetsByType(assets: Asset[]): Record<AssetType, Asset[]> {
 
   for (const asset of assets) {
     const type = normalizeAssetType(asset.asset_type);
+    if (!isManagedAssetType(type)) continue;
     groups[type].push({ ...asset, asset_type: type });
   }
 
@@ -550,26 +550,6 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     });
   }
 
-  if (isGeneralEquipmentAssetType(type)) {
-    return sanitizeWritePayload({
-      ...base,
-      make: nullIfBlank(input.make),
-      model: nullIfBlank(input.model),
-      serial_number: nullIfBlank(input.serial_number),
-      assigned_worker_id: workerId,
-      assigned_worker_ids: [],
-      laser_type: null,
-      account_name: null,
-      account_reference: null,
-      next_service_due_date: nullIfBlankDate(input.next_service_due_date),
-      next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
-      service_contact_name: nullIfBlank(input.service_contact_name),
-      service_contact_company: nullIfBlank(input.service_contact_company),
-      service_contact_phone: nullIfBlank(input.service_contact_phone),
-      service_contact_email: nullIfBlank(input.service_contact_email),
-    });
-  }
-
   if (type === "assigned_accounts") {
     const accountName =
       nullIfBlank(input.account_name) || displayName || ASSET_TYPE_SINGULAR_LABELS.assigned_accounts;
@@ -688,23 +668,6 @@ export function buildAssetInputFromForm(values: {
       make: undefined,
       model: undefined,
       serial_number: undefined,
-      assigned_worker_id: values.assignedWorkerId || null,
-      assigned_project_id: values.assignedProjectId || null,
-      project_id: values.assignedProjectId || null,
-    };
-  }
-
-  if (isGeneralEquipmentAssetType(values.assetType)) {
-    const ref = values.assetNumber.trim() || generatedNumber;
-    return {
-      asset_type: values.assetType,
-      category: values.assetType,
-      asset_number: ref,
-      name: values.name.trim() || ref || singular,
-      status: values.status ?? "active",
-      make: values.make,
-      model: values.model,
-      serial_number: values.serialNumber || undefined,
       assigned_worker_id: values.assignedWorkerId || null,
       assigned_project_id: values.assignedProjectId || null,
       project_id: values.assignedProjectId || null,

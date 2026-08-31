@@ -278,22 +278,6 @@ export default function AssetAdminPanel({
       );
     }
 
-    if (type === "general_equipment") {
-      return (
-        <tr key={asset.id} className="align-top">
-          <td className={cn(cellClass, "font-semibold text-slate-900")}>
-            {asset.asset_number || "—"}
-          </td>
-          <td className={cellClass}>{asset.name || "—"}</td>
-          <td className={cellClass}>{projectName}</td>
-          <td className={cellClass}>
-            <StatusBadge status={asset.status} />
-          </td>
-          <td className={cellClass}>{renderActionButtons(asset)}</td>
-        </tr>
-      );
-    }
-
     if (isAssignedAccountsAssetType(type)) {
       return (
         <tr key={asset.id} className="align-top">
@@ -322,7 +306,7 @@ export default function AssetAdminPanel({
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-orange-500">Organisation Assets</h1>
         <p className="text-sm text-slate-500">
-          Company-wide asset register grouped by type — laptops, iPads, lasers, pressure gauges, and assigned accounts.
+          Company-wide asset register grouped by type — laptops, iPads, lasers, and pressure gauges.
         </p>
       </div>
 

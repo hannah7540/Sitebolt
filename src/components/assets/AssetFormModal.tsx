@@ -11,7 +11,7 @@ import {
   buildAssetInputFromForm,
   getAssetReferenceLabel,
   isAssignedAccountsAssetType,
-  isGeneralEquipmentAssetType,
+  isManagedAssetType,
   isMobileDeviceAssetType,
   validateAssetInput,
   type Asset,
@@ -36,7 +36,11 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const isEdit = Boolean(asset);
   const [assetNumber, setAssetNumber] = useState(asset?.asset_number ?? "");
   const [name, setName] = useState(asset?.name ?? "");
-  const [assetType, setAssetType] = useState<AssetType>(asset?.asset_type ?? "laptop");
+  const [assetType, setAssetType] = useState<AssetType>(
+    asset?.asset_type && isManagedAssetType(asset.asset_type)
+      ? asset.asset_type
+      : "laptop"
+  );
   const [status, setStatus] = useState<AssetStatus>(asset?.status ?? "active");
   const [make, setMake] = useState(asset?.make ?? "");
   const [model, setModel] = useState(asset?.model ?? "");
@@ -93,7 +97,6 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const showGaugeFields = assetType === "pressure_gauge";
   const showAccountFields = isAssignedAccountsAssetType(assetType);
   const showCalibratedFields = showLaserFields || showGaugeFields;
-  const showGeneralFields = isGeneralEquipmentAssetType(assetType);
   const referenceLabel = getAssetReferenceLabel(assetType);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -243,94 +246,6 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 selected={assignedWorkerIds}
                 onChange={setAssignedWorkerIds}
                 disabled={saving || workersLoading}
-              />
-            </div>
-          ) : null}
-
-          {showGeneralFields ? (
-            <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={labelClass}>Asset #</label>
-                  <input
-                    value={assetNumber}
-                    onChange={(e) => setAssetNumber(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Name</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className={labelClass}>Make</label>
-                  <input
-                    value={make}
-                    onChange={(e) => setMake(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Model</label>
-                  <input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Serial Number</label>
-                  <input
-                    value={serialNumber}
-                    onChange={(e) => setSerialNumber(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="general-asset-status">
-                  Status
-                </label>
-                <select
-                  id="general-asset-status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as AssetStatus)}
-                  className={inputClass}
-                  disabled={saving}
-                >
-                  {(Object.keys(ASSET_STATUS_LABELS) as AssetStatus[]).map((value) => (
-                    <option key={value} value={value}>
-                      {ASSET_STATUS_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <WorkerSearchSelect
-                mode="single"
-                id="general-assigned-worker"
-                label="Assigned Worker"
-                workers={workers}
-                selected={assignedWorkerId}
-                onChange={setAssignedWorkerId}
-                disabled={saving || workersLoading}
-                allowClear
-                unassignedOptionLabel="Unassigned"
-              />
-              <ProjectSelect
-                label="Assigned Project"
-                value={assignedProjectId}
-                onChange={setAssignedProjectId}
               />
             </div>
           ) : null}
