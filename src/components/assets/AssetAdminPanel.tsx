@@ -257,6 +257,22 @@ export default function AssetAdminPanel({
       );
     }
 
+    if (type === "general_equipment") {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.asset_number || "—"}
+          </td>
+          <td className={cellClass}>{asset.name || "—"}</td>
+          <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>
+            <StatusBadge status={asset.status} />
+          </td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
     if (isAssignedAccountsAssetType(type)) {
       return (
         <tr key={asset.id} className="align-top">

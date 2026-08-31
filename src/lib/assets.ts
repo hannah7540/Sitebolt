@@ -21,7 +21,8 @@ export type AssetType =
   | "ipad"
   | "laser"
   | "pressure_gauge"
-  | "assigned_accounts";
+  | "assigned_accounts"
+  | "general_equipment";
 
 export type AssetStatus = "active" | "in_service_calibration";
 
@@ -31,6 +32,7 @@ export const ASSET_TYPES: AssetType[] = [
   "laser",
   "pressure_gauge",
   "assigned_accounts",
+  "general_equipment",
 ];
 
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
@@ -39,6 +41,7 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   laser: "Lasers",
   pressure_gauge: "Pressure Gauges",
   assigned_accounts: "Assigned Accounts",
+  general_equipment: "General Equipment",
 };
 
 /** Singular labels used for auto-generated fallback names. */
@@ -48,10 +51,20 @@ export const ASSET_TYPE_SINGULAR_LABELS: Record<AssetType, string> = {
   laser: "Laser",
   pressure_gauge: "Pressure Gauge",
   assigned_accounts: "Account",
+  general_equipment: "Equipment",
 };
 
 const LEGACY_ASSET_TYPE_ALIASES: Record<string, AssetType> = {
   site_laser: "laser",
+  lasers: "laser",
+  laptops: "laptop",
+  ipads: "ipad",
+  "pressure gauges": "pressure_gauge",
+  "pressure gauge": "pressure_gauge",
+  "assigned accounts": "assigned_accounts",
+  "general equipment": "general_equipment",
+  equipment: "general_equipment",
+  general: "general_equipment",
 };
 
 export function isAssetType(value: string): value is AssetType {
@@ -60,9 +73,13 @@ export function isAssetType(value: string): value is AssetType {
 
 export function normalizeAssetType(value: unknown): AssetType {
   const raw = String(value ?? "").trim();
+  if (!raw) return "general_equipment";
   if (isAssetType(raw)) return raw;
-  if (LEGACY_ASSET_TYPE_ALIASES[raw]) return LEGACY_ASSET_TYPE_ALIASES[raw];
-  return "laser";
+  const aliased = LEGACY_ASSET_TYPE_ALIASES[raw.toLowerCase()];
+  if (aliased) return aliased;
+  const slug = raw.toLowerCase().replace(/[\s-]+/g, "_");
+  if (isAssetType(slug)) return slug;
+  return "general_equipment";
 }
 
 export function getAssetTypeLabel(type: string): string {
@@ -88,6 +105,10 @@ export function isMobileDeviceAssetType(type: AssetType): boolean {
 
 export function isAssignedAccountsAssetType(type: AssetType): boolean {
   return type === "assigned_accounts";
+}
+
+export function isGeneralEquipmentAssetType(type: AssetType | string): boolean {
+  return normalizeAssetType(type) === "general_equipment";
 }
 
 /** Lasers / pressure gauges no longer collect or display a separate Name field. */
@@ -155,6 +176,8 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
       ];
     case "assigned_accounts":
       return ["Account Name", "Account Reference", "Assigned To", "Actions"];
+    case "general_equipment":
+      return ["Asset #", "Name", "Assigned Project", "Status", "Actions"];
     default:
       return ["Asset", "Actions"];
   }
@@ -234,6 +257,7 @@ export interface Asset {
   asset_number: string;
   name: string;
   asset_type: AssetType;
+  category: string | null;
   make: string | null;
   model: string | null;
   serial_number: string | null;
@@ -275,7 +299,8 @@ function normalizeAsset(row: Record<string, unknown>): Asset {
     id: String(row.id ?? ""),
     asset_number: String(row.asset_number ?? ""),
     name: String(row.name ?? ""),
-    asset_type: normalizeAssetType(row.asset_type),
+    asset_type: normalizeAssetType(row.asset_type ?? row.category),
+    category: String(row.category ?? row.asset_type ?? "").trim() || null,
     make: (row.make as string | null) ?? null,
     model: (row.model as string | null) ?? null,
     serial_number: (row.serial_number as string | null) ?? null,
@@ -361,6 +386,7 @@ export interface AssetInput {
   /** Optional for laptops, iPads, lasers, and pressure gauges (auto-populated). */
   name?: string;
   asset_type: AssetType;
+  category?: string | null;
   make?: string;
   model?: string;
   serial_number?: string;
@@ -432,11 +458,11 @@ async function syncAssetProjectAssignment(
 }
 
 export function buildAssetWritePayload(input: AssetInput): Record<string, unknown> {
-  const type = input.asset_type;
+  const type = normalizeAssetType(input.asset_type ?? input.category);
   const projectId =
     nullIfBlank(input.project_id) ?? nullIfBlank(input.assigned_project_id);
   const workerId = nullIfBlankUuid(input.assigned_worker_id);
-  const displayName = resolveAssetDisplayName(input);
+  const displayName = resolveAssetDisplayName({ ...input, asset_type: type });
   const assetNumber =
     nullIfBlank(input.asset_number) ||
     nullIfBlank(input.serial_number) ||
@@ -445,7 +471,9 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
   const base: Record<string, unknown> = {
     asset_number: assetNumber,
     name: displayName,
+    // Write both columns so either live schema works after the type check was dropped.
     asset_type: type,
+    category: type,
     status: input.status ?? "active",
     // Keep both project columns in sync for either live schema.
     assigned_project_id: projectId,
@@ -469,6 +497,26 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       service_contact_company: null,
       service_contact_phone: null,
       service_contact_email: null,
+    });
+  }
+
+  if (isGeneralEquipmentAssetType(type)) {
+    return sanitizeWritePayload({
+      ...base,
+      make: nullIfBlank(input.make),
+      model: nullIfBlank(input.model),
+      serial_number: nullIfBlank(input.serial_number),
+      assigned_worker_id: workerId,
+      assigned_worker_ids: [],
+      laser_type: null,
+      account_name: null,
+      account_reference: null,
+      next_service_due_date: nullIfBlankDate(input.next_service_due_date),
+      next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
+      service_contact_name: nullIfBlank(input.service_contact_name),
+      service_contact_company: nullIfBlank(input.service_contact_company),
+      service_contact_phone: nullIfBlank(input.service_contact_phone),
+      service_contact_email: nullIfBlank(input.service_contact_email),
     });
   }
 
@@ -577,12 +625,15 @@ export function buildAssetInputFromForm(values: {
             ? "LAS"
             : values.assetType === "pressure_gauge"
               ? "PG"
-              : "AST";
+              : values.assetType === "general_equipment"
+                ? "EQ"
+                : "AST";
 
   if (isMobileDeviceAssetType(values.assetType)) {
     const ref = values.assetNumber.trim();
     return {
       asset_type: values.assetType,
+      category: values.assetType,
       asset_number: ref || `${prefix}-${Date.now().toString().slice(-6)}`,
       // Fallback name: laptop_ref / ipad_ref || "Laptop" / "iPad"
       name: ref || singular,
@@ -590,6 +641,26 @@ export function buildAssetInputFromForm(values: {
       make: undefined,
       model: undefined,
       serial_number: undefined,
+      assigned_worker_id: values.assignedWorkerId || null,
+      assigned_project_id: values.assignedProjectId || null,
+      project_id: values.assignedProjectId || null,
+    };
+  }
+
+  if (isGeneralEquipmentAssetType(values.assetType)) {
+    const ref =
+      values.assetNumber.trim() ||
+      values.serialNumber.trim() ||
+      `${prefix}-${Date.now().toString().slice(-6)}`;
+    return {
+      asset_type: values.assetType,
+      category: values.assetType,
+      asset_number: ref,
+      name: values.name.trim() || ref || singular,
+      status: values.status ?? "active",
+      make: values.make,
+      model: values.model,
+      serial_number: values.serialNumber || undefined,
       assigned_worker_id: values.assignedWorkerId || null,
       assigned_project_id: values.assignedProjectId || null,
       project_id: values.assignedProjectId || null,
@@ -604,6 +675,7 @@ export function buildAssetInputFromForm(values: {
       `${prefix}-${Date.now().toString().slice(-6)}`;
     return {
       asset_type: values.assetType,
+      category: values.assetType,
       asset_number: accountReference,
       name: accountName,
       status: values.status ?? "active",
@@ -623,6 +695,7 @@ export function buildAssetInputFromForm(values: {
 
   return {
     asset_type: values.assetType,
+    category: values.assetType,
     asset_number: assetNumber,
     name,
     status: values.status ?? "active",
@@ -643,6 +716,7 @@ export function buildAssetInputFromForm(values: {
 }
 
 const OPTIONAL_ASSET_COLUMNS = [
+  "category",
   "project_id",
   "assigned_project_id",
   "assigned_worker_id",
@@ -1041,19 +1115,8 @@ export async function updateAssetStatus(
  * Soft category-aware validation. Non-essential fields are optional; missing
  * refs/names are auto-filled in buildAssetInputFromForm / buildAssetWritePayload.
  */
-export function validateAssetInput(input: AssetInput): string | null {
-  if (!isAssetType(input.asset_type)) return "Asset Type is required";
-
-  // Laptops / iPads / lasers / gauges / accounts: no hard blocks on optional fields.
-  // Identity values are auto-generated when blank.
-  if (input.status && input.status !== "active" && input.status !== "in_service_calibration") {
-    return "Invalid status.";
-  }
-
-  if (input.laser_type && input.laser_type !== "pipe" && input.laser_type !== "rotating") {
-    return "Invalid laser type.";
-  }
-
+export function validateAssetInput(_input: AssetInput): string | null {
+  // Category/type check constraint is dropped. Never block submit on optional fields.
   return null;
 }
 
