@@ -14,6 +14,7 @@ import {
   FolderKanban,
   Truck,
   ReceiptText,
+  CalendarSearch,
   Clock,
   Scale,
   UserPlus,
@@ -147,6 +148,21 @@ function buildAccountsMenu(
       title: "Timesheets",
       href: "/accounts/timesheets",
       icon: Clock,
+    });
+  }
+
+  if (
+    canViewAccountsTimesheets(sessionRole) ||
+    canAccessAccountsArea({
+      securityRole: sessionRole,
+      accountsAccessRole,
+      canAccessAccounts,
+    })
+  ) {
+    children.push({
+      title: "Missing Timesheet Search",
+      href: "/accounts/missing-timesheets",
+      icon: CalendarSearch,
     });
   }
 

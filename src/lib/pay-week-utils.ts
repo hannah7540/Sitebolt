@@ -127,3 +127,68 @@ export function isCurrentPayWeek(weekStartIso: string, weekEndIso: string): bool
   const today = localIsoDate();
   return isDateInPayWeek(today, weekStartIso, weekEndIso);
 }
+
+/** Working days checked for missing timesheets. Sunday is excluded. */
+export const PAY_WEEK_WORKING_DAY_OFFSETS = [0, 1, 2, 3, 5, 6] as const;
+
+export const PAY_WEEK_WORKING_DAY_SHORT_LABELS = [
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+  "Mon",
+  "Tue",
+] as const;
+
+export const PAY_WEEK_WORKING_DAY_FULL_LABELS = [
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Monday",
+  "Tuesday",
+] as const;
+
+export interface PayWeekWorkingDay {
+  iso: string;
+  offset: number;
+  shortLabel: (typeof PAY_WEEK_WORKING_DAY_SHORT_LABELS)[number];
+  fullLabel: (typeof PAY_WEEK_WORKING_DAY_FULL_LABELS)[number];
+}
+
+/** Parse YYYY-MM-DD as a local calendar date (no UTC shift). */
+export function parseLocalIsoDate(iso: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/** Add whole days to a YYYY-MM-DD local date, crossing month/year boundaries safely. */
+export function addDaysToLocalIso(iso: string, days: number): string {
+  const parsed = parseLocalIsoDate(iso);
+  if (!parsed) return "";
+  parsed.setDate(parsed.getDate() + days);
+  return localIsoDate(parsed);
+}
+
+export function getPayWeekWorkingDays(weekStartIso: string): PayWeekWorkingDay[] {
+  const start = resolvePayWeekOption(weekStartIso).startIso;
+  return PAY_WEEK_WORKING_DAY_OFFSETS.map((offset, index) => ({
+    iso: addDaysToLocalIso(start, offset),
+    offset,
+    shortLabel: PAY_WEEK_WORKING_DAY_SHORT_LABELS[index],
+    fullLabel: PAY_WEEK_WORKING_DAY_FULL_LABELS[index],
+  })).filter((day) => Boolean(day.iso));
+}

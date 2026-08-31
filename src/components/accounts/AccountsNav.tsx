@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, Scale, UserPlus } from "lucide-react";
+import { CalendarSearch, Clock, Scale, UserPlus } from "lucide-react";
 import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
 import {
+  canAccessAccountsArea,
   canAccessPayRules,
   canAddAccountsTimesheets,
   canViewAccountsTimesheets,
@@ -25,6 +26,18 @@ export default function AccountsNav() {
           label: "Timesheets",
           href: "/accounts/timesheets",
           icon: Clock,
+        }
+      : null,
+    canViewAccountsTimesheets(sessionRole) ||
+    canAccessAccountsArea({
+      securityRole: sessionRole,
+      accountsAccessRole,
+      canAccessAccounts,
+    })
+      ? {
+          label: "Missing Timesheet Search",
+          href: "/accounts/missing-timesheets",
+          icon: CalendarSearch,
         }
       : null,
     canAccessPayRules(sessionRole)

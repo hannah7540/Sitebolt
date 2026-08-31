@@ -61,6 +61,10 @@ export function isTimesheetsPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/accounts/timesheets"));
 }
 
+export function isMissingTimesheetsPath(pathname: string | null | undefined): boolean {
+  return Boolean(pathname?.startsWith("/accounts/missing-timesheets"));
+}
+
 export function isAddTimesheetsPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/accounts/add-timesheets"));
 }
