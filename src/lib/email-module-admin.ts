@@ -57,39 +57,53 @@ function isMissingTableError(message: string, table: string): boolean {
   );
 }
 
-/** Columns that may be absent depending on which email_messages schema is live. */
-const OPTIONAL_EMAIL_MESSAGE_COLUMNS = [
-  "cc_emails",
-  "bcc_emails",
-  "attachment_urls",
-  "parent_message_id",
-  "recurrence_rule",
-  "recurrence_active",
-  "sender_worker_id",
-  "sender_name",
+/** Live Communications `email_messages` columns only — never insert unknown keys. */
+const EMAIL_MESSAGES_ALLOWED_COLUMNS = [
+  "thread_id",
+  "direction",
+  "status",
+  "subject",
+  "body_html",
+  "body_text",
+  "body",
+  "content",
   "sender_email",
-  "external_message_id",
-  "error_message",
-  "created_by_name",
-  "created_by",
-  "is_read",
-  "read_at",
-  "last_sent_at",
-  "to_emails",
+  "sender_name",
+  "from_email",
+  "from_name",
+  "from",
   "recipient_emails",
   "recipient_type",
   "recipient_filter_ids",
+  "scheduled_for",
+  "sent_at",
+  "is_read",
+  "is_starred",
+  "is_recurring",
+  "recurrence_rule",
+  "created_by",
+  "cc_emails",
+  "bcc_emails",
+] as const;
+
+/** Columns that may be absent depending on which email_messages schema is live. */
+const OPTIONAL_EMAIL_MESSAGE_COLUMNS = [
+  ...EMAIL_MESSAGES_ALLOWED_COLUMNS,
+  "attachment_urls",
+  "parent_message_id",
+  "recurrence_active",
+  "sender_worker_id",
+  "external_message_id",
+  "error_message",
+  "created_by_name",
+  "read_at",
+  "last_sent_at",
+  "to_emails",
   "target_mode",
   "target_config",
   "template_id",
-  "scheduled_for",
-  "body",
-  "content",
-  "body_text",
-  "from",
-  "from_name",
-  "from_email",
-  "thread_id",
+  "updated_at",
+  "created_at",
 ] as const;
 
 function isMissingEmailMessageColumnError(message: string, column: string): boolean {
@@ -151,9 +165,65 @@ function resolveRecipientFilterIds(config: EmailTargetConfig): string[] {
   return [];
 }
 
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function parseTargetConfig(value: unknown): EmailTargetConfig {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  return {
+    worker_ids: parseStringArray(record.worker_ids),
+    project_ids: parseStringArray(record.project_ids),
+    custom_emails: parseStringArray(record.custom_emails),
+  };
+}
+
 /**
- * Build an outbound email_messages row mapped to the live Communications schema,
- * with legacy aliases included for dual-schema compatibility (stripped on miss).
+ * Map legacy targeting fields onto live columns, then strictly whitelist keys
+ * so PostgREST never sees columns like `target_config`.
+ */
+function sanitizeEmailMessageWritePayload(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...payload };
+
+  if ("target_config" in next) {
+    const existingFilters = Array.isArray(next.recipient_filter_ids)
+      ? (next.recipient_filter_ids as unknown[]).filter(Boolean)
+      : [];
+    if (existingFilters.length === 0) {
+      next.recipient_filter_ids = resolveRecipientFilterIds(
+        parseTargetConfig(next.target_config)
+      );
+    }
+    delete next.target_config;
+  }
+
+  if (
+    "to_emails" in next &&
+    (!Array.isArray(next.recipient_emails) ||
+      (next.recipient_emails as unknown[]).length === 0)
+  ) {
+    next.recipient_emails = parseStringArray(next.to_emails);
+  }
+
+  if ("recurrence_active" in next && !("is_recurring" in next)) {
+    next.is_recurring = Boolean(next.recurrence_active);
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const key of EMAIL_MESSAGES_ALLOWED_COLUMNS) {
+    if (key in next) {
+      sanitized[key] = next[key];
+    }
+  }
+  return sanitized;
+}
+
+/**
+ * Build an outbound email_messages row for the live Communications schema only.
  */
 function buildOutboundEmailMessageRecord(input: {
   subject: string;
@@ -164,7 +234,6 @@ function buildOutboundEmailMessageRecord(input: {
   recipientFilterIds?: string[];
   targetMode?: EmailTargetMode | null;
   targetConfig?: EmailTargetConfig;
-  templateId?: string | null;
   ccEmails?: string[] | null;
   bccEmails?: string[] | null;
   senderEmail?: string | null;
@@ -173,9 +242,10 @@ function buildOutboundEmailMessageRecord(input: {
   scheduledFor?: string | null;
   recurrenceRule?: EmailRecurrenceRule | null;
   createdBy?: string | null;
-  createdByName?: string | null;
   threadId?: string | null;
   sentAt?: string | null;
+  isRead?: boolean;
+  isStarred?: boolean;
 }): Record<string, unknown> {
   const now = new Date().toISOString();
   const textBody = String(input.textBody ?? "").trim() || htmlToPlainText(input.htmlBody);
@@ -193,11 +263,9 @@ function buildOutboundEmailMessageRecord(input: {
   const filterIds =
     input.recipientFilterIds ??
     resolveRecipientFilterIds(input.targetConfig ?? {});
-
-  // Prefer live Communications schema fields; dual-write legacy aliases.
   const status = input.status;
 
-  return {
+  return sanitizeEmailMessageWritePayload({
     direction: "outbound",
     status,
     subject: input.subject,
@@ -213,34 +281,28 @@ function buildOutboundEmailMessageRecord(input: {
     recipient_emails: recipientEmails,
     recipient_type: recipientType,
     recipient_filter_ids: filterIds,
-    // Legacy / dual-schema aliases
-    to_emails: recipientEmails,
-    target_mode: input.targetMode ?? null,
-    target_config: input.targetConfig ?? {},
-    template_id: input.templateId ?? null,
     cc_emails: ccEmails,
     bcc_emails: bccEmails,
     sent_at: input.sentAt ?? (status === "sent" ? now : null),
     thread_id: input.threadId ?? null,
     scheduled_for: input.scheduledFor ?? null,
     recurrence_rule: input.recurrenceRule ?? null,
-    recurrence_active: Boolean(input.recurrenceRule),
+    is_recurring: Boolean(input.recurrenceRule),
+    is_read: input.isRead ?? false,
+    is_starred: input.isStarred ?? false,
     created_by: input.createdBy ?? null,
-    created_by_name: input.createdByName ?? null,
-    created_at: now,
-    updated_at: now,
-  };
+  });
 }
 
 /**
- * Insert into email_messages, stripping optional/unknown columns reported missing
- * by PostgREST schema cache.
+ * Insert into email_messages using a strict column whitelist, then strip any
+ * remaining columns PostgREST reports as missing from the schema cache.
  */
 async function insertEmailMessageAdmin(
   admin: SupabaseClient,
   payload: Record<string, unknown>
 ): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
-  let current: Record<string, unknown> = { ...payload };
+  let current = sanitizeEmailMessageWritePayload(payload);
 
   for (let attempt = 0; attempt < 40; attempt++) {
     const { data, error } = await admin
@@ -273,11 +335,12 @@ async function insertEmailMessageAdmin(
       lower.includes("status") &&
       (current.status === "scheduled" ||
         current.status === "draft" ||
-        current.status === "failed")
+        current.status === "failed" ||
+        current.status === "received")
     ) {
       current = {
         ...current,
-        status: current.status === "failed" ? "pending" : "pending",
+        status: current.status === "received" ? "pending" : "pending",
       };
       continue;
     }
@@ -286,21 +349,6 @@ async function insertEmailMessageAdmin(
   }
 
   return { data: null, error: "Failed to insert email message." };
-}
-
-function parseStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item).trim()).filter(Boolean);
-}
-
-function parseTargetConfig(value: unknown): EmailTargetConfig {
-  if (!value || typeof value !== "object") return {};
-  const record = value as Record<string, unknown>;
-  return {
-    worker_ids: parseStringArray(record.worker_ids),
-    project_ids: parseStringArray(record.project_ids),
-    custom_emails: parseStringArray(record.custom_emails),
-  };
 }
 
 function normalizeTemplateCategory(value: unknown): string {
@@ -823,7 +871,7 @@ async function dispatchOutboundMessageAdmin(
   const nextStatus = sendResult.sent ? "sent" : "failed";
   const sender = parseSenderIdentity(fromEmail);
 
-  const updatePayload: Record<string, unknown> = {
+  const updatePayload = sanitizeEmailMessageWritePayload({
     thread_id: threadId,
     status: sendResult.sent ? "sent" : "pending",
     subject: outboundSubject,
@@ -832,18 +880,13 @@ async function dispatchOutboundMessageAdmin(
     body: bodyText || bodyHtml,
     content: bodyText || bodyHtml,
     recipient_emails: recipients,
-    to_emails: recipients,
     from_email: sender.email,
     from: sender.email,
     from_name: sender.name,
     sender_email: sender.email,
     sender_name: sender.name,
     sent_at: sendResult.sent ? now : null,
-    last_sent_at: sendResult.sent ? now : message.last_sent_at,
-    external_message_id: sendResult.messageId ?? null,
-    error_message: sendResult.error ?? null,
-    updated_at: now,
-  };
+  });
 
   // Prefer live status values; fall back if CHECK rejects 'failed'.
   let currentUpdate = { ...updatePayload };
@@ -932,7 +975,6 @@ export async function composeEmailAdmin(
     recipientFilterIds: resolveRecipientFilterIds(normalized.target_config),
     targetMode: normalized.target_mode,
     targetConfig: normalized.target_config,
-    templateId: normalized.template_id ?? null,
     ccEmails,
     bccEmails,
     senderEmail: normalized.sender_email ?? resolveSystemFromEmail(),
@@ -942,7 +984,6 @@ export async function composeEmailAdmin(
       normalized.send_mode === "scheduled" ? normalized.scheduled_for ?? null : null,
     recurrenceRule: normalized.recurrence_rule ?? null,
     createdBy: normalized.created_by,
-    createdByName: normalized.created_by_name,
     sentAt: null,
   });
 
@@ -989,10 +1030,7 @@ export async function updateScheduledEmailAdmin(
     target_config: EmailTargetConfig;
   }>
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
-  const payload: Record<string, unknown> = {
-    ...updates,
-    updated_at: new Date().toISOString(),
-  };
+  const payload: Record<string, unknown> = { ...updates };
 
   if (updates.target_mode && updates.target_config) {
     const recipientResult = await resolveEmailRecipientsAdmin(
@@ -1001,12 +1039,21 @@ export async function updateScheduledEmailAdmin(
       updates.target_config
     );
     if (recipientResult.error) return { message: null, error: recipientResult.error };
-    payload.to_emails = recipientResult.emails;
+    payload.recipient_emails = recipientResult.emails;
+    payload.recipient_type = mapRecipientTypeLabel(updates.target_mode);
+    payload.recipient_filter_ids = resolveRecipientFilterIds(updates.target_config);
   }
+
+  if ("recurrence_rule" in updates || "recurrence_active" in updates) {
+    payload.is_recurring =
+      updates.recurrence_active ?? Boolean(updates.recurrence_rule);
+  }
+
+  const sanitized = sanitizeEmailMessageWritePayload(payload);
 
   const { data, error } = await admin
     .from("email_messages")
-    .update(payload)
+    .update(sanitized)
     .eq("id", messageId)
     .select("*")
     .maybeSingle();
@@ -1209,35 +1256,37 @@ export async function ingestInboundEmailAdmin(
     }
 
     const matchedWorker = await matchWorkerByEmailAdmin(admin, senderEmail);
-    const attachmentUrls = await uploadInboundAttachmentsAdmin(
-      admin,
-      threadId,
-      payload.attachments
-    );
+    // Best-effort storage upload; live email_messages schema may not store URLs.
+    await uploadInboundAttachmentsAdmin(admin, threadId, payload.attachments);
 
     const now = new Date().toISOString();
-    const insertPayload = {
+    const insertPayload = sanitizeEmailMessageWritePayload({
       thread_id: threadId,
       direction: "inbound",
       status: "received",
       subject,
       body_html: bodyHtml,
       body_text: bodyText,
+      body: bodyText || bodyHtml,
+      content: bodyText || bodyHtml,
       from_email: senderEmail || fromRaw,
-      to_emails: toValues,
+      from: senderEmail || fromRaw,
+      from_name:
+        matchedWorker?.full_name ||
+        extractDisplayName(fromRaw) ||
+        senderEmail ||
+        "Unknown sender",
+      recipient_emails: toValues.map((value) => extractEmailAddress(String(value))),
       sender_email: senderEmail || fromRaw,
       sender_name:
         matchedWorker?.full_name ||
         extractDisplayName(fromRaw) ||
         senderEmail ||
         "Unknown sender",
-      sender_worker_id: matchedWorker?.id ?? null,
-      attachment_urls: attachmentUrls,
       is_read: false,
+      is_starred: false,
       sent_at: now,
-      created_at: now,
-      updated_at: now,
-    };
+    });
 
     const { data, error } = await insertEmailMessageAdmin(admin, insertPayload);
 
