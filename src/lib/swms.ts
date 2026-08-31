@@ -593,23 +593,61 @@ export async function assignSwmsWorkersRequest(input: {
   createdWorkerIds: string[];
 }> {
   try {
-    const documentId =
-      input.swmsDocumentId?.trim() ||
+    const relationOrRowId = String(input.swmsId ?? "").trim();
+    const hintRecord =
+      input.swmsHints && typeof input.swmsHints === "object"
+        ? input.swmsHints
+        : null;
+    const linkedFromHints = [
+      input.swmsDocumentId,
+      hintRecord?.swms_document_id,
+      hintRecord?.document_id,
+      hintRecord?.swms_id,
+    ]
+      .map((value) => String(value ?? "").trim())
+      .find(
+        (value) => isValidSwmsId(value) && value !== relationOrRowId
+      );
+
+    const resolved =
+      (input.swmsDocumentId?.trim() &&
+      input.swmsDocumentId.trim() !== relationOrRowId
+        ? input.swmsDocumentId.trim()
+        : "") ||
+      linkedFromHints ||
       resolveSwmsDocumentsId(input.swmsHints ?? { id: input.swmsId }) ||
-      input.swmsId;
+      relationOrRowId;
+
+    // Only claim a document id when it differs from the relation/row id,
+    // or when the caller explicitly supplied swmsDocumentId.
+    const explicitDocumentId =
+      (input.swmsDocumentId?.trim() &&
+      input.swmsDocumentId.trim() !== relationOrRowId
+        ? input.swmsDocumentId.trim()
+        : "") ||
+      linkedFromHints ||
+      (resolved !== relationOrRowId ? resolved : "");
+
     const response = await fetch("/api/admin/swms/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // Always send the resolved documents id as swms_id when known.
-        swms_id: documentId,
-        swms_document_id: documentId,
-        document_id: documentId,
+        swms_id: explicitDocumentId || relationOrRowId,
+        swms_document_id: explicitDocumentId || undefined,
+        document_id: explicitDocumentId || undefined,
+        project_swms_id: relationOrRowId || undefined,
         swms_hints: {
           ...(input.swmsHints ?? {}),
-          id: input.swmsId,
-          swms_document_id: documentId,
-          document_id: documentId,
+          id: relationOrRowId,
+          project_swms_id: relationOrRowId,
+          relation_id: relationOrRowId,
+          ...(explicitDocumentId
+            ? {
+                swms_document_id: explicitDocumentId,
+                document_id: explicitDocumentId,
+                swms_id: explicitDocumentId,
+              }
+            : {}),
         },
         worker_ids: input.workerIds ?? [],
         project_id: input.projectId ?? undefined,

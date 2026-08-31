@@ -197,11 +197,21 @@ export default function ProjectAssignSwmsModal({
       return;
     }
 
+    const linkedDocumentId = [
+      swms.swms_document_id,
+      swms.document_id,
+      swms.swms_id,
+    ]
+      .map((value) => String(value ?? "").trim())
+      .find((value) => value && value !== relationOrRowId);
+
     const swmsHints = {
       id: relationOrRowId || canonicalSwmsId,
-      swms_id: swms.swms_id ?? null,
-      document_id: swms.document_id ?? null,
-      swms_document_id: swms.swms_document_id ?? null,
+      project_swms_id: relationOrRowId || null,
+      relation_id: relationOrRowId || null,
+      swms_id: linkedDocumentId || swms.swms_id || null,
+      document_id: linkedDocumentId || swms.document_id || null,
+      swms_document_id: linkedDocumentId || swms.swms_document_id || null,
       project_id: swms.project_id ?? projectId,
       title: swms.title,
     };

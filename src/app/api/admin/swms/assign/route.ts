@@ -20,6 +20,8 @@ export async function POST(request: Request) {
     /** Explicit parent document id when swms_id is a project/legacy relation id. */
     swms_document_id?: string;
     document_id?: string;
+    /** Junction / project relation row id (project_swms.id). */
+    project_swms_id?: string;
     /** Full selected SWMS object hints for relation→document resolution. */
     swms_hints?: Record<string, unknown>;
     worker_ids?: string[];
@@ -38,45 +40,74 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  // Prefer explicit document FK fields over a project-SWMS relation id.
-  const hintDocumentId = [
-    body.swms_document_id,
-    body.document_id,
+  const hintObject =
     body.swms_hints && typeof body.swms_hints === "object"
-      ? String(
-          (body.swms_hints as { swms_document_id?: unknown }).swms_document_id ??
-            (body.swms_hints as { document_id?: unknown }).document_id ??
-            (body.swms_hints as { swms_id?: unknown }).swms_id ??
-            ""
-        )
-      : "",
-    body.swms_id,
+      ? (body.swms_hints as Record<string, unknown>)
+      : {};
+
+  const projectSwmsId = [
+    body.project_swms_id,
+    hintObject.project_swms_id,
+    hintObject.relation_id,
+    hintObject.id,
   ]
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .find((value) => isValidSwmsId(value));
 
-  const requestSwmsId = hintDocumentId;
+  // Prefer explicit document FK fields; keep relation id separate for resolution.
+  const explicitDocumentId = [
+    body.swms_document_id,
+    body.document_id,
+    hintObject.swms_document_id,
+    hintObject.document_id,
+  ]
+    .map((value) => String(value ?? "").trim())
+    .find(
+      (value) =>
+        isValidSwmsId(value) && (!projectSwmsId || value !== projectSwmsId)
+    );
+
+  const requestSwmsId =
+    explicitDocumentId ||
+    [body.swms_id, hintObject.swms_id]
+      .map((value) => String(value ?? "").trim())
+      .find((value) => isValidSwmsId(value)) ||
+    projectSwmsId;
 
   if (!requestSwmsId) {
     console.error("[swms-assign] reject request — invalid swms_id:", {
       swms_id: body.swms_id,
       swms_document_id: body.swms_document_id,
       document_id: body.document_id,
+      project_swms_id: body.project_swms_id,
     });
     return NextResponse.json(
       {
         error:
-          "swms_id must be a valid UUID referencing swms_documents.id (use swms_document_id when assigning from a project SWMS relation).",
+          "swms_id must be a valid UUID referencing swms_documents.id (use project_swms_id + swms_document_id when assigning from a project SWMS relation).",
       },
       { status: 400 }
     );
   }
 
+  const resolutionHints: Record<string, unknown> = {
+    ...hintObject,
+    project_swms_id: projectSwmsId ?? hintObject.project_swms_id ?? null,
+    id: projectSwmsId || body.swms_id || requestSwmsId,
+    swms_document_id: explicitDocumentId ?? body.swms_document_id ?? null,
+    document_id: explicitDocumentId ?? body.document_id ?? null,
+    swms_id:
+      explicitDocumentId ||
+      (typeof hintObject.swms_id === "string" ? hintObject.swms_id : null) ||
+      body.swms_id ||
+      null,
+  };
+
   console.info("[swms-assign] request", {
     swms_id: requestSwmsId,
     raw_swms_id: body.swms_id,
-    swms_document_id: body.swms_document_id,
-    document_id: body.document_id,
+    swms_document_id: explicitDocumentId ?? body.swms_document_id,
+    project_swms_id: projectSwmsId,
     mode: body.mode,
     project_id: body.project_id,
     worker_count: Array.isArray(body.worker_ids) ? body.worker_ids.length : 0,
@@ -155,15 +186,7 @@ export async function POST(request: Request) {
       swmsId: requestSwmsId,
       workerIds,
       projectId,
-      hints: {
-        ...(body.swms_hints && typeof body.swms_hints === "object"
-          ? body.swms_hints
-          : {}),
-        swms_document_id: body.swms_document_id,
-        document_id: body.document_id,
-        swms_id: body.swms_document_id || body.document_id || body.swms_id,
-        id: body.swms_id,
-      },
+      hints: resolutionHints,
     }
   );
 
