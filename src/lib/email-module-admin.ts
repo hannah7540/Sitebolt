@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "./email-service";
-import { resolveSystemFromEmail } from "./email-config";
+import {
+  DEFAULT_SYSTEM_FROM_ADDRESS,
+  DEFAULT_SYSTEM_FROM_NAME,
+  resolveSystemFromEmail,
+} from "./email-config";
 import { extractThreadIdFromReplyAddress } from "./email-inbound-parser";
 import {
   appendSignatureHtml,
@@ -53,7 +57,7 @@ function isMissingTableError(message: string, table: string): boolean {
   );
 }
 
-/** Columns that may be absent on older email_messages schemas. */
+/** Columns that may be absent depending on which email_messages schema is live. */
 const OPTIONAL_EMAIL_MESSAGE_COLUMNS = [
   "cc_emails",
   "bcc_emails",
@@ -67,9 +71,25 @@ const OPTIONAL_EMAIL_MESSAGE_COLUMNS = [
   "external_message_id",
   "error_message",
   "created_by_name",
+  "created_by",
   "is_read",
   "read_at",
   "last_sent_at",
+  "to_emails",
+  "recipient_emails",
+  "recipient_type",
+  "recipient_filter_ids",
+  "target_mode",
+  "target_config",
+  "template_id",
+  "scheduled_for",
+  "body",
+  "content",
+  "body_text",
+  "from",
+  "from_name",
+  "from_email",
+  "thread_id",
 ] as const;
 
 function isMissingEmailMessageColumnError(message: string, column: string): boolean {
@@ -84,28 +104,145 @@ function isMissingEmailMessageColumnError(message: string, column: string): bool
   );
 }
 
+function extractMissingColumnName(message: string): string | null {
+  const patterns = [
+    /could not find the ['"]([^'"]+)['"] column/i,
+    /column ['"]([^'"]+)['"] of relation/i,
+    /column ([a-z0-9_]+) does not exist/i,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function parseSenderIdentity(input?: string | null): { email: string; name: string } {
+  const raw = String(input ?? "").trim() || resolveSystemFromEmail();
+  const angled = raw.match(/^(.*?)<([^>]+)>\s*$/);
+  if (angled) {
+    const name =
+      angled[1].trim().replace(/^["']|["']$/g, "") || DEFAULT_SYSTEM_FROM_NAME;
+    return { email: angled[2].trim(), name };
+  }
+  if (raw.includes("@")) {
+    return { email: raw, name: DEFAULT_SYSTEM_FROM_NAME };
+  }
+  return { email: DEFAULT_SYSTEM_FROM_ADDRESS, name: raw || DEFAULT_SYSTEM_FROM_NAME };
+}
+
+function mapRecipientTypeLabel(mode: EmailTargetMode | null | undefined): string {
+  switch (mode) {
+    case "all_workers":
+      return "all_workers";
+    case "by_project":
+      return "project";
+    case "custom_emails":
+      return "custom";
+    case "selected_workers":
+    default:
+      return "worker";
+  }
+}
+
+function resolveRecipientFilterIds(config: EmailTargetConfig): string[] {
+  if (config.worker_ids?.length) return config.worker_ids;
+  if (config.project_ids?.length) return config.project_ids;
+  return [];
+}
+
 /**
- * Insert into email_messages, stripping optional columns that are missing
- * from the live schema (e.g. cc_emails on older deployments).
+ * Build an outbound email_messages row mapped to the live Communications schema,
+ * with legacy aliases included for dual-schema compatibility (stripped on miss).
+ */
+function buildOutboundEmailMessageRecord(input: {
+  subject: string;
+  htmlBody: string;
+  textBody?: string | null;
+  recipientEmails: string[];
+  recipientType?: string | null;
+  recipientFilterIds?: string[];
+  targetMode?: EmailTargetMode | null;
+  targetConfig?: EmailTargetConfig;
+  templateId?: string | null;
+  ccEmails?: string[] | null;
+  bccEmails?: string[] | null;
+  senderEmail?: string | null;
+  senderName?: string | null;
+  status: "sent" | "pending" | "scheduled" | "draft";
+  scheduledFor?: string | null;
+  recurrenceRule?: EmailRecurrenceRule | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  threadId?: string | null;
+  sentAt?: string | null;
+}): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const textBody = String(input.textBody ?? "").trim() || htmlToPlainText(input.htmlBody);
+  const htmlBody = input.htmlBody;
+  const recipientEmails = Array.isArray(input.recipientEmails)
+    ? input.recipientEmails.filter(Boolean)
+    : [];
+  const ccEmails = Array.isArray(input.ccEmails) ? input.ccEmails.filter(Boolean) : [];
+  const bccEmails = Array.isArray(input.bccEmails) ? input.bccEmails.filter(Boolean) : [];
+  const sender = parseSenderIdentity(input.senderEmail);
+  const senderName = input.senderName?.trim() || sender.name || "SiteBolt";
+  const senderEmail = sender.email;
+  const recipientType =
+    input.recipientType?.trim() || mapRecipientTypeLabel(input.targetMode);
+  const filterIds =
+    input.recipientFilterIds ??
+    resolveRecipientFilterIds(input.targetConfig ?? {});
+
+  // Prefer live Communications schema fields; dual-write legacy aliases.
+  const status = input.status;
+
+  return {
+    direction: "outbound",
+    status,
+    subject: input.subject,
+    body_html: htmlBody,
+    body_text: textBody || "",
+    body: textBody || htmlBody,
+    content: textBody || htmlBody,
+    sender_email: senderEmail,
+    sender_name: senderName,
+    from_email: senderEmail,
+    from: senderEmail,
+    from_name: senderName,
+    recipient_emails: recipientEmails,
+    recipient_type: recipientType,
+    recipient_filter_ids: filterIds,
+    // Legacy / dual-schema aliases
+    to_emails: recipientEmails,
+    target_mode: input.targetMode ?? null,
+    target_config: input.targetConfig ?? {},
+    template_id: input.templateId ?? null,
+    cc_emails: ccEmails,
+    bcc_emails: bccEmails,
+    sent_at: input.sentAt ?? (status === "sent" ? now : null),
+    thread_id: input.threadId ?? null,
+    scheduled_for: input.scheduledFor ?? null,
+    recurrence_rule: input.recurrenceRule ?? null,
+    recurrence_active: Boolean(input.recurrenceRule),
+    created_by: input.createdBy ?? null,
+    created_by_name: input.createdByName ?? null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+/**
+ * Insert into email_messages, stripping optional/unknown columns reported missing
+ * by PostgREST schema cache.
  */
 async function insertEmailMessageAdmin(
   admin: SupabaseClient,
   payload: Record<string, unknown>
 ): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
-  // Never send empty/undefined optional array fields that older schemas lack.
-  const initial: Record<string, unknown> = { ...payload };
-  for (const key of ["cc_emails", "bcc_emails"] as const) {
-    const value = initial[key];
-    if (
-      value == null ||
-      (Array.isArray(value) && value.length === 0)
-    ) {
-      delete initial[key];
-    }
-  }
+  let current: Record<string, unknown> = { ...payload };
 
-  let current = initial;
-  for (let attempt = 0; attempt <= OPTIONAL_EMAIL_MESSAGE_COLUMNS.length; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     const { data, error } = await admin
       .from("email_messages")
       .insert(current)
@@ -116,14 +253,32 @@ async function insertEmailMessageAdmin(
       return { data: (data as Record<string, unknown> | null) ?? null, error: null };
     }
 
-    const missingColumn = OPTIONAL_EMAIL_MESSAGE_COLUMNS.find(
-      (column) =>
-        column in current && isMissingEmailMessageColumnError(error.message, column)
-    );
+    const extracted = extractMissingColumnName(error.message);
+    const missingColumn =
+      (extracted && extracted in current ? extracted : null) ||
+      OPTIONAL_EMAIL_MESSAGE_COLUMNS.find(
+        (column) =>
+          column in current && isMissingEmailMessageColumnError(error.message, column)
+      );
 
-    if (missingColumn) {
+    if (missingColumn && missingColumn in current) {
       const { [missingColumn]: _removed, ...rest } = current;
       current = rest;
+      continue;
+    }
+
+    // Live schema may only allow sent|pending.
+    const lower = error.message.toLowerCase();
+    if (
+      lower.includes("status") &&
+      (current.status === "scheduled" ||
+        current.status === "draft" ||
+        current.status === "failed")
+    ) {
+      current = {
+        ...current,
+        status: current.status === "failed" ? "pending" : "pending",
+      };
       continue;
     }
 
@@ -170,6 +325,9 @@ function normalizeTemplate(row: Record<string, unknown>): EmailTemplateRow {
 }
 
 function normalizeMessage(row: Record<string, unknown>): EmailMessageRow {
+  const recipients = parseStringArray(
+    row.recipient_emails ?? row.to_emails ?? row.recipients
+  );
   return {
     id: String(row.id),
     thread_id: row.thread_id ? String(row.thread_id) : null,
@@ -178,12 +336,26 @@ function normalizeMessage(row: Record<string, unknown>): EmailMessageRow {
     status: String(row.status ?? "draft") as EmailMessageRow["status"],
     subject: String(row.subject ?? ""),
     body_html: resolveMessageBodyHtml(row),
-    body_text: row.body_text ? String(row.body_text) : null,
-    from_email: row.from_email ? String(row.from_email) : null,
-    to_emails: parseStringArray(row.to_emails),
+    body_text: row.body_text
+      ? String(row.body_text)
+      : row.body
+        ? String(row.body)
+        : null,
+    from_email: row.from_email
+      ? String(row.from_email)
+      : row.from
+        ? String(row.from)
+        : null,
+    to_emails: recipients,
     cc_emails: parseStringArray(row.cc_emails),
-    target_mode: row.target_mode ? (String(row.target_mode) as EmailTargetMode) : null,
-    target_config: parseTargetConfig(row.target_config),
+    target_mode: row.target_mode
+      ? (String(row.target_mode) as EmailTargetMode)
+      : row.recipient_type
+        ? (String(row.recipient_type) as EmailTargetMode)
+        : null,
+    target_config: parseTargetConfig(row.target_config ?? {
+      worker_ids: parseStringArray(row.recipient_filter_ids),
+    }),
     template_id: row.template_id ? String(row.template_id) : null,
     scheduled_for: row.scheduled_for ? String(row.scheduled_for) : null,
     recurrence_rule: row.recurrence_rule
@@ -195,8 +367,16 @@ function normalizeMessage(row: Record<string, unknown>): EmailMessageRow {
     is_read: row.is_read === true,
     read_at: row.read_at ? String(row.read_at) : null,
     sender_worker_id: row.sender_worker_id ? String(row.sender_worker_id) : null,
-    sender_name: row.sender_name ? String(row.sender_name) : null,
-    sender_email: row.sender_email ? String(row.sender_email) : null,
+    sender_name: row.sender_name
+      ? String(row.sender_name)
+      : row.from_name
+        ? String(row.from_name)
+        : null,
+    sender_email: row.sender_email
+      ? String(row.sender_email)
+      : row.from_email
+        ? String(row.from_email)
+        : null,
     external_message_id: row.external_message_id ? String(row.external_message_id) : null,
     error_message: row.error_message ? String(row.error_message) : null,
     attachment_urls: parseStringArray(row.attachment_urls),
@@ -641,29 +821,82 @@ async function dispatchOutboundMessageAdmin(
 
   const now = new Date().toISOString();
   const nextStatus = sendResult.sent ? "sent" : "failed";
+  const sender = parseSenderIdentity(fromEmail);
 
-  const { data: updated, error: updateError } = await admin
-    .from("email_messages")
-    .update({
-      thread_id: threadId,
-      status: nextStatus,
-      subject: outboundSubject,
-      body_html: bodyHtml,
-      body_text: bodyText,
-      to_emails: recipients,
-      from_email: fromEmail,
-      sent_at: sendResult.sent ? now : null,
-      last_sent_at: sendResult.sent ? now : message.last_sent_at,
-      external_message_id: sendResult.messageId ?? null,
-      error_message: sendResult.error ?? null,
-      updated_at: now,
-    })
-    .eq("id", messageId)
-    .select("*")
-    .single();
+  const updatePayload: Record<string, unknown> = {
+    thread_id: threadId,
+    status: sendResult.sent ? "sent" : "pending",
+    subject: outboundSubject,
+    body_html: bodyHtml,
+    body_text: bodyText,
+    body: bodyText || bodyHtml,
+    content: bodyText || bodyHtml,
+    recipient_emails: recipients,
+    to_emails: recipients,
+    from_email: sender.email,
+    from: sender.email,
+    from_name: sender.name,
+    sender_email: sender.email,
+    sender_name: sender.name,
+    sent_at: sendResult.sent ? now : null,
+    last_sent_at: sendResult.sent ? now : message.last_sent_at,
+    external_message_id: sendResult.messageId ?? null,
+    error_message: sendResult.error ?? null,
+    updated_at: now,
+  };
 
-  if (updateError) return { message: null, error: updateError.message };
-  return { message: normalizeMessage(updated as Record<string, unknown>), error: null };
+  // Prefer live status values; fall back if CHECK rejects 'failed'.
+  let currentUpdate = { ...updatePayload };
+  let updated: Record<string, unknown> | null = null;
+  let updateErrorMessage: string | null = null;
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const { data, error } = await admin
+      .from("email_messages")
+      .update(currentUpdate)
+      .eq("id", messageId)
+      .select("*")
+      .single();
+
+    if (!error) {
+      updated = data as Record<string, unknown>;
+      updateErrorMessage = null;
+      break;
+    }
+
+    updateErrorMessage = error.message;
+    const extracted = extractMissingColumnName(error.message);
+    const missingColumn =
+      (extracted && extracted in currentUpdate ? extracted : null) ||
+      OPTIONAL_EMAIL_MESSAGE_COLUMNS.find(
+        (column) =>
+          column in currentUpdate &&
+          isMissingEmailMessageColumnError(error.message, column)
+      );
+
+    if (missingColumn && missingColumn in currentUpdate) {
+      const { [missingColumn]: _removed, ...rest } = currentUpdate;
+      currentUpdate = rest;
+      continue;
+    }
+
+    // Some schemas only allow sent|pending — map failed -> pending.
+    if (
+      currentUpdate.status === "pending" &&
+      nextStatus === "failed" &&
+      error.message.toLowerCase().includes("status")
+    ) {
+      currentUpdate = { ...currentUpdate, status: "pending" };
+      continue;
+    }
+
+    break;
+  }
+
+  if (updateErrorMessage || !updated) {
+    return { message: null, error: updateErrorMessage ?? "Failed to update email message." };
+  }
+  return { message: normalizeMessage(updated), error: null };
 }
 
 export async function composeEmailAdmin(
@@ -671,7 +904,6 @@ export async function composeEmailAdmin(
   input: ComposeEmailInput | Record<string, unknown>
 ): Promise<{ message: EmailMessageRow | null; error: string | null }> {
   const normalized = normalizeComposeInput(input as Record<string, unknown>);
-  const now = new Date().toISOString();
   const recipientResult = await resolveEmailRecipientsAdmin(
     admin,
     normalized.target_mode,
@@ -679,34 +911,44 @@ export async function composeEmailAdmin(
   );
   if (recipientResult.error) return { message: null, error: recipientResult.error };
 
-  const status = normalized.send_mode === "scheduled" ? "scheduled" : "sent";
-  const payload: Record<string, unknown> = {
-    direction: "outbound",
-    status: normalized.send_mode === "immediate" ? "draft" : status,
-    subject: normalized.subject.trim(),
-    body_html: normalized.body_html,
-    body_text: normalized.body_text ?? htmlToPlainText(normalized.body_html),
-    from_email: resolveSystemFromEmail(),
-    to_emails: recipientResult.emails,
-    target_mode: normalized.target_mode,
-    target_config: normalized.target_config,
-    template_id: normalized.template_id ?? null,
-    scheduled_for: normalized.send_mode === "scheduled" ? normalized.scheduled_for ?? null : null,
-    recurrence_rule: normalized.recurrence_rule ?? null,
-    recurrence_active: Boolean(normalized.recurrence_rule),
-    created_by: normalized.created_by,
-    created_by_name: normalized.created_by_name,
-    sender_email: normalized.sender_email ?? null,
-    created_at: now,
-    updated_at: now,
-  };
+  const recipientEmails = recipientResult.emails;
+  if (recipientEmails.length === 0) {
+    return { message: null, error: "No recipients resolved for this email." };
+  }
 
-  // Only include cc_emails when non-empty so older schemas without the column succeed.
-  const ccEmails = Array.isArray((normalized as { cc_emails?: unknown }).cc_emails)
-    ? parseStringArray((normalized as { cc_emails?: unknown }).cc_emails)
-    : [];
-  if (ccEmails.length > 0) {
-    payload.cc_emails = ccEmails;
+  const rawInput = input as Record<string, unknown>;
+  const ccEmails = parseStringArray(rawInput.cc_emails ?? rawInput.ccEmails);
+  const bccEmails = parseStringArray(rawInput.bcc_emails ?? rawInput.bccEmails);
+  const textBody =
+    normalized.body_text ?? htmlToPlainText(normalized.body_html);
+
+  const isImmediate = normalized.send_mode === "immediate";
+  const payload = buildOutboundEmailMessageRecord({
+    subject: normalized.subject.trim(),
+    htmlBody: normalized.body_html,
+    textBody,
+    recipientEmails,
+    recipientType: mapRecipientTypeLabel(normalized.target_mode),
+    recipientFilterIds: resolveRecipientFilterIds(normalized.target_config),
+    targetMode: normalized.target_mode,
+    targetConfig: normalized.target_config,
+    templateId: normalized.template_id ?? null,
+    ccEmails,
+    bccEmails,
+    senderEmail: normalized.sender_email ?? resolveSystemFromEmail(),
+    senderName: normalized.created_by_name || "SiteBolt",
+    status: "pending",
+    scheduledFor:
+      normalized.send_mode === "scheduled" ? normalized.scheduled_for ?? null : null,
+    recurrenceRule: normalized.recurrence_rule ?? null,
+    createdBy: normalized.created_by,
+    createdByName: normalized.created_by_name,
+    sentAt: null,
+  });
+
+  // Keep legacy scheduled status when the live CHECK constraint supports it.
+  if (!isImmediate) {
+    payload.status = "scheduled";
   }
 
   const { data, error } = await insertEmailMessageAdmin(admin, payload);
