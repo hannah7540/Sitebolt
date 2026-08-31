@@ -3,13 +3,9 @@
 import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import {
+  ASSET_STATUS_LABELS,
   ASSET_TYPES,
   ASSET_TYPE_LABELS,
-  LASER_TYPE_OPTIONS,
-  LASER_TYPE_LABELS,
-  assetTypeHidesNameField,
-  assetTypeRequiresCalibration,
-  assetTypeRequiresService,
   buildAssetInputFromForm,
   getAssetReferenceLabel,
   isAssignedAccountsAssetType,
@@ -17,13 +13,13 @@ import {
   validateAssetInput,
   type Asset,
   type AssetInput,
+  type AssetStatus,
   type AssetType,
   type LaserType,
 } from "@/lib/assets";
 import { fetchWorkers, type Worker } from "@/lib/supabase";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import WorkerSearchSelect from "./WorkerSearchSelect";
-import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 interface AssetFormModalProps {
@@ -37,6 +33,7 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const [assetNumber, setAssetNumber] = useState(asset?.asset_number ?? "");
   const [name, setName] = useState(asset?.name ?? "");
   const [assetType, setAssetType] = useState<AssetType>(asset?.asset_type ?? "laptop");
+  const [status, setStatus] = useState<AssetStatus>(asset?.status ?? "active");
   const [make, setMake] = useState(asset?.make ?? "");
   const [model, setModel] = useState(asset?.model ?? "");
   const [serialNumber, setSerialNumber] = useState(asset?.serial_number ?? "");
@@ -91,8 +88,7 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const showLaserFields = assetType === "laser";
   const showGaugeFields = assetType === "pressure_gauge";
   const showAccountFields = isAssignedAccountsAssetType(assetType);
-  const hideNameField = assetTypeHidesNameField(assetType);
-  const showStandardIdentityFields = showLaserFields || showGaugeFields;
+  const showCalibratedFields = showLaserFields || showGaugeFields;
   const referenceLabel = getAssetReferenceLabel(assetType);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,6 +101,7 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
       make,
       model,
       serialNumber,
+      status,
       assignedWorkerId,
       assignedProjectId,
       assignedWorkerIds,
@@ -156,17 +153,16 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
           Fields update automatically based on the selected asset type.
         </p>
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="mt-5 space-y-4">
+        <form onSubmit={(e) => void handleSubmit(e)} className="mt-5 space-y-4" noValidate>
           <div>
             <label className={labelClass} htmlFor="asset-type">
-              Asset Type *
+              Asset Type
             </label>
             <select
               id="asset-type"
               value={assetType}
               onChange={(e) => setAssetType(e.target.value as AssetType)}
               className={inputClass}
-              required
               disabled={saving}
             >
               {ASSET_TYPES.map((type) => (
@@ -181,14 +177,13 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
             <div className="space-y-4">
               <div>
                 <label className={labelClass} htmlFor="device-ref">
-                  {referenceLabel} *
+                  {referenceLabel}
                 </label>
                 <input
                   id="device-ref"
                   value={assetNumber}
                   onChange={(e) => setAssetNumber(e.target.value)}
                   className={inputClass}
-                  required
                   disabled={saving}
                   placeholder={
                     assetType === "laptop" ? "e.g. LAP-001" : "e.g. IPAD-001"
@@ -204,6 +199,8 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 selected={assignedWorkerId}
                 onChange={setAssignedWorkerId}
                 disabled={saving || workersLoading}
+                allowClear
+                unassignedOptionLabel="Unassigned"
               />
 
               <ProjectSelect
@@ -214,50 +211,23 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
             </div>
           ) : null}
 
-          {showStandardIdentityFields ? (
-            <div>
-              <label className={labelClass}>Asset # *</label>
-              <input
-                value={assetNumber}
-                onChange={(e) => setAssetNumber(e.target.value)}
-                className={inputClass}
-                required
-                disabled={saving}
-              />
-              {!hideNameField ? (
-                <div className="mt-4">
-                  <label className={labelClass}>Name *</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className={inputClass}
-                    required
-                    disabled={saving}
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
           {showAccountFields ? (
             <div className="space-y-4">
               <div>
-                <label className={labelClass}>Account Name *</label>
+                <label className={labelClass}>Account Name</label>
                 <input
                   value={accountName}
                   onChange={(e) => setAccountName(e.target.value)}
                   className={inputClass}
-                  required
                   disabled={saving}
                 />
               </div>
               <div>
-                <label className={labelClass}>Account Reference *</label>
+                <label className={labelClass}>Account Reference</label>
                 <input
                   value={accountReference}
                   onChange={(e) => setAccountReference(e.target.value)}
                   className={inputClass}
-                  required
                   disabled={saving}
                 />
               </div>
@@ -268,13 +238,42 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 selected={assignedWorkerIds}
                 onChange={setAssignedWorkerIds}
                 disabled={saving || workersLoading}
-                required
               />
             </div>
           ) : null}
 
-          {(showLaserFields || showGaugeFields) && (
+          {showCalibratedFields ? (
             <div className="space-y-4">
+              <div>
+                <label className={labelClass}>Serial Number</label>
+                <input
+                  value={serialNumber}
+                  onChange={(e) => setSerialNumber(e.target.value)}
+                  className={inputClass}
+                  disabled={saving}
+                  placeholder="e.g. SN-12345"
+                />
+              </div>
+
+              <div>
+                <label className={labelClass} htmlFor="asset-status">
+                  Status
+                </label>
+                <select
+                  id="asset-status"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as AssetStatus)}
+                  className={inputClass}
+                  disabled={saving}
+                >
+                  {(Object.keys(ASSET_STATUS_LABELS) as AssetStatus[]).map((value) => (
+                    <option key={value} value={value}>
+                      {ASSET_STATUS_LABELS[value]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <WorkerSearchSelect
                 mode="single"
                 id="laser-gauge-assigned-worker"
@@ -283,147 +282,44 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 selected={assignedWorkerId}
                 onChange={setAssignedWorkerId}
                 disabled={saving || workersLoading}
+                allowClear
+                unassignedOptionLabel="Unassigned"
               />
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className={labelClass}>Make</label>
-                  <input
-                    value={make}
-                    onChange={(e) => setMake(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Model</label>
-                  <input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Serial #</label>
-                  <input
-                    value={serialNumber}
-                    onChange={(e) => setSerialNumber(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showLaserFields ? (
-            <fieldset>
-              <legend className={labelClass}>Laser Type *</legend>
-              <div className="mt-2 flex flex-wrap gap-3">
-                {LASER_TYPE_OPTIONS.map((option) => (
-                  <label
-                    key={option}
-                    className={cn(
-                      "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold",
-                      laserType === option
-                        ? "border-orange-500 bg-orange-500 text-white"
-                        : "border-slate-200 bg-white text-slate-700"
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="laser-type"
-                      value={option}
-                      checked={laserType === option}
-                      onChange={() => setLaserType(option)}
-                      disabled={saving}
-                      className="sr-only"
-                    />
-                    {LASER_TYPE_LABELS[option]}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          ) : null}
-
-          {assetTypeRequiresService(assetType) ? (
-            <div>
-              <label className={labelClass}>Next Service Due Date *</label>
-              <input
-                type="date"
-                value={nextServiceDue}
-                onChange={(e) => setNextServiceDue(e.target.value)}
-                className={inputClass}
-                required
-                disabled={saving}
+              <ProjectSelect
+                label="Assigned Project"
+                value={assignedProjectId}
+                onChange={setAssignedProjectId}
               />
-            </div>
-          ) : null}
 
-          {assetTypeRequiresCalibration(assetType) ? (
-            <div>
-              <label className={labelClass}>Next Calibration Due Date *</label>
-              <input
-                type="date"
-                value={nextCalibrationDue}
-                onChange={(e) => setNextCalibrationDue(e.target.value)}
-                className={inputClass}
-                required
-                disabled={saving}
-              />
-            </div>
-          ) : null}
-
-          {(showLaserFields || showGaugeFields) && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-semibold text-slate-800">
-                Service & Calibration Contact Details
-              </p>
-              <div className="mt-4 space-y-3">
+              {showLaserFields ? (
                 <div>
-                  <label className={labelClass}>Company Name</label>
+                  <label className={labelClass}>Calibration / Test Date</label>
                   <input
-                    value={serviceContactCompany}
-                    onChange={(e) => setServiceContactCompany(e.target.value)}
+                    type="date"
+                    value={nextCalibrationDue}
+                    onChange={(e) => {
+                      setNextCalibrationDue(e.target.value);
+                      setNextServiceDue(e.target.value);
+                    }}
                     className={inputClass}
                     disabled={saving}
                   />
                 </div>
+              ) : (
                 <div>
-                  <label className={labelClass}>Contact Person</label>
+                  <label className={labelClass}>Calibration Date</label>
                   <input
-                    value={serviceContactName}
-                    onChange={(e) => setServiceContactName(e.target.value)}
+                    type="date"
+                    value={nextCalibrationDue}
+                    onChange={(e) => setNextCalibrationDue(e.target.value)}
                     className={inputClass}
                     disabled={saving}
                   />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className={labelClass}>Phone</label>
-                    <input
-                      type="tel"
-                      value={serviceContactPhone}
-                      onChange={(e) => setServiceContactPhone(e.target.value)}
-                      className={inputClass}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Email</label>
-                    <input
-                      type="email"
-                      value={serviceContactEmail}
-                      onChange={(e) => setServiceContactEmail(e.target.value)}
-                      className={inputClass}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
-          )}
+          ) : null}
 
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

@@ -1,6 +1,11 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { resolveProjectId, isProjectUuid } from "./project-resolver";
-import { nullIfBlankDate } from "./form-payload-utils";
+import {
+  nullIfBlank,
+  nullIfBlankDate,
+  parseMissingColumnFromError,
+  sanitizeWritePayload,
+} from "./form-payload-utils";
 
 export type LaserType = "pipe" | "rotating";
 
@@ -34,6 +39,15 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   laser: "Lasers",
   pressure_gauge: "Pressure Gauges",
   assigned_accounts: "Assigned Accounts",
+};
+
+/** Singular labels used for auto-generated fallback names. */
+export const ASSET_TYPE_SINGULAR_LABELS: Record<AssetType, string> = {
+  laptop: "Laptop",
+  ipad: "iPad",
+  laser: "Laser",
+  pressure_gauge: "Pressure Gauge",
+  assigned_accounts: "Account",
 };
 
 const LEGACY_ASSET_TYPE_ALIASES: Record<string, AssetType> = {
@@ -91,13 +105,22 @@ export function getAssetReferenceLabel(type: AssetType | string): string {
 }
 
 /** Primary heading for cards/tables — omits redundant Name for streamlined categories. */
-export function getAssetPrimaryLabel(asset: Pick<Asset, "asset_type" | "asset_number" | "name" | "account_name">): string {
+export function getAssetPrimaryLabel(
+  asset: Pick<
+    Asset,
+    "asset_type" | "asset_number" | "name" | "account_name" | "serial_number"
+  >
+): string {
   const type = normalizeAssetType(asset.asset_type);
   if (isMobileDeviceAssetType(type)) {
     return asset.asset_number.trim() || asset.name.trim() || getAssetTypeLabel(type);
   }
   if (assetTypeHidesNameField(type)) {
-    return asset.asset_number.trim() || "Untitled asset";
+    return (
+      (asset.serial_number ?? "").trim() ||
+      asset.asset_number.trim() ||
+      "Untitled asset"
+    );
   }
   if (isAssignedAccountsAssetType(type)) {
     return (asset.account_name ?? asset.name).trim() || asset.asset_number;
@@ -116,22 +139,18 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
       return ["iPad Ref", "Assigned Worker", "Assigned Project", "Actions"];
     case "laser":
       return [
-        "Asset #",
-        "Serial #",
-        "Laser Type",
-        "Service Due",
-        "Calibration Due",
+        "Serial Number",
+        "Calibration / Test Date",
+        "Assigned Project",
         "Status",
-        "Assigned Worker",
         "Actions",
       ];
     case "pressure_gauge":
       return [
-        "Asset #",
-        "Serial #",
-        "Calibration Due",
+        "Serial Number",
+        "Calibration Date",
+        "Assigned Project",
         "Status",
-        "Assigned Worker",
         "Actions",
       ];
     case "assigned_accounts":
@@ -141,27 +160,47 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
   }
 }
 
+function nullIfBlankUuid(value: string | null | undefined): string | null {
+  const trimmed = nullIfBlank(value);
+  if (!trimmed) return null;
+  // Reject empty / placeholder values that Postgres UUID columns reject.
+  if (
+    trimmed === "null" ||
+    trimmed === "undefined" ||
+    trimmed === "0" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      trimmed
+    )
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
 function resolveAssetDisplayName(input: AssetInput): string {
   const type = input.asset_type;
+  const singular = ASSET_TYPE_SINGULAR_LABELS[type] ?? "Asset";
+  const stamp = Date.now().toString().slice(-4);
+
   if (isMobileDeviceAssetType(type)) {
     return (
       input.asset_number.trim() ||
       input.name?.trim() ||
-      `${ASSET_TYPE_LABELS[type]} Asset`
+      singular
     );
   }
   if (assetTypeHidesNameField(type)) {
     return (
-      input.asset_number.trim() ||
       input.serial_number?.trim() ||
+      input.asset_number.trim() ||
       input.name?.trim() ||
-      `${ASSET_TYPE_LABELS[type]} Asset`
+      `${singular} #${stamp}`
     );
   }
   if (isAssignedAccountsAssetType(type)) {
-    return input.account_name?.trim() || input.name?.trim() || "";
+    return input.account_name?.trim() || input.name?.trim() || singular;
   }
-  return input.name?.trim() || input.asset_number.trim();
+  return input.name?.trim() || input.asset_number.trim() || singular;
 }
 
 function normalizeWorkerIdArray(value: unknown): string[] {
@@ -394,25 +433,32 @@ async function syncAssetProjectAssignment(
 
 export function buildAssetWritePayload(input: AssetInput): Record<string, unknown> {
   const type = input.asset_type;
-  const projectId = input.project_id ?? input.assigned_project_id ?? null;
+  const projectId =
+    nullIfBlank(input.project_id) ?? nullIfBlank(input.assigned_project_id);
+  const workerId = nullIfBlankUuid(input.assigned_worker_id);
   const displayName = resolveAssetDisplayName(input);
+  const assetNumber =
+    nullIfBlank(input.asset_number) ||
+    nullIfBlank(input.serial_number) ||
+    `${type}-${Date.now().toString().slice(-6)}`;
 
   const base: Record<string, unknown> = {
-    asset_number: input.asset_number.trim(),
+    asset_number: assetNumber,
     name: displayName,
     asset_type: type,
     status: input.status ?? "active",
+    // Keep both project columns in sync for either live schema.
     assigned_project_id: projectId,
     project_id: projectId,
   };
 
   if (isMobileDeviceAssetType(type)) {
-    return {
+    return sanitizeWritePayload({
       ...base,
       make: null,
       model: null,
       serial_number: null,
-      assigned_worker_id: input.assigned_worker_id?.trim() || null,
+      assigned_worker_id: workerId,
       assigned_worker_ids: [],
       laser_type: null,
       account_name: null,
@@ -423,16 +469,23 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       service_contact_company: null,
       service_contact_phone: null,
       service_contact_email: null,
-    };
+    });
   }
 
   if (type === "assigned_accounts") {
-    return {
+    const accountName =
+      nullIfBlank(input.account_name) || displayName || ASSET_TYPE_SINGULAR_LABELS.assigned_accounts;
+    const accountReference =
+      nullIfBlank(input.account_reference) || assetNumber;
+    return sanitizeWritePayload({
       ...base,
-      name: input.account_name?.trim() || displayName,
-      account_name: input.account_name?.trim() || null,
-      account_reference: input.account_reference?.trim() || null,
-      assigned_worker_ids: normalizeWorkerIdArray(input.assigned_worker_ids),
+      asset_number: accountReference,
+      name: accountName,
+      account_name: accountName,
+      account_reference: accountReference,
+      assigned_worker_ids: normalizeWorkerIdArray(input.assigned_worker_ids)
+        .map((id) => nullIfBlankUuid(id))
+        .filter((id): id is string => Boolean(id)),
       assigned_worker_id: null,
       laser_type: null,
       make: null,
@@ -444,46 +497,50 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       service_contact_company: null,
       service_contact_phone: null,
       service_contact_email: null,
-    };
+    });
   }
 
+  const calibrationDate = nullIfBlankDate(input.next_calibration_due_date);
+  const serviceDate = nullIfBlankDate(input.next_service_due_date);
+
   if (type === "laser") {
-    return {
+    return sanitizeWritePayload({
       ...base,
-      make: input.make?.trim() || null,
-      model: input.model?.trim() || null,
-      serial_number: input.serial_number?.trim() || null,
+      make: nullIfBlank(input.make),
+      model: nullIfBlank(input.model),
+      serial_number: nullIfBlank(input.serial_number),
       laser_type: input.laser_type ?? null,
-      next_service_due_date: nullIfBlankDate(input.next_service_due_date),
-      next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
-      service_contact_name: input.service_contact_name?.trim() || null,
-      service_contact_company: input.service_contact_company?.trim() || null,
-      service_contact_phone: input.service_contact_phone?.trim() || null,
-      service_contact_email: input.service_contact_email?.trim() || null,
-      assigned_worker_id: input.assigned_worker_id?.trim() || null,
+      next_service_due_date: serviceDate,
+      next_calibration_due_date: calibrationDate,
+      service_contact_name: nullIfBlank(input.service_contact_name),
+      service_contact_company: nullIfBlank(input.service_contact_company),
+      service_contact_phone: nullIfBlank(input.service_contact_phone),
+      service_contact_email: nullIfBlank(input.service_contact_email),
+      assigned_worker_id: workerId,
       assigned_worker_ids: [],
       account_name: null,
       account_reference: null,
-    };
+    });
   }
 
-  return {
+  // pressure_gauge and any other calibrated equipment
+  return sanitizeWritePayload({
     ...base,
-    make: input.make?.trim() || null,
-    model: input.model?.trim() || null,
-    serial_number: input.serial_number?.trim() || null,
+    make: nullIfBlank(input.make),
+    model: nullIfBlank(input.model),
+    serial_number: nullIfBlank(input.serial_number),
     laser_type: null,
     next_service_due_date: null,
-    next_calibration_due_date: nullIfBlankDate(input.next_calibration_due_date),
-    service_contact_name: input.service_contact_name?.trim() || null,
-    service_contact_company: input.service_contact_company?.trim() || null,
-    service_contact_phone: input.service_contact_phone?.trim() || null,
-    service_contact_email: input.service_contact_email?.trim() || null,
-    assigned_worker_id: input.assigned_worker_id?.trim() || null,
+    next_calibration_due_date: calibrationDate,
+    service_contact_name: nullIfBlank(input.service_contact_name),
+    service_contact_company: nullIfBlank(input.service_contact_company),
+    service_contact_phone: nullIfBlank(input.service_contact_phone),
+    service_contact_email: nullIfBlank(input.service_contact_email),
+    assigned_worker_id: workerId,
     assigned_worker_ids: [],
     account_name: null,
     account_reference: null,
-  };
+  });
 }
 
 export function buildAssetInputFromForm(values: {
@@ -493,6 +550,7 @@ export function buildAssetInputFromForm(values: {
   make: string;
   model: string;
   serialNumber: string;
+  status?: AssetStatus;
   assignedWorkerId: string | null;
   assignedProjectId: string | null;
   assignedWorkerIds: string[];
@@ -506,6 +564,8 @@ export function buildAssetInputFromForm(values: {
   serviceContactPhone: string;
   serviceContactEmail: string;
 }): AssetInput {
+  const singular = ASSET_TYPE_SINGULAR_LABELS[values.assetType];
+  const stamp = Date.now().toString().slice(-4);
   const prefix =
     values.assetType === "ipad"
       ? "IPAD"
@@ -513,47 +573,62 @@ export function buildAssetInputFromForm(values: {
         ? "LAP"
         : values.assetType === "assigned_accounts"
           ? "ACC"
-          : "AST";
+          : values.assetType === "laser"
+            ? "LAS"
+            : values.assetType === "pressure_gauge"
+              ? "PG"
+              : "AST";
 
   if (isMobileDeviceAssetType(values.assetType)) {
     const ref = values.assetNumber.trim();
     return {
       asset_type: values.assetType,
-      asset_number: ref || `${prefix}-${Date.now()}`,
-      name: ref || values.name.trim() || `${ASSET_TYPE_LABELS[values.assetType]} Asset`,
-      make: "",
-      model: "",
-      serial_number: "",
-      assigned_worker_id: values.assignedWorkerId,
-      assigned_project_id: values.assignedProjectId,
-      project_id: values.assignedProjectId,
+      asset_number: ref || `${prefix}-${Date.now().toString().slice(-6)}`,
+      // Fallback name: laptop_ref / ipad_ref || "Laptop" / "iPad"
+      name: ref || singular,
+      status: values.status ?? "active",
+      make: undefined,
+      model: undefined,
+      serial_number: undefined,
+      assigned_worker_id: values.assignedWorkerId || null,
+      assigned_project_id: values.assignedProjectId || null,
+      project_id: values.assignedProjectId || null,
     };
   }
 
   if (isAssignedAccountsAssetType(values.assetType)) {
-    const accountName = values.accountName.trim();
-    const accountReference = values.accountReference.trim();
+    const accountName = values.accountName.trim() || singular;
+    const accountReference =
+      values.accountReference.trim() ||
+      values.assetNumber.trim() ||
+      `${prefix}-${Date.now().toString().slice(-6)}`;
     return {
       asset_type: values.assetType,
-      asset_number: accountReference || values.assetNumber.trim() || `${prefix}-${Date.now()}`,
-      name: accountName || values.name.trim(),
+      asset_number: accountReference,
+      name: accountName,
+      status: values.status ?? "active",
       account_name: accountName,
       account_reference: accountReference,
       assigned_worker_ids: values.assignedWorkerIds,
     };
   }
 
-  const assetNumber = values.assetNumber.trim();
+  const serial = values.serialNumber.trim();
+  const assetNumber =
+    values.assetNumber.trim() ||
+    serial ||
+    `${prefix}-${Date.now().toString().slice(-6)}`;
+  // name = serial_number || `${category} #xxxx`
+  const name = serial || `${singular} #${stamp}`;
+
   return {
     asset_type: values.assetType,
     asset_number: assetNumber,
-    // Name is not collected for lasers/gauges — mirror Asset # for DB compatibility.
-    name: assetTypeHidesNameField(values.assetType)
-      ? assetNumber || values.serialNumber.trim() || values.name.trim()
-      : values.name.trim(),
+    name,
+    status: values.status ?? "active",
     make: values.make,
     model: values.model,
-    serial_number: values.serialNumber,
+    serial_number: serial || undefined,
     laser_type: values.assetType === "laser" ? values.laserType : null,
     next_service_due_date: values.nextServiceDue || null,
     next_calibration_due_date: values.nextCalibrationDue || null,
@@ -561,10 +636,97 @@ export function buildAssetInputFromForm(values: {
     service_contact_company: values.serviceContactCompany,
     service_contact_phone: values.serviceContactPhone,
     service_contact_email: values.serviceContactEmail,
-    assigned_worker_id: values.assignedWorkerId,
-    assigned_project_id: values.assignedProjectId,
-    project_id: values.assignedProjectId,
+    assigned_worker_id: values.assignedWorkerId || null,
+    assigned_project_id: values.assignedProjectId || null,
+    project_id: values.assignedProjectId || null,
   };
+}
+
+const OPTIONAL_ASSET_COLUMNS = [
+  "project_id",
+  "assigned_project_id",
+  "assigned_worker_id",
+  "assigned_worker_ids",
+  "laser_type",
+  "account_name",
+  "account_reference",
+  "service_contact_name",
+  "service_contact_company",
+  "service_contact_phone",
+  "service_contact_email",
+  "next_service_due_date",
+  "next_calibration_due_date",
+  "make",
+  "model",
+  "serial_number",
+  "vendor_id",
+  "updated_at",
+] as const;
+
+function isMissingAssetColumnError(message: string, column: string): boolean {
+  const lower = message.toLowerCase();
+  const col = column.toLowerCase();
+  return (
+    lower.includes(col) &&
+    (lower.includes("schema cache") ||
+      lower.includes("could not find") ||
+      lower.includes("does not exist") ||
+      (lower.includes("column") && lower.includes(col)))
+  );
+}
+
+async function upsertAssetRow(options: {
+  mode: "insert" | "update";
+  id?: string;
+  payload: Record<string, unknown>;
+}): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  let current = { ...options.payload };
+
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const query =
+      options.mode === "insert"
+        ? supabase.from("assets").insert(current).select("*").single()
+        : supabase
+            .from("assets")
+            .update(current)
+            .eq("id", options.id!)
+            .select("*")
+            .single();
+
+    const { data, error } = await query;
+    if (!error) {
+      return { data: (data as Record<string, unknown> | null) ?? null, error: null };
+    }
+
+    const extracted = parseMissingColumnFromError(error.message);
+    const missingColumn =
+      (extracted && extracted in current ? extracted : null) ||
+      OPTIONAL_ASSET_COLUMNS.find(
+        (column) =>
+          column in current && isMissingAssetColumnError(error.message, column)
+      );
+
+    if (missingColumn && missingColumn in current) {
+      const { [missingColumn]: _removed, ...rest } = current;
+      current = rest;
+      continue;
+    }
+
+    // Invalid UUID / empty string on FK columns — null them out and retry.
+    const lower = error.message.toLowerCase();
+    if (
+      (lower.includes("uuid") || lower.includes("invalid input syntax")) &&
+      "assigned_worker_id" in current &&
+      current.assigned_worker_id
+    ) {
+      current = { ...current, assigned_worker_id: null };
+      continue;
+    }
+
+    return { data: null, error: error.message };
+  }
+
+  return { data: null, error: "Failed to save asset." };
 }
 
 export async function addAsset(input: AssetInput): Promise<{ error: string | null; asset?: Asset }> {
@@ -585,15 +747,10 @@ export async function addAsset(input: AssetInput): Promise<{ error: string | nul
   });
 
   try {
-    const { data, error } = await supabase
-      .from("assets")
-      .insert(payload)
-      .select("*")
-      .single();
+    const { data, error } = await upsertAssetRow({ mode: "insert", payload });
+    if (error || !data) return { error: error ?? "Failed to add asset" };
 
-    if (error) return { error: error.message };
-
-    const asset = normalizeAsset(data as Record<string, unknown>);
+    const asset = normalizeAsset(data);
     const { error: assignError } = await syncAssetProjectAssignment(
       asset.id,
       resolvedProjectId
@@ -630,16 +787,14 @@ export async function updateAsset(
   };
 
   try {
-    const { data, error } = await supabase
-      .from("assets")
-      .update(payload)
-      .eq("id", id)
-      .select("*")
-      .single();
+    const { data, error } = await upsertAssetRow({
+      mode: "update",
+      id,
+      payload,
+    });
+    if (error || !data) return { error: error ?? "Failed to update asset" };
 
-    if (error) return { error: error.message };
-
-    const asset = normalizeAsset(data as Record<string, unknown>);
+    const asset = normalizeAsset(data);
     const { error: assignError } = await syncAssetProjectAssignment(
       id,
       resolvedProjectId
@@ -882,41 +1037,21 @@ export async function updateAssetStatus(
   return { error: error?.message ?? null };
 }
 
+/**
+ * Soft category-aware validation. Non-essential fields are optional; missing
+ * refs/names are auto-filled in buildAssetInputFromForm / buildAssetWritePayload.
+ */
 export function validateAssetInput(input: AssetInput): string | null {
   if (!isAssetType(input.asset_type)) return "Asset Type is required";
 
-  if (isMobileDeviceAssetType(input.asset_type)) {
-    if (!input.asset_number.trim()) {
-      return `${getAssetReferenceLabel(input.asset_type)} is required.`;
-    }
-    return null;
+  // Laptops / iPads / lasers / gauges / accounts: no hard blocks on optional fields.
+  // Identity values are auto-generated when blank.
+  if (input.status && input.status !== "active" && input.status !== "in_service_calibration") {
+    return "Invalid status.";
   }
 
-  if (isAssignedAccountsAssetType(input.asset_type)) {
-    if (!input.account_name?.trim()) return "Account Name is required.";
-    if (!input.account_reference?.trim()) return "Account Reference is required.";
-    if (!input.assigned_worker_ids?.length) {
-      return "Select at least one worker for Assigned To.";
-    }
-    return null;
-  }
-
-  if (!input.asset_number.trim()) return "Asset # is required";
-  // Name is optional for lasers / pressure gauges (auto-filled from Asset #).
-  if (!assetTypeHidesNameField(input.asset_type) && !input.name?.trim()) {
-    return "Name is required";
-  }
-
-  if (input.asset_type === "laser" && !input.laser_type) {
-    return "Laser Type is required.";
-  }
-
-  if (assetTypeRequiresCalibration(input.asset_type) && !input.next_calibration_due_date) {
-    return "Next Calibration Due Date is required for Lasers and Pressure Gauges";
-  }
-
-  if (assetTypeRequiresService(input.asset_type) && !input.next_service_due_date) {
-    return "Next Service Due Date is required for Lasers";
+  if (input.laser_type && input.laser_type !== "pipe" && input.laser_type !== "rotating") {
+    return "Invalid laser type.";
   }
 
   return null;

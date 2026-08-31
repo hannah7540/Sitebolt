@@ -8,14 +8,15 @@ import {
   Plus,
   QrCode,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
-  LASER_TYPE_LABELS,
   addAsset,
   assignAssetToProject,
   buildAssetProjectMap,
+  deleteAsset,
   fetchProjectAssetAssignments,
   getAssetAssignedProjectIds,
   getAssetPrimaryLabel,
@@ -162,6 +163,23 @@ export default function AssetAdminPanel({
     return { error };
   };
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteAsset = async (asset: Asset) => {
+    const label = getAssetPrimaryLabel(asset);
+    const confirmed = window.confirm(`Delete asset "${label}"? This cannot be undone.`);
+    if (!confirmed) return;
+    setDeletingId(asset.id);
+    const { error } = await deleteAsset(asset.id);
+    setDeletingId(null);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    setAssetList((prev) => prev.filter((row) => row.id !== asset.id));
+    onRefresh();
+  };
+
   const renderActionButtons = (asset: Asset) => (
     <div className="flex flex-wrap gap-2">
       <button
@@ -188,12 +206,27 @@ export default function AssetAdminPanel({
       >
         <Link2 className="h-3.5 w-3.5" /> Assign
       </button>
+      <button
+        type="button"
+        onClick={() => void handleDeleteAsset(asset)}
+        disabled={deletingId === asset.id}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+      >
+        {deletingId === asset.id ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Trash2 className="h-3.5 w-3.5" />
+        )}
+        Delete
+      </button>
     </div>
   );
 
   const renderAssetRow = (asset: Asset, type: AssetType) => {
     const projectName = getProjectName(asset) ?? "—";
     const cellClass = "rounded-lg bg-white px-2 py-3 align-middle text-sm text-slate-700";
+    const calibrationOrTest =
+      asset.next_calibration_due_date || asset.next_service_due_date || "—";
 
     if (isMobileDeviceAssetType(type)) {
       return (
@@ -208,39 +241,17 @@ export default function AssetAdminPanel({
       );
     }
 
-    if (type === "laser") {
+    if (type === "laser" || type === "pressure_gauge") {
       return (
         <tr key={asset.id} className="align-top">
           <td className={cn(cellClass, "font-semibold text-slate-900")}>
-            {asset.asset_number}
+            {asset.serial_number || asset.asset_number || "—"}
           </td>
-          <td className={cellClass}>{asset.serial_number || "—"}</td>
-          <td className={cellClass}>
-            {asset.laser_type ? LASER_TYPE_LABELS[asset.laser_type] : "—"}
-          </td>
-          <td className={cellClass}>{asset.next_service_due_date || "—"}</td>
-          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
+          <td className={cellClass}>{calibrationOrTest}</td>
+          <td className={cellClass}>{projectName}</td>
           <td className={cellClass}>
             <StatusBadge status={asset.status} />
           </td>
-          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
-          <td className={cellClass}>{renderActionButtons(asset)}</td>
-        </tr>
-      );
-    }
-
-    if (type === "pressure_gauge") {
-      return (
-        <tr key={asset.id} className="align-top">
-          <td className={cn(cellClass, "font-semibold text-slate-900")}>
-            {asset.asset_number}
-          </td>
-          <td className={cellClass}>{asset.serial_number || "—"}</td>
-          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
-          <td className={cellClass}>
-            <StatusBadge status={asset.status} />
-          </td>
-          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
           <td className={cellClass}>{renderActionButtons(asset)}</td>
         </tr>
       );
