@@ -1,4 +1,8 @@
 import { resolveSystemFromEmail } from "./email-config";
+import {
+  appendTeamEmailFooter,
+  appendTeamEmailFooterText,
+} from "./email-team-footer";
 
 export interface SendEmailInput {
   to: string[];
@@ -7,6 +11,8 @@ export interface SendEmailInput {
   text?: string;
   replyTo?: string;
   headers?: Record<string, string>;
+  /** When true, skip appending the SiteBolt team banner footer. */
+  skipTeamFooter?: boolean;
 }
 
 export interface SendEmailResult {
@@ -37,6 +43,15 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     };
   }
 
+  const html = input.skipTeamFooter
+    ? input.html
+    : appendTeamEmailFooter(input.html);
+  const text = input.skipTeamFooter
+    ? input.text
+    : input.text != null
+      ? appendTeamEmailFooterText(input.text)
+      : undefined;
+
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -48,8 +63,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         from: resolveSystemFromEmail(),
         to: recipients,
         subject: input.subject,
-        html: input.html,
-        text: input.text,
+        html,
+        text,
         reply_to: input.replyTo,
         headers: input.headers,
       }),

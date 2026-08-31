@@ -5,6 +5,10 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import {
+  appendTeamEmailFooter,
+  appendTeamEmailFooterText,
+} from "@/lib/email-team-footer";
 
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 
@@ -56,11 +60,7 @@ export async function POST(req: Request) {
     }
 
     const resend = new Resend(apiKey);
-    const resendResult = await resend.emails.send({
-      from: "Site Bolt <hannah@site-bolt.com.au>",
-      to: [email],
-      subject: "Reset your Site Bolt password",
-      html: `
+    const resetHtml = appendTeamEmailFooter(`
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
           <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Password Reset Request</h1>
           <p style="font-size: 16px; line-height: 1.5; margin: 0 0 32px;">
@@ -75,8 +75,17 @@ export async function POST(req: Request) {
             If you did not request a password reset, you can ignore this email.
           </p>
         </div>
-      `.trim(),
-      text: `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`,
+      `.trim());
+    const resetText = appendTeamEmailFooterText(
+      `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`
+    );
+
+    const resendResult = await resend.emails.send({
+      from: "Site Bolt <hannah@site-bolt.com.au>",
+      to: [email],
+      subject: "Reset your Site Bolt password",
+      html: resetHtml,
+      text: resetText,
     });
 
     if (resendResult.error) {

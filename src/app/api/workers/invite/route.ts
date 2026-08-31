@@ -7,6 +7,10 @@ import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { ensureWorkerInviteRecord } from "@/lib/ensure-worker-profile";
 import {
+  appendTeamEmailFooter,
+  appendTeamEmailFooterText,
+} from "@/lib/email-team-footer";
+import {
   AUTH_CALLBACK_PATH,
   WORKER_INVITE_NEXT_PATH,
   buildPasswordResetOtpPageUrl,
@@ -105,11 +109,7 @@ export async function POST(req: Request) {
     });
 
     const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: "Site Bolt <hannah@site-bolt.com.au>",
-      to: [email],
-      subject: "You have been added to Site-Bolt",
-      html: `
+    const inviteHtml = appendTeamEmailFooter(`
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
           <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site-Bolt</h1>
           <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
@@ -125,8 +125,17 @@ export async function POST(req: Request) {
             <a href="${inviteLink}" style="color: #ea580c; word-break: break-all;">${inviteLink}</a>
           </p>
         </div>
-      `.trim(),
-      text: `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`,
+      `.trim());
+    const inviteText = appendTeamEmailFooterText(
+      `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`
+    );
+
+    await resend.emails.send({
+      from: "Site Bolt <hannah@site-bolt.com.au>",
+      to: [email],
+      subject: "You have been added to Site-Bolt",
+      html: inviteHtml,
+      text: inviteText,
     });
 
     return NextResponse.json(

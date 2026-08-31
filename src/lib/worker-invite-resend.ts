@@ -1,5 +1,9 @@
 import { Resend } from "resend";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
+import {
+  appendTeamEmailFooter,
+  appendTeamEmailFooterText,
+} from "@/lib/email-team-footer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
@@ -110,12 +114,19 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
+  const inviteHtml = appendTeamEmailFooter(
+    `<p>Welcome to Site Bolt! Click the link below to sign in and complete your setup:</p><p><a href="${actionLink}">Set Up Account</a></p>`
+  );
+  const inviteText = appendTeamEmailFooterText(
+    `Welcome to Site Bolt! Set up your account: ${actionLink}`
+  );
+
   const resendResult = await resend.emails.send({
     from: DEFAULT_SYSTEM_FROM_EMAIL,
     to: [trimmedEmail],
     subject: "Set up your Site Bolt account",
-    html: `<p>Welcome to Site Bolt! Click the link below to sign in and complete your setup:</p><p><a href="${actionLink}">Set Up Account</a></p>`,
-    text: `Welcome to Site Bolt! Set up your account: ${actionLink}`,
+    html: inviteHtml,
+    text: inviteText,
   });
 
   console.log("Resend response:", resendResult.data);
