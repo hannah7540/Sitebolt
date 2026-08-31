@@ -3628,13 +3628,21 @@ export function resolveSwmsVersion(
 
 function normalizeSwmsDocumentRecord(row: RawSwmsDocumentRecord): SwmsDocumentRecord {
   const documentUrl = resolveSwmsDocumentUrl(row);
+  const rowId = String(row.id ?? "").trim();
   const linkedSwmsId = row.swms_id ? String(row.swms_id).trim() : "";
   const linkedDocumentId = row.document_id ? String(row.document_id).trim() : "";
   const linkedSwmsDocumentId = row.swms_document_id
     ? String(row.swms_document_id).trim()
     : "";
+  const parentDocumentId = [
+    linkedSwmsDocumentId,
+    linkedDocumentId,
+    linkedSwmsId,
+  ].find((value) => isValidSwmsId(value) && value !== rowId);
+
   const normalized: SwmsDocumentRecord = {
-    id: String(row.id ?? ""),
+    // Keep the row's own id for edits, but expose parent document fields for assignment.
+    id: rowId,
     title: String(row.title ?? "").trim(),
     document_date: resolveSwmsDocumentDate(row),
     file_url: documentUrl,
@@ -3651,10 +3659,16 @@ function normalizeSwmsDocumentRecord(row: RawSwmsDocumentRecord): SwmsDocumentRe
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
-  if (isValidSwmsId(linkedSwmsId)) normalized.swms_id = linkedSwmsId;
-  if (isValidSwmsId(linkedDocumentId)) normalized.document_id = linkedDocumentId;
-  if (isValidSwmsId(linkedSwmsDocumentId)) {
-    normalized.swms_document_id = linkedSwmsDocumentId;
+  if (parentDocumentId) {
+    normalized.swms_id = parentDocumentId;
+    normalized.document_id = parentDocumentId;
+    normalized.swms_document_id = parentDocumentId;
+  } else {
+    if (isValidSwmsId(linkedSwmsId)) normalized.swms_id = linkedSwmsId;
+    if (isValidSwmsId(linkedDocumentId)) normalized.document_id = linkedDocumentId;
+    if (isValidSwmsId(linkedSwmsDocumentId)) {
+      normalized.swms_document_id = linkedSwmsDocumentId;
+    }
   }
   return normalized;
 }
@@ -3849,6 +3863,7 @@ export function resolveSwmsDocumentsId(
         doc_id?: string | null;
         document_id?: string | null;
         swms_document_id?: string | null;
+        relation_id?: string | null;
         _id?: string | null;
         swmsId?: string | null;
       }
@@ -3864,20 +3879,25 @@ export function resolveSwmsDocumentsId(
   }
 
   const record = item as Record<string, unknown>;
-  const candidates = [
+  const linkedParent = [
     record.swms_document_id,
     record.document_id,
     record.swms_id,
     record.swmsId,
-    record.doc_id,
-    record.id,
-    record._id,
-  ];
+  ]
+    .map((value) => String(value ?? "").trim())
+    .find((value) => isValidSwmsId(value));
 
-  for (const candidate of candidates) {
-    const value = String(candidate ?? "").trim();
-    if (isValidSwmsId(value)) return value;
+  const rowId = [record.id, record._id, record.doc_id, record.relation_id]
+    .map((value) => String(value ?? "").trim())
+    .find((value) => isValidSwmsId(value));
+
+  // Junction / project relation: parent document id differs from the row id.
+  if (linkedParent && rowId && linkedParent !== rowId) {
+    return linkedParent;
   }
+  if (linkedParent) return linkedParent;
+  if (rowId) return rowId;
   return "";
 }
 
@@ -3895,6 +3915,7 @@ export function collectSwmsDocumentIdCandidates(
   }
 
   const record = item as Record<string, unknown>;
+  // Parent-document fields first so resolution prefers swms_documents.id.
   const values = [
     record.swms_document_id,
     record.document_id,
@@ -3903,6 +3924,7 @@ export function collectSwmsDocumentIdCandidates(
     record.doc_id,
     record.id,
     record._id,
+    record.relation_id,
   ];
   const out: string[] = [];
   for (const value of values) {

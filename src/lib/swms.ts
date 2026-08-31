@@ -578,6 +578,8 @@ export async function assignSwmsWorkersRequest(input: {
   swmsId: string;
   /** Optional explicit parent document id when swmsId is a project relation id. */
   swmsDocumentId?: string | null;
+  /** Full selected SWMS object for relation→document resolution. */
+  swmsHints?: Record<string, unknown> | null;
   workerIds?: string[];
   projectId?: string | null;
   assignAllProjectMembers?: boolean;
@@ -591,14 +593,24 @@ export async function assignSwmsWorkersRequest(input: {
   createdWorkerIds: string[];
 }> {
   try {
-    const documentId = input.swmsDocumentId?.trim() || undefined;
+    const documentId =
+      input.swmsDocumentId?.trim() ||
+      resolveSwmsDocumentsId(input.swmsHints ?? { id: input.swmsId }) ||
+      input.swmsId;
     const response = await fetch("/api/admin/swms/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        swms_id: input.swmsId,
+        // Always send the resolved documents id as swms_id when known.
+        swms_id: documentId,
         swms_document_id: documentId,
         document_id: documentId,
+        swms_hints: {
+          ...(input.swmsHints ?? {}),
+          id: input.swmsId,
+          swms_document_id: documentId,
+          document_id: documentId,
+        },
         worker_ids: input.workerIds ?? [],
         project_id: input.projectId ?? undefined,
         assign_all_project_members: Boolean(input.assignAllProjectMembers),

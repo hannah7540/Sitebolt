@@ -197,14 +197,22 @@ export default function ProjectAssignSwmsModal({
       return;
     }
 
+    const swmsHints = {
+      id: relationOrRowId || canonicalSwmsId,
+      swms_id: swms.swms_id ?? null,
+      document_id: swms.document_id ?? null,
+      swms_document_id: swms.swms_document_id ?? null,
+      project_id: swms.project_id ?? projectId,
+      title: swms.title,
+    };
+
     try {
       const result =
         mode === "all_members"
           ? await assignSwmsWorkersRequest({
               swmsId: relationOrRowId || canonicalSwmsId,
               swmsDocumentId: canonicalSwmsId,
-              // Prefer explicit ids from the resolved member list so assignment
-              // works even if server-side project lookup differs.
+              swmsHints,
               workerIds: members.map((worker) => worker.id),
               projectId,
               mode: "workers",
@@ -213,6 +221,7 @@ export default function ProjectAssignSwmsModal({
           : await assignSwmsWorkersRequest({
               swmsId: relationOrRowId || canonicalSwmsId,
               swmsDocumentId: canonicalSwmsId,
+              swmsHints,
               workerIds: selectedIds,
               projectId,
               mode: "workers",

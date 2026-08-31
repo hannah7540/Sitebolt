@@ -20,6 +20,8 @@ export async function POST(request: Request) {
     /** Explicit parent document id when swms_id is a project/legacy relation id. */
     swms_document_id?: string;
     document_id?: string;
+    /** Full selected SWMS object hints for relation→document resolution. */
+    swms_hints?: Record<string, unknown>;
     worker_ids?: string[];
     project_id?: string;
     /** When true with project_id, resolve and assign all current project members. */
@@ -37,13 +39,23 @@ export async function POST(request: Request) {
   }
 
   // Prefer explicit document FK fields over a project-SWMS relation id.
-  const requestSwmsId = [
+  const hintDocumentId = [
     body.swms_document_id,
     body.document_id,
+    body.swms_hints && typeof body.swms_hints === "object"
+      ? String(
+          (body.swms_hints as { swms_document_id?: unknown }).swms_document_id ??
+            (body.swms_hints as { document_id?: unknown }).document_id ??
+            (body.swms_hints as { swms_id?: unknown }).swms_id ??
+            ""
+        )
+      : "",
     body.swms_id,
   ]
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .find((value) => isValidSwmsId(value));
+
+  const requestSwmsId = hintDocumentId;
 
   if (!requestSwmsId) {
     console.error("[swms-assign] reject request — invalid swms_id:", {
@@ -143,6 +155,15 @@ export async function POST(request: Request) {
       swmsId: requestSwmsId,
       workerIds,
       projectId,
+      hints: {
+        ...(body.swms_hints && typeof body.swms_hints === "object"
+          ? body.swms_hints
+          : {}),
+        swms_document_id: body.swms_document_id,
+        document_id: body.document_id,
+        swms_id: body.swms_document_id || body.document_id || body.swms_id,
+        id: body.swms_id,
+      },
     }
   );
 

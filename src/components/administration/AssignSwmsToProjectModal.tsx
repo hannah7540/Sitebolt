@@ -86,6 +86,15 @@ export default function AssignSwmsToProjectModal({
       return;
     }
 
+    const swmsHints = {
+      id: relationOrRowId || canonicalSwmsId,
+      swms_id: swms.swms_id ?? null,
+      document_id: swms.document_id ?? null,
+      swms_document_id: swms.swms_document_id ?? null,
+      project_id: swms.project_id ?? null,
+      title: swms.title,
+    };
+
     try {
       if (mode === "full_project") {
         if (!projectId.trim()) {
@@ -132,6 +141,14 @@ export default function AssignSwmsToProjectModal({
           void assignSwmsWorkersRequest({
             swmsId: String(document.id ?? createdSwmsId),
             swmsDocumentId: createdSwmsId,
+            swmsHints: {
+              id: String(document.id ?? createdSwmsId),
+              swms_id: document.swms_id ?? createdSwmsId,
+              document_id: createdSwmsId,
+              swms_document_id: createdSwmsId,
+              project_id: projectId,
+              title: document.title,
+            },
             workerIds: projectWorkers.map((w) => w.id),
             notifyOnly: true,
             swmsTitle: swms.title,
@@ -150,6 +167,7 @@ export default function AssignSwmsToProjectModal({
         const result = await assignSwmsWorkersRequest({
           swmsId: relationOrRowId || canonicalSwmsId,
           swmsDocumentId: canonicalSwmsId,
+          swmsHints,
           projectId,
           assignAllProjectMembers: true,
           mode: "project",
@@ -186,6 +204,7 @@ export default function AssignSwmsToProjectModal({
       const result = await assignSwmsWorkersRequest({
         swmsId: relationOrRowId || canonicalSwmsId,
         swmsDocumentId: canonicalSwmsId,
+        swmsHints,
         workerIds: selectedWorkerIds,
         projectId: linkedProjectId || undefined,
         mode: "workers",
