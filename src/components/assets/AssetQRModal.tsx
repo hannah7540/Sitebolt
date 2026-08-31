@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Printer, X } from "lucide-react";
 import type { Asset } from "@/lib/assets";
-import { getAssetTypeLabel } from "@/lib/assets";
+import {
+  assetTypeHidesNameField,
+  getAssetPrimaryLabel,
+  getAssetTypeLabel,
+  isMobileDeviceAssetType,
+} from "@/lib/assets";
 import {
   drawQrToCanvas,
   downloadQrSvg,
@@ -78,8 +83,15 @@ export default function AssetQRModal({ asset, onClose }: AssetQRModalProps) {
           <p className="mb-1 text-xs font-bold uppercase tracking-widest text-orange-500">
             Asset QR Code
           </p>
-          <h2 className="text-2xl font-bold text-slate-900">{asset.asset_number}</h2>
-          <p className="text-sm text-slate-600">{asset.name}</p>
+          <h2 className="text-2xl font-bold text-slate-900">
+            {getAssetPrimaryLabel(asset)}
+          </h2>
+          {!isMobileDeviceAssetType(asset.asset_type) &&
+          !assetTypeHidesNameField(asset.asset_type) &&
+          asset.name.trim() &&
+          asset.name.trim() !== asset.asset_number.trim() ? (
+            <p className="text-sm text-slate-600">{asset.name}</p>
+          ) : null}
           <p className="mt-1 text-xs text-slate-500">
             {getAssetTypeLabel(asset.asset_type)} · Scan to view asset
           </p>

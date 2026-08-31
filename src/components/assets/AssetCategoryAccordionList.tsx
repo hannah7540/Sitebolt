@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
   ASSET_TYPES,
+  getAssetCategoryColumnHeaders,
   getAssetTypeLabel,
   groupAssetsByType,
   type Asset,
@@ -15,7 +16,9 @@ import { cn } from "@/lib/utils";
 interface AssetCategoryAccordionListProps {
   assets: Asset[];
   emptyMessage?: string;
-  renderAsset: (asset: Asset) => React.ReactNode;
+  renderAsset: (asset: Asset, type: AssetType) => React.ReactNode;
+  /** When true, renders a table shell with category-specific column headers. */
+  useTableLayout?: boolean;
   className?: string;
 }
 
@@ -23,6 +26,7 @@ export default function AssetCategoryAccordionList({
   assets,
   emptyMessage = "No assets in this view.",
   renderAsset,
+  useTableLayout = false,
   className,
 }: AssetCategoryAccordionListProps) {
   const grouped = useMemo(() => groupAssetsByType(assets), [assets]);
@@ -34,17 +38,21 @@ export default function AssetCategoryAccordionList({
     >
   );
 
+  const totalCount = assets.length;
+
   return (
     <div className={cn("space-y-3", className)}>
+      {totalCount === 0 ? (
+        <p className="text-sm text-slate-500">{emptyMessage}</p>
+      ) : null}
+
       {ASSET_TYPES.map((type) => {
         const items = grouped[type];
         const isOpen = expanded[type] ?? true;
+        const headers = getAssetCategoryColumnHeaders(type);
 
         return (
-          <section
-            key={type}
-            className={`${cardClass} overflow-hidden`}
-          >
+          <section key={type} className={`${cardClass} overflow-hidden`}>
             <button
               type="button"
               onClick={() =>
@@ -65,13 +73,32 @@ export default function AssetCategoryAccordionList({
             </button>
 
             {isOpen ? (
-              <div className="space-y-3 border-t border-slate-200 px-4 py-4">
+              <div className="border-t border-slate-200 px-4 py-4">
                 {items.length === 0 ? (
                   <p className="text-sm text-slate-500">No assets in this category.</p>
+                ) : useTableLayout ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
+                      <thead>
+                        <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {headers.map((header) => (
+                            <th key={header} className="px-2 py-1 font-semibold">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((asset) => renderAsset(asset, type))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
-                  items.map((asset) => (
-                    <div key={asset.id}>{renderAsset(asset)}</div>
-                  ))
+                  <div className="space-y-3">
+                    {items.map((asset) => (
+                      <div key={asset.id}>{renderAsset(asset, type)}</div>
+                    ))}
+                  </div>
                 )}
               </div>
             ) : null}

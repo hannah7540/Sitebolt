@@ -9,8 +9,10 @@ import {
   fetchLaserSignouts,
   fetchProjectAssetAssignments,
   filterAssetsForProject,
+  getAssetPrimaryLabel,
   getAssetTypeLabel,
   isLaserAssetType,
+  isMobileDeviceAssetType,
   signInLaser,
   signOutLaser,
   updateAssetStatus,
@@ -185,17 +187,19 @@ export default function ProjectAssetsPanel({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-slate-900">
-                  {selectedAsset.asset_number} — {selectedAsset.name}
+                  {getAssetPrimaryLabel(selectedAsset)}
                 </h1>
                 <StatusBadge status={selectedAsset.status} />
                 <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                   {getAssetTypeLabel(selectedAsset.asset_type)}
                 </span>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
-                {[selectedAsset.make, selectedAsset.model].filter(Boolean).join(" ")}
-                {selectedAsset.serial_number ? ` · S/N ${selectedAsset.serial_number}` : ""}
-              </p>
+              {!isMobileDeviceAssetType(selectedAsset.asset_type) ? (
+                <p className="mt-2 text-sm text-slate-600">
+                  {[selectedAsset.make, selectedAsset.model].filter(Boolean).join(" ")}
+                  {selectedAsset.serial_number ? ` · S/N ${selectedAsset.serial_number}` : ""}
+                </p>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                 {isLaserAssetType(selectedAsset.asset_type) &&
                 selectedAsset.next_service_due_date ? (
@@ -352,14 +356,16 @@ export default function ProjectAssetsPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-slate-900">
-                        {asset.asset_number} — {asset.name}
+                        {getAssetPrimaryLabel(asset)}
                       </h3>
                       <StatusBadge status={asset.status} />
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {[asset.make, asset.model].filter(Boolean).join(" ")}
-                      {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
-                    </p>
+                    {!isMobileDeviceAssetType(asset.asset_type) ? (
+                      <p className="mt-1 text-sm text-slate-600">
+                        {[asset.make, asset.model].filter(Boolean).join(" ")}
+                        {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
+                      </p>
+                    ) : null}
                     {isLaserAssetType(asset.asset_type) && activeSignout ? (
                       <p className="mt-2 text-xs font-semibold text-orange-600">
                         Signed out

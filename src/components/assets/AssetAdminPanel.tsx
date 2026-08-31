@@ -12,20 +12,24 @@ import {
 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
-  getAssetTypeLabel,
+  LASER_TYPE_LABELS,
   addAsset,
   assignAssetToProject,
   buildAssetProjectMap,
   fetchProjectAssetAssignments,
   getAssetAssignedProjectIds,
-  isLaserAssetType,
-  assetTypeRequiresCalibration,
+  getAssetPrimaryLabel,
+  getAssetReferenceLabel,
+  isMobileDeviceAssetType,
+  isAssignedAccountsAssetType,
   updateAsset,
   type Asset,
   type AssetInput,
   type AssetStatus,
+  type AssetType,
 } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import { fetchWorkers, type Worker } from "@/lib/supabase";
 import AssetCategoryAccordionList from "./AssetCategoryAccordionList";
 import AssetFormModal from "./AssetFormModal";
 import AssetQRModal from "./AssetQRModal";
@@ -55,6 +59,17 @@ function StatusBadge({ status }: { status: AssetStatus }) {
   );
 }
 
+function workerLabel(workers: Worker[], workerId: string | null | undefined): string {
+  if (!workerId) return "—";
+  const worker = workers.find((row) => row.id === workerId);
+  return worker?.full_name?.trim() || worker?.email?.trim() || workerId;
+}
+
+function workersLabel(workers: Worker[], workerIds: string[]): string {
+  if (!workerIds.length) return "—";
+  return workerIds.map((id) => workerLabel(workers, id)).join(", ");
+}
+
 export default function AssetAdminPanel({
   assets,
   loading,
@@ -70,6 +85,7 @@ export default function AssetAdminPanel({
   const [assignAsset, setAssignAsset] = useState<Asset | null>(null);
   const [assetProjectMap, setAssetProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
+  const [workers, setWorkers] = useState<Worker[]>([]);
 
   useEffect(() => {
     setAssetList(assets);
@@ -78,6 +94,10 @@ export default function AssetAdminPanel({
   useEffect(() => {
     if (initialShowAdd) setShowAddForm(true);
   }, [initialShowAdd]);
+
+  useEffect(() => {
+    void fetchWorkers().then(setWorkers);
+  }, []);
 
   const loadAssignments = useCallback(async () => {
     await fetchProjects();
@@ -105,14 +125,16 @@ export default function AssetAdminPanel({
       const make = (item.make ?? "").toLowerCase();
       const model = (item.model ?? "").toLowerCase();
       const serial = (item.serial_number ?? "").toLowerCase();
-      const typeLabel = getAssetTypeLabel(item.asset_type).toLowerCase();
+      const account = (item.account_name ?? "").toLowerCase();
+      const accountRef = (item.account_reference ?? "").toLowerCase();
       return (
         num.includes(q) ||
         name.includes(q) ||
         make.includes(q) ||
         model.includes(q) ||
         serial.includes(q) ||
-        typeLabel.includes(q)
+        account.includes(q) ||
+        accountRef.includes(q)
       );
     });
   }, [assetList, searchQuery, statusFilter]);
@@ -140,72 +162,112 @@ export default function AssetAdminPanel({
     return { error };
   };
 
-  const renderAssetCard = (asset: Asset) => (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-slate-900">
-              {asset.asset_number} — {asset.name}
-            </h3>
-            <StatusBadge status={asset.status} />
-          </div>
-          <p className="mt-1 text-sm text-slate-600">
-            {[asset.make, asset.model].filter(Boolean).join(" ")}
-            {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-            {isLaserAssetType(asset.asset_type) && asset.next_service_due_date ? (
-              <span>Service due: {asset.next_service_due_date}</span>
-            ) : null}
-            {assetTypeRequiresCalibration(asset.asset_type) &&
-            asset.next_calibration_due_date ? (
-              <span>Calibration due: {asset.next_calibration_due_date}</span>
-            ) : null}
-            {getProjectName(asset) ? (
-              <span className="text-orange-600">Assigned: {getProjectName(asset)}</span>
-            ) : (
-              <span className="text-slate-400">Unassigned</span>
-            )}
-          </div>
-          {asset.service_contact_company || asset.service_contact_name ? (
-            <p className="mt-1 text-xs text-slate-500">
-              Contact:{" "}
-              {[asset.service_contact_company, asset.service_contact_name]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setQrAsset(asset)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-          >
-            <QrCode className="h-3.5 w-3.5" /> QR
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditAsset(asset);
-              setShowAddForm(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Edit
-          </button>
-          <button
-            type="button"
-            onClick={() => setAssignAsset(asset)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-          >
-            <Link2 className="h-3.5 w-3.5" /> Assign
-          </button>
-        </div>
-      </div>
+  const renderActionButtons = (asset: Asset) => (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => setQrAsset(asset)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+      >
+        <QrCode className="h-3.5 w-3.5" /> QR
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setEditAsset(asset);
+          setShowAddForm(true);
+        }}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+      >
+        <Pencil className="h-3.5 w-3.5" /> Edit
+      </button>
+      <button
+        type="button"
+        onClick={() => setAssignAsset(asset)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+      >
+        <Link2 className="h-3.5 w-3.5" /> Assign
+      </button>
     </div>
   );
+
+  const renderAssetRow = (asset: Asset, type: AssetType) => {
+    const projectName = getProjectName(asset) ?? "—";
+    const cellClass = "rounded-lg bg-white px-2 py-3 align-middle text-sm text-slate-700";
+
+    if (isMobileDeviceAssetType(type)) {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.asset_number || getAssetPrimaryLabel(asset)}
+          </td>
+          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
+          <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
+    if (type === "laser") {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.asset_number}
+          </td>
+          <td className={cellClass}>{asset.serial_number || "—"}</td>
+          <td className={cellClass}>
+            {asset.laser_type ? LASER_TYPE_LABELS[asset.laser_type] : "—"}
+          </td>
+          <td className={cellClass}>{asset.next_service_due_date || "—"}</td>
+          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
+          <td className={cellClass}>
+            <StatusBadge status={asset.status} />
+          </td>
+          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
+    if (type === "pressure_gauge") {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.asset_number}
+          </td>
+          <td className={cellClass}>{asset.serial_number || "—"}</td>
+          <td className={cellClass}>{asset.next_calibration_due_date || "—"}</td>
+          <td className={cellClass}>
+            <StatusBadge status={asset.status} />
+          </td>
+          <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
+    if (isAssignedAccountsAssetType(type)) {
+      return (
+        <tr key={asset.id} className="align-top">
+          <td className={cn(cellClass, "font-semibold text-slate-900")}>
+            {asset.account_name || asset.name}
+          </td>
+          <td className={cellClass}>{asset.account_reference || asset.asset_number}</td>
+          <td className={cellClass}>{workersLabel(workers, asset.assigned_worker_ids)}</td>
+          <td className={cellClass}>{renderActionButtons(asset)}</td>
+        </tr>
+      );
+    }
+
+    return (
+      <tr key={asset.id} className="align-top">
+        <td className={cn(cellClass, "font-semibold text-slate-900")}>
+          {getAssetPrimaryLabel(asset)}
+        </td>
+        <td className={cellClass}>{renderActionButtons(asset)}</td>
+      </tr>
+    );
+  };
 
   return (
     <div>
@@ -223,7 +285,7 @@ export default function AssetAdminPanel({
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by Asset #, Name, Make, Model, Serial #…"
+            placeholder={`Search by ${getAssetReferenceLabel("laptop")}, worker, project, serial…`}
             className={`${inputClass} pl-9 pr-9`}
           />
           {searchQuery ? (
@@ -277,7 +339,8 @@ export default function AssetAdminPanel({
               ? "No assets match your search or filters."
               : "No assets registered yet. Add your first asset."
           }
-          renderAsset={renderAssetCard}
+          useTableLayout
+          renderAsset={renderAssetRow}
         />
       )}
 
@@ -298,7 +361,7 @@ export default function AssetAdminPanel({
 
       {assignAsset ? (
         <AssignAssetToProjectModal
-          assetLabel={`${assignAsset.asset_number} — ${assignAsset.name}`}
+          assetLabel={getAssetPrimaryLabel(assignAsset)}
           currentProjectId={
             getAssetAssignedProjectIds(
               assignAsset,

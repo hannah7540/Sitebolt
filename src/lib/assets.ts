@@ -76,6 +76,94 @@ export function isAssignedAccountsAssetType(type: AssetType): boolean {
   return type === "assigned_accounts";
 }
 
+/** Lasers / pressure gauges no longer collect or display a separate Name field. */
+export function assetTypeHidesNameField(type: AssetType | string): boolean {
+  const normalized = normalizeAssetType(type);
+  return normalized === "laser" || normalized === "pressure_gauge";
+}
+
+export function getAssetReferenceLabel(type: AssetType | string): string {
+  const normalized = normalizeAssetType(type);
+  if (normalized === "laptop") return "Laptop Ref";
+  if (normalized === "ipad") return "iPad Ref";
+  if (normalized === "assigned_accounts") return "Account Reference";
+  return "Asset #";
+}
+
+/** Primary heading for cards/tables — omits redundant Name for streamlined categories. */
+export function getAssetPrimaryLabel(asset: Pick<Asset, "asset_type" | "asset_number" | "name" | "account_name">): string {
+  const type = normalizeAssetType(asset.asset_type);
+  if (isMobileDeviceAssetType(type)) {
+    return asset.asset_number.trim() || asset.name.trim() || getAssetTypeLabel(type);
+  }
+  if (assetTypeHidesNameField(type)) {
+    return asset.asset_number.trim() || "Untitled asset";
+  }
+  if (isAssignedAccountsAssetType(type)) {
+    return (asset.account_name ?? asset.name).trim() || asset.asset_number;
+  }
+  const number = asset.asset_number.trim();
+  const name = asset.name.trim();
+  if (number && name && number !== name) return `${number} — ${name}`;
+  return number || name || "Untitled asset";
+}
+
+export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
+  switch (type) {
+    case "laptop":
+      return ["Laptop Ref", "Assigned Worker", "Assigned Project", "Actions"];
+    case "ipad":
+      return ["iPad Ref", "Assigned Worker", "Assigned Project", "Actions"];
+    case "laser":
+      return [
+        "Asset #",
+        "Serial #",
+        "Laser Type",
+        "Service Due",
+        "Calibration Due",
+        "Status",
+        "Assigned Worker",
+        "Actions",
+      ];
+    case "pressure_gauge":
+      return [
+        "Asset #",
+        "Serial #",
+        "Calibration Due",
+        "Status",
+        "Assigned Worker",
+        "Actions",
+      ];
+    case "assigned_accounts":
+      return ["Account Name", "Account Reference", "Assigned To", "Actions"];
+    default:
+      return ["Asset", "Actions"];
+  }
+}
+
+function resolveAssetDisplayName(input: AssetInput): string {
+  const type = input.asset_type;
+  if (isMobileDeviceAssetType(type)) {
+    return (
+      input.asset_number.trim() ||
+      input.name?.trim() ||
+      `${ASSET_TYPE_LABELS[type]} Asset`
+    );
+  }
+  if (assetTypeHidesNameField(type)) {
+    return (
+      input.asset_number.trim() ||
+      input.serial_number?.trim() ||
+      input.name?.trim() ||
+      `${ASSET_TYPE_LABELS[type]} Asset`
+    );
+  }
+  if (isAssignedAccountsAssetType(type)) {
+    return input.account_name?.trim() || input.name?.trim() || "";
+  }
+  return input.name?.trim() || input.asset_number.trim();
+}
+
 function normalizeWorkerIdArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -231,7 +319,8 @@ export async function fetchAssetById(id: string): Promise<Asset | null> {
 
 export interface AssetInput {
   asset_number: string;
-  name: string;
+  /** Optional for laptops, iPads, lasers, and pressure gauges (auto-populated). */
+  name?: string;
   asset_type: AssetType;
   make?: string;
   model?: string;
@@ -306,10 +395,11 @@ async function syncAssetProjectAssignment(
 export function buildAssetWritePayload(input: AssetInput): Record<string, unknown> {
   const type = input.asset_type;
   const projectId = input.project_id ?? input.assigned_project_id ?? null;
+  const displayName = resolveAssetDisplayName(input);
 
   const base: Record<string, unknown> = {
     asset_number: input.asset_number.trim(),
-    name: input.name.trim(),
+    name: displayName,
     asset_type: type,
     status: input.status ?? "active",
     assigned_project_id: projectId,
@@ -319,9 +409,9 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
   if (isMobileDeviceAssetType(type)) {
     return {
       ...base,
-      make: input.make?.trim() || null,
-      model: input.model?.trim() || null,
-      serial_number: input.serial_number?.trim() || null,
+      make: null,
+      model: null,
+      serial_number: null,
       assigned_worker_id: input.assigned_worker_id?.trim() || null,
       assigned_worker_ids: [],
       laser_type: null,
@@ -339,7 +429,7 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
   if (type === "assigned_accounts") {
     return {
       ...base,
-      name: input.account_name?.trim() || input.name.trim(),
+      name: input.account_name?.trim() || displayName,
       account_name: input.account_name?.trim() || null,
       account_reference: input.account_reference?.trim() || null,
       assigned_worker_ids: normalizeWorkerIdArray(input.assigned_worker_ids),
@@ -426,15 +516,14 @@ export function buildAssetInputFromForm(values: {
           : "AST";
 
   if (isMobileDeviceAssetType(values.assetType)) {
-    const makeModel = [values.make, values.model].filter(Boolean).join(" ").trim();
-    const serial = values.serialNumber.trim();
+    const ref = values.assetNumber.trim();
     return {
       asset_type: values.assetType,
-      asset_number: serial || values.assetNumber.trim() || `${prefix}-${Date.now()}`,
-      name: makeModel || serial || values.name.trim() || `${ASSET_TYPE_LABELS[values.assetType]} Asset`,
-      make: values.make,
-      model: values.model,
-      serial_number: values.serialNumber,
+      asset_number: ref || `${prefix}-${Date.now()}`,
+      name: ref || values.name.trim() || `${ASSET_TYPE_LABELS[values.assetType]} Asset`,
+      make: "",
+      model: "",
+      serial_number: "",
       assigned_worker_id: values.assignedWorkerId,
       assigned_project_id: values.assignedProjectId,
       project_id: values.assignedProjectId,
@@ -454,10 +543,14 @@ export function buildAssetInputFromForm(values: {
     };
   }
 
+  const assetNumber = values.assetNumber.trim();
   return {
     asset_type: values.assetType,
-    asset_number: values.assetNumber,
-    name: values.name,
+    asset_number: assetNumber,
+    // Name is not collected for lasers/gauges — mirror Asset # for DB compatibility.
+    name: assetTypeHidesNameField(values.assetType)
+      ? assetNumber || values.serialNumber.trim() || values.name.trim()
+      : values.name.trim(),
     make: values.make,
     model: values.model,
     serial_number: values.serialNumber,
@@ -793,8 +886,8 @@ export function validateAssetInput(input: AssetInput): string | null {
   if (!isAssetType(input.asset_type)) return "Asset Type is required";
 
   if (isMobileDeviceAssetType(input.asset_type)) {
-    if (!input.make?.trim() && !input.model?.trim() && !input.serial_number?.trim()) {
-      return "Enter at least Make, Model, or Serial Number.";
+    if (!input.asset_number.trim()) {
+      return `${getAssetReferenceLabel(input.asset_type)} is required.`;
     }
     return null;
   }
@@ -809,7 +902,10 @@ export function validateAssetInput(input: AssetInput): string | null {
   }
 
   if (!input.asset_number.trim()) return "Asset # is required";
-  if (!input.name.trim()) return "Name is required";
+  // Name is optional for lasers / pressure gauges (auto-filled from Asset #).
+  if (!assetTypeHidesNameField(input.asset_type) && !input.name?.trim()) {
+    return "Name is required";
+  }
 
   if (input.asset_type === "laser" && !input.laser_type) {
     return "Laser Type is required.";

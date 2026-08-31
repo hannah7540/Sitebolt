@@ -118,7 +118,10 @@ export default function ScanAssetPageClient({ assetId }: ScanAssetPageProps) {
           <h1 className="mt-1 text-2xl font-bold text-slate-900">
             {asset.asset_number}
           </h1>
-          <p className="text-slate-600">{asset.name}</p>
+          {asset.name.trim() &&
+          asset.name.trim() !== asset.asset_number.trim() ? (
+            <p className="text-slate-600">{asset.name}</p>
+          ) : null}
           <p className="mt-1 text-sm text-slate-500">
             {getAssetTypeLabel(asset.asset_type)} · {ASSET_STATUS_LABELS[asset.status]}
           </p>

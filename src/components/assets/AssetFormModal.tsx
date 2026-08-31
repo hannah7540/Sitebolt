@@ -7,9 +7,11 @@ import {
   ASSET_TYPE_LABELS,
   LASER_TYPE_OPTIONS,
   LASER_TYPE_LABELS,
+  assetTypeHidesNameField,
   assetTypeRequiresCalibration,
   assetTypeRequiresService,
   buildAssetInputFromForm,
+  getAssetReferenceLabel,
   isAssignedAccountsAssetType,
   isMobileDeviceAssetType,
   validateAssetInput,
@@ -89,7 +91,9 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const showLaserFields = assetType === "laser";
   const showGaugeFields = assetType === "pressure_gauge";
   const showAccountFields = isAssignedAccountsAssetType(assetType);
+  const hideNameField = assetTypeHidesNameField(assetType);
   const showStandardIdentityFields = showLaserFields || showGaugeFields;
+  const referenceLabel = getAssetReferenceLabel(assetType);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,33 +177,25 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
             </select>
           </div>
 
-          {showStandardIdentityFields ? (
-            <div className="grid gap-4 sm:grid-cols-2">
+          {showMobileFields ? (
+            <div className="space-y-4">
               <div>
-                <label className={labelClass}>Asset # *</label>
+                <label className={labelClass} htmlFor="device-ref">
+                  {referenceLabel} *
+                </label>
                 <input
+                  id="device-ref"
                   value={assetNumber}
                   onChange={(e) => setAssetNumber(e.target.value)}
                   className={inputClass}
                   required
                   disabled={saving}
+                  placeholder={
+                    assetType === "laptop" ? "e.g. LAP-001" : "e.g. IPAD-001"
+                  }
                 />
               </div>
-              <div>
-                <label className={labelClass}>Name *</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className={inputClass}
-                  required
-                  disabled={saving}
-                />
-              </div>
-            </div>
-          ) : null}
 
-          {showMobileFields ? (
-            <div className="space-y-4">
               <WorkerSearchSelect
                 mode="single"
                 id="assigned-worker"
@@ -215,36 +211,31 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 value={assignedProjectId}
                 onChange={setAssignedProjectId}
               />
+            </div>
+          ) : null}
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className={labelClass}>Make</label>
+          {showStandardIdentityFields ? (
+            <div>
+              <label className={labelClass}>Asset # *</label>
+              <input
+                value={assetNumber}
+                onChange={(e) => setAssetNumber(e.target.value)}
+                className={inputClass}
+                required
+                disabled={saving}
+              />
+              {!hideNameField ? (
+                <div className="mt-4">
+                  <label className={labelClass}>Name *</label>
                   <input
-                    value={make}
-                    onChange={(e) => setMake(e.target.value)}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
                     className={inputClass}
+                    required
                     disabled={saving}
                   />
                 </div>
-                <div>
-                  <label className={labelClass}>Model</label>
-                  <input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Serial Number</label>
-                  <input
-                    value={serialNumber}
-                    onChange={(e) => setSerialNumber(e.target.value)}
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -295,33 +286,33 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
               />
 
               <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className={labelClass}>Make</label>
-                <input
-                  value={make}
-                  onChange={(e) => setMake(e.target.value)}
-                  className={inputClass}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Model</label>
-                <input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className={inputClass}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Serial #</label>
-                <input
-                  value={serialNumber}
-                  onChange={(e) => setSerialNumber(e.target.value)}
-                  className={inputClass}
-                  disabled={saving}
-                />
-              </div>
+                <div>
+                  <label className={labelClass}>Make</label>
+                  <input
+                    value={make}
+                    onChange={(e) => setMake(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Model</label>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Serial #</label>
+                  <input
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  />
+                </div>
               </div>
             </div>
           )}
