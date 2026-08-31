@@ -53,6 +53,86 @@ function isMissingTableError(message: string, table: string): boolean {
   );
 }
 
+/** Columns that may be absent on older email_messages schemas. */
+const OPTIONAL_EMAIL_MESSAGE_COLUMNS = [
+  "cc_emails",
+  "bcc_emails",
+  "attachment_urls",
+  "parent_message_id",
+  "recurrence_rule",
+  "recurrence_active",
+  "sender_worker_id",
+  "sender_name",
+  "sender_email",
+  "external_message_id",
+  "error_message",
+  "created_by_name",
+  "is_read",
+  "read_at",
+  "last_sent_at",
+] as const;
+
+function isMissingEmailMessageColumnError(message: string, column: string): boolean {
+  const lower = message.toLowerCase();
+  const col = column.toLowerCase();
+  return (
+    lower.includes(col) &&
+    (lower.includes("schema cache") ||
+      lower.includes("could not find") ||
+      lower.includes("does not exist") ||
+      (lower.includes("column") && lower.includes(col)))
+  );
+}
+
+/**
+ * Insert into email_messages, stripping optional columns that are missing
+ * from the live schema (e.g. cc_emails on older deployments).
+ */
+async function insertEmailMessageAdmin(
+  admin: SupabaseClient,
+  payload: Record<string, unknown>
+): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  // Never send empty/undefined optional array fields that older schemas lack.
+  const initial: Record<string, unknown> = { ...payload };
+  for (const key of ["cc_emails", "bcc_emails"] as const) {
+    const value = initial[key];
+    if (
+      value == null ||
+      (Array.isArray(value) && value.length === 0)
+    ) {
+      delete initial[key];
+    }
+  }
+
+  let current = initial;
+  for (let attempt = 0; attempt <= OPTIONAL_EMAIL_MESSAGE_COLUMNS.length; attempt++) {
+    const { data, error } = await admin
+      .from("email_messages")
+      .insert(current)
+      .select("*")
+      .single();
+
+    if (!error) {
+      return { data: (data as Record<string, unknown> | null) ?? null, error: null };
+    }
+
+    const missingColumn = OPTIONAL_EMAIL_MESSAGE_COLUMNS.find(
+      (column) =>
+        column in current && isMissingEmailMessageColumnError(error.message, column)
+    );
+
+    if (missingColumn) {
+      const { [missingColumn]: _removed, ...rest } = current;
+      current = rest;
+      continue;
+    }
+
+    return { data: null, error: error.message };
+  }
+
+  return { data: null, error: "Failed to insert email message." };
+}
+
 function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item).trim()).filter(Boolean);
@@ -600,7 +680,7 @@ export async function composeEmailAdmin(
   if (recipientResult.error) return { message: null, error: recipientResult.error };
 
   const status = normalized.send_mode === "scheduled" ? "scheduled" : "sent";
-  const payload = {
+  const payload: Record<string, unknown> = {
     direction: "outbound",
     status: normalized.send_mode === "immediate" ? "draft" : status,
     subject: normalized.subject.trim(),
@@ -608,7 +688,6 @@ export async function composeEmailAdmin(
     body_text: normalized.body_text ?? htmlToPlainText(normalized.body_html),
     from_email: resolveSystemFromEmail(),
     to_emails: recipientResult.emails,
-    cc_emails: [],
     target_mode: normalized.target_mode,
     target_config: normalized.target_config,
     template_id: normalized.template_id ?? null,
@@ -622,13 +701,17 @@ export async function composeEmailAdmin(
     updated_at: now,
   };
 
-  const { data, error } = await admin
-    .from("email_messages")
-    .insert(payload)
-    .select("*")
-    .single();
+  // Only include cc_emails when non-empty so older schemas without the column succeed.
+  const ccEmails = Array.isArray((normalized as { cc_emails?: unknown }).cc_emails)
+    ? parseStringArray((normalized as { cc_emails?: unknown }).cc_emails)
+    : [];
+  if (ccEmails.length > 0) {
+    payload.cc_emails = ccEmails;
+  }
 
-  if (error) return { message: null, error: error.message };
+  const { data, error } = await insertEmailMessageAdmin(admin, payload);
+
+  if (error) return { message: null, error };
 
   let message = normalizeMessage(data as Record<string, unknown>);
 
@@ -914,13 +997,9 @@ export async function ingestInboundEmailAdmin(
       updated_at: now,
     };
 
-    const { data, error } = await admin
-      .from("email_messages")
-      .insert(insertPayload)
-      .select("*")
-      .single();
+    const { data, error } = await insertEmailMessageAdmin(admin, insertPayload);
 
-    if (error) return { message: null, error: error.message };
+    if (error) return { message: null, error };
     return { message: normalizeMessage(data as Record<string, unknown>), error: null };
   } catch (error) {
     return {
