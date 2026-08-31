@@ -49,7 +49,7 @@ export default function WorkerTimesheetsWidget({
     <div
       className={cn(
         cardClass,
-        "flex flex-col gap-4 p-4 sm:col-span-2"
+        "flex w-full flex-col gap-4 p-4"
       )}
     >
       <div className="flex items-start gap-3">

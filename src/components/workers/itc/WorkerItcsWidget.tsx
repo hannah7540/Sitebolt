@@ -32,7 +32,7 @@ export default function WorkerItcsWidget({
     <div
       className={cn(
         cardClass,
-        "relative flex h-full flex-col gap-4 border-orange-200 bg-gradient-to-br from-orange-50/80 to-white p-4 sm:p-5",
+        "relative flex w-full flex-col gap-4 border-orange-200 bg-gradient-to-br from-orange-50/80 to-white p-4 sm:p-5",
         layoutEditMode && "pointer-events-none select-none",
         className
       )}

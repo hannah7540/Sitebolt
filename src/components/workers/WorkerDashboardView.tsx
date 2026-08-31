@@ -93,14 +93,6 @@ import { useSearchParams } from "next/navigation";
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
-/** Widgets that span the full grid width on the worker profile dashboard. */
-const MY_PROFILE_FULL_WIDTH_WIDGET_IDS = new Set([
-  "swms",
-  "forms_hub",
-  "leave",
-  "itcs",
-]);
-
 /** Widgets removed from My Profile — filter saved layouts that still reference them. */
 const REMOVED_PROFILE_WIDGET_IDS = new Set(["plant_prestarts", "assigned_projects"]);
 
@@ -876,17 +868,21 @@ export default function WorkerDashboardView({
           onClick={() => setShowFormsSubDashboard(true)}
           className={cn(
             cardClass,
-            "relative flex h-full flex-col items-start gap-3 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99] sm:col-span-2"
+            "flex w-full flex-col gap-4 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99]"
           )}
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
-            <ClipboardList className="h-6 w-6" />
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
+              <ClipboardList className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-slate-900">Forms & Safety Submissions</p>
+              <div className="mt-0.5">
+                <FormsHubPreviewBadges />
+              </div>
+            </div>
+            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
           </div>
-          <div className="flex-1">
-            <p className="font-semibold text-slate-900">Forms & Safety Submissions</p>
-            <FormsHubPreviewBadges />
-          </div>
-          <ChevronRight className="absolute bottom-4 right-4 h-4 w-4 text-slate-400" />
         </button>
       );
     }
@@ -915,58 +911,58 @@ export default function WorkerDashboardView({
           onClick={openInductions}
           className={cn(
             cardClass,
-            "relative flex h-full flex-col items-start gap-2 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99]",
+            "flex w-full flex-col gap-4 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99]",
             pendingCount > 0 && "border-orange-200 bg-orange-50/40"
           )}
         >
-          <div className="flex w-full items-start justify-between gap-2">
-            <p className="font-semibold text-slate-900">Outstanding Inductions</p>
-            {pendingCount > 0 ? (
-              <span className="shrink-0 rounded-full bg-orange-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
-                {pendingCount} pending
-              </span>
-            ) : null}
-          </div>
-
-          {pendingCount > 0 ? (
-            <div className="space-y-1">
+          <div className="flex items-start gap-3">
+            <div
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
+                pendingCount > 0
+                  ? "border-orange-200 bg-orange-50 text-orange-600"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
+              )}
+            >
+              <ClipboardCheck className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="line-clamp-2 text-sm font-medium text-orange-900">
-                  {firstTitle}
-                </p>
-                {firstProjectLabel ? (
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-                    {firstProjectLabel}
+                <p className="font-semibold text-slate-900">Outstanding Inductions</p>
+                {pendingCount > 0 ? (
+                  <span className="rounded-full bg-orange-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+                    {pendingCount} pending
                   </span>
                 ) : null}
               </div>
-              {pendingCount > 1 ? (
-                <p className="text-sm font-normal text-orange-700">
-                  +{pendingCount - 1} more
+              {pendingCount > 0 ? (
+                <div className="mt-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="line-clamp-2 text-sm font-medium text-orange-900">
+                      {firstTitle}
+                    </p>
+                    {firstProjectLabel ? (
+                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                        {firstProjectLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                  {pendingCount > 1 ? (
+                    <p className="text-sm font-normal text-orange-700">
+                      +{pendingCount - 1} more
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">Tap to complete your induction</p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  No pending inductions — assigned forms will appear here
                 </p>
-              ) : null}
+              )}
             </div>
-          ) : (
-            <p className="text-xs text-slate-500">No pending inductions</p>
-          )}
-
-          <div
-            className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-xl border",
-              pendingCount > 0
-                ? "border-orange-200 bg-orange-50 text-orange-600"
-                : "border-slate-200 bg-slate-50 text-slate-600"
-            )}
-          >
-            <ClipboardCheck className="h-6 w-6" />
+            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
           </div>
-
-          <p className="text-xs text-slate-500">
-            {pendingCount > 0
-              ? "Tap to complete your induction"
-              : "Assigned forms will appear here"}
-          </p>
-          <ChevronRight className="absolute bottom-4 right-4 h-4 w-4 text-slate-400" />
         </button>
       );
     }
@@ -980,25 +976,27 @@ export default function WorkerDashboardView({
         onClick={() => handleWidgetClick(widget)}
         className={cn(
           cardClass,
-          "flex h-full flex-col items-start gap-3 p-4 text-left transition",
+          "flex w-full flex-col gap-4 p-4 text-left transition",
           widget.available
             ? "hover:border-orange-300 hover:shadow-md active:scale-[0.99]"
             : "opacity-90 hover:border-slate-300"
         )}
       >
-        <div
-          className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-xl border",
-            widget.accent
-          )}
-        >
-          {widget.icon}
+        <div className="flex items-start gap-3">
+          <div
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
+              widget.accent
+            )}
+          >
+            {widget.icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-slate-900">{widget.title}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{widget.description}</p>
+          </div>
+          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
         </div>
-        <div className="flex-1">
-          <p className="font-semibold text-slate-900">{widget.title}</p>
-          <p className="mt-0.5 text-xs text-slate-500">{widget.description}</p>
-        </div>
-        <ChevronRight className="h-4 w-4 text-slate-400" />
       </button>
     );
   };
@@ -1250,7 +1248,7 @@ export default function WorkerDashboardView({
               ) : null}
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex w-full flex-col gap-3">
               {widgetsToRender.map((widget) => (
                 <DashboardWidgetFrame
                   key={widget.id}
@@ -1264,11 +1262,7 @@ export default function WorkerDashboardView({
                   onToggleVisibility={(visible) =>
                     layout.toggleWidgetVisibility(widget.id, visible)
                   }
-                  className={
-                    MY_PROFILE_FULL_WIDTH_WIDGET_IDS.has(widget.id)
-                      ? "sm:col-span-2"
-                      : undefined
-                  }
+                  className="w-full"
                 >
                   {renderProfileWidget(widget.id)}
                 </DashboardWidgetFrame>

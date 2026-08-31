@@ -22,7 +22,7 @@ export default function WorkerLeaveRequestsWidget({
   const latestMeta = latest ? leaveStatusMeta(latest.status) : null;
 
   return (
-    <div className={cn(cardClass, "flex flex-col gap-4 p-4 sm:col-span-2")}>
+    <div className={cn(cardClass, "flex w-full flex-col gap-4 p-4")}>
       <div className="flex items-start gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
           <CalendarOff className="h-6 w-6" />

@@ -303,8 +303,8 @@ export default function WorkerSwmsWidget({
         </div>
       )}
 
-      <div className={cn(cardClass, "p-4")}>
-        <div className="mb-3 flex items-center justify-between gap-2">
+      <div className={cn(cardClass, "flex w-full flex-col gap-4 p-4")}>
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-orange-500" />
             <h3 className="font-semibold text-slate-900">SWMS Sign-Offs</h3>
