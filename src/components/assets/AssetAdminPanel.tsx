@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   Link2,
   Loader2,
   Pencil,
@@ -13,6 +15,8 @@ import {
 } from "lucide-react";
 import {
   ASSET_STATUS_LABELS,
+  ASSET_TYPES,
+  ASSET_TYPE_LABELS,
   LASER_TYPE_LABELS,
   addAsset,
   assignAssetToProject,
@@ -20,19 +24,25 @@ import {
   deleteAsset,
   fetchProjectAssetAssignments,
   getAssetAssignedProjectIds,
+  getAssetCategoryColumnHeaders,
+  getAssetCategoryPathSlug,
   getAssetPrimaryLabel,
   getAssetReferenceLabel,
-  isMobileDeviceAssetType,
+  getAssetTypeLabel,
+  groupAssetsByType,
   isAssignedAccountsAssetType,
+  isManagedAssetType,
+  isMobileDeviceAssetType,
   updateAsset,
   type Asset,
   type AssetInput,
   type AssetStatus,
   type AssetType,
+  type ManagedAssetType,
 } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { fetchWorkers, type Worker } from "@/lib/supabase";
-import AssetCategoryAccordionList from "./AssetCategoryAccordionList";
+import AssetCategoryOverview from "./AssetCategoryOverview";
 import AssetFormModal from "./AssetFormModal";
 import AssetQRModal from "./AssetQRModal";
 import AssignAssetToProjectModal from "./AssignAssetToProjectModal";
@@ -44,6 +54,7 @@ interface AssetAdminPanelProps {
   loading: boolean;
   onRefresh: () => void;
   initialShowAdd?: boolean;
+  initialCategory?: ManagedAssetType | null;
 }
 
 function StatusBadge({ status }: { status: AssetStatus }) {
@@ -77,7 +88,18 @@ export default function AssetAdminPanel({
   loading,
   onRefresh,
   initialShowAdd = false,
+  initialCategory = null,
 }: AssetAdminPanelProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const usesDedicatedRoutes = Boolean(pathname?.startsWith("/organisation/assets"));
+  const [localCategory, setLocalCategory] = useState<ManagedAssetType | null>(
+    initialCategory && isManagedAssetType(initialCategory) ? initialCategory : null
+  );
+  const selectedCategory =
+    initialCategory && isManagedAssetType(initialCategory)
+      ? initialCategory
+      : localCategory;
   const [assetList, setAssetList] = useState<Asset[]>(assets);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<AssetStatus | "all">("all");
@@ -94,8 +116,31 @@ export default function AssetAdminPanel({
   }, [assets]);
 
   useEffect(() => {
+    if (initialCategory && isManagedAssetType(initialCategory)) {
+      setLocalCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
+  useEffect(() => {
     if (initialShowAdd) setShowAddForm(true);
   }, [initialShowAdd]);
+
+  const openCategory = (type: ManagedAssetType) => {
+    if (usesDedicatedRoutes) {
+      router.push(`/organisation/assets/${getAssetCategoryPathSlug(type)}`);
+      return;
+    }
+    setLocalCategory(type);
+  };
+
+  const backToOverview = () => {
+    setSearchQuery("");
+    if (usesDedicatedRoutes) {
+      router.push("/organisation/assets");
+      return;
+    }
+    setLocalCategory(null);
+  };
 
   useEffect(() => {
     void fetchWorkers().then(setWorkers);
@@ -114,6 +159,11 @@ export default function AssetAdminPanel({
 
   const filteredAssets = useMemo(() => {
     let list = assetList;
+
+    if (selectedCategory) {
+      const grouped = groupAssetsByType(list);
+      list = grouped[selectedCategory] ?? [];
+    }
 
     if (statusFilter !== "all") {
       list = list.filter((a) => a.status === statusFilter);
@@ -139,7 +189,7 @@ export default function AssetAdminPanel({
         accountRef.includes(q)
       );
     });
-  }, [assetList, searchQuery, statusFilter]);
+  }, [assetList, searchQuery, selectedCategory, statusFilter]);
 
   const getProjectName = (asset: Asset) => {
     const ids = getAssetAssignedProjectIds(
@@ -157,11 +207,14 @@ export default function AssetAdminPanel({
         setAssetList((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
         onRefresh();
       }
-      return { error };
+      return { error, asset: updated };
     }
-    const { error } = await addAsset(input);
-    if (!error) onRefresh();
-    return { error };
+    const { error, asset: created } = await addAsset(input);
+    if (!error && created) {
+      setAssetList((prev) => [created, ...prev]);
+      onRefresh();
+    }
+    return { error, asset: created };
   };
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -198,7 +251,7 @@ export default function AssetAdminPanel({
         }}
         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
       >
-        <Pencil className="h-3.5 w-3.5" /> Edit
+        <Pencil className="h-3.5 w-3.5" /> Edit / View Details
       </button>
       <button
         type="button"
@@ -301,84 +354,165 @@ export default function AssetAdminPanel({
     );
   };
 
+  const categoryHeaders = selectedCategory
+    ? getAssetCategoryColumnHeaders(selectedCategory)
+    : [];
+
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-orange-500">Organisation Assets</h1>
+        {selectedCategory ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={backToOverview}
+              className="inline-flex items-center gap-1.5 font-semibold text-orange-600 hover:underline"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Assets Overview
+            </button>
+            <span className="text-slate-400">/</span>
+            <span className="font-semibold text-slate-700">
+              {getAssetTypeLabel(selectedCategory)}
+            </span>
+          </div>
+        ) : null}
+        <h1 className="text-2xl font-bold text-orange-500">
+          {selectedCategory
+            ? getAssetTypeLabel(selectedCategory)
+            : "Organisation Assets"}
+        </h1>
         <p className="text-sm text-slate-500">
-          Company-wide asset register grouped by type — laptops, iPads, lasers, pressure gauges, and assigned accounts.
+          {selectedCategory
+            ? `View and edit ${ASSET_TYPE_LABELS[selectedCategory].toLowerCase()} only.`
+            : "Choose a category to view and manage its assets."}
         </p>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative min-w-[220px] flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search by ${getAssetReferenceLabel("laptop")}, worker, project, serial…`}
-            className={`${inputClass} pl-9 pr-9`}
-          />
-          {searchQuery ? (
+      {selectedCategory ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {ASSET_TYPES.map((type) => (
             <button
+              key={type}
               type="button"
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"
-              aria-label="Clear search"
+              onClick={() => openCategory(type)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-sm font-semibold",
+                type === selectedCategory
+                  ? "border-orange-500 bg-orange-500 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50"
+              )}
             >
-              <X className="h-4 w-4" />
+              {ASSET_TYPE_LABELS[type]}
             </button>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditAsset(null);
-            setShowAddForm(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
-        >
-          <Plus className="h-4 w-4" /> Add Asset
-        </button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-3">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as AssetStatus | "all")}
-          className={`${inputClass} w-auto min-w-[180px]`}
-        >
-          <option value="all">All Statuses</option>
-          {(Object.keys(ASSET_STATUS_LABELS) as AssetStatus[]).map((status) => (
-            <option key={status} value={status}>
-              {ASSET_STATUS_LABELS[status]}
-            </option>
           ))}
-        </select>
-      </div>
+        </div>
+      ) : null}
+
+      {selectedCategory ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="relative min-w-[220px] flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Search ${getAssetReferenceLabel(selectedCategory).toLowerCase()}, worker, project…`}
+              className={`${inputClass} pl-9 pr-9`}
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditAsset(null);
+              setShowAddForm(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" /> Add {ASSET_TYPE_LABELS[selectedCategory].replace(/s$/, "")}
+          </button>
+        </div>
+      ) : (
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              setEditAsset(null);
+              setShowAddForm(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" /> Add Asset
+          </button>
+        </div>
+      )}
+
+      {selectedCategory ? (
+        <div className="mb-4 flex flex-wrap gap-3">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as AssetStatus | "all")}
+            className={`${inputClass} w-auto min-w-[180px]`}
+          >
+            <option value="all">All Statuses</option>
+            {(Object.keys(ASSET_STATUS_LABELS) as AssetStatus[]).map((status) => (
+              <option key={status} value={status}>
+                {ASSET_STATUS_LABELS[status]}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
           Loading assets…
         </div>
-      ) : (
-        <AssetCategoryAccordionList
-          assets={filteredAssets}
-          emptyMessage={
-            searchQuery || statusFilter !== "all"
+      ) : selectedCategory ? (
+        filteredAssets.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {searchQuery || statusFilter !== "all"
               ? "No assets match your search or filters."
-              : "No assets registered yet. Add your first asset."
-          }
-          useTableLayout
-          renderAsset={renderAssetRow}
-        />
+              : `No ${ASSET_TYPE_LABELS[selectedCategory].toLowerCase()} registered yet.`}
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
+              <thead>
+                <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {categoryHeaders.map((header) => (
+                    <th key={header} className="px-2 py-1 font-semibold">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAssets.map((asset) => renderAssetRow(asset, selectedCategory))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        <AssetCategoryOverview assets={assetList} onSelectCategory={openCategory} />
       )}
 
       {showAddForm ? (
         <AssetFormModal
           asset={editAsset}
+          defaultAssetType={selectedCategory ?? undefined}
+          lockAssetType={Boolean(selectedCategory)}
           onClose={() => {
             setShowAddForm(false);
             setEditAsset(null);

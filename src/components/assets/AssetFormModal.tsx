@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import {
-  ASSET_STATUS_LABELS,
   ASSET_TYPES,
   ASSET_TYPE_LABELS,
   LASER_TYPE_LABELS,
   LASER_TYPE_OPTIONS,
+  attachAssetCertificates,
   buildAssetInputFromForm,
   getAssetReferenceLabel,
   isAssignedAccountsAssetType,
   isManagedAssetType,
   isMobileDeviceAssetType,
+  toDateInputValue,
+  updateAssetCertificateUrl,
+  updateAssetDueDates,
   validateAssetInput,
   type Asset,
   type AssetInput,
@@ -20,26 +23,38 @@ import {
   type AssetType,
   type LaserType,
 } from "@/lib/assets";
+import { uploadAssetCertificate } from "@/lib/asset-document-upload";
 import { fetchWorkers, type Worker } from "@/lib/supabase";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import WorkerSearchSelect from "./WorkerSearchSelect";
+import AssetCertificateField from "./AssetCertificateField";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 interface AssetFormModalProps {
   asset?: Asset | null;
+  defaultAssetType?: AssetType;
+  lockAssetType?: boolean;
   onClose: () => void;
-  onSave: (input: AssetInput) => Promise<{ error: string | null }>;
+  onSave: (input: AssetInput) => Promise<{ error: string | null; asset?: Asset }>;
 }
 
-export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModalProps) {
+export default function AssetFormModal({
+  asset,
+  defaultAssetType,
+  lockAssetType = false,
+  onClose,
+  onSave,
+}: AssetFormModalProps) {
   const isEdit = Boolean(asset);
   const [assetNumber, setAssetNumber] = useState(asset?.asset_number ?? "");
   const [name, setName] = useState(asset?.name ?? "");
   const [assetType, setAssetType] = useState<AssetType>(
     asset?.asset_type && isManagedAssetType(asset.asset_type)
       ? asset.asset_type
-      : "laptop"
+      : defaultAssetType && isManagedAssetType(defaultAssetType)
+        ? defaultAssetType
+        : "laptop"
   );
   const [status, setStatus] = useState<AssetStatus>(asset?.status ?? "active");
   const [make, setMake] = useState(asset?.make ?? "");
@@ -57,10 +72,24 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
   const [laserType, setLaserType] = useState<LaserType | null>(asset?.laser_type ?? null);
   const [accountName, setAccountName] = useState(asset?.account_name ?? "");
   const [accountReference, setAccountReference] = useState(asset?.account_reference ?? "");
-  const [nextServiceDue, setNextServiceDue] = useState(asset?.next_service_due_date ?? "");
-  const [nextCalibrationDue, setNextCalibrationDue] = useState(
-    asset?.next_calibration_due_date ?? ""
+  const [nextServiceDue, setNextServiceDue] = useState(
+    toDateInputValue(asset?.next_service_due_date)
   );
+  const [nextCalibrationDue, setNextCalibrationDue] = useState(
+    toDateInputValue(asset?.next_calibration_due_date)
+  );
+  const [serviceCertUrl, setServiceCertUrl] = useState(asset?.service_cert_url ?? "");
+  const [calibrationCertUrl, setCalibrationCertUrl] = useState(
+    asset?.calibration_cert_url ?? ""
+  );
+  const [pendingServiceFile, setPendingServiceFile] = useState<File | null>(null);
+  const [pendingCalibrationFile, setPendingCalibrationFile] = useState<File | null>(
+    null
+  );
+  const [uploadingCert, setUploadingCert] = useState<"service" | "calibration" | null>(
+    null
+  );
+  const [dateSaveMessage, setDateSaveMessage] = useState<string | null>(null);
   const [serviceContactName, setServiceContactName] = useState(
     asset?.service_contact_name ?? ""
   );
@@ -123,6 +152,8 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
       serviceContactPhone,
       serviceContactEmail,
     });
+    if (serviceCertUrl) input.service_cert_url = serviceCertUrl;
+    if (calibrationCertUrl) input.calibration_cert_url = calibrationCertUrl;
 
     const validationError = validateAssetInput(input);
     if (validationError) {
@@ -132,13 +163,83 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
 
     setSaving(true);
     setError(null);
-    const { error: saveError } = await onSave(input);
-    setSaving(false);
+    const { error: saveError, asset: saved } = await onSave(input);
     if (saveError) {
+      setSaving(false);
       setError(saveError);
       return;
     }
+
+    const savedId = saved?.id ?? asset?.id;
+    if (savedId && (pendingServiceFile || pendingCalibrationFile)) {
+      const attached = await attachAssetCertificates(savedId, {
+        service: pendingServiceFile,
+        calibration: pendingCalibrationFile,
+      });
+      if (attached.error) {
+        setSaving(false);
+        setError(attached.error);
+        return;
+      }
+    }
+
+    setSaving(false);
     onClose();
+  };
+
+  const persistDueDates = async (overrides?: {
+    service?: string;
+    calibration?: string;
+  }) => {
+    if (!asset?.id || (!showLaserFields && !showGaugeFields)) return;
+    setDateSaveMessage(null);
+    const { error: dateError } = await updateAssetDueDates(asset.id, {
+      next_service_date: showLaserFields
+        ? (overrides?.service ?? nextServiceDue)
+        : undefined,
+      next_calibration_date: overrides?.calibration ?? nextCalibrationDue,
+    });
+    setDateSaveMessage(dateError ? dateError : "Dates saved.");
+  };
+
+  const handleCertificateFile = async (
+    kind: "service" | "calibration",
+    file: File
+  ) => {
+    setError(null);
+    if (!asset?.id) {
+      if (kind === "service") {
+        setPendingServiceFile(file);
+        setServiceCertUrl("");
+      } else {
+        setPendingCalibrationFile(file);
+        setCalibrationCertUrl("");
+      }
+      return;
+    }
+
+    setUploadingCert(kind);
+    const uploaded = await uploadAssetCertificate(file, asset.id, kind);
+    if (uploaded.error || !uploaded.url) {
+      setUploadingCert(null);
+      setError(uploaded.error ?? "Certificate upload failed.");
+      return;
+    }
+
+    const saved = await updateAssetCertificateUrl(asset.id, kind, uploaded.url);
+    setUploadingCert(null);
+    if (saved.error) {
+      setError(saved.error);
+      return;
+    }
+
+    if (kind === "service") {
+      setServiceCertUrl(uploaded.url);
+      setPendingServiceFile(null);
+    } else {
+      setCalibrationCertUrl(uploaded.url);
+      setPendingCalibrationFile(null);
+    }
   };
 
   return (
@@ -155,10 +256,12 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
         </button>
 
         <h2 className="text-lg font-bold text-slate-900">
-          {isEdit ? "Edit Asset" : "Add Asset"}
+          {isEdit ? "Edit / View Details" : "Add Asset"}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Fields update automatically based on the selected asset type.
+          {isEdit
+            ? "All current fields are pre-populated. Dates and certificates save as soon as you change them."
+            : "Fields update automatically based on the selected asset type."}
         </p>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="mt-5 space-y-4" noValidate>
@@ -171,7 +274,7 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
               value={assetType}
               onChange={(e) => setAssetType(e.target.value as AssetType)}
               className={inputClass}
-              disabled={saving}
+              disabled={saving || lockAssetType || isEdit}
             >
               {ASSET_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -350,7 +453,11 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                   <input
                     type="date"
                     value={nextServiceDue}
-                    onChange={(e) => setNextServiceDue(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setNextServiceDue(value);
+                      void persistDueDates({ service: value });
+                    }}
                     className={inputClass}
                     disabled={saving}
                   />
@@ -362,10 +469,61 @@ export default function AssetFormModal({ asset, onClose, onSave }: AssetFormModa
                 <input
                   type="date"
                   value={nextCalibrationDue}
-                  onChange={(e) => setNextCalibrationDue(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setNextCalibrationDue(value);
+                    void persistDueDates({ calibration: value });
+                  }}
                   className={inputClass}
                   disabled={saving}
                 />
+              </div>
+
+              {dateSaveMessage ? (
+                <p
+                  className={cn(
+                    "text-xs font-medium",
+                    dateSaveMessage === "Dates saved."
+                      ? "text-emerald-700"
+                      : "text-red-700"
+                  )}
+                >
+                  {dateSaveMessage}
+                </p>
+              ) : null}
+
+              {showLaserFields ? (
+                <div className="space-y-1">
+                  <AssetCertificateField
+                    id="service-certificate"
+                    label="Service Certificate"
+                    currentUrl={serviceCertUrl || null}
+                    uploading={uploadingCert === "service"}
+                    disabled={saving}
+                    onFile={(file) => void handleCertificateFile("service", file)}
+                  />
+                  {!asset?.id && pendingServiceFile ? (
+                    <p className="text-xs text-slate-500">
+                      Selected: {pendingServiceFile.name} (uploads after save)
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="space-y-1">
+                <AssetCertificateField
+                  id="calibration-certificate"
+                  label="Calibration Certificate"
+                  currentUrl={calibrationCertUrl || null}
+                  uploading={uploadingCert === "calibration"}
+                  disabled={saving}
+                  onFile={(file) => void handleCertificateFile("calibration", file)}
+                />
+                {!asset?.id && pendingCalibrationFile ? (
+                  <p className="text-xs text-slate-500">
+                    Selected: {pendingCalibrationFile.name} (uploads after save)
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : null}

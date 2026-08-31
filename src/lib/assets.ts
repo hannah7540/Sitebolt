@@ -6,6 +6,10 @@ import {
   parseMissingColumnFromError,
   sanitizeWritePayload,
 } from "./form-payload-utils";
+import {
+  uploadAssetCertificate,
+  type AssetCertificateKind,
+} from "./asset-document-upload";
 
 export type LaserType = "pipe" | "rotating";
 
@@ -27,13 +31,15 @@ export type AssetType =
 export type AssetStatus = "active" | "in_service_calibration";
 
 /** Active Asset Management categories — never include General Equipment. */
-export const ASSET_TYPES: AssetType[] = [
+export const ASSET_TYPES = [
   "laptop",
   "ipad",
   "laser",
   "pressure_gauge",
   "assigned_accounts",
-];
+] as const;
+
+export type ManagedAssetType = (typeof ASSET_TYPES)[number];
 
 const KNOWN_ASSET_TYPES: AssetType[] = [
   ...ASSET_TYPES,
@@ -73,7 +79,7 @@ export function isAssetType(value: string): value is AssetType {
   return (KNOWN_ASSET_TYPES as readonly string[]).includes(value);
 }
 
-export function isManagedAssetType(value: string): value is AssetType {
+export function isManagedAssetType(value: string): value is ManagedAssetType {
   return (ASSET_TYPES as readonly string[]).includes(value);
 }
 
@@ -112,6 +118,53 @@ export function isMobileDeviceAssetType(type: AssetType): boolean {
 
 export function isAssignedAccountsAssetType(type: AssetType): boolean {
   return type === "assigned_accounts";
+}
+
+export const ASSET_CATEGORY_PATH_SLUGS: Record<ManagedAssetType, string> = {
+  laptop: "laptops",
+  ipad: "ipads",
+  laser: "lasers",
+  pressure_gauge: "pressure-gauges",
+  assigned_accounts: "assigned-accounts",
+};
+
+const ASSET_CATEGORY_SLUG_ALIASES: Record<string, ManagedAssetType> = {
+  laptops: "laptop",
+  laptop: "laptop",
+  ipads: "ipad",
+  ipad: "ipad",
+  lasers: "laser",
+  laser: "laser",
+  "pressure-gauges": "pressure_gauge",
+  pressure_gauges: "pressure_gauge",
+  "pressure-gauge": "pressure_gauge",
+  pressure_gauge: "pressure_gauge",
+  "assigned-accounts": "assigned_accounts",
+  assigned_accounts: "assigned_accounts",
+};
+
+export function getAssetCategoryPathSlug(type: AssetType | string): string {
+  const normalized = normalizeAssetType(type);
+  if (isManagedAssetType(normalized)) return ASSET_CATEGORY_PATH_SLUGS[normalized];
+  return normalized;
+}
+
+export function parseAssetCategorySlug(
+  value: string | null | undefined
+): ManagedAssetType | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  const mapped =
+    ASSET_CATEGORY_SLUG_ALIASES[raw] ??
+    ASSET_CATEGORY_SLUG_ALIASES[raw.replace(/-/g, "_")];
+  return mapped && isManagedAssetType(mapped) ? mapped : null;
+}
+
+/** Normalize Postgres date / timestamptz values for `<input type="date">`. */
+export function toDateInputValue(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return "";
+  return trimmed.slice(0, 10);
 }
 
 export function getAssetCategoryPrefix(type: AssetType | string): string {
@@ -279,10 +332,10 @@ function normalizeLaserType(value: unknown): LaserType | null {
   return null;
 }
 
-export function groupAssetsByType(assets: Asset[]): Record<AssetType, Asset[]> {
+export function groupAssetsByType(assets: Asset[]): Record<ManagedAssetType, Asset[]> {
   const groups = Object.fromEntries(
     ASSET_TYPES.map((type) => [type, [] as Asset[]])
-  ) as Record<AssetType, Asset[]>;
+  ) as Record<ManagedAssetType, Asset[]>;
 
   for (const asset of assets) {
     const type = normalizeAssetType(asset.asset_type);
@@ -316,6 +369,8 @@ export interface Asset {
   service_contact_company: string | null;
   service_contact_phone: string | null;
   service_contact_email: string | null;
+  service_cert_url: string | null;
+  calibration_cert_url: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -378,6 +433,8 @@ function normalizeAsset(row: Record<string, unknown>): Asset {
     service_contact_company: (row.service_contact_company as string | null) ?? null,
     service_contact_phone: (row.service_contact_phone as string | null) ?? null,
     service_contact_email: (row.service_contact_email as string | null) ?? null,
+    service_cert_url: (row.service_cert_url as string | null) ?? null,
+    calibration_cert_url: (row.calibration_cert_url as string | null) ?? null,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
@@ -456,6 +513,8 @@ export interface AssetInput {
   service_contact_company?: string;
   service_contact_phone?: string;
   service_contact_email?: string;
+  service_cert_url?: string | null;
+  calibration_cert_url?: string | null;
 }
 
 async function resolveAssetProjectId(
@@ -604,6 +663,12 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       assigned_worker_ids: [],
       account_name: null,
       account_reference: null,
+      ...(input.service_cert_url !== undefined
+        ? { service_cert_url: nullIfBlank(input.service_cert_url) }
+        : {}),
+      ...(input.calibration_cert_url !== undefined
+        ? { calibration_cert_url: nullIfBlank(input.calibration_cert_url) }
+        : {}),
     });
   }
 
@@ -629,6 +694,9 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     assigned_worker_ids: [],
     account_name: null,
     account_reference: null,
+    ...(input.calibration_cert_url !== undefined
+      ? { calibration_cert_url: nullIfBlank(input.calibration_cert_url) }
+      : {}),
   });
 }
 
@@ -743,6 +811,8 @@ const OPTIONAL_ASSET_COLUMNS = [
   "is_pipe",
   "is_rotating",
   "vendor_id",
+  "service_cert_url",
+  "calibration_cert_url",
   "updated_at",
 ] as const;
 
@@ -906,6 +976,95 @@ export async function updateAsset(
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to update asset" };
   }
+}
+
+export async function updateAssetCertificateUrl(
+  assetId: string,
+  kind: AssetCertificateKind,
+  url: string | null
+): Promise<{ error: string | null; asset?: Asset }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const column = kind === "service" ? "service_cert_url" : "calibration_cert_url";
+  const payload = {
+    [column]: nullIfBlank(url),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await upsertAssetRow({
+    mode: "update",
+    id: assetId,
+    payload,
+  });
+  if (error || !data) return { error: error ?? "Failed to save certificate." };
+  return { error: null, asset: normalizeAsset(data) };
+}
+
+export async function updateAssetDueDates(
+  assetId: string,
+  dates: {
+    next_service_date?: string | null;
+    next_calibration_date?: string | null;
+  }
+): Promise<{ error: string | null; asset?: Asset }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const payload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (dates.next_service_date !== undefined) {
+    const serviceDate = nullIfBlankDate(dates.next_service_date);
+    payload.next_service_due_date = serviceDate;
+    payload.next_service_date = serviceDate;
+  }
+
+  if (dates.next_calibration_date !== undefined) {
+    const calibrationDate = nullIfBlankDate(dates.next_calibration_date);
+    payload.next_calibration_due_date = calibrationDate;
+    payload.next_calibration_date = calibrationDate;
+  }
+
+  const { data, error } = await upsertAssetRow({
+    mode: "update",
+    id: assetId,
+    payload,
+  });
+  if (error || !data) return { error: error ?? "Failed to save dates." };
+  return { error: null, asset: normalizeAsset(data) };
+}
+
+export async function attachAssetCertificates(
+  assetId: string,
+  files: { service?: File | null; calibration?: File | null }
+): Promise<{ error: string | null; asset?: Asset }> {
+  let latest: Asset | undefined;
+
+  if (files.service) {
+    const uploaded = await uploadAssetCertificate(files.service, assetId, "service");
+    if (uploaded.error || !uploaded.url) {
+      return { error: uploaded.error ?? "Service certificate upload failed." };
+    }
+    const saved = await updateAssetCertificateUrl(assetId, "service", uploaded.url);
+    if (saved.error) return saved;
+    latest = saved.asset;
+  }
+
+  if (files.calibration) {
+    const uploaded = await uploadAssetCertificate(
+      files.calibration,
+      assetId,
+      "calibration"
+    );
+    if (uploaded.error || !uploaded.url) {
+      return { error: uploaded.error ?? "Calibration certificate upload failed." };
+    }
+    const saved = await updateAssetCertificateUrl(assetId, "calibration", uploaded.url);
+    if (saved.error) return saved;
+    latest = saved.asset;
+  }
+
+  return { error: null, asset: latest };
 }
 
 export async function deleteAsset(id: string): Promise<{ error: string | null }> {
