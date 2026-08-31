@@ -32,11 +32,11 @@ export const ASSET_TYPES: AssetType[] = [
   "ipad",
   "laser",
   "pressure_gauge",
+  "assigned_accounts",
 ];
 
 const KNOWN_ASSET_TYPES: AssetType[] = [
   ...ASSET_TYPES,
-  "assigned_accounts",
   "general_equipment",
 ];
 

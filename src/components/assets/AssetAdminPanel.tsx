@@ -306,7 +306,7 @@ export default function AssetAdminPanel({
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-orange-500">Organisation Assets</h1>
         <p className="text-sm text-slate-500">
-          Company-wide asset register grouped by type — laptops, iPads, lasers, and pressure gauges.
+          Company-wide asset register grouped by type — laptops, iPads, lasers, pressure gauges, and assigned accounts.
         </p>
       </div>
 
