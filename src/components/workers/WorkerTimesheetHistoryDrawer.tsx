@@ -13,7 +13,7 @@ import {
 } from "@/lib/timesheet-utils";
 import TimesheetAdvanceEntryBadge from "@/components/workers/TimesheetAdvanceEntryBadge";
 import { cn } from "@/lib/utils";
-import { cardClass } from "@/lib/ui-classes";
+import { cardClass, modalCloseIconButtonClass } from "@/lib/ui-classes";
 
 interface WorkerTimesheetHistoryDrawerProps {
   timesheets: WorkerTimesheet[];
@@ -61,7 +61,7 @@ export default function WorkerTimesheetHistoryDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className={modalCloseIconButtonClass}
             aria-label="Close"
           >
             <X className="h-5 w-5" />

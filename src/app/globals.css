@@ -102,6 +102,11 @@ body {
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 
+  /* Alias used by sticky footers / floating action bars */
+  .pb-safe {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
   .mobile-safe-area-y {
     padding-top: max(12px, env(safe-area-inset-top));
     padding-bottom: max(12px, env(safe-area-inset-bottom));

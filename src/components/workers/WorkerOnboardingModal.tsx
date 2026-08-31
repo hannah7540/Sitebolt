@@ -24,9 +24,12 @@ import {
   inputClass,
   sectionClass,
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   labelClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import VocListEditor from "./VocListEditor";
 import StateRegionSelector from "./StateRegionSelector";
@@ -378,16 +381,17 @@ export default function WorkerOnboardingModal({
   return (
     <>
     <div className={modalOverlayClass}>
-      <div className={cn(modalClass, "max-w-xl")}>
+      <div className={cn(modalShellClass, "max-w-xl")}>
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 text-slate-500 hover:text-slate-900"
+          className={cn(modalCloseIconButtonClass, "absolute right-3 top-3 z-20")}
           aria-label="Close"
         >
           <X className="h-5 w-5" />
         </button>
 
+        <div className={cn(modalBodyClass, "pt-10")}>
         <h2 className="text-xl font-bold text-slate-900">Add New Worker</h2>
         <p className="mt-1 text-sm text-slate-500">Worker onboarding</p>
 
@@ -884,22 +888,34 @@ export default function WorkerOnboardingModal({
           )}
         </div>
 
-        <div className="mt-6 flex justify-between gap-3">
+        </div>
+
+        <ModalActionFooter>
+        <div className="flex justify-between gap-3 pb-1">
           {mode === "full" ? (
             <>
-              <button
-                type="button"
-                onClick={() => setStep((s) => Math.max(0, s - 1))}
-                disabled={step === 0}
-                className="flex items-center gap-1 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-orange-50 disabled:opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" /> Back
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="inline-flex min-h-11 items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => Math.max(0, s - 1))}
+                  disabled={step === 0}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-orange-50 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+              </div>
               {step < maxStep ? (
                 <button
                   type="button"
                   onClick={handleNextStep}
-                  className="flex items-center gap-1 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
+                  className="inline-flex min-h-11 items-center gap-1 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
                 >
                   Next <ChevronRight className="h-4 w-4" />
                 </button>
@@ -908,7 +924,7 @@ export default function WorkerOnboardingModal({
                   type="button"
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
                   {submitting ? (
                     <>
@@ -925,7 +941,7 @@ export default function WorkerOnboardingModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-orange-50"
+                className="inline-flex min-h-11 items-center rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-orange-50"
               >
                 Cancel
               </button>
@@ -933,7 +949,7 @@ export default function WorkerOnboardingModal({
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 {submitting ? (
                   <>
@@ -946,6 +962,7 @@ export default function WorkerOnboardingModal({
             </>
           )}
         </div>
+        </ModalActionFooter>
       </div>
     </div>
     {toast ? (

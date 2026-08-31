@@ -16,10 +16,14 @@ import { localIsoDate } from "@/lib/timesheet-utils";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import {
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   inputClass,
   labelClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
+import { cn } from "@/lib/utils";
 
 const LEAVE_TYPE_OPTIONS = LEAVE_TYPE_FORM_OPTIONS;
 
@@ -141,27 +145,28 @@ export default function WorkerLeaveSubmitModal({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={`${modalClass} max-w-md`}
+        className={cn(modalShellClass, "max-w-md")}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Submit Leave Request</h2>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Request will be sent to your project supervisor for review.
-            </p>
+        <div className={modalBodyClass}>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Submit Leave Request</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Request will be sent to your project supervisor for review.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className={modalCloseIconButtonClass}
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+          <form id="leave-submit-form" onSubmit={handleSubmit} className="space-y-4">
           <Field label="Leave type">
             <select
               className={inputClass}
@@ -242,25 +247,29 @@ export default function WorkerLeaveSubmitModal({
               {error}
             </p>
           )}
+          </form>
+        </div>
 
-          <div className="flex gap-2 pt-1">
+        <ModalActionFooter>
+          <div className="flex gap-2 pb-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
+              form="leave-submit-form"
               disabled={saving}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Submit Request
             </button>
           </div>
-        </form>
+        </ModalActionFooter>
       </div>
     </div>
   );

@@ -20,10 +20,13 @@ import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   inputClass,
   labelClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 import { cn } from "@/lib/utils";
 
 interface SubmitRFIModalProps {
@@ -155,22 +158,28 @@ export default function SubmitRFIModal({
     <>
       <div className={cn(modalOverlayClass, "z-[60]")} onClick={onClose}>
         <div
-          className={cn(modalClass, "max-w-2xl")}
+          className={cn(modalShellClass, "max-w-2xl")}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Submit RFI</h2>
-              <p className="text-sm text-slate-500">
-                Request information or clarification from site management.
-              </p>
+          <div className={modalBodyClass}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Submit RFI</h2>
+                <p className="text-sm text-slate-500">
+                  Request information or clarification from site management.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className={modalCloseIconButtonClass}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close">
-              <X className="h-5 w-5 text-slate-400" />
-            </button>
-          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+            <form id="submit-rfi-form" onSubmit={handleSubmit} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-1 sm:col-span-2">
                 <span className={labelClass}>RFI Subject</span>
@@ -334,26 +343,30 @@ export default function SubmitRFIModal({
                 {error}
               </p>
             ) : null}
+            </form>
+          </div>
 
-            <div className="flex gap-2">
+          <ModalActionFooter>
+            <div className="flex gap-2 pb-1">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={saving}
-                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700"
+                className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700"
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                form="submit-rfi-form"
                 disabled={saving || loadingProjects}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 py-2.5 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 py-2.5 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Submit RFI
               </button>
             </div>
-          </form>
+          </ModalActionFooter>
         </div>
       </div>
 

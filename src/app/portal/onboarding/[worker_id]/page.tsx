@@ -350,7 +350,7 @@ export default function WorkerInductionPortalPage() {
 
   return (
     <div className="min-h-screen bg-transparent">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <header className="mobile-safe-area-top sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500">
             <HardHat className="h-5 w-5 text-white" />
@@ -629,7 +629,7 @@ export default function WorkerInductionPortalPage() {
         )}
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+      <footer className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] mobile-safe-area-bottom">
         <div className="mx-auto flex max-w-lg gap-3">
           {step > 0 && (
             <button
@@ -638,7 +638,7 @@ export default function WorkerInductionPortalPage() {
                 setError(null);
                 setStep((s) => s - 1);
               }}
-              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700"
+              className="flex min-h-11 flex-1 items-center justify-center gap-1 rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700"
             >
               <ChevronLeft className="h-4 w-4" /> Back
             </button>
@@ -647,7 +647,7 @@ export default function WorkerInductionPortalPage() {
             <button
               type="button"
               onClick={handleNext}
-              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm"
+              className="flex min-h-11 flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm"
             >
               Next <ChevronRight className="h-4 w-4" />
             </button>
@@ -656,7 +656,7 @@ export default function WorkerInductionPortalPage() {
               type="button"
               onClick={handleSubmit}
               disabled={submitting}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
             >
               {submitting ? (
                 <>

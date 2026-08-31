@@ -26,11 +26,14 @@ import VocListEditor from "./VocListEditor";
 import { cn } from "@/lib/utils";
 import {
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   inputClass,
   labelClass,
   sectionClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 
 interface WorkerMyDetailsPanelProps {
   worker: Worker;
@@ -386,16 +389,17 @@ export default function WorkerMyDetailsPanel({
 
   return (
     <div className={modalOverlayClass}>
-      <div className={cn(modalClass, "max-w-lg")}>
+      <div className={cn(modalShellClass, "max-w-lg")}>
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 text-slate-500 hover:text-slate-900"
+          className={cn(modalCloseIconButtonClass, "absolute right-3 top-3 z-20")}
           aria-label="Close"
         >
           <X className="h-5 w-5" />
         </button>
 
+        <div className={cn(modalBodyClass, "pt-10")}>
         <h2 className="text-xl font-bold text-slate-900">My Details & Compliance</h2>
         <p className="mt-1 text-sm text-slate-500">
           {buildWorkerFullName(firstName, lastName) || worker.full_name}
@@ -629,29 +633,33 @@ export default function WorkerMyDetailsPanel({
           </div>
         </div>
 
-        <div className="mt-6 flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg bg-slate-100 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Saving…
-              </>
-            ) : (
-              "Save Changes"
-            )}
-          </button>
         </div>
+
+        <ModalActionFooter>
+          <div className="flex gap-3 pb-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </button>
+          </div>
+        </ModalActionFooter>
       </div>
 
       {editingVoc ? (

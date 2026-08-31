@@ -33,9 +33,12 @@ import { useFormToast } from "@/hooks/useFormToast";
 import {
   inputClass,
   labelClass,
-  modalClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   modalOverlayClass,
+  modalShellClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 import { cn } from "@/lib/utils";
 
 function sanitizeProjectWorkers(workers: Worker[] | null | undefined): Worker[] {
@@ -447,29 +450,35 @@ export default function WorkerIncidentReportModal({
 
   return (
     <div className={modalOverlayClass}>
-      <div className={cn(modalClass, "max-h-[92vh] max-w-3xl overflow-y-auto")}>
+      <div className={cn(modalShellClass, "max-w-3xl")}>
         {toast ? (
           <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
         ) : null}
 
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white pb-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Incident Report</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Complete all required fields. Project managers and administrators will be notified.
-            </p>
+        <div className="mobile-safe-area-top shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Incident Report</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Complete all required fields. Project managers and administrators will be notified.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className={modalCloseIconButtonClass}
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-5">
+        <form
+          id="incident-report-form"
+          onSubmit={handleSubmit}
+          className={cn(modalBodyClass, "space-y-5 pt-4")}
+        >
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {error}
@@ -760,26 +769,29 @@ export default function WorkerIncidentReportModal({
             <p className={labelClass}>Submitter signature *</p>
             <StableSignaturePad onChange={(value) => setSignature(value)} />
           </div>
+        </form>
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+        <ModalActionFooter>
+          <div className="flex flex-wrap justify-end gap-2 pb-1">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               disabled={saving}
             >
               Cancel
             </button>
             <button
               type="submit"
+              form="incident-report-form"
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Submit Incident Report
             </button>
           </div>
-        </form>
+        </ModalActionFooter>
       </div>
     </div>
   );

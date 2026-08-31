@@ -59,10 +59,12 @@ import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import TimesheetAdvanceEntryBadge from "@/components/workers/TimesheetAdvanceEntryBadge";
 import {
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalCloseIconButtonClass,
   inputClass,
   labelClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 import { cn } from "@/lib/utils";
 
 interface WorkerTimesheetModalProps {
@@ -398,10 +400,10 @@ export default function WorkerTimesheetModal({
   return (
     <div className={cn(modalOverlayClass, "z-[60]")} onClick={onClose}>
       <div
-        className={cn(modalClass, "max-h-[92vh] w-full max-w-3xl overflow-y-auto p-0")}
+        className={cn(modalShellClass, "max-w-3xl")}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="mobile-safe-area-top shrink-0 border-b border-slate-200 bg-white px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
@@ -427,7 +429,7 @@ export default function WorkerTimesheetModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className={modalCloseIconButtonClass}
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
@@ -541,7 +543,7 @@ export default function WorkerTimesheetModal({
           ) : null}
         </div>
 
-        <div className="space-y-5 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">
@@ -844,12 +846,14 @@ export default function WorkerTimesheetModal({
               {error}
             </p>
           ) : null}
+        </div>
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+        <ModalActionFooter>
+          <div className="flex flex-wrap justify-end gap-2 pb-1">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+              className="inline-flex min-h-11 items-center rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
             >
               Cancel
             </button>
@@ -857,7 +861,7 @@ export default function WorkerTimesheetModal({
               type="button"
               disabled={saving !== null}
               onClick={() => void handleSave(false)}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >
               {saving === "draft" ? (
                 <Loader2 className="inline h-4 w-4 animate-spin" />
@@ -868,13 +872,13 @@ export default function WorkerTimesheetModal({
               type="button"
               disabled={saving !== null}
               onClick={() => void handleSave(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {saving === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Sign and Submit
             </button>
           </div>
-        </div>
+        </ModalActionFooter>
       </div>
     </div>
   );

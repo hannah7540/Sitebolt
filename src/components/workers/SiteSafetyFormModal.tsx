@@ -32,11 +32,15 @@ import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import FormBrandingHeader from "@/components/ui/FormBrandingHeader";
 import {
   modalOverlayClass,
-  modalClass,
+  modalShellClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
   inputClass,
   labelClass,
   sectionClass,
 } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
+import { cn } from "@/lib/utils";
 import { localIsoDate } from "@/lib/timesheet-utils";
 
 interface SiteSafetyFormModalProps {
@@ -334,22 +338,28 @@ export default function SiteSafetyFormModal({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={`${modalClass} max-w-2xl`}
+        className={cn(modalShellClass, "max-w-2xl")}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <FormBrandingHeader
-            className="mb-0 flex-1 border-0 pb-0"
-            title={SITE_FORM_LABELS[formType]}
-            subtitle={config.description}
-            meta={projectName}
-          />
-          <button type="button" onClick={onClose} aria-label="Close" className="shrink-0">
-            <X className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
+        <div className={modalBodyClass}>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <FormBrandingHeader
+              className="mb-0 flex-1 border-0 pb-0"
+              title={SITE_FORM_LABELS[formType]}
+              subtitle={config.description}
+              meta={projectName}
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className={modalCloseIconButtonClass}
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+          <form id="site-safety-form" onSubmit={handleSubmit} className="space-y-5">
           <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">General details</p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -470,25 +480,29 @@ export default function SiteSafetyFormModal({
               {error}
             </p>
           )}
+          </form>
+        </div>
 
-          <div className="flex gap-2 pt-1">
+        <ModalActionFooter>
+          <div className="flex gap-2 pb-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
+              form="site-safety-form"
               disabled={saving}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Submit Form
             </button>
           </div>
-        </form>
+        </ModalActionFooter>
       </div>
     </div>
   );

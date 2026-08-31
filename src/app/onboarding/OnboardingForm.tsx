@@ -820,13 +820,14 @@ export default function OnboardingForm() {
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
           ) : null}
 
-          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-between">
+          <div className="sticky bottom-0 z-10 -mx-4 mt-4 border-t border-slate-200 bg-white px-4 pt-3 mobile-safe-area-bottom sm:-mx-0 sm:mx-0 sm:rounded-b-2xl sm:px-0">
+          <div className="flex flex-col-reverse gap-3 pb-1 sm:flex-row sm:justify-between">
             {step > 1 ? (
               <button
                 type="button"
                 onClick={handleBack}
                 disabled={submitting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back
@@ -840,7 +841,7 @@ export default function OnboardingForm() {
                 type="button"
                 onClick={handleNext}
                 disabled={submitting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 sm:ml-auto"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 sm:ml-auto"
               >
                 Next
                 <ChevronRight className="h-4 w-4" />
@@ -850,7 +851,7 @@ export default function OnboardingForm() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 sm:ml-auto"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 sm:ml-auto"
               >
                 {submitting ? (
                   <>
@@ -862,6 +863,7 @@ export default function OnboardingForm() {
                 )}
               </button>
             )}
+          </div>
           </div>
         </div>
 

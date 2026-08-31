@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { X } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import type { LeaveRequest } from "@/lib/supabase";
 import {
@@ -9,7 +10,7 @@ import {
   leaveStatusMeta,
 } from "@/lib/leave-utils";
 import { cn } from "@/lib/utils";
-import { cardClass } from "@/lib/ui-classes";
+import { cardClass, modalCloseIconButtonClass } from "@/lib/ui-classes";
 
 interface WorkerLeaveHistoryDrawerProps {
   leaveRequests: LeaveRequest[];
@@ -46,7 +47,7 @@ export default function WorkerLeaveHistoryDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className={modalCloseIconButtonClass}
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -95,6 +96,8 @@ export default function WorkerLeaveHistoryDrawer({
           )}
         </div>
       </div>
+
+      <WorkerMobileBackButton label="Back to Dashboard" onClick={onClose} />
     </div>
   );
 }

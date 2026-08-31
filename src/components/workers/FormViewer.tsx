@@ -21,8 +21,16 @@ import {
   validateLogicRules,
   type InductionFormAnswers,
 } from "@/lib/induction-form-logic";
-import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
+import {
+  inputClass,
+  labelClass,
+  modalBodyClass,
+  modalCloseIconButtonClass,
+  modalOverlayClass,
+  modalShellClass,
+} from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
 
 interface FormViewerProps {
   assignment: FormWorkerAssignment;
@@ -244,20 +252,26 @@ export default function FormViewer({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={cn(modalClass, "max-h-[92vh] w-full max-w-3xl")}
+        className={cn(modalShellClass, "max-w-3xl")}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {form?.title ?? assignment.form_title ?? "Site induction"}
-            </h2>
-            <p className="text-sm text-slate-500">Complete all required fields to submit</p>
+        <div className={cn(modalBodyClass, "space-y-4")}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                {form?.title ?? assignment.form_title ?? "Site induction"}
+              </h2>
+              <p className="text-sm text-slate-500">Complete all required fields to submit</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className={modalCloseIconButtonClass}
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close">
-            <X className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
 
         {loading ? (
           <div className="flex items-center gap-2 py-12 text-sm text-slate-500">
@@ -269,7 +283,11 @@ export default function FormViewer({
             {error ?? "Form unavailable."}
           </p>
         ) : (
-          <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+          <form
+            id="induction-form-viewer"
+            onSubmit={(event) => void handleSubmit(event)}
+            className="space-y-4"
+          >
             <FormBrandingHeader
               title={form.title}
               subtitle={form.description ?? undefined}
@@ -434,17 +452,32 @@ export default function FormViewer({
             ) : null}
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 py-2.5 text-sm font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Submit Induction
-            </button>
           </form>
         )}
+        </div>
+
+        <ModalActionFooter>
+          <div className="flex gap-2 pb-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+            {!loading && form ? (
+              <button
+                type="submit"
+                form="induction-form-viewer"
+                disabled={submitting}
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 py-2.5 text-sm font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Submit Induction
+              </button>
+            ) : null}
+          </div>
+        </ModalActionFooter>
       </div>
 
       {toast ? (

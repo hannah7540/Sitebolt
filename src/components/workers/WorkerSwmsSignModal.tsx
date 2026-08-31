@@ -14,7 +14,9 @@ import {
   type SwmsDocument,
 } from "@/lib/swms";
 import { uploadSwmsSignature } from "@/lib/swms-signature-upload";
-import { modalOverlayClass, modalClass, sectionClass } from "@/lib/ui-classes";
+import { modalOverlayClass, modalShellClass, modalBodyClass, modalCloseIconButtonClass, sectionClass } from "@/lib/ui-classes";
+import ModalActionFooter from "@/components/ui/ModalActionFooter";
+import { cn } from "@/lib/utils";
 
 interface WorkerSwmsSignModalProps {
   assignment: SwmsAssignment & { swms?: SwmsDocument };
@@ -114,22 +116,28 @@ export default function WorkerSwmsSignModal({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={`${modalClass} max-w-3xl`}
+        className={cn(modalShellClass, "max-w-3xl")}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {swms?.title ?? "SWMS Document"}
-            </h2>
-            <p className="text-sm text-slate-500">
-              {version} · {category} · Assigned to {assigneeName}
-            </p>
+        <div className={cn(modalBodyClass, "space-y-4")}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                {swms?.title ?? "SWMS Document"}
+              </h2>
+              <p className="text-sm text-slate-500">
+                {version} · {category} · Assigned to {assigneeName}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className={modalCloseIconButtonClass}
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close">
-            <X className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
 
         {swmsDocumentUrl ? (
           <div className={sectionClass}>
@@ -188,27 +196,30 @@ export default function WorkerSwmsSignModal({
             {error}
           </p>
         )}
+        </div>
 
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Close
-          </button>
-          {assignment.status === "Pending" ? (
+        <ModalActionFooter>
+          <div className="flex gap-2 pb-1">
             <button
               type="button"
-              disabled={saving}
-              onClick={handleSign}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+              onClick={onClose}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Sign & Submit SWMS
+              Close
             </button>
-          ) : null}
-        </div>
+            {assignment.status === "Pending" ? (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSign}
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Sign & Submit SWMS
+              </button>
+            ) : null}
+          </div>
+        </ModalActionFooter>
       </div>
     </div>
   );
