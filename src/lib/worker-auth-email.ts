@@ -8,7 +8,10 @@ import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { sendEmail } from "@/lib/email-service";
 import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
-import { getAuthPasswordSetupRedirectTo } from "@/lib/worker-invite-link";
+import {
+  buildDirectPasswordSetupLink,
+  getAuthPasswordSetupRedirectTo,
+} from "@/lib/worker-invite-link";
 
 export function getAuthCallbackUrl(nextPath: string): string {
   const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
@@ -82,12 +85,12 @@ export async function sendExistingUserOnboardingEmail(
       continue;
     }
 
-    const actionLink = data.properties?.action_link;
-    if (!actionLink) continue;
+    const directLink = buildDirectPasswordSetupLink(data.properties);
+    if (!directLink) continue;
 
     const sendResult = await sendWorkerOnboardingLinkViaResend(
       trimmedEmail,
-      actionLink,
+      directLink,
       fullName
     );
 

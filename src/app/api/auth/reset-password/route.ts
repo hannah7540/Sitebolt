@@ -11,6 +11,7 @@ import {
   appendTeamEmailFooterText,
 } from "@/lib/email-team-footer";
 import {
+  buildDirectPasswordSetupLink,
   isValidGeneratedAuthLink,
 } from "@/lib/worker-invite-link";
 
@@ -51,9 +52,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    const actionLink = data?.properties?.action_link;
+    const actionLink = buildDirectPasswordSetupLink(data?.properties ?? null);
     if (!isValidGeneratedAuthLink(actionLink)) {
-      console.error("[/api/auth/reset-password] generateLink missing action_link");
+      console.error("[/api/auth/reset-password] generateLink missing hashed_token");
       return NextResponse.json({ success: true }, { status: 200 });
     }
 

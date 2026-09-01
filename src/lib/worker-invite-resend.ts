@@ -9,6 +9,7 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
+  buildDirectPasswordSetupLink,
   isValidGeneratedAuthLink,
   resolveInviteSiteOrigin,
 } from "@/lib/worker-invite-link";
@@ -34,6 +35,7 @@ type GenerateLinkCallResult = {
     properties?: {
       action_link?: string | null;
       hashed_token?: string | null;
+      token_hash?: string | null;
       verification_type?: string | null;
     } | null;
   } | null;
@@ -111,8 +113,7 @@ async function generateAuthLink(
 function resolveGeneratedActionLink(
   data: GenerateLinkCallResult["data"]
 ): string | null {
-  const actionLink = data?.properties?.action_link?.trim() ?? null;
-  return isValidGeneratedAuthLink(actionLink) ? actionLink : null;
+  return buildDirectPasswordSetupLink(data?.properties ?? null);
 }
 
 export async function findAuthUserByEmail(
@@ -211,7 +212,7 @@ export async function generateWorkerInviteSetupLink(
 
   const actionLink = resolveGeneratedActionLink(data);
   if (!actionLink) {
-    console.error("[Generate Link Error]:", "Missing action_link");
+    console.error("[Generate Link Error]:", "Missing hashed_token and action_link");
     return {
       inviteLink: null,
       authUserId: data?.user?.id ?? null,

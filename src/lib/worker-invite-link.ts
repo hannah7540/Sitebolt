@@ -56,6 +56,43 @@ export function isValidGeneratedAuthLink(link: string | null | undefined): boole
   }
 }
 
+/** App origin for password-setup emails (no trailing slash). */
+export function getPasswordSetupAppOrigin(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured && !isPlaceholderOrigin(configured)) {
+    return stripTrailingSlash(configured);
+  }
+  return PRODUCTION_SITE_URL;
+}
+
+type GeneratedLinkProperties = {
+  action_link?: string | null;
+  hashed_token?: string | null;
+  token_hash?: string | null;
+  verification_type?: string | null;
+} | null;
+
+/**
+ * Build a scanner-safe password setup URL using hashed_token.
+ * Mail clients that prefetch action_link consume the OTP; hashed_token is
+ * verified only when the worker opens /setyourpassword.
+ */
+export function buildDirectPasswordSetupLink(
+  properties: GeneratedLinkProperties
+): string | null {
+  const cleanUrl = getPasswordSetupAppOrigin();
+  const hashedToken =
+    properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
+  const type = (properties?.verification_type?.trim() || "recovery").toLowerCase();
+
+  if (hashedToken) {
+    return `${cleanUrl}/setyourpassword?token_hash=${encodeURIComponent(hashedToken)}&type=${encodeURIComponent(type)}`;
+  }
+
+  const actionLink = properties?.action_link?.trim() ?? null;
+  return isValidGeneratedAuthLink(actionLink) ? actionLink : null;
+}
+
 export function buildPasswordSetupPath(email?: string | null): string {
   if (!email?.trim()) return PASSWORD_SETUP_PATH;
   return `${PASSWORD_SETUP_PATH}?email=${encodeURIComponent(email.trim())}`;

@@ -1,69 +1,114 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Session } from "@supabase/supabase-js";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
-import { Suspense } from "react";
 import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
-import { hasAuthHashFragment } from "@/lib/public-auth-paths";
+
+const EXPIRED_LINK_MESSAGE =
+  "This password setup link has expired. Please request a new one.";
+
+const OTP_TYPES = new Set<EmailOtpType>([
+  "signup",
+  "invite",
+  "magiclink",
+  "recovery",
+  "email",
+  "email_change",
+]);
+
+function isExpiredAuthError(message: string | null | undefined): boolean {
+  const value = (message ?? "").toLowerCase();
+  return (
+    value.includes("otp_expired") ||
+    value.includes("expired") ||
+    value.includes("access_denied") ||
+    value.includes("already been used")
+  );
+}
+
+function readHashAuthError(): string | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  const error = params.get("error");
+  const code = params.get("error_code");
+  const description = params.get("error_description")?.replace(/\+/g, " ");
+  if (!error && !code && !description) return null;
+  if (isExpiredAuthError(`${error} ${code} ${description}`)) {
+    return EXPIRED_LINK_MESSAGE;
+  }
+  return description?.trim() || EXPIRED_LINK_MESSAGE;
+}
 
 function SetYourPasswordForm() {
   const searchParams = useSearchParams();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const errorParam = searchParams.get("error");
-    if (errorParam && !hasAuthHashFragment()) setErrorMsg(errorParam);
-
-    const supabase = createSupabaseBrowserClient();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event: string, _session: Session | null) => {
-        // Persist recovery/invite tokens from the URL hash or cookies.
+    const hashError = readHashAuthError();
+    if (hashError) {
+      setErrorMsg(hashError);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
-    );
-
-    async function captureSessionFromUrl() {
-      const code = searchParams.get("code");
-      if (code) {
-        await supabase.auth.exchangeCodeForSession(code);
-      }
-
-      const hash = typeof window !== "undefined" ? window.location.hash : "";
-      if (hash.includes("access_token") && hash.includes("refresh_token")) {
-        const params = new URLSearchParams(hash.replace(/^#/, ""));
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-        if (accessToken && refreshToken) {
-          const { data } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (data.session) {
-            window.history.replaceState(
-              null,
-              "",
-              `${window.location.pathname}${window.location.search}`
-            );
-          }
-        }
-      }
-
-      await supabase.auth.getSession();
+      return;
     }
 
-    void captureSessionFromUrl();
-    return () => subscription.unsubscribe();
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      setErrorMsg(
+        isExpiredAuthError(errorParam) ? EXPIRED_LINK_MESSAGE : errorParam
+      );
+    }
+
+    const supabase = createSupabaseBrowserClient();
+
+    async function verifyToken() {
+      const tokenHash = searchParams.get("token_hash");
+      const typeParam = (searchParams.get("type") || "recovery") as EmailOtpType;
+      const type = OTP_TYPES.has(typeParam) ? typeParam : "recovery";
+
+      if (!tokenHash) {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) setSessionReady(true);
+        return;
+      }
+
+      setVerifying(true);
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type,
+      });
+      setVerifying(false);
+
+      if (error) {
+        setErrorMsg(
+          isExpiredAuthError(error.message) ? EXPIRED_LINK_MESSAGE : error.message
+        );
+        return;
+      }
+
+      setSessionReady(true);
+      setErrorMsg(null);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+
+    void verifyToken();
   }, [searchParams]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -89,7 +134,9 @@ function SetYourPasswordForm() {
         password: newPassword,
       });
       if (error) {
-        setErrorMsg(error.message);
+        setErrorMsg(
+          isExpiredAuthError(error.message) ? EXPIRED_LINK_MESSAGE : error.message
+        );
         return;
       }
 
@@ -102,7 +149,8 @@ function SetYourPasswordForm() {
       if (worker && worker.onboarding_completed === false) {
         window.location.href = "/onboarding";
       } else {
-        window.location.href = "/login";
+        window.location.href =
+          "/login?message=Password set successfully. Please log in.";
       }
     } catch (cause) {
       setErrorMsg(
@@ -169,6 +217,19 @@ function SetYourPasswordForm() {
 
           <p className="text-xs text-slate-500">{passwordRequirementsLabel()}</p>
 
+          {verifying ? (
+            <p className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+              Verifying your invite link…
+            </p>
+          ) : null}
+
+          {sessionReady && !errorMsg ? (
+            <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+              Link verified. Set your password below.
+            </p>
+          ) : null}
+
           {errorMsg ? (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
               {errorMsg}
@@ -177,7 +238,7 @@ function SetYourPasswordForm() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || verifying}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
           >
             {submitting ? (
