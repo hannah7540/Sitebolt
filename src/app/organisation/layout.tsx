@@ -1,9 +1,11 @@
 "use client";
 
 import { Suspense, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
 import OrganisationSubNav from "@/components/organisation/OrganisationSubNav";
+import { isExemptFromAuthRedirect } from "@/lib/public-auth-paths";
 
 function OrganisationContentFallback() {
   return (
@@ -15,6 +17,11 @@ function OrganisationContentFallback() {
 }
 
 export default function OrganisationLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? "";
+  if (isExemptFromAuthRedirect(pathname)) {
+    return <>{children}</>;
+  }
+
   return (
     <AdminConsoleShell requireOrganisationAccess>
       <OrganisationSubNav />

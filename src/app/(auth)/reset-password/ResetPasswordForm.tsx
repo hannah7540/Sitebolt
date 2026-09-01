@@ -74,7 +74,6 @@ export default function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
   const [hasSession, setHasSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,13 +85,11 @@ export default function ResetPasswordForm() {
 
     let cancelled = false;
     const supabase = createSupabaseBrowserClient();
-    const waitingForHash = hasAuthHashFragment();
 
     const applySessionUser = (user: User | null) => {
       if (cancelled || !user) return;
       setHasSession(true);
       if (!emailParam && user.email) setEmail(user.email);
-      setCheckingSession(false);
     };
 
     const {
@@ -131,25 +128,14 @@ export default function ResetPasswordForm() {
       if (cancelled) return;
       if (data.session?.user) {
         applySessionUser(data.session.user);
-        return;
-      }
-      if (!waitingForHash) {
-        setCheckingSession(false);
       }
     }
 
     void loadSession();
 
-    const timeout = waitingForHash
-      ? window.setTimeout(() => {
-          if (!cancelled) setCheckingSession(false);
-        }, 4000)
-      : undefined;
-
     return () => {
       cancelled = true;
       subscription.unsubscribe();
-      if (timeout) window.clearTimeout(timeout);
     };
   }, [searchParams]);
 
@@ -239,14 +225,6 @@ export default function ResetPasswordForm() {
       setSubmitting(false);
     }
   };
-
-  if (checkingSession) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
