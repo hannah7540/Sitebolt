@@ -23,6 +23,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
 ];
 
 export const ADMINISTRATION_VIEWS: readonly ActiveView[] = [
+  "admin-master-dashboard",
   "admin-plant-calendar",
   "admin-worker-calendar",
   "admin-swms",

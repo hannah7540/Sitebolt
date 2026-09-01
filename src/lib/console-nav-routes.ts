@@ -46,7 +46,11 @@ export function parseConsoleRoute(
     return { view: viewParam };
   }
 
-  if (pathname === "/" || pathname === "/admin") {
+  if (pathname === "/admin" || pathname === "/admin/dashboard") {
+    return { view: "admin-master-dashboard" };
+  }
+
+  if (pathname === "/") {
     return { view: "dashboard" };
   }
 
@@ -70,6 +74,10 @@ export function buildConsoleNavHref(
   const dedicatedOrganisationRoute = ORGANISATION_ROUTE_BY_VIEW.get(view);
   if (dedicatedOrganisationRoute) {
     return dedicatedOrganisationRoute;
+  }
+
+  if (view === "admin-master-dashboard") {
+    return "/admin/dashboard";
   }
 
   const projectId = options.projectId?.trim() || null;

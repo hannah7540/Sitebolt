@@ -476,6 +476,18 @@ function mapAssignmentQueryRows(data: unknown[] | null): FormWorkerAssignment[] 
   );
 }
 
+/** Org-wide outstanding induction assignments. Returns [] if the table is missing. */
+export async function fetchIncompleteInductionAssignments(): Promise<
+  FormWorkerAssignment[]
+> {
+  const result = await fetchAllPendingFormWorkerAssignmentRows();
+  if (result.error) {
+    console.warn("[inductions] outstanding assignments:", result.error);
+    return [];
+  }
+  return result.assignments ?? [];
+}
+
 /** Fetch all outstanding rows — select('*') only, no FK join or worker/project filters. */
 async function fetchAllPendingFormWorkerAssignmentRows(): Promise<{
   assignments: FormWorkerAssignment[];

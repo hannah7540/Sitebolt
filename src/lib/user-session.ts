@@ -8,8 +8,11 @@ import {
 export const DEFAULT_ADMIN_PROFILE_NAME = MASTER_ADMIN_FULL_NAME;
 export const DEFAULT_ADMIN_EMAIL = MASTER_ADMIN_EMAIL;
 
-/** Project dashboard — default landing for non-general-worker roles. */
+/** Project dashboard — used for project-scoped console redirects. */
 export const PROJECT_DASHBOARD_HOME_PATH = "/";
+
+/** Administration Master Project Dashboard — default landing for admin console roles. */
+export const MASTER_PROJECT_DASHBOARD_PATH = "/admin/dashboard";
 
 export const WORKER_ID_KEY = "sitebolt_worker_id";
 export const ADMIN_WORKER_ID_KEY = "sitebolt_admin_worker_id";
@@ -129,7 +132,7 @@ export function resolveDefaultLandingPathForRole(
   }
 
   if (canAccessAdminConsole(normalized)) {
-    return PROJECT_DASHBOARD_HOME_PATH;
+    return MASTER_PROJECT_DASHBOARD_PATH;
   }
 
   const trimmedId = workerId?.trim();

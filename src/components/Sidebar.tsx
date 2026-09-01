@@ -68,6 +68,7 @@ export type ActiveView =
   | "swms"
   | "scheduler"
   | "subcontractors"
+  | "admin-master-dashboard"
   | "admin-plant-calendar"
   | "admin-worker-calendar"
   | "admin-swms"
@@ -989,8 +990,12 @@ function AdministrationSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const isFormsRoute = pathname?.startsWith("/admin/forms") ?? false;
+  const isMasterDashboard =
+    pathname === "/admin" ||
+    pathname === "/admin/dashboard" ||
+    activeView === "admin-master-dashboard";
   const incidentUnreadCount = useIncidentUnreadCount(true);
-  const [open, setOpen] = useState(isFormsRoute);
+  const [open, setOpen] = useState(isFormsRoute || isMasterDashboard);
   const [formsOpen, setFormsOpen] = useState(isFormsRoute);
   const items: SubItem[] = [
     { label: "Full Plant Calendar", view: "admin-plant-calendar" },
@@ -1015,6 +1020,11 @@ function AdministrationSection({
       </button>
       {open && (
         <div className="space-y-1 px-2">
+          <RouteNavLink
+            label="Master Project Dashboard"
+            href="/admin/dashboard"
+            active={isMasterDashboard}
+          />
           <div>
             <button
               type="button"

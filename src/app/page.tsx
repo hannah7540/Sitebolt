@@ -54,6 +54,7 @@ import AdminWorkerCalendarPanel from "@/components/administration/AdminWorkerCal
 import SwmsManagementPanel from "@/components/administration/SwmsManagementPanel";
 import DocumentPackView from "@/components/administration/DocumentPackView";
 import AdminReportingTab from "@/components/administration/AdminReportingTab";
+import MasterProjectDashboard from "@/components/administration/MasterProjectDashboard";
 import {
   canViewFinancialFields,
   canAssignPayRules,
@@ -581,6 +582,8 @@ function HomeConsole() {
               initialShowAdd={showAddSubcontractor}
             />
           )}
+
+          {activeTab === "admin-master-dashboard" && <MasterProjectDashboard />}
 
           {activeTab === "admin-plant-calendar" && (
             <AdminPlantCalendarPanel
