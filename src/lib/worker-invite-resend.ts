@@ -8,9 +8,10 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  AUTH_CALLBACK_PATH,
   PASSWORD_SETUP_PATH,
   buildAuthCallbackUrl,
+  getAuthPasswordSetupRedirectTo,
+  isValidGeneratedAuthLink,
   resolveInviteSiteOrigin,
   type AuthLinkType,
 } from "@/lib/worker-invite-link";
@@ -34,11 +35,9 @@ function getResendClient(): Resend | null {
 }
 
 function getInviteOrigin(): string {
-  return resolveInviteSiteOrigin(getSiteUrl());
-}
-
-function getPasswordSetupRedirectTo(origin: string): string {
-  return `${origin}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(PASSWORD_SETUP_PATH)}`;
+  return resolveInviteSiteOrigin(
+    process.env.NEXT_PUBLIC_APP_URL?.trim() || getSiteUrl()
+  );
 }
 
 export async function generateWorkerInviteSetupLink(
@@ -58,7 +57,7 @@ export async function generateWorkerInviteSetupLink(
   }
 
   const admin = createSupabaseAdminClient();
-  const redirectTo = getPasswordSetupRedirectTo(origin);
+  const redirectTo = getAuthPasswordSetupRedirectTo(origin);
   const attempts: GenerateLinkType[] = ["invite", "recovery", "magiclink"];
   let lastError: string | null = null;
   let authUserId: string | null = null;
@@ -77,25 +76,25 @@ export async function generateWorkerInviteSetupLink(
     }
 
     authUserId = data.user?.id ?? authUserId;
-    const hashedToken = data.properties?.hashed_token ?? null;
-    const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
-
-    if (hashedToken) {
-      return {
-        inviteLink: buildAuthCallbackUrl(
-          hashedToken,
-          verificationType,
-          PASSWORD_SETUP_PATH,
-          origin
-        ),
-        authUserId,
-        error: null,
-      };
+    const actionLink = data.properties?.action_link ?? null;
+    if (isValidGeneratedAuthLink(actionLink)) {
+      console.log("[Generated Action Link]:", actionLink);
+      return { inviteLink: actionLink, authUserId, error: null };
     }
 
-    const actionLink = data.properties?.action_link ?? null;
-    if (actionLink) {
-      return { inviteLink: actionLink, authUserId, error: null };
+    const hashedToken = data.properties?.hashed_token ?? null;
+    const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
+    if (hashedToken) {
+      const callbackLink = buildAuthCallbackUrl(
+        hashedToken,
+        verificationType,
+        PASSWORD_SETUP_PATH,
+        origin
+      );
+      if (isValidGeneratedAuthLink(callbackLink)) {
+        console.log("[Generated Action Link]:", callbackLink);
+        return { inviteLink: callbackLink, authUserId, error: null };
+      }
     }
   }
 
@@ -142,15 +141,17 @@ export async function sendWorkerInviteEmailViaResend(
   const { inviteLink, authUserId, error: linkError } =
     await generateWorkerInviteSetupLink(trimmedEmail);
 
-  if (!inviteLink) {
+  if (!inviteLink || !isValidGeneratedAuthLink(inviteLink)) {
     return {
       success: false,
-      error: linkError ?? "Unable to generate auth link.",
+      error: linkError ?? "Unable to generate a valid SiteBolt auth link.",
       messageId: null,
       actionLink: null,
       authUserId,
     };
   }
+
+  console.log("[Generated Action Link]:", inviteLink);
 
   const inviteHtml = appendTeamEmailFooter(`
 <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-collapse: collapse;">
@@ -168,7 +169,7 @@ export async function sendWorkerInviteEmailViaResend(
 </table>
       `.trim());
   const inviteText = appendTeamEmailFooterText(
-    `You've been added to Site-Bolt. Please click the button below to set your password and access your account.\n\nSet your password: ${inviteLink}`
+    `You've been added to Site-Bolt. Please use the "Set your password" button in this email to access your account.`
   );
 
   const resendResult = await resend.emails.send({

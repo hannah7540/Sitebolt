@@ -1,4 +1,5 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
+const FALLBACK_APP_URL = "https://site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
@@ -6,16 +7,51 @@ export const PASSWORD_RESET_NEXT_PATH = "/update-password";
 export const PASSWORD_RESET_OTP_PATH = "/reset-password";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
 
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/$/, "");
+}
+
+function isPlaceholderOrigin(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    !lower ||
+    lower.includes("google.com") ||
+    lower.includes("example.com") ||
+    lower.includes("placeholder")
+  );
+}
+
 export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
   const configured =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configured && !isPlaceholderOrigin(configured)) {
+    return stripTrailingSlash(configured);
+  }
 
   const origin = requestOrigin?.trim();
-  if (origin && !origin.includes("localhost")) return origin.replace(/\/$/, "");
+  if (origin && !origin.includes("localhost") && !isPlaceholderOrigin(origin)) {
+    return stripTrailingSlash(origin);
+  }
 
   return PRODUCTION_SITE_URL;
+}
+
+/** Supabase generateLink redirectTo: /auth/callback?next=/reset-password */
+export function getAuthPasswordSetupRedirectTo(origin?: string | null): string {
+  const base = resolveInviteSiteOrigin(origin) || FALLBACK_APP_URL;
+  return `${stripTrailingSlash(base)}${AUTH_CALLBACK_PATH}?next=${PASSWORD_SETUP_PATH}`;
+}
+
+export function isValidGeneratedAuthLink(link: string | null | undefined): boolean {
+  const value = link?.trim() ?? "";
+  if (!value || isPlaceholderOrigin(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 export function buildPasswordSetupPath(email?: string | null): string {

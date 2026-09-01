@@ -44,6 +44,7 @@ export async function POST(req: Request) {
     }
 
     const sent = await sendWorkerInviteEmailViaResend(email);
+    console.log("[Generated Action Link]:", sent.actionLink);
 
     if (!sent.success) {
       return NextResponse.json(

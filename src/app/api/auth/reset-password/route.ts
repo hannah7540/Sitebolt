@@ -10,12 +10,10 @@ import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
 } from "@/lib/email-team-footer";
-
-const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-
-function buildPasswordResetRedirectUrl(email: string): string {
-  return `${PRODUCTION_SITE_URL}/reset-password?email=${encodeURIComponent(email.trim())}`;
-}
+import {
+  getAuthPasswordSetupRedirectTo,
+  isValidGeneratedAuthLink,
+} from "@/lib/worker-invite-link";
 
 export async function POST(req: Request) {
   const apiKey =
@@ -45,7 +43,7 @@ export async function POST(req: Request) {
       type: "recovery",
       email,
       options: {
-        redirectTo: buildPasswordResetRedirectUrl(email),
+        redirectTo: getAuthPasswordSetupRedirectTo(),
       },
     });
 
@@ -55,10 +53,12 @@ export async function POST(req: Request) {
     }
 
     const actionLink = data?.properties?.action_link;
-    if (!actionLink) {
+    if (!isValidGeneratedAuthLink(actionLink)) {
       console.error("[/api/auth/reset-password] generateLink missing action_link");
       return NextResponse.json({ success: true }, { status: 200 });
     }
+
+    console.log("[Generated Action Link]:", actionLink);
 
     const resend = new Resend(apiKey);
     const resetHtml = appendTeamEmailFooter(`
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       <p style="font-size: 16px; line-height: 1.5; margin: 0; color: #334155; font-family: Arial, Helvetica, sans-serif;">
         Click the button below to reset your password for your Site Bolt account.
       </p>
-      ${buildEmailCtaButtonHtml(actionLink, "Set your password")}
+      ${buildEmailCtaButtonHtml(actionLink ?? "", "Set your password")}
       <p style="font-size: 14px; color: #64748b; margin: 16px 0 0 0; font-family: Arial, Helvetica, sans-serif;">
         If you did not request a password reset, you can ignore this email.
       </p>
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 </table>
       `.trim());
     const resetText = appendTeamEmailFooterText(
-      `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`
+      `Password Reset Request\n\nPlease use the "Set your password" button in this email to reset your Site Bolt account password.`
     );
 
     const resendResult = await resend.emails.send({
