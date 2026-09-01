@@ -8,7 +8,10 @@ import {
   ensureWorkerInviteRecord,
   markWorkerInviteSent,
 } from "@/lib/ensure-worker-profile";
-import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
+import {
+  PASSWORD_SETUP_LINK_SENT_MESSAGE,
+  sendWorkerInviteEmailViaResend,
+} from "@/lib/worker-invite-resend";
 
 export async function POST(req: Request) {
   try {
@@ -49,7 +52,7 @@ export async function POST(req: Request) {
     if (!sent.success) {
       return NextResponse.json(
         { error: sent.error ?? "Failed to send invitation email." },
-        { status: 500 }
+        { status: 400 }
       );
     }
 
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
         success: true,
         inviteSent: true,
         inviteSentAt: stamped.inviteSentAt,
-        message: `Invitation email sent successfully to ${email}`,
+        message: sent.message ?? PASSWORD_SETUP_LINK_SENT_MESSAGE,
         workerId: preInviteWorker.workerId,
         authUserId: sent.authUserId ?? null,
       },

@@ -10,32 +10,12 @@ import {
   ensureWorkerInviteRecord,
   markWorkerInviteSent,
 } from "@/lib/ensure-worker-profile";
-import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
+import {
+  PASSWORD_SETUP_LINK_SENT_MESSAGE,
+  findAuthUserByEmail,
+  sendWorkerInviteEmailViaResend,
+} from "@/lib/worker-invite-resend";
 import { isWorkerAccessRevoked } from "@/lib/worker-revocation";
-
-async function findAuthUserByEmail(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  email: string
-): Promise<User | null> {
-  const target = email.trim().toLowerCase();
-  let page = 1;
-
-  while (page <= 20) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) {
-      throw new Error(`Failed to list auth users: ${error.message}`);
-    }
-
-    const match = data.users.find(
-      (user) => user.email?.trim().toLowerCase() === target
-    );
-    if (match) return match;
-    if (data.users.length < 200) break;
-    page += 1;
-  }
-
-  return null;
-}
 
 export async function POST(req: Request) {
   if (!isSupabaseAdminConfigured()) {
@@ -96,13 +76,6 @@ export async function POST(req: Request) {
       authUser = await findAuthUserByEmail(admin, email);
     }
 
-    if (authUser?.last_sign_in_at) {
-      return NextResponse.json(
-        { error: "This worker already has an active account." },
-        { status: 409 }
-      );
-    }
-
     const prepared = await ensureWorkerInviteRecord(admin, {
       email,
       workerId,
@@ -119,12 +92,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const sent = await sendWorkerInviteEmailViaResend(email);
+    const sent = await sendWorkerInviteEmailViaResend(email, {
+      userAlreadyExists: Boolean(authUser),
+    });
     console.log("[Generated Action Link]:", sent.actionLink);
     if (!sent.success) {
       return NextResponse.json(
         { error: sent.error ?? "Failed to deliver the invitation email." },
-        { status: 500 }
+        { status: 400 }
       );
     }
 
@@ -145,7 +120,7 @@ export async function POST(req: Request) {
       success: true,
       inviteSent: true,
       inviteSentAt: stamped.inviteSentAt,
-      message: `Invitation email resent successfully to ${email}`,
+      message: sent.message ?? PASSWORD_SETUP_LINK_SENT_MESSAGE,
       workerId: prepared.workerId,
       authUserId: sent.authUserId ?? authUser?.id ?? null,
     });
