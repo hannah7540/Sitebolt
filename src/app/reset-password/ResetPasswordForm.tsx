@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   bindAuthSessionForUser,
@@ -13,6 +14,8 @@ import {
   validatePassword,
 } from "@/lib/password-validation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
+import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 function parseApiError(payload: unknown): string | null {
@@ -44,26 +47,61 @@ export default function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [hasSession, setHasSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const isInviteSetup = useMemo(() => Boolean(searchParams.get("email")), [searchParams]);
 
   useEffect(() => {
     const emailParam = searchParams.get("email");
-    if (emailParam) {
-      setEmail(emailParam);
+    const errorParam = searchParams.get("error");
+    if (emailParam) setEmail(emailParam);
+    if (errorParam) setError(errorParam);
+
+    let cancelled = false;
+
+    async function loadSession() {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getUser();
+      if (cancelled) return;
+
+      if (data.user) {
+        setHasSession(true);
+        if (!emailParam && data.user.email) {
+          setEmail(data.user.email);
+        }
+      }
+      setCheckingSession(false);
     }
+
+    void loadSession();
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams]);
+
+  const resolveAfterPassword = async (
+    user: User | null,
+    apiRedirectPath?: string | null
+  ): Promise<string> => {
+    if (apiRedirectPath) return apiRedirectPath;
+    if (!user) return "/worker-dashboard";
+
+    const bound = await bindAuthSessionForUser(user);
+    if (bound.ok && bound.workerId) {
+      const completed = await fetchWorkerOnboardingCompleted(bound.workerId);
+      return resolvePostInvitePasswordPath({
+        onboardingCompleted: completed,
+        workerId: bound.workerId,
+        role: bound.role,
+      });
+    }
+
+    return resolvePostAuthPathForUser(user);
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setError("Enter your email address.");
-      return;
-    }
 
     const passwordError = validatePassword(password);
     if (passwordError) {
@@ -79,6 +117,36 @@ export default function ResetPasswordForm() {
     setSubmitting(true);
 
     try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: sessionData } = await supabase.auth.getUser();
+
+      if (sessionData.user) {
+        const { error: updateError } = await supabase.auth.updateUser({
+          password,
+        });
+
+        if (updateError) {
+          setError(updateError.message);
+          return;
+        }
+
+        await fetch("/api/workers/ensure-profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passwordAccepted: true }),
+        }).catch(() => null);
+
+        const nextPath = await resolveAfterPassword(sessionData.user);
+        router.replace(nextPath);
+        return;
+      }
+
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail) {
+        setError("Enter your email address.");
+        return;
+      }
+
       const response = await fetch("/api/auth/update-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -95,7 +163,6 @@ export default function ResetPasswordForm() {
         return;
       }
 
-      const supabase = createSupabaseBrowserClient();
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
         password,
@@ -108,18 +175,25 @@ export default function ResetPasswordForm() {
         return;
       }
 
-      await bindAuthSessionForUser(data.user);
-
-      const redirectPath =
-        parseRedirectPath(payload) ?? (await resolvePostAuthPathForUser(data.user));
-
-      router.replace(redirectPath);
+      const nextPath = await resolveAfterPassword(
+        data.user,
+        parseRedirectPath(payload)
+      );
+      router.replace(nextPath);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to set password.");
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
@@ -132,43 +206,39 @@ export default function ResetPasswordForm() {
             <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
               SiteBolt
             </p>
-            <h1 className="text-xl font-bold text-slate-900">
-              {isInviteSetup ? "Set your password" : "Reset your password"}
-            </h1>
+            <h1 className="text-xl font-bold text-slate-900">Set New Password</h1>
           </div>
         </div>
 
-        {isInviteSetup ? (
-          <p className="mb-6 text-sm text-slate-600">
-            Create a password for your Site-Bolt account. You&apos;ll be signed in
-            automatically once your password is saved.
-          </p>
-        ) : null}
+        <p className="mb-6 text-sm text-slate-600">
+          Create a password for your Site-Bolt account. You&apos;ll be signed in
+          automatically once your password is saved.
+        </p>
 
         <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
-          <div className="space-y-1">
-            <label htmlFor="reset-email" className={labelClass}>
-              Email Address
-            </label>
-            <input
-              id="reset-email"
-              name="email"
-              type="email"
-              className={inputClass}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              inputMode="email"
-              spellCheck={false}
-              required
-              readOnly={isInviteSetup}
-              aria-readonly={isInviteSetup}
-            />
-          </div>
+          {!hasSession ? (
+            <div className="space-y-1">
+              <label htmlFor="reset-email" className={labelClass}>
+                Email Address
+              </label>
+              <input
+                id="reset-email"
+                name="email"
+                type="email"
+                className={inputClass}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                inputMode="email"
+                spellCheck={false}
+                required
+              />
+            </div>
+          ) : null}
 
           <div className="space-y-1">
             <label htmlFor="reset-password" className={labelClass}>
-              {isInviteSetup ? "Password" : "New Password"}
+              New Password
             </label>
             <input
               id="reset-password"
@@ -214,17 +284,15 @@ export default function ResetPasswordForm() {
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {isInviteSetup ? "Setting password…" : "Updating password…"}
+                Setting password…
               </>
-            ) : isInviteSetup ? (
-              "Set Password"
             ) : (
-              "Reset password"
+              "Set New Password"
             )}
           </button>
         </form>
 
-        {!isInviteSetup ? (
+        {!hasSession ? (
           <p className="mt-6 text-center text-sm text-slate-500">
             <Link href="/login" className="font-medium text-orange-600 hover:text-orange-700">
               Back to sign in

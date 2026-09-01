@@ -1,18 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
-import type { EmailOtpType, User } from "@supabase/supabase-js";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import {
-  PASSWORD_SETUP_PATH,
-  WORKER_INVITE_NEXT_PATH,
-  buildPasswordSetupPath,
-} from "@/lib/worker-invite-link";
-import {
-  isPasswordSetupPath,
-  resolvePostInvitePasswordPath,
-} from "@/lib/worker-invite-redirect";
-import { isSupabaseAdminConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { PASSWORD_SETUP_PATH } from "@/lib/worker-invite-link";
+import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
@@ -31,86 +22,32 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
-function resolveSafeNext(next: string | null, otpType: string | null): string {
-  if (next && next.startsWith("/")) {
-    return next;
-  }
+function isPasswordSetupFlow(type: string | null, next: string | null): boolean {
+  const otpType = (type ?? "").toLowerCase();
+  const nextValue = (next ?? "").toLowerCase();
 
-  if (otpType === "recovery" || otpType === "invite") {
+  return (
+    otpType === "recovery" ||
+    otpType === "invite" ||
+    nextValue.includes("/reset-password") ||
+    nextValue.includes("/set-password")
+  );
+}
+
+function resolveCallbackDestination(
+  type: string | null,
+  next: string | null,
+  hasAuthPayload: boolean
+): string {
+  if (isPasswordSetupFlow(type, next) || (hasAuthPayload && !next)) {
     return PASSWORD_SETUP_PATH;
   }
 
-  return WORKER_INVITE_NEXT_PATH;
-}
-
-async function readWorkerInviteState(user: User | null): Promise<{
-  onboardingCompleted: boolean;
-  workerId: string | null;
-}> {
-  if (!user || !isSupabaseAdminConfigured()) {
-    return { onboardingCompleted: false, workerId: null };
+  if (next?.startsWith("/") && !next.startsWith("//")) {
+    return next;
   }
 
-  try {
-    const admin = createSupabaseAdminClient();
-    const { data: byAuth } = await admin
-      .from("workers")
-      .select("id, onboarding_completed")
-      .eq("auth_user_id", user.id)
-      .maybeSingle();
-    if (byAuth?.id) {
-      return {
-        onboardingCompleted: byAuth.onboarding_completed === true,
-        workerId: byAuth.id as string,
-      };
-    }
-
-    const email = user.email?.trim();
-    if (email) {
-      const { data: byEmail } = await admin
-        .from("workers")
-        .select("id, onboarding_completed")
-        .ilike("email", email)
-        .maybeSingle();
-      if (byEmail?.id) {
-        return {
-          onboardingCompleted: byEmail.onboarding_completed === true,
-          workerId: byEmail.id as string,
-        };
-      }
-    }
-  } catch (error) {
-    console.warn("[auth/callback] onboarding_completed lookup failed:", error);
-  }
-
-  return { onboardingCompleted: false, workerId: null };
-}
-
-async function resolveCallbackDestination(
-  nextPath: string,
-  user: User | null,
-  otpType: string | null
-): Promise<string> {
-  const pathOnly = nextPath.split("?")[0] || nextPath;
-
-  if (
-    isPasswordSetupPath(pathOnly) ||
-    otpType === "invite" ||
-    otpType === "recovery"
-  ) {
-    const setupPath = isPasswordSetupPath(pathOnly) ? pathOnly : PASSWORD_SETUP_PATH;
-    if (setupPath === PASSWORD_SETUP_PATH) {
-      return buildPasswordSetupPath(user?.email ?? null);
-    }
-    return nextPath.startsWith("/") ? nextPath : PASSWORD_SETUP_PATH;
-  }
-
-  const { onboardingCompleted, workerId } = await readWorkerInviteState(user);
-  return resolvePostInvitePasswordPath({
-    onboardingCompleted,
-    workerId,
-    role: "general_worker",
-  });
+  return PASSWORD_SETUP_PATH;
 }
 
 function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {
@@ -148,11 +85,10 @@ function redirectWithSession(
 
 function redirectWithError(
   origin: string,
-  nextPath: string,
   message: string,
   sessionResponse: NextResponse
 ): NextResponse {
-  const redirectUrl = new URL(nextPath, origin);
+  const redirectUrl = new URL(PASSWORD_SETUP_PATH, origin);
   redirectUrl.searchParams.set("error", message);
   const errorResponse = NextResponse.redirect(redirectUrl);
   copyCookies(sessionResponse, errorResponse);
@@ -164,8 +100,13 @@ export async function GET(request: Request) {
   const code = requestUrl.searchParams.get("code");
   const tokenHash = requestUrl.searchParams.get("token_hash");
   const otpTypeParam = requestUrl.searchParams.get("type");
-  const safeNext = resolveSafeNext(requestUrl.searchParams.get("next"), otpTypeParam);
+  const nextParam = requestUrl.searchParams.get("next");
   const origin = requestUrl.origin;
+  const destination = resolveCallbackDestination(
+    otpTypeParam,
+    nextParam,
+    Boolean(code || tokenHash)
+  );
 
   const cookieStore = await cookies();
   const { supabase, getSessionResponse } = createSupabaseWithCookieBridge(cookieStore);
@@ -177,7 +118,7 @@ export async function GET(request: Request) {
     });
 
     if (error) {
-      return redirectWithError(origin, safeNext, error.message, getSessionResponse());
+      return redirectWithError(origin, error.message, getSessionResponse());
     }
 
     const {
@@ -187,13 +128,11 @@ export async function GET(request: Request) {
     if (!user) {
       return redirectWithError(
         origin,
-        safeNext,
-        "Unable to establish password reset session.",
+        "Unable to establish password setup session.",
         getSessionResponse()
       );
     }
 
-    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
     return redirectWithSession(origin, destination, getSessionResponse());
   }
 
@@ -201,7 +140,7 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
-      return redirectWithError(origin, safeNext, error.message, getSessionResponse());
+      return redirectWithError(origin, error.message, getSessionResponse());
     }
 
     const {
@@ -211,16 +150,12 @@ export async function GET(request: Request) {
     if (!user) {
       return redirectWithError(
         origin,
-        safeNext,
-        "Unable to establish password reset session.",
+        "Unable to establish password setup session.",
         getSessionResponse()
       );
     }
 
-    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
-    const redirectResponse = NextResponse.redirect(new URL(destination, request.url));
-    copyCookies(getSessionResponse(), redirectResponse);
-    return redirectResponse;
+    return redirectWithSession(origin, destination, getSessionResponse());
   }
 
   const {
@@ -228,13 +163,11 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (user) {
-    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
     return redirectWithSession(origin, destination, getSessionResponse());
   }
 
   return redirectWithError(
     origin,
-    safeNext,
     "Auth link is invalid or has expired.",
     getSessionResponse()
   );

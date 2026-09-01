@@ -39,8 +39,11 @@ export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
 
 /** Supabase generateLink redirectTo: /auth/callback?next=/reset-password */
 export function getAuthPasswordSetupRedirectTo(origin?: string | null): string {
-  const base = resolveInviteSiteOrigin(origin) || FALLBACK_APP_URL;
-  return `${stripTrailingSlash(base)}${AUTH_CALLBACK_PATH}?next=${PASSWORD_SETUP_PATH}`;
+  const envApp = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  const base =
+    resolveInviteSiteOrigin(origin || envApp) ||
+    FALLBACK_APP_URL;
+  return `${stripTrailingSlash(base)}/auth/callback?next=/reset-password`;
 }
 
 export function isValidGeneratedAuthLink(link: string | null | undefined): boolean {

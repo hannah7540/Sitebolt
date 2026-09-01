@@ -41,5 +41,5 @@ export function isPasswordRecoverySession(
     return false;
   }
 
-  return latestMethod === "recovery";
+  return latestMethod === "recovery" || latestMethod === "invite";
 }
