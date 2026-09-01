@@ -8,10 +8,9 @@ import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import SiteFooter from "@/components/layout/SiteFooter";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
-import { bindAuthSessionForUser } from "@/lib/auth-profile";
+import { bindAuthSessionForUser, resolvePostAuthPathForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { resolvePostLoginPath } from "@/lib/native-app";
-import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
@@ -96,7 +95,7 @@ function LoginPageContent() {
 
       const targetPath = resolvePostLoginPath(bound.role, bound.workerId, {
         returnPath,
-        defaultPath: resolveDefaultLandingPathForRole(bound.role, bound.workerId),
+        defaultPath: await resolvePostAuthPathForUser(data.user),
       });
 
       redirectAfterLogin(targetPath);
@@ -129,10 +128,7 @@ function LoginPageContent() {
           redirectAfterLogin(
             resolvePostLoginPath(bound.role, bound.workerId, {
               returnPath,
-              defaultPath: resolveDefaultLandingPathForRole(
-                bound.role,
-                bound.workerId
-              ),
+              defaultPath: await resolvePostAuthPathForUser(user),
             })
           );
         } else {

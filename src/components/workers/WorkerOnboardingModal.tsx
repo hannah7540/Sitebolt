@@ -287,6 +287,8 @@ export default function WorkerOnboardingModal({
           : null,
         status: "pending_induction",
         security_role: DEFAULT_WORKER_SECURITY_ROLE,
+        onboarding_completed: false,
+        invite_status: "pending",
       };
 
       if (mode === "full") {
@@ -310,6 +312,9 @@ export default function WorkerOnboardingModal({
           drivers_licence_photo_url,
         });
       }
+
+      payload.onboarding_completed = mode === "full";
+      payload.invite_status = "pending";
 
       const vocExpiries =
         mode === "full"
@@ -357,9 +362,7 @@ export default function WorkerOnboardingModal({
 
       try {
         await sendWorkerInviteEmail(workerEmail, workerId ?? undefined);
-        showSuccess(
-          "Invite sent! Worker will receive an email to set their password."
-        );
+        showSuccess(`Invitation email sent successfully to ${workerEmail}`);
         window.setTimeout(onClose, 1500);
       } catch (inviteError) {
         const message =

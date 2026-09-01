@@ -424,7 +424,9 @@ export default function WorkerDirectoryPanel({
         throw new Error(data.error ?? "Failed to send worker invite.");
       }
 
-      showSuccess(data.message ?? "Invite sent successfully");
+      showSuccess(
+        data.message ?? `Invitation email sent successfully to ${email}`
+      );
     } catch (error) {
       console.error("Failed to resend worker invite:", error);
       showError(

@@ -9,9 +9,9 @@ import {
   bindAuthSessionForUser,
   resolvePostAuthPathForUser,
 } from "@/lib/auth-profile";
-import { isGeneralWorkerRole, resolveDefaultLandingPathForRole } from "@/lib/user-session";
 import { resolvePostLoginPath } from "@/lib/native-app";
-import { WORKER_ONBOARDING_PATH } from "@/lib/worker-onboarding";
+import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
+import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import {
   passwordRequirementsLabel,
   validatePassword,
@@ -264,14 +264,16 @@ export default function AuthSetPasswordForm({
       if (!nextPath && user) {
         if (ensureWorkerProfileOnSuccess) {
           const bound = await bindAuthSessionForUser(user);
-          nextPath = isGeneralWorkerRole(bound.role)
-            ? WORKER_ONBOARDING_PATH
-            : resolvePostLoginPath(bound.role, bound.workerId, {
-                defaultPath: resolveDefaultLandingPathForRole(
-                  bound.role,
-                  bound.workerId
-                ),
-              });
+          const onboardingCompleted = bound.workerId
+            ? await fetchWorkerOnboardingCompleted(bound.workerId)
+            : false;
+          nextPath = resolvePostLoginPath(bound.role, bound.workerId, {
+            defaultPath: resolvePostInvitePasswordPath({
+              onboardingCompleted,
+              workerId: bound.workerId,
+              role: bound.role,
+            }),
+          });
         } else {
           nextPath = await resolvePostAuthPathForUser(user);
         }

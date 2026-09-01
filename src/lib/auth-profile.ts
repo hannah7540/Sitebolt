@@ -10,7 +10,14 @@ import {
   canAccessAdminConsole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
-import { setAdminWorkerId, setStoredWorkerId, resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import {
+  isGeneralWorkerRole,
+  setAdminWorkerId,
+  setStoredWorkerId,
+  resolveDefaultLandingPathForRole,
+} from "@/lib/user-session";
+import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
+import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import {
   WORKER_REVOKED_LOGIN_MESSAGE,
   fetchWorkerAccessRevokedForAuthUser,
@@ -174,6 +181,14 @@ export async function bindAuthSessionForUser(user: User): Promise<{
 
 export async function resolvePostAuthPathForUser(user: User): Promise<string> {
   const bound = await bindAuthSessionForUser(user);
+  if (bound.ok && bound.workerId && isGeneralWorkerRole(bound.role)) {
+    const completed = await fetchWorkerOnboardingCompleted(bound.workerId);
+    return resolvePostInvitePasswordPath({
+      onboardingCompleted: completed,
+      workerId: bound.workerId,
+      role: bound.role,
+    });
+  }
   return resolveDefaultLandingPathForRole(bound.role, bound.workerId);
 }
 

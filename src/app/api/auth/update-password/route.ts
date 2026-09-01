@@ -12,7 +12,7 @@ import { validatePassword } from "@/lib/password-validation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
-import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
 
 async function findAuthUserByEmail(email: string): Promise<User | null> {
@@ -75,22 +75,46 @@ async function resolveOrCreateAuthUser(
   return { user: data.user, error: null };
 }
 
+async function readOnboardingCompleted(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  workerId: string
+): Promise<boolean> {
+  const { data } = await admin
+    .from("workers")
+    .select("onboarding_completed")
+    .eq("id", workerId)
+    .maybeSingle();
+
+  return data?.onboarding_completed === true;
+}
+
 function resolvePostPasswordRedirectPath(
   workerId: string | null,
-  securityRole: string | null
+  securityRole: string | null,
+  onboardingCompleted: boolean
 ): string {
-  return resolveDefaultLandingPathForRole(securityRole, workerId);
+  return resolvePostInvitePasswordPath({
+    onboardingCompleted,
+    workerId,
+    role: securityRole,
+  });
 }
 
 async function activateWorkerAfterPasswordSetup(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   user: User
-): Promise<{ workerId: string | null; securityRole: string | null; error: string | null }> {
+): Promise<{
+  workerId: string | null;
+  securityRole: string | null;
+  onboardingCompleted: boolean;
+  error: string | null;
+}> {
   const ensured = await ensureWorkerProfileForAuthUser(admin, user);
   if (ensured.error || !ensured.workerId) {
     return {
       workerId: ensured.workerId,
       securityRole: DEFAULT_WORKER_SECURITY_ROLE,
+      onboardingCompleted: false,
       error: ensured.error ?? "Worker profile not found.",
     };
   }
@@ -112,20 +136,22 @@ async function activateWorkerAfterPasswordSetup(
   });
 
   const activation = await markWorkerAccountActivated(admin, ensured.workerId, {
-    completeOnboarding: true,
+    completeOnboarding: false,
+    acceptInvite: true,
   });
 
   if (activation.error) {
     return {
       workerId: ensured.workerId,
       securityRole: DEFAULT_WORKER_SECURITY_ROLE,
+      onboardingCompleted: false,
       error: activation.error,
     };
   }
 
   const { data: workerMeta } = await admin
     .from("workers")
-    .select("security_role")
+    .select("security_role, onboarding_completed")
     .eq("id", ensured.workerId)
     .maybeSingle();
 
@@ -135,6 +161,7 @@ async function activateWorkerAfterPasswordSetup(
       typeof workerMeta?.security_role === "string"
         ? workerMeta.security_role
         : DEFAULT_WORKER_SECURITY_ROLE,
+    onboardingCompleted: workerMeta?.onboarding_completed === true,
     error: null,
   };
 }
@@ -181,9 +208,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: activation.error }, { status: 400 });
     }
 
+    const onboardingCompleted =
+      activation.onboardingCompleted ||
+      (activation.workerId
+        ? await readOnboardingCompleted(admin, activation.workerId)
+        : false);
+
     const redirectPath = resolvePostPasswordRedirectPath(
       activation.workerId,
-      activation.securityRole
+      activation.securityRole,
+      onboardingCompleted
     );
 
     return NextResponse.json({

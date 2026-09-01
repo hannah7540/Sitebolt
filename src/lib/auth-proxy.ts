@@ -30,6 +30,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/accept-invite",
   "/update-password",
   "/reset-password",
+  "/set-password",
   "/portal/",
   "/swms/sign/",
   "/scan/",
@@ -83,6 +84,7 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/accept-invite") ||
     pathname.startsWith("/update-password") ||
     pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/set-password") ||
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/portal/")
   );
@@ -336,6 +338,8 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     !pathname.startsWith("/auth/") &&
     !pathname.startsWith("/update-password") &&
     !pathname.startsWith("/reset-password") &&
+    !pathname.startsWith("/set-password") &&
+    !pathname.startsWith("/accept-invite") &&
     !pathname.startsWith("/account/update-password")
   ) {
     return redirectWithCookies(
@@ -392,10 +396,28 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   }
 
   if (context.user && context.role === "general_worker") {
-    if (!isGeneralWorkerAllowedPath(pathname)) {
+    if (
+      !context.onboardingCompleted &&
+      (pathname === GENERAL_WORKER_HOME_PATH ||
+        pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`))
+    ) {
+      return redirectWithCookies(request, "/onboarding", sessionResponse);
+    }
+
+    if (context.onboardingCompleted && pathname.startsWith("/onboarding")) {
       return redirectWithCookies(
         request,
         resolveGeneralWorkerHomePath(context),
+        sessionResponse
+      );
+    }
+
+    if (!isGeneralWorkerAllowedPath(pathname)) {
+      return redirectWithCookies(
+        request,
+        context.onboardingCompleted
+          ? resolveGeneralWorkerHomePath(context)
+          : "/onboarding",
         sessionResponse
       );
     }

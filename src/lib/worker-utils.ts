@@ -209,6 +209,7 @@ export function canResendWorkerInvite(
   worker: {
     email?: string | null;
     status?: string | null;
+    invite_status?: string | null;
     is_revoked?: boolean;
     is_archived?: boolean;
     induction_completed_at?: string | null;
@@ -224,10 +225,12 @@ export function canResendWorkerInvite(
   if (!worker.email?.trim()) return false;
   if (lastSignInAt) return false;
 
-  const status = (worker.status ?? "active").toLowerCase();
-  if (status === "active") return false;
+  const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
+  if (inviteStatus === "accepted") return false;
+  if (PENDING_INVITE_STATUSES.has(inviteStatus)) return true;
 
-  return PENDING_INVITE_STATUSES.has(status);
+  const status = (worker.status ?? "").toLowerCase();
+  return PENDING_INVITE_STATUSES.has(status) || status === "pending_induction";
 }
 
 export const WORKER_DATE_FIELD_KEYS = [

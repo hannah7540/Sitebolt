@@ -57,17 +57,47 @@ export function workerAuthIsActivated(user: User): boolean {
   return Boolean(user.last_sign_in_at || user.email_confirmed_at);
 }
 
+async function applyWorkerInvitePatch(
+  admin: SupabaseClient,
+  workerId: string,
+  payload: Record<string, unknown>
+): Promise<{ error: string | null }> {
+  let { error } = await admin.from("workers").update(payload).eq("id", workerId);
+
+  if (error && isMissingColumnError(error.message, "invite_status")) {
+    const withoutInvite = { ...payload };
+    delete withoutInvite.invite_status;
+    ({ error } = await admin.from("workers").update(withoutInvite).eq("id", workerId));
+  }
+
+  if (error && isMissingColumnError(error.message, "onboarding_completed")) {
+    const withoutOnboarding = { ...payload };
+    delete withoutOnboarding.onboarding_completed;
+    ({ error } = await admin.from("workers").update(withoutOnboarding).eq("id", workerId));
+  }
+
+  return { error: error?.message ?? null };
+}
+
 /** Flip worker status to active after invite acceptance or auth sign-in. */
 export async function markWorkerAccountActivated(
   admin: SupabaseClient,
   workerId: string,
-  options: { completeOnboarding?: boolean } = {}
+  options: { completeOnboarding?: boolean; acceptInvite?: boolean } = {}
 ): Promise<{ error: string | null }> {
-  const { data: existing } = await admin
+  let { data: existing, error: existingError } = await admin
     .from("workers")
-    .select("status, onboarding_completed")
+    .select("status, onboarding_completed, invite_status")
     .eq("id", workerId)
     .maybeSingle();
+
+  if (existingError && isMissingColumnError(existingError.message, "invite_status")) {
+    ({ data: existing } = await admin
+      .from("workers")
+      .select("status, onboarding_completed")
+      .eq("id", workerId)
+      .maybeSingle());
+  }
 
   const currentStatus = String(existing?.status ?? "").toLowerCase();
   const alreadyActive =
@@ -75,11 +105,22 @@ export async function markWorkerAccountActivated(
     (!options.completeOnboarding || existing?.onboarding_completed === true);
 
   if (alreadyActive) {
+    if (options.acceptInvite || options.completeOnboarding) {
+      const patch: Record<string, unknown> = {
+        invite_status: "accepted",
+        updated_at: new Date().toISOString(),
+      };
+      if (options.completeOnboarding) {
+        patch.onboarding_completed = true;
+      }
+      return applyWorkerInvitePatch(admin, workerId, patch);
+    }
     return { error: null };
   }
 
   if (
     !options.completeOnboarding &&
+    !options.acceptInvite &&
     !PENDING_INVITE_STATUSES.has(currentStatus) &&
     currentStatus !== "pending_induction" &&
     currentStatus !== ""
@@ -94,21 +135,12 @@ export async function markWorkerAccountActivated(
 
   if (options.completeOnboarding) {
     payload.onboarding_completed = true;
+    payload.invite_status = "accepted";
+  } else if (options.acceptInvite) {
+    payload.invite_status = "accepted";
   }
 
-  let { error } = await admin.from("workers").update(payload).eq("id", workerId);
-
-  if (
-    error &&
-    options.completeOnboarding &&
-    isMissingColumnError(error.message, "onboarding_completed")
-  ) {
-    const fallbackPayload = { ...payload };
-    delete fallbackPayload.onboarding_completed;
-    ({ error } = await admin.from("workers").update(fallbackPayload).eq("id", workerId));
-  }
-
-  return { error: error?.message ?? null };
+  return applyWorkerInvitePatch(admin, workerId, payload);
 }
 
 export async function syncWorkerStatusFromAuthUser(
@@ -176,10 +208,11 @@ async function insertWorkerRow(
 ): Promise<{ workerId: string | null; error: string | null }> {
   const attempts: Record<string, unknown>[] = [payload];
 
-  if ("onboarding_completed" in payload) {
-    const withoutOnboarding = { ...payload };
-    delete withoutOnboarding.onboarding_completed;
-    attempts.push(withoutOnboarding);
+  if ("onboarding_completed" in payload || "invite_status" in payload) {
+    const withoutOptional = { ...payload };
+    delete withoutOptional.onboarding_completed;
+    delete withoutOptional.invite_status;
+    attempts.push(withoutOptional);
   }
 
   for (const attempt of attempts) {
@@ -226,14 +259,23 @@ export async function ensureWorkerInviteRecord(
       .maybeSingle();
 
     if (existing?.id) {
-      await admin
+      const updatePayload: Record<string, unknown> = {
+        email,
+        auth_user_id: authUserId,
+        invite_status: "pending",
+        updated_at: new Date().toISOString(),
+      };
+      let { error: updateError } = await admin
         .from("workers")
-        .update({
-          email,
-          auth_user_id: authUserId,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", workerId);
+      if (updateError && isMissingColumnError(updateError.message, "invite_status")) {
+        delete updatePayload.invite_status;
+        ({ error: updateError } = await admin
+          .from("workers")
+          .update(updatePayload)
+          .eq("id", workerId));
+      }
 
       if (authUserId) {
         await upsertProfileRow(admin, {
@@ -251,15 +293,24 @@ export async function ensureWorkerInviteRecord(
   let workerId = await findWorkerIdByEmail(admin, email);
 
   if (workerId) {
-    await admin
+    const updatePayload: Record<string, unknown> = {
+      ...nameFields,
+      email,
+      auth_user_id: authUserId ?? undefined,
+      invite_status: "pending",
+      updated_at: new Date().toISOString(),
+    };
+    let { error: updateError } = await admin
       .from("workers")
-      .update({
-        ...nameFields,
-        email,
-        auth_user_id: authUserId ?? undefined,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", workerId);
+    if (updateError && isMissingColumnError(updateError.message, "invite_status")) {
+      delete updatePayload.invite_status;
+      ({ error: updateError } = await admin
+        .from("workers")
+        .update(updatePayload)
+        .eq("id", workerId));
+    }
 
     if (authUserId) {
       await upsertProfileRow(admin, {
@@ -280,6 +331,7 @@ export async function ensureWorkerInviteRecord(
     security_role: DEFAULT_WORKER_SECURITY_ROLE,
     status: "pending_induction",
     onboarding_completed: false,
+    invite_status: "pending",
   };
 
   const inserted = await insertWorkerRow(admin, insertPayload);

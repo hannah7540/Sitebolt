@@ -1,11 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
-import type { EmailOtpType } from "@supabase/supabase-js";
+import type { EmailOtpType, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { WORKER_INVITE_NEXT_PATH } from "@/lib/worker-invite-link";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
-
-const PASSWORD_RESET_PATH = "/reset-password";
+import {
+  PASSWORD_SETUP_PATH,
+  WORKER_INVITE_NEXT_PATH,
+  buildPasswordSetupPath,
+} from "@/lib/worker-invite-link";
+import {
+  isPasswordSetupPath,
+  resolvePostInvitePasswordPath,
+} from "@/lib/worker-invite-redirect";
+import { isSupabaseAdminConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +36,81 @@ function resolveSafeNext(next: string | null, otpType: string | null): string {
     return next;
   }
 
-  if (otpType === "recovery") {
-    return PASSWORD_RESET_PATH;
+  if (otpType === "recovery" || otpType === "invite") {
+    return PASSWORD_SETUP_PATH;
   }
 
   return WORKER_INVITE_NEXT_PATH;
+}
+
+async function readWorkerInviteState(user: User | null): Promise<{
+  onboardingCompleted: boolean;
+  workerId: string | null;
+}> {
+  if (!user || !isSupabaseAdminConfigured()) {
+    return { onboardingCompleted: false, workerId: null };
+  }
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data: byAuth } = await admin
+      .from("workers")
+      .select("id, onboarding_completed")
+      .eq("auth_user_id", user.id)
+      .maybeSingle();
+    if (byAuth?.id) {
+      return {
+        onboardingCompleted: byAuth.onboarding_completed === true,
+        workerId: byAuth.id as string,
+      };
+    }
+
+    const email = user.email?.trim();
+    if (email) {
+      const { data: byEmail } = await admin
+        .from("workers")
+        .select("id, onboarding_completed")
+        .ilike("email", email)
+        .maybeSingle();
+      if (byEmail?.id) {
+        return {
+          onboardingCompleted: byEmail.onboarding_completed === true,
+          workerId: byEmail.id as string,
+        };
+      }
+    }
+  } catch (error) {
+    console.warn("[auth/callback] onboarding_completed lookup failed:", error);
+  }
+
+  return { onboardingCompleted: false, workerId: null };
+}
+
+async function resolveCallbackDestination(
+  nextPath: string,
+  user: User | null,
+  otpType: string | null
+): Promise<string> {
+  const pathOnly = nextPath.split("?")[0] || nextPath;
+
+  if (
+    isPasswordSetupPath(pathOnly) ||
+    otpType === "invite" ||
+    otpType === "recovery"
+  ) {
+    const setupPath = isPasswordSetupPath(pathOnly) ? pathOnly : PASSWORD_SETUP_PATH;
+    if (setupPath === PASSWORD_SETUP_PATH) {
+      return buildPasswordSetupPath(user?.email ?? null);
+    }
+    return nextPath.startsWith("/") ? nextPath : PASSWORD_SETUP_PATH;
+  }
+
+  const { onboardingCompleted, workerId } = await readWorkerInviteState(user);
+  return resolvePostInvitePasswordPath({
+    onboardingCompleted,
+    workerId,
+    role: "general_worker",
+  });
 }
 
 function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {
@@ -116,7 +193,8 @@ export async function GET(request: Request) {
       );
     }
 
-    return redirectWithSession(origin, safeNext, getSessionResponse());
+    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
+    return redirectWithSession(origin, destination, getSessionResponse());
   }
 
   if (code) {
@@ -139,7 +217,8 @@ export async function GET(request: Request) {
       );
     }
 
-    const redirectResponse = NextResponse.redirect(new URL(safeNext, request.url));
+    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
+    const redirectResponse = NextResponse.redirect(new URL(destination, request.url));
     copyCookies(getSessionResponse(), redirectResponse);
     return redirectResponse;
   }
@@ -149,7 +228,8 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (user) {
-    return redirectWithSession(origin, safeNext, getSessionResponse());
+    const destination = await resolveCallbackDestination(safeNext, user, otpTypeParam);
+    return redirectWithSession(origin, destination, getSessionResponse());
   }
 
   return redirectWithError(

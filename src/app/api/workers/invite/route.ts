@@ -3,34 +3,11 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { ensureWorkerInviteRecord } from "@/lib/ensure-worker-profile";
-import {
-  appendTeamEmailFooter,
-  appendTeamEmailFooterText,
-} from "@/lib/email-team-footer";
-import {
-  AUTH_CALLBACK_PATH,
-  WORKER_INVITE_NEXT_PATH,
-  buildPasswordResetOtpPageUrl,
-  type WorkerInviteLinkType,
-} from "@/lib/worker-invite-link";
-
-const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-const INVITE_LINK_TYPES: WorkerInviteLinkType[] = ["invite", "recovery"];
+import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 
 export async function POST(req: Request) {
-  const apiKey =
-    process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Server error: RESEND_API_KEY is not loaded in Node runtime." },
-      { status: 500 }
-    );
-  }
-
   try {
     const body = await req.json();
     const email = typeof body?.email === "string" ? body.email.trim() : "";
@@ -63,87 +40,33 @@ export async function POST(req: Request) {
       );
     }
 
-    let inviteLink: string | null = null;
-    let lastLinkError: string | null = null;
-    let authUserId: string | null = null;
+    const sent = await sendWorkerInviteEmailViaResend(email);
 
-    for (const linkType of INVITE_LINK_TYPES) {
-      const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-        type: linkType,
-        email,
-        options: {
-          redirectTo: `${PRODUCTION_SITE_URL}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(WORKER_INVITE_NEXT_PATH)}`,
-        },
-      });
-
-      if (linkError) {
-        lastLinkError = linkError.message;
-        console.warn(`[/api/workers/invite] generateLink(${linkType}) failed:`, linkError.message);
-        continue;
-      }
-
-      authUserId = data?.user?.id ?? null;
-      if (authUserId) {
-        break;
-      }
-
-      lastLinkError = "generateLink did not return auth user";
-    }
-
-    if (!authUserId) {
+    if (!sent.success) {
       return NextResponse.json(
-        { error: lastLinkError || "Failed to create auth account" },
+        { error: sent.error ?? "Failed to send invitation email." },
         { status: 500 }
       );
     }
 
-    inviteLink = buildPasswordResetOtpPageUrl(email);
-
-    await ensureWorkerInviteRecord(supabaseAdmin, {
-      email,
-      workerId: preInviteWorker.workerId,
-      firstName: firstName || null,
-      lastName: lastName || null,
-      fullName: fullName || null,
-      authUserId,
-    });
-
-    const resend = new Resend(apiKey);
-    const inviteHtml = appendTeamEmailFooter(`
-        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site-Bolt</h1>
-          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            You've been added to Site-Bolt. Please click the link below to set your password and access your account.
-          </p>
-          <p style="margin: 0 0 32px;">
-            <a href="${inviteLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
-              Set Your Password
-            </a>
-          </p>
-          <p style="font-size: 14px; color: #64748b; margin: 0;">
-            If the button doesn't work, copy and paste this link into your browser:<br />
-            <a href="${inviteLink}" style="color: #ea580c; word-break: break-all;">${inviteLink}</a>
-          </p>
-        </div>
-      `.trim());
-    const inviteText = appendTeamEmailFooterText(
-      `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`
-    );
-
-    await resend.emails.send({
-      from: "Site Bolt <hannah@site-bolt.com.au>",
-      to: [email],
-      subject: "You have been added to Site-Bolt",
-      html: inviteHtml,
-      text: inviteText,
-    });
+    if (sent.authUserId) {
+      await ensureWorkerInviteRecord(supabaseAdmin, {
+        email,
+        workerId: preInviteWorker.workerId,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        fullName: fullName || null,
+        authUserId: sent.authUserId,
+      });
+    }
 
     return NextResponse.json(
       {
         success: true,
-        message: "Invite sent successfully",
+        inviteSent: true,
+        message: `Invitation email sent successfully to ${email}`,
         workerId: preInviteWorker.workerId,
-        authUserId,
+        authUserId: sent.authUserId ?? null,
       },
       { status: 200 }
     );

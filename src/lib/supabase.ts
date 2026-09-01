@@ -120,6 +120,7 @@ export interface Worker {
   induction_signature_url: string | null;
   induction_completed_at: string | null;
   onboarding_completed?: boolean;
+  invite_status?: string | null;
   security_role: SecurityRole;
   accounts_access_role: AccountsAccessRole;
   can_access_accounts: boolean;
@@ -195,6 +196,7 @@ const WORKER_SELECT_COLUMNS = [
   "induction_signature_url",
   "induction_completed_at",
   "onboarding_completed",
+  "invite_status",
   "security_role",
   "accounts_access_role",
   "can_access_accounts",
@@ -401,6 +403,9 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     status: row.status ?? "pending_induction",
     induction_signature_url: row.induction_signature_url ?? null,
     induction_completed_at: row.induction_completed_at ?? null,
+    onboarding_completed: row.onboarding_completed === true,
+    invite_status:
+      typeof row.invite_status === "string" ? row.invite_status : null,
     security_role: normalizeSecurityRole(row.security_role),
     accounts_access_role: normalizeAccountsAccessRole(row.accounts_access_role),
     can_access_accounts:
@@ -1564,13 +1569,28 @@ export async function addWorker(
     security_role: worker.security_role ?? DEFAULT_WORKER_SECURITY_ROLE,
     assigned_project_id: resolvedProjectId,
     status,
+    onboarding_completed: worker.onboarding_completed ?? false,
+    invite_status: worker.invite_status ?? "pending",
   });
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("workers")
     .insert([insertPayload])
     .select("id")
     .single();
+
+  if (error && /invite_status|onboarding_completed/i.test(error.message)) {
+    const fallbackPayload = { ...insertPayload };
+    delete fallbackPayload.invite_status;
+    if (/onboarding_completed/i.test(error.message)) {
+      delete fallbackPayload.onboarding_completed;
+    }
+    ({ data, error } = await supabase
+      .from("workers")
+      .insert([fallbackPayload])
+      .select("id")
+      .single());
+  }
 
   if (error) {
     return { error: error.message ?? null, workerId: null };
@@ -1966,6 +1986,7 @@ export async function updateWorker(
     worker_code?: string | null;
     employment_type?: string | null;
     onboarding_completed?: boolean;
+    invite_status?: string | null;
   }
 ): Promise<{ error: string | null }> {
   let payload = { ...updates };
