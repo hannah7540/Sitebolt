@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   ensureWorkerInviteRecord,
   markWorkerInviteSent,
@@ -16,20 +16,17 @@ import {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     const workerId = typeof body?.workerId === "string" ? body.workerId.trim() : "";
     const firstName = typeof body?.firstName === "string" ? body.firstName.trim() : "";
     const lastName = typeof body?.lastName === "string" ? body.lastName.trim() : "";
     const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
 
-    if (!email) {
+    if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabaseAdmin = createSupabaseAdminClient();
 
     const preInviteWorker = await ensureWorkerInviteRecord(supabaseAdmin, {
       email,
@@ -85,6 +82,7 @@ export async function POST(req: Request) {
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
+    console.error("[/api/workers/invite]", err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

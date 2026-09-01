@@ -3,12 +3,24 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 export { supabaseAnonKey, supabaseUrl };
 
+function stripEnvValue(value: string | undefined | null): string {
+  return (value ?? "").replace(/\r/g, "").trim().replace(/^['"]|['"]$/g, "");
+}
+
 export function readSupabaseUrl(): string {
-  return process.env.NEXT_PUBLIC_SUPABASE_URL ?? supabaseUrl;
+  return (
+    stripEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL) ||
+    stripEnvValue(process.env.SUPABASE_URL) ||
+    supabaseUrl
+  );
 }
 
 export function readSupabaseAnonKey(): string {
-  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? supabaseAnonKey;
+  return (
+    stripEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
+    stripEnvValue(process.env.SUPABASE_ANON_KEY) ||
+    supabaseAnonKey
+  );
 }
 
 export function isSupabaseConfigured(): boolean {
@@ -23,9 +35,12 @@ export function isSupabaseConfigured(): boolean {
 }
 
 export function getServiceRoleKey(): string {
-  return (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "")
-    .replace(/\r/g, "")
-    .trim();
+  return (
+    stripEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+    stripEnvValue(process.env.SUPABASE_SERVICE_KEY) ||
+    stripEnvValue(process.env.SUPABASE_SECRET_KEY) ||
+    stripEnvValue(process.env.SERVICE_ROLE_KEY)
+  );
 }
 
 export function isSupabaseAdminConfigured(): boolean {
@@ -35,8 +50,8 @@ export function isSupabaseAdminConfigured(): boolean {
 /** Public site origin for Supabase auth redirect URLs. */
 export function getSiteUrl(): string {
   const configured =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim();
+    stripEnvValue(process.env.NEXT_PUBLIC_SITE_URL) ||
+    stripEnvValue(process.env.NEXT_PUBLIC_APP_URL);
   if (configured) return configured.replace(/\/$/, "");
 
   const vercel = process.env.VERCEL_URL?.trim();

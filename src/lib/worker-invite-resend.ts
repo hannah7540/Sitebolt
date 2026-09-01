@@ -9,7 +9,6 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  buildDirectPasswordSetupLink,
   isValidGeneratedAuthLink,
   resolveInviteSiteOrigin,
 } from "@/lib/worker-invite-link";
@@ -110,12 +109,6 @@ async function generateAuthLink(
   }
 }
 
-function resolveGeneratedActionLink(
-  data: GenerateLinkCallResult["data"]
-): string | null {
-  return buildDirectPasswordSetupLink(data?.properties ?? null);
-}
-
 export async function findAuthUserByEmail(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   email: string
@@ -147,13 +140,25 @@ export async function findAuthUserByEmail(
 export async function generateWorkerInviteSetupLink(
   email: string,
   _origin = getInviteOrigin(),
-  options?: { userAlreadyExists?: boolean }
+  _options?: { userAlreadyExists?: boolean }
 ): Promise<{
   inviteLink: string | null;
   authUserId: string | null;
   error: string | null;
 }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+    return {
+      inviteLink: null,
+      authUserId: null,
+      error: "email is required.",
+    };
+  }
+
   if (!isSupabaseAdminConfigured()) {
+    console.error(
+      "[Supabase Admin Init Error]: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables."
+    );
     return {
       inviteLink: null,
       authUserId: null,
@@ -162,69 +167,110 @@ export async function generateWorkerInviteSetupLink(
   }
 
   const admin = createSupabaseAdminClient();
-  const targetRedirect = "https://site-bolt.com.au/setyourpassword";
-  const workerEmail = email.trim();
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://www.site-bolt.com.au"
+  ).replace(/\/$/, "");
+  const targetUrl = `${appUrl}/setyourpassword`;
 
-  if (options?.userAlreadyExists !== true) {
-    const existingUser =
-      options?.userAlreadyExists === false
-        ? null
-        : await findAuthUserByEmail(admin, workerEmail);
-    if (!existingUser) {
-      const created = await admin.auth.admin.createUser({
-        email: workerEmail,
+  let actionLink: string | null = null;
+  let tokenHash: string | null = null;
+  let authUserId: string | null = null;
+
+  const recoveryRes = await generateAuthLink(
+    admin,
+    "recovery",
+    normalizedEmail,
+    targetUrl
+  );
+
+  if (recoveryRes.data?.properties) {
+    actionLink = recoveryRes.data.properties.action_link || null;
+    tokenHash =
+      recoveryRes.data.properties.hashed_token ||
+      recoveryRes.data.properties.token_hash ||
+      null;
+    authUserId = recoveryRes.data.user?.id ?? null;
+  }
+
+  if (!actionLink && !tokenHash) {
+    const inviteRes = await generateAuthLink(
+      admin,
+      "invite",
+      normalizedEmail,
+      targetUrl
+    );
+
+    if (inviteRes.data?.properties) {
+      actionLink = inviteRes.data.properties.action_link || null;
+      tokenHash =
+        inviteRes.data.properties.hashed_token ||
+        inviteRes.data.properties.token_hash ||
+        null;
+      authUserId = inviteRes.data.user?.id ?? authUserId;
+    }
+
+    if (!actionLink && !tokenHash) {
+      const { data: created, error: createError } = await admin.auth.admin.createUser({
+        email: normalizedEmail,
         email_confirm: true,
       });
-      if (created.error && !isExistingAuthUserError(created.error)) {
-        await generateAuthLink(admin, "invite", workerEmail, targetRedirect);
+
+      if (!createError || isExistingAuthUserError(createError)) {
+        const retryRes = await generateAuthLink(
+          admin,
+          "recovery",
+          normalizedEmail,
+          targetUrl
+        );
+        actionLink = retryRes.data?.properties?.action_link || null;
+        tokenHash =
+          retryRes.data?.properties?.hashed_token ||
+          retryRes.data?.properties?.token_hash ||
+          null;
+        authUserId = retryRes.data?.user?.id ?? created.user?.id ?? authUserId;
+      }
+
+      if (!actionLink && !tokenHash) {
+        console.error("[Auth Admin Failure]:", {
+          recoveryError: recoveryRes.error,
+          inviteError: inviteRes.error,
+          createError,
+        });
+        return {
+          inviteLink: null,
+          authUserId,
+          error: `Failed to generate auth link: ${
+            recoveryRes.error?.message ||
+            inviteRes.error?.message ||
+            createError?.message ||
+            "missing hashed_token and action_link"
+          }`,
+        };
       }
     }
   }
 
-  let { data, error } = await generateAuthLink(
-    admin,
-    "recovery",
-    workerEmail,
-    targetRedirect
-  );
+  const finalLink = tokenHash
+    ? `${appUrl}/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`
+    : actionLink;
 
-  if (error || !resolveGeneratedActionLink(data)) {
-    const inviteRes = await generateAuthLink(
-      admin,
-      "invite",
-      workerEmail,
-      targetRedirect
-    );
-    if (!inviteRes.error && resolveGeneratedActionLink(inviteRes.data)) {
-      data = inviteRes.data;
-      error = null;
-    }
-  }
-
-  if (error) {
-    console.error("[Generate Link Error]:", error);
+  if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
+    console.error("[Generate Link Error]:", "Unable to build a valid password setup URL", {
+      hasTokenHash: Boolean(tokenHash),
+      hasActionLink: Boolean(actionLink),
+    });
     return {
       inviteLink: null,
-      authUserId: data?.user?.id ?? null,
-      error: error.message,
+      authUserId,
+      error: "Unable to generate a valid SiteBolt auth link.",
     };
   }
 
-  const actionLink = resolveGeneratedActionLink(data);
-  if (!actionLink) {
-    console.error("[Generate Link Error]:", "Missing hashed_token and action_link");
-    return {
-      inviteLink: null,
-      authUserId: data?.user?.id ?? null,
-      error: "Unable to generate a secure password setup link.",
-    };
-  }
-
-  console.log("[Generated Action Link]:", actionLink);
-  console.log("[Password setup redirectTo]:", targetRedirect);
+  console.log("[Generated Action Link]:", finalLink);
+  console.log("[Password setup redirectTo]:", targetUrl);
   return {
-    inviteLink: actionLink,
-    authUserId: data?.user?.id ?? null,
+    inviteLink: finalLink,
+    authUserId,
     error: null,
   };
 }
@@ -241,7 +287,7 @@ export async function sendWorkerInviteEmailViaResend(
   email: string,
   options?: { userAlreadyExists?: boolean }
 ): Promise<WorkerInviteEmailResult> {
-  const trimmedEmail = email.trim();
+  const trimmedEmail = email.trim().toLowerCase();
   if (!trimmedEmail) {
     return {
       success: false,
@@ -265,10 +311,10 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const { inviteLink, authUserId, error: linkError } =
+  const { inviteLink: finalLink, authUserId, error: linkError } =
     await generateWorkerInviteSetupLink(trimmedEmail, getInviteOrigin(), options);
 
-  if (!inviteLink || !isValidGeneratedAuthLink(inviteLink)) {
+  if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
     return {
       success: false,
       error: linkError ?? "Unable to generate a valid SiteBolt auth link.",
@@ -279,7 +325,7 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  console.log("[Generated Action Link]:", inviteLink);
+  console.log("[Generated Action Link]:", finalLink);
 
   const inviteHtml = appendTeamEmailFooter(`
 <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-collapse: collapse;">
@@ -291,7 +337,7 @@ export async function sendWorkerInviteEmailViaResend(
       <p style="font-size: 16px; line-height: 1.5; margin: 0; color: #334155; font-family: Arial, Helvetica, sans-serif;">
         You've been added to Site-Bolt. Please click the button below to set your password and access your account.
       </p>
-      ${buildEmailCtaButtonHtml(inviteLink, "Set your password")}
+      ${buildEmailCtaButtonHtml(finalLink, "Set your password")}
     </td>
   </tr>
 </table>
@@ -315,7 +361,7 @@ export async function sendWorkerInviteEmailViaResend(
       error: resendResult.error.message,
       message: null,
       messageId: null,
-      actionLink: inviteLink,
+      actionLink: finalLink,
       authUserId,
     };
   }
@@ -325,7 +371,7 @@ export async function sendWorkerInviteEmailViaResend(
     error: null,
     message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
     messageId: resendResult.data?.id ?? null,
-    actionLink: inviteLink,
+    actionLink: finalLink,
     authUserId,
   };
 }

@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const email = emailOverride || (typeof worker.email === "string" ? worker.email.trim() : "");
+    const email = (emailOverride || (typeof worker.email === "string" ? worker.email : "")).trim().toLowerCase();
     if (!email || !email.includes("@")) {
       return NextResponse.json(
         { error: "This worker does not have a valid email address." },
