@@ -1,4 +1,5 @@
 export const PUBLIC_AUTH_FLOW_PATHS = [
+  "/setyourpassword",
   "/reset-password",
   "/set-password",
   "/auth/callback",
@@ -20,6 +21,7 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
       (typeof window !== "undefined" ? window.location.pathname : "")) ||
     "";
   return (
+    path.startsWith("/setyourpassword") ||
     path.startsWith("/reset-password") ||
     path.startsWith("/set-password") ||
     path.startsWith("/onboarding") ||
@@ -55,6 +57,6 @@ export function hasAuthHashFragment(
 }
 
 export function resetPasswordLocationWithHash(): string {
-  if (typeof window === "undefined") return "/reset-password";
-  return `/reset-password${window.location.search}${window.location.hash}`;
+  if (typeof window === "undefined") return "/setyourpassword";
+  return `/setyourpassword${window.location.search}${window.location.hash}`;
 }

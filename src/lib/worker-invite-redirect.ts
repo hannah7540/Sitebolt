@@ -3,6 +3,7 @@ import { resolveDefaultLandingPathForRole } from "./user-session";
 export const WORKER_ONBOARDING_PATH = "/onboarding";
 
 const PASSWORD_SETUP_PATHS = new Set([
+  "/setyourpassword",
   "/reset-password",
   "/update-password",
   "/accept-invite",

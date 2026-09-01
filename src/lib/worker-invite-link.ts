@@ -1,10 +1,9 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
-const FALLBACK_APP_URL = "https://site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
-export const PASSWORD_RESET_OTP_PATH = "/reset-password";
+export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
 
 function stripTrailingSlash(value: string): string {
@@ -37,14 +36,17 @@ export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
   return PRODUCTION_SITE_URL;
 }
 
-/** Supabase generateLink redirectTo: /auth/callback?next=/reset-password */
-export function getAuthPasswordSetupRedirectTo(origin?: string | null): string {
-  const envApp = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  const base =
-    envApp && !isPlaceholderOrigin(envApp)
-      ? stripTrailingSlash(envApp)
-      : resolveInviteSiteOrigin(origin) || FALLBACK_APP_URL;
-  return `${stripTrailingSlash(base)}/auth/callback?next=/reset-password`;
+/** Hardcoded post-verify landing page. Never send invite/recovery links to /login or /admin. */
+export const PASSWORD_SETUP_REDIRECT_TO =
+  "https://site-bolt.com.au/setyourpassword";
+
+/** Supabase generateLink redirectTo — always the public password form. */
+export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured && !isPlaceholderOrigin(configured)) {
+    return `${stripTrailingSlash(configured)}/setyourpassword`;
+  }
+  return PASSWORD_SETUP_REDIRECT_TO;
 }
 
 export function isValidGeneratedAuthLink(link: string | null | undefined): boolean {

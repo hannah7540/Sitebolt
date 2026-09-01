@@ -33,7 +33,7 @@ export default function HashAuthCapture() {
     }
 
     if (!hasAuthHashFragment()) return;
-    if (path === "/reset-password" || path === "/set-password") return;
+    if (path === "/setyourpassword" || path === "/reset-password" || path === "/set-password") return;
 
     window.location.replace(resetPasswordLocationWithHash());
   }, [pathname]);

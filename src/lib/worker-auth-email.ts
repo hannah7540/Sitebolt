@@ -63,12 +63,9 @@ export async function sendExistingUserOnboardingEmail(
 ): Promise<{ authUserId: string | null; error: string | null }> {
   const trimmedEmail = email.trim();
   const linkAttempts: Array<{
-    type: "recovery" | "magiclink";
+    type: "recovery";
     redirectTo: string;
-  }> = [
-    { type: "recovery", redirectTo: getResetPasswordRedirectUrl() },
-    { type: "magiclink", redirectTo: getConfirmInviteRedirectUrl() },
-  ];
+  }> = [{ type: "recovery", redirectTo: getResetPasswordRedirectUrl() }];
 
   for (const attempt of linkAttempts) {
     const { data, error } = await admin.auth.admin.generateLink({

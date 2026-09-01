@@ -36,6 +36,7 @@ export function redirectToLogin(
   if (typeof window !== "undefined") {
     const pathname = window.location.pathname;
     if (
+      pathname.startsWith("/setyourpassword") ||
       pathname.startsWith("/reset-password") ||
       pathname.startsWith("/set-password") ||
       pathname.startsWith("/onboarding")

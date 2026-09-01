@@ -6,36 +6,35 @@ import { runAuthProxy } from "@/lib/auth-proxy";
  * @see https://nextjs.org/docs/app/getting-started/proxy
  */
 export async function proxy(request: NextRequest) {
-  const publicPaths = [
-    "/reset-password",
-    "/set-password",
-    "/auth/callback",
-    "/auth/confirm",
-    "/onboarding",
-    "/login",
-  ];
   const pathname = request.nextUrl.pathname;
+
+  if (
+    pathname.startsWith("/setyourpassword") ||
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/login")
+  ) {
+    return NextResponse.next();
+  }
+
+  if (
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/set-password") ||
+    pathname.startsWith("/auth")
+  ) {
+    return NextResponse.next();
+  }
+
   const hasAuthPayload =
     request.nextUrl.searchParams.has("code") ||
     request.nextUrl.searchParams.has("token_hash");
 
-  // Email invite/recovery codes can land on `/` or `/login`. Exchange them
-  // at /auth/callback before any public-path passthrough or login bounce.
-  if (
-    hasAuthPayload &&
-    !pathname.startsWith("/auth/callback") &&
-    !pathname.startsWith("/auth/confirm")
-  ) {
+  if (hasAuthPayload) {
     const dest = request.nextUrl.clone();
     dest.pathname = "/auth/callback";
     if (!dest.searchParams.get("next")) {
-      dest.searchParams.set("next", "/reset-password");
+      dest.searchParams.set("next", "/setyourpassword");
     }
     return NextResponse.redirect(dest);
-  }
-
-  if (publicPaths.some((path) => pathname.startsWith(path))) {
-    return NextResponse.next();
   }
 
   return runAuthProxy(request);

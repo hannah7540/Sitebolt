@@ -9,12 +9,9 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  PASSWORD_SETUP_PATH,
-  buildAuthCallbackUrl,
   getAuthPasswordSetupRedirectTo,
   isValidGeneratedAuthLink,
   resolveInviteSiteOrigin,
-  type AuthLinkType,
 } from "@/lib/worker-invite-link";
 
 type GenerateLinkType = "invite" | "recovery" | "magiclink";
@@ -113,27 +110,10 @@ async function generateAuthLink(
 }
 
 function resolveGeneratedActionLink(
-  data: GenerateLinkCallResult["data"],
-  type: GenerateLinkType,
-  origin: string
+  data: GenerateLinkCallResult["data"]
 ): string | null {
-  const actionLink = data?.properties?.action_link ?? null;
-  if (isValidGeneratedAuthLink(actionLink)) {
-    return actionLink;
-  }
-
-  const hashedToken = data?.properties?.hashed_token ?? null;
-  const verificationType = (data?.properties?.verification_type ??
-    type) as AuthLinkType;
-  if (!hashedToken) return null;
-
-  const callbackLink = buildAuthCallbackUrl(
-    hashedToken,
-    verificationType,
-    PASSWORD_SETUP_PATH,
-    origin
-  );
-  return isValidGeneratedAuthLink(callbackLink) ? callbackLink : null;
+  const actionLink = data?.properties?.action_link?.trim() ?? null;
+  return isValidGeneratedAuthLink(actionLink) ? actionLink : null;
 }
 
 export async function findAuthUserByEmail(
@@ -166,7 +146,7 @@ export async function findAuthUserByEmail(
 
 export async function generateWorkerInviteSetupLink(
   email: string,
-  origin = getInviteOrigin(),
+  _origin = getInviteOrigin(),
   options?: { userAlreadyExists?: boolean }
 ): Promise<{
   inviteLink: string | null;
@@ -182,84 +162,69 @@ export async function generateWorkerInviteSetupLink(
   }
 
   const admin = createSupabaseAdminClient();
-  const redirectTo = getAuthPasswordSetupRedirectTo(origin);
+  const targetRedirect = getAuthPasswordSetupRedirectTo();
   const workerEmail = email.trim();
-  const existingUser =
-    options?.userAlreadyExists === true
-      ? true
-      : options?.userAlreadyExists === false
-        ? false
-        : Boolean(await findAuthUserByEmail(admin, workerEmail));
 
-  let linkData: GenerateLinkCallResult["data"] = null;
-  let linkError: GenerateLinkCallResult["error"] = null;
-  let usedType: GenerateLinkType = "invite";
+  if (options?.userAlreadyExists !== true) {
+    const existingUser =
+      options?.userAlreadyExists === false
+        ? null
+        : await findAuthUserByEmail(admin, workerEmail);
+    if (!existingUser) {
+      const created = await admin.auth.admin.createUser({
+        email: workerEmail,
+        email_confirm: true,
+      });
+      if (created.error && !isExistingAuthUserError(created.error)) {
+        await generateAuthLink(admin, "invite", workerEmail, targetRedirect);
+      }
+    }
+  }
 
-  if (existingUser) {
-    usedType = "recovery";
-    const recoveryRes = await generateAuthLink(
-      admin,
-      "recovery",
-      workerEmail,
-      redirectTo
-    );
-    linkData = recoveryRes.data;
-    linkError = recoveryRes.error;
-  } else {
+  let { data, error } = await generateAuthLink(
+    admin,
+    "recovery",
+    workerEmail,
+    targetRedirect
+  );
+
+  if (error || !resolveGeneratedActionLink(data)) {
     const inviteRes = await generateAuthLink(
       admin,
       "invite",
       workerEmail,
-      redirectTo
+      targetRedirect
     );
-    const inviteLink = resolveGeneratedActionLink(
-      inviteRes.data,
-      "invite",
-      origin
-    );
-    const shouldUseRecovery =
-      Boolean(inviteRes.error && isExistingAuthUserError(inviteRes.error)) ||
-      (!inviteRes.error && !inviteLink);
-
-    if (shouldUseRecovery) {
-      usedType = "recovery";
-      const recoveryRes = await generateAuthLink(
-        admin,
-        "recovery",
-        workerEmail,
-        redirectTo
-      );
-      linkData = recoveryRes.data;
-      linkError = recoveryRes.error;
-    } else {
-      linkData = inviteRes.data;
-      linkError = inviteRes.error;
+    if (!inviteRes.error && resolveGeneratedActionLink(inviteRes.data)) {
+      data = inviteRes.data;
+      error = null;
     }
   }
 
-  if (linkError) {
-    console.error("[Generate Link Error]:", linkError);
+  if (error) {
+    console.error("[Generate Link Error]:", error);
     return {
       inviteLink: null,
-      authUserId: linkData?.user?.id ?? null,
-      error: linkError.message,
+      authUserId: data?.user?.id ?? null,
+      error: error.message,
     };
   }
 
-  const actionLink = resolveGeneratedActionLink(linkData, usedType, origin);
+  const actionLink = resolveGeneratedActionLink(data);
   if (!actionLink) {
     console.error("[Generate Link Error]:", "Missing action_link");
     return {
       inviteLink: null,
-      authUserId: linkData?.user?.id ?? null,
+      authUserId: data?.user?.id ?? null,
       error: "Unable to generate a secure password setup link.",
     };
   }
 
   console.log("[Generated Action Link]:", actionLink);
+  console.log("[Password setup redirectTo]:", targetRedirect);
   return {
     inviteLink: actionLink,
-    authUserId: linkData?.user?.id ?? null,
+    authUserId: data?.user?.id ?? null,
     error: null,
   };
 }

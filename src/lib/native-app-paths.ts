@@ -9,6 +9,7 @@ export const NATIVE_ALLOWED_PATH_PREFIXES = [
   "/auth/",
   "/accept-invite",
   "/update-password",
+  "/setyourpassword",
   "/reset-password",
   "/set-password",
   "/account/",

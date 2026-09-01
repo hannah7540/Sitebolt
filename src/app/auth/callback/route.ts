@@ -27,12 +27,13 @@ function resolvePasswordSetupPath(next: string | null): string {
     !next.startsWith("//") &&
     !next.startsWith("/login") &&
     !next.startsWith("/admin") &&
-    (next.includes("/reset-password") || next.includes("/set-password"))
+    (next.includes("/setyourpassword") ||
+      next.includes("/reset-password") ||
+      next.includes("/set-password"))
   ) {
-    return next.split("?")[0] || "/reset-password";
+    return next.split("?")[0] || "/setyourpassword";
   }
-  // Invite/recovery emails always land on the public password form.
-  return "/reset-password";
+  return "/setyourpassword";
 }
 
 export async function GET(request: Request) {

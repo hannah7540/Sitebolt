@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
+import { Suspense } from "react";
 import {
   passwordRequirementsLabel,
   validatePassword,
@@ -12,26 +13,23 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { hasAuthHashFragment } from "@/lib/public-auth-paths";
 
-export default function ResetPasswordForm() {
+function SetYourPasswordForm() {
   const searchParams = useSearchParams();
-  const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const errorParam = searchParams.get("error");
-    if (errorParam && !hasAuthHashFragment()) setError(errorParam);
+    if (errorParam && !hasAuthHashFragment()) setErrorMsg(errorParam);
 
-    let cancelled = false;
     const supabase = createSupabaseBrowserClient();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event: string, _session: Session | null) => {
-        // detectSessionInUrl + this listener persist hash/cookie tokens.
-        // Never redirect to /login or /admin from this page.
+        // Persist recovery/invite tokens from the URL hash or cookies.
       }
     );
 
@@ -51,7 +49,7 @@ export default function ResetPasswordForm() {
             access_token: accessToken,
             refresh_token: refreshToken,
           });
-          if (!cancelled && data.session?.user) {
+          if (data.session) {
             window.history.replaceState(
               null,
               "",
@@ -65,25 +63,21 @@ export default function ResetPasswordForm() {
     }
 
     void captureSessionFromUrl();
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [searchParams]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
+    setErrorMsg(null);
 
-    const passwordError = validatePassword(password);
+    const passwordError = validatePassword(newPassword);
     if (passwordError) {
-      setError(passwordError);
+      setErrorMsg(passwordError);
       return;
     }
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (newPassword !== confirmPassword) {
+      setErrorMsg("Passwords do not match.");
       return;
     }
 
@@ -91,31 +85,30 @@ export default function ResetPasswordForm() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data, error: updateError } = await supabase.auth.updateUser({
-        password,
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword,
       });
-
-      if (updateError) {
-        setError(updateError.message);
+      if (error) {
+        setErrorMsg(error.message);
         return;
       }
 
-      const userEmail = data.user?.email?.trim();
-      const { data: worker } = userEmail
-        ? await supabase
-            .from("workers")
-            .select("onboarding_completed")
-            .eq("email", userEmail)
-            .maybeSingle()
-        : { data: null };
+      const { data: worker } = await supabase
+        .from("workers")
+        .select("onboarding_completed")
+        .eq("email", data.user.email)
+        .maybeSingle();
 
-      if (worker && !worker.onboarding_completed) {
+      if (worker && worker.onboarding_completed === false) {
         window.location.href = "/onboarding";
       } else {
-        window.location.href = "/worker/dashboard";
+        window.location.href =
+          "/login?message=Password set successfully. Please log in.";
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to set password.");
+      setErrorMsg(
+        cause instanceof Error ? cause.message : "Failed to set password."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -132,27 +125,26 @@ export default function ResetPasswordForm() {
             <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
               SiteBolt
             </p>
-            <h1 className="text-xl font-bold text-slate-900">Set New Password</h1>
+            <h1 className="text-xl font-bold text-slate-900">Set Your Password</h1>
           </div>
         </div>
 
         <p className="mb-6 text-sm text-slate-600">
-          Create a password for your Site-Bolt account. You&apos;ll be signed in
-          automatically once your password is saved.
+          Create a password for your Site-Bolt account.
         </p>
 
         <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
           <div className="space-y-1">
-            <label htmlFor="reset-password" className={labelClass}>
+            <label htmlFor="setyourpassword-new" className={labelClass}>
               New Password
             </label>
             <input
-              id="reset-password"
+              id="setyourpassword-new"
               name="password"
               type="password"
               className={inputClass}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
               autoComplete="new-password"
               minLength={8}
               required
@@ -160,11 +152,11 @@ export default function ResetPasswordForm() {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="reset-confirm-password" className={labelClass}>
+            <label htmlFor="setyourpassword-confirm" className={labelClass}>
               Confirm Password
             </label>
             <input
-              id="reset-confirm-password"
+              id="setyourpassword-confirm"
               name="confirmPassword"
               type="password"
               className={inputClass}
@@ -178,8 +170,10 @@ export default function ResetPasswordForm() {
 
           <p className="text-xs text-slate-500">{passwordRequirementsLabel()}</p>
 
-          {typeof error === "string" && error ? (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
+          {errorMsg ? (
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+              {errorMsg}
+            </div>
           ) : null}
 
           <button
@@ -193,11 +187,27 @@ export default function ResetPasswordForm() {
                 Setting password…
               </>
             ) : (
-              "Set New Password"
+              "Set Your Password"
             )}
           </button>
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SetYourPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+            <h1 className="text-xl font-bold text-slate-900">Set Your Password</h1>
+          </div>
+        </div>
+      }
+    >
+      <SetYourPasswordForm />
+    </Suspense>
   );
 }

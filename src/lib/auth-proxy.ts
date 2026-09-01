@@ -34,6 +34,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/auth/confirm",
   "/accept-invite",
   "/update-password",
+  "/setyourpassword",
   "/reset-password",
   "/set-password",
   "/onboarding",
@@ -88,9 +89,11 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/accept-invite") ||
     pathname.startsWith("/update-password") ||
+    pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/set-password") ||
     pathname.startsWith("/onboarding") ||
+    pathname === "/worker/dashboard" ||
     pathname.startsWith("/portal/")
   );
 }
@@ -347,6 +350,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     isPasswordRecoverySession(session) &&
     !pathname.startsWith("/auth/") &&
     !pathname.startsWith("/update-password") &&
+    !pathname.startsWith("/setyourpassword") &&
     !pathname.startsWith("/reset-password") &&
     !pathname.startsWith("/set-password") &&
     !pathname.startsWith("/accept-invite") &&
@@ -354,7 +358,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   ) {
     return redirectWithCookies(
       request,
-      "/reset-password",
+      "/setyourpassword",
       sessionResponse
     );
   }

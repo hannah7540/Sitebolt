@@ -46,6 +46,7 @@ function LoginPageContent() {
   const searchParams = useSearchParams();
   const returnPath = readLoginReturnPath(searchParams);
   const resetSuccess = searchParams.get("reset") === "success";
+  const passwordSetMessage = searchParams.get("message");
   const revokedError = searchParams.get("error") === WORKER_REVOKED_LOGIN_ERROR_PARAM;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -144,6 +145,7 @@ function LoginPageContent() {
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
         const path = window.location.pathname;
         if (
+          path.startsWith("/setyourpassword") ||
           path.startsWith("/reset-password") ||
           path.startsWith("/set-password") ||
           path.startsWith("/onboarding")
@@ -152,7 +154,7 @@ function LoginPageContent() {
         }
       }
       if (event === "PASSWORD_RECOVERY") {
-        window.location.replace("/reset-password");
+        window.location.replace("/setyourpassword");
       }
     });
 
@@ -166,7 +168,7 @@ function LoginPageContent() {
       }
 
       if (isPasswordRecoverySession(data.session)) {
-        window.location.replace("/reset-password");
+        window.location.replace("/setyourpassword");
         return;
       }
 
@@ -189,7 +191,7 @@ function LoginPageContent() {
         return;
       }
 
-      window.location.replace("/reset-password");
+      window.location.replace("/setyourpassword");
     }
 
     void redirectIfSignedIn();
@@ -246,9 +248,10 @@ function LoginPageContent() {
           Sign in with your administrator account to open the project dashboard.
         </p>
 
-        {resetSuccess ? (
+        {resetSuccess || passwordSetMessage ? (
           <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Password updated successfully! Please sign in with your new password.
+            {passwordSetMessage ||
+              "Password updated successfully! Please sign in with your new password."}
           </p>
         ) : null}
 

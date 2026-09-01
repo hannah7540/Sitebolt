@@ -13,6 +13,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (
     isExemptFromAuthRedirect(pathname) ||
+    pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/")
   ) {
