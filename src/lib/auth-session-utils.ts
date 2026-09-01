@@ -34,15 +34,14 @@ export function isPasswordRecoverySession(
   const latestMethod = latest?.method?.toLowerCase();
   if (!latestMethod) return false;
 
-  if (
-    latestMethod === "password" ||
-    latestMethod === "otp" ||
-    latestMethod === "oauth" ||
-    latestMethod === "sso" ||
-    latestMethod === "magiclink"
-  ) {
+  if (latestMethod === "password" || latestMethod === "oauth" || latestMethod === "sso") {
     return false;
   }
 
-  return latestMethod === "recovery" || latestMethod === "invite";
+  return (
+    latestMethod === "recovery" ||
+    latestMethod === "invite" ||
+    latestMethod === "otp" ||
+    latestMethod === "magiclink"
+  );
 }

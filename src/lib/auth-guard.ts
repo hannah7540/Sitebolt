@@ -4,6 +4,8 @@ import {
   hasAuthHashFragment,
   isPublicAuthFlowPath,
   resetPasswordLocationWithHash,
+  hasAuthCodeQuery,
+  isExemptFromAuthRedirect,
 } from "@/lib/public-auth-paths";
 
 /** Build a login URL preserving the post-auth return path. */
@@ -33,14 +35,29 @@ export function redirectToLogin(
 ): void {
   if (typeof window !== "undefined") {
     const pathname = window.location.pathname;
-    if (isPublicAuthFlowPath(pathname)) return;
-    if (hasAuthHashFragment()) {
-      window.location.replace(resetPasswordLocationWithHash());
+    if (
+      pathname.startsWith("/reset-password") ||
+      pathname.startsWith("/set-password") ||
+      pathname.startsWith("/onboarding")
+    ) {
+      return;
+    }
+    if (isPublicAuthFlowPath(pathname) || isExemptFromAuthRedirect(pathname)) {
+      return;
+    }
+    if (hasAuthHashFragment() || hasAuthCodeQuery()) {
+      window.location.replace(
+        hasAuthCodeQuery()
+          ? `/auth/callback${window.location.search}${window.location.hash}`
+          : resetPasswordLocationWithHash()
+      );
       return;
     }
   }
 
-  if (isPublicAuthFlowPath(nextPath ?? "")) return;
+  if (isPublicAuthFlowPath(nextPath ?? "") || isExemptFromAuthRedirect(nextPath)) {
+    return;
+  }
 
   router.replace(buildLoginRedirectPath(nextPath));
 }

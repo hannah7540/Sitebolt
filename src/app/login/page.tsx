@@ -17,6 +17,8 @@ import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
   hasAuthHashFragment,
   resetPasswordLocationWithHash,
+  hasAuthCodeQuery,
+  isExemptFromAuthRedirect,
 } from "@/lib/public-auth-paths";
 import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
@@ -117,6 +119,18 @@ function LoginPageContent() {
   useEffect(() => {
     let cancelled = false;
 
+    if (isExemptFromAuthRedirect()) {
+      setCheckingSession(false);
+      return;
+    }
+
+    if (hasAuthCodeQuery()) {
+      window.location.replace(
+        `/auth/callback${window.location.search}${window.location.hash}`
+      );
+      return;
+    }
+
     if (hasAuthHashFragment()) {
       window.location.replace(resetPasswordLocationWithHash());
       return;
@@ -126,6 +140,17 @@ function LoginPageContent() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: string) => {
+      if (isExemptFromAuthRedirect()) return;
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        const path = window.location.pathname;
+        if (
+          path.startsWith("/reset-password") ||
+          path.startsWith("/set-password") ||
+          path.startsWith("/onboarding")
+        ) {
+          return;
+        }
+      }
       if (event === "PASSWORD_RECOVERY") {
         window.location.replace("/reset-password");
       }
@@ -158,12 +183,13 @@ function LoginPageContent() {
         return;
       }
 
-      await supabase.auth.signOut();
       if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
+        await supabase.auth.signOut();
         redirectAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
         return;
       }
-      setCheckingSession(false);
+
+      window.location.replace("/reset-password");
     }
 
     void redirectIfSignedIn();

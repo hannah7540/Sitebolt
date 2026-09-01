@@ -19,6 +19,7 @@ import {
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { resolveAdminWorkerFromAuthSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { isExemptFromAuthRedirect } from "@/lib/public-auth-paths";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
   setAdminWorkerId,
@@ -91,6 +92,12 @@ export default function AdminConsoleShell({
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
+    if (isExemptFromAuthRedirect(pathname)) {
+      setLoading(false);
+      setSessionReady(true);
+      return;
+    }
+
     setLoading(true);
     setSessionReady(false);
     setAccessDenied(null);

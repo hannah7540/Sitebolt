@@ -26,6 +26,7 @@ import {
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
 import {
+  hasAuthCodeQuery,
   hasAuthHashFragment,
   isPublicAuthFlowPath,
   resetPasswordLocationWithHash,
@@ -146,6 +147,12 @@ function HomeConsole() {
   }, [fetchData]);
 
   useEffect(() => {
+    if (hasAuthCodeQuery()) {
+      window.location.replace(
+        `/auth/callback${window.location.search}${window.location.hash}`
+      );
+      return;
+    }
     if (hasAuthHashFragment()) {
       window.location.replace(resetPasswordLocationWithHash());
       return;

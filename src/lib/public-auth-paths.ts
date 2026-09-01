@@ -13,6 +13,30 @@ export function isPublicAuthFlowPath(pathname: string): boolean {
   );
 }
 
+/** Global auth listeners must never bounce these pages to /login or /admin. */
+export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
+  const path =
+    (pathname ??
+      (typeof window !== "undefined" ? window.location.pathname : "")) ||
+    "";
+  return (
+    path.startsWith("/reset-password") ||
+    path.startsWith("/set-password") ||
+    path.startsWith("/onboarding") ||
+    path.startsWith("/auth/callback") ||
+    path.startsWith("/auth/confirm")
+  );
+}
+
+export function hasAuthCodeQuery(
+  search: string = typeof window !== "undefined" ? window.location.search : ""
+): boolean {
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search
+  );
+  return Boolean(params.get("code") || params.get("token_hash"));
+}
+
 export function hasAuthHashFragment(
   hash: string = typeof window !== "undefined" ? window.location.hash : ""
 ): boolean {
