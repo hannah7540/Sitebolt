@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import BrandingRoot from "@/components/branding/BrandingRoot";
-import { isExemptFromAuthRedirect } from "@/lib/public-auth-paths";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 
 /**
  * Password-setup and onboarding routes skip BrandingRoot so they are never
@@ -12,7 +12,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
 
   if (
-    isExemptFromAuthRedirect(pathname) ||
+    typeof window !== "undefined" &&
+    (window.location.pathname.includes("/setyourpassword") ||
+      window.location.pathname.includes("/reset-password") ||
+      window.location.pathname.includes("/onboarding"))
+  ) {
+    return <>{children}</>;
+  }
+
+  if (
+    shouldSkipAuthRedirect(pathname) ||
     pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/")

@@ -24,12 +24,15 @@ import {
   readConsoleOpenAdd,
 } from "@/lib/console-nav-routes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { redirectToLogin } from "@/lib/auth-guard";
 import {
   hasAuthCodeQuery,
   hasAuthHashFragment,
   isPublicAuthFlowPath,
   resetPasswordLocationWithHash,
+  shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
@@ -147,6 +150,15 @@ function HomeConsole() {
   }, [fetchData]);
 
   useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname.includes("/setyourpassword") ||
+        window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/onboarding"))
+    ) {
+      return;
+    }
+
     if (hasAuthCodeQuery()) {
       window.location.replace(
         `/auth/callback${window.location.search}${window.location.hash}`
@@ -157,13 +169,23 @@ function HomeConsole() {
       window.location.replace(resetPasswordLocationWithHash());
       return;
     }
-    if (isPublicAuthFlowPath(pathname)) return;
+    if (isPublicAuthFlowPath(pathname) || shouldSkipAuthRedirect(pathname)) return;
 
     if (workers.length === 0 && loading) return;
 
     let cancelled = false;
 
     async function resolveAdminSession() {
+      if (shouldSkipAuthRedirect(pathname)) return;
+
+      const supabase = createSupabaseBrowserClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (isPasswordRecoverySession(sessionData.session)) {
+        window.location.replace("/setyourpassword");
+        return;
+      }
+
       const authSession = await resolveAuthWorkerFromSession();
       if (cancelled) return;
 
@@ -171,6 +193,9 @@ function HomeConsole() {
       setSessionReady(true);
 
       if (!authSession.hasSession) {
+        if (shouldSkipAuthRedirect(pathname) || hasAuthHashFragment() || hasAuthCodeQuery()) {
+          return;
+        }
         redirectToLogin(router, pathname);
         return;
       }

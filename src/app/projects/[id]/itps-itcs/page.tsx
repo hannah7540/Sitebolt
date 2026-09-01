@@ -8,6 +8,7 @@ import ItcQualitySystemView from "@/components/itc/ItcQualitySystemView";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { fetchWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
 import {
   fetchProjects,
@@ -31,6 +32,7 @@ export default function ProjectItpsItcsPage() {
     async function load() {
       const authSession = await resolveAuthWorkerFromSession();
       if (!authSession.hasSession) {
+        if (shouldSkipAuthRedirect()) return;
         redirectToLogin(router, `/projects/${projectId}/itps-itcs`);
         return;
       }

@@ -5,7 +5,6 @@ import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { PASSWORD_RESET_NEXT_PATH } from "@/lib/worker-invite-link";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 const VALID_OTP_TYPES = new Set<EmailOtpType>([
@@ -24,10 +23,16 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
 }
 
 function resolveSafeNext(next: string | null): string {
-  if (next && next.startsWith("/")) {
+  if (
+    next &&
+    next.startsWith("/") &&
+    !next.startsWith("//") &&
+    !next.startsWith("/login") &&
+    !next.startsWith("/admin")
+  ) {
     return next;
   }
-  return PASSWORD_RESET_NEXT_PATH;
+  return "/setyourpassword";
 }
 
 function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {

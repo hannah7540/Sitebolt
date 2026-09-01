@@ -14,6 +14,28 @@ export function isPublicAuthFlowPath(pathname: string): boolean {
   );
 }
 
+/** True when the current URL must never bounce to /login or /admin. */
+export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname || "";
+    if (
+      path.includes("/setyourpassword") ||
+      path.includes("/reset-password") ||
+      path.includes("/onboarding")
+    ) {
+      return true;
+    }
+  }
+
+  const path = pathname ?? "";
+  return (
+    path.includes("/setyourpassword") ||
+    path.includes("/reset-password") ||
+    path.includes("/onboarding") ||
+    isExemptFromAuthRedirect(pathname)
+  );
+}
+
 /** Global auth listeners must never bounce these pages to /login or /admin. */
 export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
   const path =

@@ -19,7 +19,7 @@ import {
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { resolveAdminWorkerFromAuthSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
-import { isExemptFromAuthRedirect } from "@/lib/public-auth-paths";
+import { isExemptFromAuthRedirect, shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
   setAdminWorkerId,
@@ -92,7 +92,18 @@ export default function AdminConsoleShell({
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
-    if (isExemptFromAuthRedirect(pathname)) {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname.includes("/setyourpassword") ||
+        window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/onboarding"))
+    ) {
+      setLoading(false);
+      setSessionReady(true);
+      return;
+    }
+
+    if (isExemptFromAuthRedirect(pathname) || shouldSkipAuthRedirect(pathname)) {
       setLoading(false);
       setSessionReady(true);
       return;
@@ -118,6 +129,11 @@ export default function AdminConsoleShell({
     const authSession = await resolveAdminWorkerFromAuthSession();
 
     if (!authSession.hasSession) {
+      if (shouldSkipAuthRedirect(pathname)) {
+        setLoading(false);
+        setSessionReady(true);
+        return;
+      }
       setLoading(false);
       setSessionReady(true);
       redirectToLogin(router, pathname);

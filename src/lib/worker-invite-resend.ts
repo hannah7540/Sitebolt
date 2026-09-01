@@ -9,7 +9,6 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  getAuthPasswordSetupRedirectTo,
   isValidGeneratedAuthLink,
   resolveInviteSiteOrigin,
 } from "@/lib/worker-invite-link";
@@ -162,7 +161,7 @@ export async function generateWorkerInviteSetupLink(
   }
 
   const admin = createSupabaseAdminClient();
-  const targetRedirect = getAuthPasswordSetupRedirectTo();
+  const targetRedirect = "https://site-bolt.com.au/setyourpassword";
   const workerEmail = email.trim();
 
   if (options?.userAlreadyExists !== true) {

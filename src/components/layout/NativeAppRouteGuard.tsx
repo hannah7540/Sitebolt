@@ -13,6 +13,7 @@ import {
   hasAuthHashFragment,
   isPublicAuthFlowPath,
   resetPasswordLocationWithHash,
+  shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 
 /**
@@ -29,8 +30,16 @@ export default function NativeAppRouteGuard() {
   }, []);
 
   useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname.includes("/setyourpassword") ||
+        window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/onboarding"))
+    ) {
+      return;
+    }
     if (!isNativeMobileApp() || !pathname) return;
-    if (isPublicAuthFlowPath(pathname)) return;
+    if (isPublicAuthFlowPath(pathname) || shouldSkipAuthRedirect(pathname)) return;
     if (hasAuthHashFragment()) {
       window.location.replace(resetPasswordLocationWithHash());
       return;

@@ -287,7 +287,12 @@ function resolveGeneralWorkerHomePath(context: AuthContext): string {
 export async function runAuthProxy(request: NextRequest): Promise<NextResponse> {
   const pathname = request.nextUrl.pathname;
 
-  if (isPublicAuthFlowPath(pathname)) {
+  if (
+    pathname.includes("/setyourpassword") ||
+    pathname.includes("/reset-password") ||
+    pathname.includes("/onboarding") ||
+    isPublicAuthFlowPath(pathname)
+  ) {
     return NextResponse.next({ request });
   }
 

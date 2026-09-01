@@ -11,7 +11,6 @@ import {
   appendTeamEmailFooterText,
 } from "@/lib/email-team-footer";
 import {
-  getAuthPasswordSetupRedirectTo,
   isValidGeneratedAuthLink,
 } from "@/lib/worker-invite-link";
 
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
       type: "recovery",
       email,
       options: {
-        redirectTo: getAuthPasswordSetupRedirectTo(),
+        redirectTo: "https://site-bolt.com.au/setyourpassword",
       },
     });
 

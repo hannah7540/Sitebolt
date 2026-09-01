@@ -102,8 +102,7 @@ function SetYourPasswordForm() {
       if (worker && worker.onboarding_completed === false) {
         window.location.href = "/onboarding";
       } else {
-        window.location.href =
-          "/login?message=Password set successfully. Please log in.";
+        window.location.href = "/login";
       }
     } catch (cause) {
       setErrorMsg(

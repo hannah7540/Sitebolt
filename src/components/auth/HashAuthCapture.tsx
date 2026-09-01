@@ -7,6 +7,7 @@ import {
   hasAuthHashFragment,
   isExemptFromAuthRedirect,
   resetPasswordLocationWithHash,
+  shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 
 /**
@@ -21,6 +22,17 @@ export default function HashAuthCapture() {
     if (typeof window === "undefined") return;
 
     const path = pathname || window.location.pathname;
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname.includes("/setyourpassword") ||
+        window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/onboarding"))
+    ) {
+      return;
+    }
+    if (shouldSkipAuthRedirect(path) && path !== "/auth/callback" && path !== "/auth/confirm") {
+      return;
+    }
     if (isExemptFromAuthRedirect(path) && path !== "/auth/callback" && path !== "/auth/confirm") {
       return;
     }

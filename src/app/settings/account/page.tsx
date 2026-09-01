@@ -7,6 +7,7 @@ import { HardHat, Loader2 } from "lucide-react";
 import AccountPasswordForm from "@/components/settings/AccountPasswordForm";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass } from "@/lib/ui-classes";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 
 function AccountSettingsContent() {
   const router = useRouter();
@@ -25,6 +26,7 @@ function AccountSettingsContent() {
       const user = data.session?.user;
 
       if (!user) {
+        if (shouldSkipAuthRedirect()) return;
         const loginUrl = `/login?next=${encodeURIComponent("/settings/account")}`;
         router.replace(loginUrl);
         return;

@@ -7,6 +7,7 @@ import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import WorkerItcFloorplanViewer from "@/components/workers/itc/WorkerItcFloorplanViewer";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import {
   fetchProjects,
   getCachedProjects,
@@ -38,6 +39,7 @@ function WorkerItcContent() {
     async function load() {
       const authSession = await resolveAuthWorkerFromSession();
       if (!authSession.hasSession) {
+        if (shouldSkipAuthRedirect()) return;
         redirectToLogin(router, "/worker-dashboard/itc");
         return;
       }

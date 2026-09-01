@@ -28,7 +28,7 @@ export const viewport: Viewport = {
 
 /**
  * Root HTML shell only. Auth redirects live in AppShell / proxy — never redirect
- * /reset-password, /set-password, /auth/callback, or /onboarding from this layout.
+ * /setyourpassword, /reset-password, /auth/callback, or /onboarding from this layout.
  */
 export default function RootLayout({
   children,

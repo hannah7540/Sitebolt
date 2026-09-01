@@ -19,6 +19,7 @@ import {
   resetPasswordLocationWithHash,
   hasAuthCodeQuery,
   isExemptFromAuthRedirect,
+  shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
@@ -120,7 +121,17 @@ function LoginPageContent() {
   useEffect(() => {
     let cancelled = false;
 
-    if (isExemptFromAuthRedirect()) {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname.includes("/setyourpassword") ||
+        window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/onboarding"))
+    ) {
+      setCheckingSession(false);
+      return;
+    }
+
+    if (isExemptFromAuthRedirect() || shouldSkipAuthRedirect()) {
       setCheckingSession(false);
       return;
     }

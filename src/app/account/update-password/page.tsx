@@ -7,6 +7,7 @@ import { HardHat, Loader2 } from "lucide-react";
 import AccountPasswordForm from "@/components/settings/AccountPasswordForm";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { cardClass } from "@/lib/ui-classes";
 
 const ACCOUNT_PASSWORD_PATH = "/account/update-password";
@@ -28,6 +29,7 @@ function UpdatePasswordContent() {
       const user = session?.user;
 
       if (!user) {
+        if (shouldSkipAuthRedirect()) return;
         router.replace(`/login?next=${encodeURIComponent(ACCOUNT_PASSWORD_PATH)}`);
         return;
       }

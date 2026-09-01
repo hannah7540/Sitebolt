@@ -8,6 +8,7 @@ import ItcManagementHub from "@/components/itc/ItcManagementHub";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { fetchWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
 import {
   fetchProjects,
@@ -31,6 +32,7 @@ export default function ProjectItcPage() {
     async function load() {
       const authSession = await resolveAuthWorkerFromSession();
       if (!authSession.hasSession) {
+        if (shouldSkipAuthRedirect()) return;
         redirectToLogin(router, `/projects/${projectId}/itc`);
         return;
       }

@@ -13,6 +13,7 @@ import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
 import { cardClass } from "@/lib/ui-classes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { isNativeMobileApp } from "@/lib/native-app";
 import {
   canAccessAdminConsole,
@@ -51,6 +52,7 @@ function WorkerDashboardContent() {
 
         const authSession = await resolveAuthWorkerFromSession();
         if (!authSession.hasSession) {
+          if (shouldSkipAuthRedirect()) return;
           redirectToLogin(router, `/worker-dashboard${queryWorkerId ? `?worker_id=${queryWorkerId}` : ""}`);
           return;
         }

@@ -6,6 +6,7 @@ import {
   resetPasswordLocationWithHash,
   hasAuthCodeQuery,
   isExemptFromAuthRedirect,
+  shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 
 /** Build a login URL preserving the post-auth return path. */
@@ -33,16 +34,21 @@ export function redirectToLogin(
   router: AppRouterInstance,
   nextPath?: string | null
 ): void {
+  if (
+    typeof window !== "undefined" &&
+    (window.location.pathname.includes("/setyourpassword") ||
+      window.location.pathname.includes("/reset-password") ||
+      window.location.pathname.includes("/onboarding"))
+  ) {
+    return;
+  }
+
+  if (shouldSkipAuthRedirect(nextPath)) {
+    return;
+  }
+
   if (typeof window !== "undefined") {
     const pathname = window.location.pathname;
-    if (
-      pathname.startsWith("/setyourpassword") ||
-      pathname.startsWith("/reset-password") ||
-      pathname.startsWith("/set-password") ||
-      pathname.startsWith("/onboarding")
-    ) {
-      return;
-    }
     if (isPublicAuthFlowPath(pathname) || isExemptFromAuthRedirect(pathname)) {
       return;
     }

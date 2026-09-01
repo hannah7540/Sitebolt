@@ -42,10 +42,6 @@ export const PASSWORD_SETUP_REDIRECT_TO =
 
 /** Supabase generateLink redirectTo — always the public password form. */
 export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (configured && !isPlaceholderOrigin(configured)) {
-    return `${stripTrailingSlash(configured)}/setyourpassword`;
-  }
   return PASSWORD_SETUP_REDIRECT_TO;
 }
 
