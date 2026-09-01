@@ -21,16 +21,32 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
+function resolvePasswordSetupPath(next: string | null): string {
+  if (
+    next?.startsWith("/") &&
+    !next.startsWith("//") &&
+    (next.includes("/reset-password") || next.includes("/set-password"))
+  ) {
+    return next.split("?")[0] || "/reset-password";
+  }
+  return "/reset-password";
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
   const tokenHash = requestUrl.searchParams.get("token_hash");
   const type = requestUrl.searchParams.get("type");
+  const next = requestUrl.searchParams.get("next");
   const origin = requestUrl.origin;
+  const destination = resolvePasswordSetupPath(next);
+
+  if (!code && !tokenHash) {
+    return NextResponse.redirect(new URL(destination, origin), 303);
+  }
 
   const cookieStore = await cookies();
-  const redirectUrl = new URL("/reset-password", origin);
-  const response = NextResponse.redirect(redirectUrl);
+  const response = NextResponse.redirect(new URL(destination, origin), 303);
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -42,7 +58,7 @@ export async function GET(request: Request) {
           try {
             cookieStore.set(name, value, options);
           } catch {
-            // Route handlers must attach cookies to the returned response.
+            // Cookies must be written onto the returned redirect response.
           }
           response.cookies.set(name, value, options);
         });
@@ -50,35 +66,30 @@ export async function GET(request: Request) {
     },
   });
 
-  let errorMessage: string | null = null;
-
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      errorMessage = error.message;
+      const errorUrl = new URL(destination, origin);
+      errorUrl.searchParams.set("error", error.message);
+      const errorResponse = NextResponse.redirect(errorUrl, 303);
+      copyCookies(response, errorResponse);
+      return errorResponse;
     }
-  } else if (tokenHash && type && VALID_OTP_TYPES.has(type as EmailOtpType)) {
+    return response;
+  }
+
+  if (tokenHash && type && VALID_OTP_TYPES.has(type as EmailOtpType)) {
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
       type: type as EmailOtpType,
     });
     if (error) {
-      errorMessage = error.message;
+      const errorUrl = new URL(destination, origin);
+      errorUrl.searchParams.set("error", error.message);
+      const errorResponse = NextResponse.redirect(errorUrl, 303);
+      copyCookies(response, errorResponse);
+      return errorResponse;
     }
-  } else {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      errorMessage = "Auth link is invalid or has expired.";
-    }
-  }
-
-  if (errorMessage) {
-    redirectUrl.searchParams.set("error", errorMessage);
-    const errorResponse = NextResponse.redirect(redirectUrl);
-    copyCookies(response, errorResponse);
-    return errorResponse;
   }
 
   return response;

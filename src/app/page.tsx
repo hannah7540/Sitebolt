@@ -26,6 +26,11 @@ import {
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
 import {
+  hasAuthHashFragment,
+  isPublicAuthFlowPath,
+  resetPasswordLocationWithHash,
+} from "@/lib/public-auth-paths";
+import {
   DEFAULT_ADMIN_PROFILE_NAME,
   setAdminWorkerId,
 } from "@/lib/user-session";
@@ -141,6 +146,12 @@ function HomeConsole() {
   }, [fetchData]);
 
   useEffect(() => {
+    if (hasAuthHashFragment()) {
+      window.location.replace(resetPasswordLocationWithHash());
+      return;
+    }
+    if (isPublicAuthFlowPath(pathname)) return;
+
     if (workers.length === 0 && loading) return;
 
     let cancelled = false;

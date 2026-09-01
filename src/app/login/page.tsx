@@ -10,9 +10,14 @@ import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser, resolvePostAuthPathForUser } from "@/lib/auth-profile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import { resolvePostLoginPath } from "@/lib/native-app";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
+import {
+  hasAuthHashFragment,
+  resetPasswordLocationWithHash,
+} from "@/lib/public-auth-paths";
 import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
   WORKER_REVOKED_LOGIN_MESSAGE,
@@ -112,8 +117,21 @@ function LoginPageContent() {
   useEffect(() => {
     let cancelled = false;
 
+    if (hasAuthHashFragment()) {
+      window.location.replace(resetPasswordLocationWithHash());
+      return;
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event: string) => {
+      if (event === "PASSWORD_RECOVERY") {
+        window.location.replace("/reset-password");
+      }
+    });
+
     async function redirectIfSignedIn() {
-      const supabase = createSupabaseBrowserClient();
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
 
@@ -122,29 +140,36 @@ function LoginPageContent() {
         return;
       }
 
-      const bound = await bindAuthSessionForUser(user);
-      if (!cancelled) {
-        if (bound.ok) {
-          redirectAfterLogin(
-            resolvePostLoginPath(bound.role, bound.workerId, {
-              returnPath,
-              defaultPath: await resolvePostAuthPathForUser(user),
-            })
-          );
-        } else {
-          await supabase.auth.signOut();
-          if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
-            redirectAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
-            return;
-          }
-          setCheckingSession(false);
-        }
+      if (isPasswordRecoverySession(data.session)) {
+        window.location.replace("/reset-password");
+        return;
       }
+
+      const bound = await bindAuthSessionForUser(user);
+      if (cancelled) return;
+
+      if (bound.ok) {
+        redirectAfterLogin(
+          resolvePostLoginPath(bound.role, bound.workerId, {
+            returnPath,
+            defaultPath: await resolvePostAuthPathForUser(user),
+          })
+        );
+        return;
+      }
+
+      await supabase.auth.signOut();
+      if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
+        redirectAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
+        return;
+      }
+      setCheckingSession(false);
     }
 
     void redirectIfSignedIn();
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, [returnPath]);
 

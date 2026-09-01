@@ -1,5 +1,10 @@
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { signOutSupabase } from "@/lib/supabase/auth";
+import {
+  hasAuthHashFragment,
+  isPublicAuthFlowPath,
+  resetPasswordLocationWithHash,
+} from "@/lib/public-auth-paths";
 
 /** Build a login URL preserving the post-auth return path. */
 export function buildLoginRedirectPath(nextPath?: string | null): string {
@@ -26,6 +31,17 @@ export function redirectToLogin(
   router: AppRouterInstance,
   nextPath?: string | null
 ): void {
+  if (typeof window !== "undefined") {
+    const pathname = window.location.pathname;
+    if (isPublicAuthFlowPath(pathname)) return;
+    if (hasAuthHashFragment()) {
+      window.location.replace(resetPasswordLocationWithHash());
+      return;
+    }
+  }
+
+  if (isPublicAuthFlowPath(nextPath ?? "")) return;
+
   router.replace(buildLoginRedirectPath(nextPath));
 }
 

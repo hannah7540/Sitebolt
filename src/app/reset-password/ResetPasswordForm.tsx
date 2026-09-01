@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   passwordRequirementsLabel,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/password-validation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { hasAuthHashFragment } from "@/lib/public-auth-paths";
 
 const WORKER_DASHBOARD_PATH = "/worker-dashboard";
 const WORKER_ONBOARDING_PATH = "/onboarding";
@@ -81,27 +82,74 @@ export default function ResetPasswordForm() {
     const emailParam = searchParams.get("email");
     const errorParam = searchParams.get("error");
     if (emailParam) setEmail(emailParam);
-    if (errorParam) setError(errorParam);
+    if (errorParam && !hasAuthHashFragment()) setError(errorParam);
 
     let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+    const waitingForHash = hasAuthHashFragment();
+
+    const applySessionUser = (user: User | null) => {
+      if (cancelled || !user) return;
+      setHasSession(true);
+      if (!emailParam && user.email) setEmail(user.email);
+      setCheckingSession(false);
+    };
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event: string, session: Session | null) => {
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        applySessionUser(session?.user ?? null);
+      }
+    });
 
     async function loadSession() {
-      const supabase = createSupabaseBrowserClient();
-      const { data } = await supabase.auth.getUser();
-      if (cancelled) return;
-
-      if (data.user) {
-        setHasSession(true);
-        if (!emailParam && data.user.email) {
-          setEmail(data.user.email);
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      if (hash.includes("access_token") && hash.includes("refresh_token")) {
+        const params = new URLSearchParams(hash.replace(/^#/, ""));
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token");
+        if (accessToken && refreshToken) {
+          const { data } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (cancelled) return;
+          if (data.session?.user) {
+            window.history.replaceState(
+              null,
+              "",
+              `${window.location.pathname}${window.location.search}`
+            );
+            applySessionUser(data.session.user);
+            return;
+          }
         }
       }
-      setCheckingSession(false);
+
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data.session?.user) {
+        applySessionUser(data.session.user);
+        return;
+      }
+      if (!waitingForHash) {
+        setCheckingSession(false);
+      }
     }
 
     void loadSession();
+
+    const timeout = waitingForHash
+      ? window.setTimeout(() => {
+          if (!cancelled) setCheckingSession(false);
+        }, 4000)
+      : undefined;
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
+      if (timeout) window.clearTimeout(timeout);
     };
   }, [searchParams]);
 

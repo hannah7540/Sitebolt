@@ -9,6 +9,11 @@ import {
 } from "@/lib/native-app";
 import { shouldRedirectNativePath } from "@/lib/native-app-paths";
 import { getStoredWorkerId } from "@/lib/user-session";
+import {
+  hasAuthHashFragment,
+  isPublicAuthFlowPath,
+  resetPasswordLocationWithHash,
+} from "@/lib/public-auth-paths";
 
 /**
  * Keeps the Capacitor shell on worker-only routes and sets a cookie so the
@@ -25,6 +30,11 @@ export default function NativeAppRouteGuard() {
 
   useEffect(() => {
     if (!isNativeMobileApp() || !pathname) return;
+    if (isPublicAuthFlowPath(pathname)) return;
+    if (hasAuthHashFragment()) {
+      window.location.replace(resetPasswordLocationWithHash());
+      return;
+    }
     if (!shouldRedirectNativePath(pathname)) return;
 
     router.replace(resolveNativeWorkerDashboardPath(getStoredWorkerId()));

@@ -23,6 +23,11 @@ export function createSupabaseBrowserClient() {
   if (!browserClient) {
     browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
       db: { schema: "public" },
+      auth: {
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
     });
   }
 

@@ -22,15 +22,9 @@ import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
   fetchWorkerAccessRevokedForAuthUser,
 } from "@/lib/worker-revocation";
-
-/** Password setup / invite callback routes — never bounce these to /login or /admin. */
-export const PUBLIC_AUTH_FLOW_PATHS = [
-  "/reset-password",
-  "/set-password",
-  "/auth/callback",
-  "/auth/confirm",
-  "/onboarding",
-] as const;
+import {
+  isPublicAuthFlowPath,
+} from "@/lib/public-auth-paths";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -66,15 +60,11 @@ const PROJECTS_HOME_PATH = PROJECT_DASHBOARD_HOME_PATH;
 
 const GENERAL_WORKER_HOME_PATH = "/worker-dashboard";
 
+export { isPublicAuthFlowPath, PUBLIC_AUTH_FLOW_PATHS } from "@/lib/public-auth-paths";
+
 export const AUTH_PROXY_MATCHER = [
   "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
 ];
-
-export function isPublicAuthFlowPath(pathname: string): boolean {
-  return PUBLIC_AUTH_FLOW_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
-}
 
 function isPublicPath(pathname: string): boolean {
   if (isPublicAuthFlowPath(pathname)) return true;
