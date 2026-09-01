@@ -4,7 +4,10 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { ensureWorkerInviteRecord } from "@/lib/ensure-worker-profile";
+import {
+  ensureWorkerInviteRecord,
+  markWorkerInviteSent,
+} from "@/lib/ensure-worker-profile";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 
 export async function POST(req: Request) {
@@ -49,6 +52,11 @@ export async function POST(req: Request) {
       );
     }
 
+    const stamped = await markWorkerInviteSent(
+      supabaseAdmin,
+      preInviteWorker.workerId
+    );
+
     if (sent.authUserId) {
       await ensureWorkerInviteRecord(supabaseAdmin, {
         email,
@@ -64,6 +72,7 @@ export async function POST(req: Request) {
       {
         success: true,
         inviteSent: true,
+        inviteSentAt: stamped.inviteSentAt,
         message: `Invitation email sent successfully to ${email}`,
         workerId: preInviteWorker.workerId,
         authUserId: sent.authUserId ?? null,

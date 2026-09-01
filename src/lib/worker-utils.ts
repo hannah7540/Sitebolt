@@ -223,14 +223,23 @@ export function canResendWorkerInvite(
   );
   if (revoked) return false;
   if (!worker.email?.trim()) return false;
-  if (lastSignInAt) return false;
 
   const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
-  if (inviteStatus === "accepted") return false;
-  if (PENDING_INVITE_STATUSES.has(inviteStatus)) return true;
-
   const status = (worker.status ?? "").toLowerCase();
-  return PENDING_INVITE_STATUSES.has(status) || status === "pending_induction";
+  const neverLoggedIn = !lastSignInAt;
+  const pendingActivation =
+    PENDING_INVITE_STATUSES.has(status) || status === "pending_induction";
+
+  if (inviteStatus === "accepted" && !neverLoggedIn) {
+    return false;
+  }
+
+  return (
+    inviteStatus === "pending" ||
+    PENDING_INVITE_STATUSES.has(inviteStatus) ||
+    pendingActivation ||
+    neverLoggedIn
+  );
 }
 
 export const WORKER_DATE_FIELD_KEYS = [

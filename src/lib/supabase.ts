@@ -121,6 +121,7 @@ export interface Worker {
   induction_completed_at: string | null;
   onboarding_completed?: boolean;
   invite_status?: string | null;
+  invite_sent_at?: string | null;
   security_role: SecurityRole;
   accounts_access_role: AccountsAccessRole;
   can_access_accounts: boolean;
@@ -197,6 +198,7 @@ const WORKER_SELECT_COLUMNS = [
   "induction_completed_at",
   "onboarding_completed",
   "invite_status",
+  "invite_sent_at",
   "security_role",
   "accounts_access_role",
   "can_access_accounts",
@@ -406,6 +408,8 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     onboarding_completed: row.onboarding_completed === true,
     invite_status:
       typeof row.invite_status === "string" ? row.invite_status : null,
+    invite_sent_at:
+      typeof row.invite_sent_at === "string" ? row.invite_sent_at : null,
     security_role: normalizeSecurityRole(row.security_role),
     accounts_access_role: normalizeAccountsAccessRole(row.accounts_access_role),
     can_access_accounts:
@@ -1987,6 +1991,7 @@ export async function updateWorker(
     employment_type?: string | null;
     onboarding_completed?: boolean;
     invite_status?: string | null;
+    invite_sent_at?: string | null;
   }
 ): Promise<{ error: string | null }> {
   let payload = { ...updates };

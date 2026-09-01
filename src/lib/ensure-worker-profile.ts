@@ -76,7 +76,27 @@ async function applyWorkerInvitePatch(
     ({ error } = await admin.from("workers").update(withoutOnboarding).eq("id", workerId));
   }
 
+  if (error && isMissingColumnError(error.message, "invite_sent_at")) {
+    const withoutSentAt = { ...payload };
+    delete withoutSentAt.invite_sent_at;
+    ({ error } = await admin.from("workers").update(withoutSentAt).eq("id", workerId));
+  }
+
   return { error: error?.message ?? null };
+}
+
+export async function markWorkerInviteSent(
+  admin: SupabaseClient,
+  workerId: string,
+  sentAt: string = new Date().toISOString()
+): Promise<{ error: string | null; inviteSentAt: string }> {
+  const result = await applyWorkerInvitePatch(admin, workerId, {
+    invite_status: "pending",
+    invite_sent_at: sentAt,
+    updated_at: sentAt,
+  });
+
+  return { error: result.error, inviteSentAt: sentAt };
 }
 
 /** Flip worker status to active after invite acceptance or auth sign-in. */

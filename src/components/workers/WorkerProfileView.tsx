@@ -46,6 +46,9 @@ import WorkerStateRegionBadge from "@/components/workers/WorkerStateRegionBadge"
 import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
 import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
 import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
+import { ResendInviteButton } from "@/components/workers/ResendInviteButton";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
 import {
   normalizeSecurityRole,
   type SecurityRole,
@@ -76,6 +79,7 @@ interface WorkerProfileViewProps {
   initialVocs?: WorkerVoc[];
   projects: DbProject[];
   initialTab?: ProfileTab;
+  lastSignInAt?: string | null;
   canAssignPayRules?: boolean;
   canManageWorkerRoles?: boolean;
   onBack: () => void;
@@ -135,6 +139,7 @@ export default function WorkerProfileView({
   initialVocs = [],
   projects,
   initialTab = "basic",
+  lastSignInAt = null,
   canAssignPayRules = false,
   canManageWorkerRoles = false,
   onBack,
@@ -142,6 +147,7 @@ export default function WorkerProfileView({
 }: WorkerProfileViewProps) {
   const [currentWorker, setCurrentWorker] = useState(worker);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
+  const { toast, showSuccess, showError, dismissToast } = useFormToast();
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [vocs, setVocs] = useState<WorkerVoc[]>(initialVocs);
   const [loadingVocs, setLoadingVocs] = useState(initialVocs.length === 0);
@@ -240,6 +246,19 @@ export default function WorkerProfileView({
             ) : null}
             <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
+            <ResendInviteButton
+              worker={currentWorker}
+              lastSignInAt={lastSignInAt}
+              label="Resend Invite Link"
+              variant="profile"
+              onSuccess={(message, inviteSentAt) => {
+                showSuccess(message);
+                if (inviteSentAt) {
+                  patchWorker({ ...currentWorker, invite_sent_at: inviteSentAt });
+                }
+              }}
+              onError={showError}
+            />
           </div>
           <p className="mt-1 text-sm text-slate-600">
             {currentWorker.trade || "No trade set"}
@@ -317,6 +336,10 @@ export default function WorkerProfileView({
           }}
         />
       )}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+      ) : null}
     </div>
   );
 }

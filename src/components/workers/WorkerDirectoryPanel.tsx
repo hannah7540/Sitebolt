@@ -10,7 +10,6 @@ import {
   UserCheck,
   Search,
   X,
-  Mail,
 } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
@@ -31,10 +30,11 @@ import {
   getWorkerTicketStatus,
   isNonCompliant,
 } from "@/lib/worker-compliance";
-import { isCompanyEmployeeWorker, canResendWorkerInvite } from "@/lib/worker-utils";
+import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
+import { ResendInviteButton } from "./ResendInviteButton";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
@@ -180,7 +180,6 @@ export default function WorkerDirectoryPanel({
   const [workerProjectMap, setWorkerProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [actionId, setActionId] = useState<string | null>(null);
-  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
   const [lastSignInByWorkerId, setLastSignInByWorkerId] = useState<
     Record<string, string | null>
   >({});
@@ -395,48 +394,6 @@ export default function WorkerDirectoryPanel({
     clearDeepLink();
   };
 
-  const handleResendInvite = async (worker: Worker) => {
-    const email = worker.email?.trim();
-    if (!email) return;
-
-    setResendingInviteId(worker.id);
-
-    try {
-      const response = await fetch("/api/workers/invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          workerId: worker.id,
-          firstName: worker.first_name ?? "",
-          lastName: worker.last_name ?? "",
-          fullName: worker.full_name ?? "",
-        }),
-      });
-
-      const data = (await response.json()) as {
-        success?: boolean;
-        message?: string;
-        error?: string;
-      };
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to send worker invite.");
-      }
-
-      showSuccess(
-        data.message ?? `Invitation email sent successfully to ${email}`
-      );
-    } catch (error) {
-      console.error("Failed to resend worker invite:", error);
-      showError(
-        error instanceof Error ? error.message : "Failed to resend invitation email."
-      );
-    } finally {
-      setResendingInviteId(null);
-    }
-  };
-
   if (selectedWorker) {
     return (
       <WorkerProfileView
@@ -445,6 +402,7 @@ export default function WorkerDirectoryPanel({
         initialVocs={vocsByWorker[selectedWorker.id] ?? []}
         projects={projects}
         initialTab={profileInitialTab}
+        lastSignInAt={lastSignInByWorkerId[selectedWorker.id] ?? null}
         canAssignPayRules={canAssignPayRules}
         canManageWorkerRoles={canManageWorkerRoles}
         onBack={closeWorkerProfile}
@@ -547,11 +505,6 @@ export default function WorkerDirectoryPanel({
               const assignedProjects = projects.filter((project) =>
                 assignedProjectIds.includes(project.id)
               );
-              const showResendInvite = canResendWorkerInvite(
-                w,
-                lastSignInByWorkerId[w.id] ?? null
-              );
-
               return (
                 <tr
                   key={w.id}
@@ -640,17 +593,17 @@ export default function WorkerDirectoryPanel({
                           Assign
                         </button>
                       )}
-                      {showResendInvite && (
-                        <button
-                          type="button"
-                          disabled={resendingInviteId === w.id}
-                          onClick={() => void handleResendInvite(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50"
-                        >
-                          <Mail className="h-3.5 w-3.5" />
-                          {resendingInviteId === w.id ? "Sending…" : "Resend Invite"}
-                        </button>
-                      )}
+                      <ResendInviteButton
+                        worker={w}
+                        lastSignInAt={lastSignInByWorkerId[w.id] ?? null}
+                        onSuccess={(message, inviteSentAt) => {
+                          showSuccess(message);
+                          if (inviteSentAt) {
+                            patchWorker({ ...w, invite_sent_at: inviteSentAt });
+                          }
+                        }}
+                        onError={showError}
+                      />
                       <button
                         type="button"
                         disabled={actionId === w.id}
