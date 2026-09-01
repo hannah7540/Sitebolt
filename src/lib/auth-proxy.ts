@@ -23,14 +23,26 @@ import {
   fetchWorkerAccessRevokedForAuthUser,
 } from "@/lib/worker-revocation";
 
+/** Password setup / invite callback routes — never bounce these to /login or /admin. */
+export const PUBLIC_AUTH_FLOW_PATHS = [
+  "/reset-password",
+  "/set-password",
+  "/auth/callback",
+  "/auth/confirm",
+  "/onboarding",
+] as const;
+
 const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/privacy",
   "/auth/",
+  "/auth/callback",
+  "/auth/confirm",
   "/accept-invite",
   "/update-password",
   "/reset-password",
   "/set-password",
+  "/onboarding",
   "/portal/",
   "/swms/sign/",
   "/scan/",
@@ -41,7 +53,6 @@ const AUTH_REQUIRED_PREFIXES = [
   "/organisation",
   "/projects",
   "/worker-dashboard",
-  "/onboarding",
   "/accounts",
   "/admin",
   "/settings",
@@ -59,11 +70,15 @@ export const AUTH_PROXY_MATCHER = [
   "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
 ];
 
+export function isPublicAuthFlowPath(pathname: string): boolean {
+  return PUBLIC_AUTH_FLOW_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+}
+
 function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return true;
-  }
-  return false;
+  if (isPublicAuthFlowPath(pathname)) return true;
+  return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
 function requiresAuthentication(pathname: string): boolean {
@@ -277,6 +292,12 @@ function resolveGeneralWorkerHomePath(context: AuthContext): string {
  * Supabase session refresh + RBAC redirects for Next.js Proxy / Middleware.
  */
 export async function runAuthProxy(request: NextRequest): Promise<NextResponse> {
+  const pathname = request.nextUrl.pathname;
+
+  if (isPublicAuthFlowPath(pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let sessionResponse = NextResponse.next({ request });
 
   if (!isSupabaseConfigured()) {
@@ -308,7 +329,6 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     data: { session },
   } = await supabase.auth.getSession();
 
-  const pathname = request.nextUrl.pathname;
   const context = await resolveAuthContext(supabase, user);
 
   async function redirectRevokedToLogin(): Promise<NextResponse> {

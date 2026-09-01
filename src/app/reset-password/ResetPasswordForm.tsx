@@ -2,21 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
-import {
-  bindAuthSessionForUser,
-  resolvePostAuthPathForUser,
-} from "@/lib/auth-profile";
 import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
-import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+
+const WORKER_DASHBOARD_PATH = "/worker-dashboard";
+const WORKER_ONBOARDING_PATH = "/onboarding";
 
 function parseApiError(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -29,19 +26,48 @@ function parseApiError(payload: unknown): string | null {
   return null;
 }
 
-function parseRedirectPath(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
+async function fetchOnboardingCompletedForUser(user: User): Promise<boolean> {
+  const supabase = createSupabaseBrowserClient();
 
-  const redirectPath = (payload as { redirectPath?: unknown }).redirectPath;
-  if (typeof redirectPath === "string" && redirectPath.startsWith("/")) {
-    return redirectPath;
+  const byAuth = await supabase
+    .from("workers")
+    .select("onboarding_completed")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+
+  if (
+    !byAuth.error &&
+    typeof byAuth.data?.onboarding_completed === "boolean"
+  ) {
+    return byAuth.data.onboarding_completed;
   }
 
-  return null;
+  const email = user.email?.trim();
+  if (email) {
+    const byEmail = await supabase
+      .from("workers")
+      .select("onboarding_completed")
+      .ilike("email", email)
+      .maybeSingle();
+
+    if (
+      !byEmail.error &&
+      typeof byEmail.data?.onboarding_completed === "boolean"
+    ) {
+      return byEmail.data.onboarding_completed;
+    }
+  }
+
+  return false;
+}
+
+function redirectAfterPasswordUpdate(onboardingCompleted: boolean): void {
+  window.location.href = onboardingCompleted
+    ? WORKER_DASHBOARD_PATH
+    : WORKER_ONBOARDING_PATH;
 }
 
 export default function ResetPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -78,26 +104,6 @@ export default function ResetPasswordForm() {
       cancelled = true;
     };
   }, [searchParams]);
-
-  const resolveAfterPassword = async (
-    user: User | null,
-    apiRedirectPath?: string | null
-  ): Promise<string> => {
-    if (apiRedirectPath) return apiRedirectPath;
-    if (!user) return "/worker-dashboard";
-
-    const bound = await bindAuthSessionForUser(user);
-    if (bound.ok && bound.workerId) {
-      const completed = await fetchWorkerOnboardingCompleted(bound.workerId);
-      return resolvePostInvitePasswordPath({
-        onboardingCompleted: completed,
-        workerId: bound.workerId,
-        role: bound.role,
-      });
-    }
-
-    return resolvePostAuthPathForUser(user);
-  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -136,8 +142,10 @@ export default function ResetPasswordForm() {
           body: JSON.stringify({ passwordAccepted: true }),
         }).catch(() => null);
 
-        const nextPath = await resolveAfterPassword(sessionData.user);
-        router.replace(nextPath);
+        const onboardingCompleted = await fetchOnboardingCompletedForUser(
+          sessionData.user
+        );
+        redirectAfterPasswordUpdate(onboardingCompleted);
         return;
       }
 
@@ -175,11 +183,8 @@ export default function ResetPasswordForm() {
         return;
       }
 
-      const nextPath = await resolveAfterPassword(
-        data.user,
-        parseRedirectPath(payload)
-      );
-      router.replace(nextPath);
+      const onboardingCompleted = await fetchOnboardingCompletedForUser(data.user);
+      redirectAfterPasswordUpdate(onboardingCompleted);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to set password.");
     } finally {

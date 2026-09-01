@@ -1,11 +1,15 @@
-import type { NextRequest } from "next/server";
-import { runAuthProxy } from "@/lib/auth-proxy";
+import { NextResponse, type NextRequest } from "next/server";
+import { isPublicAuthFlowPath, runAuthProxy } from "@/lib/auth-proxy";
 
 /**
  * Next.js 16 Proxy entry — refreshes Supabase sessions and enforces RBAC redirects.
  * @see https://nextjs.org/docs/app/getting-started/proxy
  */
 export async function proxy(request: NextRequest) {
+  if (isPublicAuthFlowPath(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   return runAuthProxy(request);
 }
 

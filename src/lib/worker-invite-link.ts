@@ -41,8 +41,9 @@ export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
 export function getAuthPasswordSetupRedirectTo(origin?: string | null): string {
   const envApp = process.env.NEXT_PUBLIC_APP_URL?.trim();
   const base =
-    resolveInviteSiteOrigin(origin || envApp) ||
-    FALLBACK_APP_URL;
+    envApp && !isPlaceholderOrigin(envApp)
+      ? stripTrailingSlash(envApp)
+      : resolveInviteSiteOrigin(origin) || FALLBACK_APP_URL;
   return `${stripTrailingSlash(base)}/auth/callback?next=/reset-password`;
 }
 

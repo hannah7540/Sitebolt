@@ -2,7 +2,6 @@ import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { PASSWORD_SETUP_PATH } from "@/lib/worker-invite-link";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -22,36 +21,16 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
-function isPasswordSetupFlow(type: string | null, next: string | null): boolean {
-  const otpType = (type ?? "").toLowerCase();
-  const nextValue = (next ?? "").toLowerCase();
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get("code");
+  const tokenHash = requestUrl.searchParams.get("token_hash");
+  const type = requestUrl.searchParams.get("type");
+  const origin = requestUrl.origin;
 
-  return (
-    otpType === "recovery" ||
-    otpType === "invite" ||
-    nextValue.includes("/reset-password") ||
-    nextValue.includes("/set-password")
-  );
-}
-
-function resolveCallbackDestination(
-  type: string | null,
-  next: string | null,
-  hasAuthPayload: boolean
-): string {
-  if (isPasswordSetupFlow(type, next) || (hasAuthPayload && !next)) {
-    return PASSWORD_SETUP_PATH;
-  }
-
-  if (next?.startsWith("/") && !next.startsWith("//")) {
-    return next;
-  }
-
-  return PASSWORD_SETUP_PATH;
-}
-
-function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof cookies>>) {
-  let sessionResponse = NextResponse.next();
+  const cookieStore = await cookies();
+  const redirectUrl = new URL("/reset-password", origin);
+  const response = NextResponse.redirect(redirectUrl);
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -60,115 +39,47 @@ function createSupabaseWithCookieBridge(cookieStore: Awaited<ReturnType<typeof c
       },
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
-          cookieStore.set(name, value, options);
-        });
-        sessionResponse = NextResponse.next();
-        cookiesToSet.forEach(({ name, value, options }) => {
-          sessionResponse.cookies.set(name, value, options);
+          try {
+            cookieStore.set(name, value, options);
+          } catch {
+            // Route handlers must attach cookies to the returned response.
+          }
+          response.cookies.set(name, value, options);
         });
       },
     },
   });
 
-  return { supabase, getSessionResponse: () => sessionResponse };
-}
-
-function redirectWithSession(
-  origin: string,
-  nextPath: string,
-  sessionResponse: NextResponse
-): NextResponse {
-  const redirectResponse = NextResponse.redirect(`${origin}${nextPath}`);
-  copyCookies(sessionResponse, redirectResponse);
-  return redirectResponse;
-}
-
-function redirectWithError(
-  origin: string,
-  message: string,
-  sessionResponse: NextResponse
-): NextResponse {
-  const redirectUrl = new URL(PASSWORD_SETUP_PATH, origin);
-  redirectUrl.searchParams.set("error", message);
-  const errorResponse = NextResponse.redirect(redirectUrl);
-  copyCookies(sessionResponse, errorResponse);
-  return errorResponse;
-}
-
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
-  const tokenHash = requestUrl.searchParams.get("token_hash");
-  const otpTypeParam = requestUrl.searchParams.get("type");
-  const nextParam = requestUrl.searchParams.get("next");
-  const origin = requestUrl.origin;
-  const destination = resolveCallbackDestination(
-    otpTypeParam,
-    nextParam,
-    Boolean(code || tokenHash)
-  );
-
-  const cookieStore = await cookies();
-  const { supabase, getSessionResponse } = createSupabaseWithCookieBridge(cookieStore);
-
-  if (tokenHash && otpTypeParam && VALID_OTP_TYPES.has(otpTypeParam as EmailOtpType)) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: otpTypeParam as EmailOtpType,
-    });
-
-    if (error) {
-      return redirectWithError(origin, error.message, getSessionResponse());
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return redirectWithError(
-        origin,
-        "Unable to establish password setup session.",
-        getSessionResponse()
-      );
-    }
-
-    return redirectWithSession(origin, destination, getSessionResponse());
-  }
+  let errorMessage: string | null = null;
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-
     if (error) {
-      return redirectWithError(origin, error.message, getSessionResponse());
+      errorMessage = error.message;
     }
-
+  } else if (tokenHash && type && VALID_OTP_TYPES.has(type as EmailOtpType)) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: type as EmailOtpType,
+    });
+    if (error) {
+      errorMessage = error.message;
+    }
+  } else {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
     if (!user) {
-      return redirectWithError(
-        origin,
-        "Unable to establish password setup session.",
-        getSessionResponse()
-      );
+      errorMessage = "Auth link is invalid or has expired.";
     }
-
-    return redirectWithSession(origin, destination, getSessionResponse());
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    return redirectWithSession(origin, destination, getSessionResponse());
+  if (errorMessage) {
+    redirectUrl.searchParams.set("error", errorMessage);
+    const errorResponse = NextResponse.redirect(redirectUrl);
+    copyCookies(response, errorResponse);
+    return errorResponse;
   }
 
-  return redirectWithError(
-    origin,
-    "Auth link is invalid or has expired.",
-    getSessionResponse()
-  );
+  return response;
 }
