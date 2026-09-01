@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
@@ -61,20 +62,22 @@ export async function POST(req: Request) {
 
     const resend = new Resend(apiKey);
     const resetHtml = appendTeamEmailFooter(`
-        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Password Reset Request</h1>
-          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 32px;">
-            Click the button below to reset your password for your Site Bolt account.
-          </p>
-          <p style="margin: 0 0 32px; text-align: center;">
-            <a href="${actionLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
-              Reset Your Password
-            </a>
-          </p>
-          <p style="font-size: 14px; color: #64748b; margin: 0;">
-            If you did not request a password reset, you can ignore this email.
-          </p>
-        </div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-collapse: collapse;">
+  <tr>
+    <td style="padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1e293b;">
+      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px 0; color: #0F172A; font-family: Arial, Helvetica, sans-serif;">
+        Password Reset Request
+      </h1>
+      <p style="font-size: 16px; line-height: 1.5; margin: 0; color: #334155; font-family: Arial, Helvetica, sans-serif;">
+        Click the button below to reset your password for your Site Bolt account.
+      </p>
+      ${buildEmailCtaButtonHtml(actionLink, "Set your password")}
+      <p style="font-size: 14px; color: #64748b; margin: 16px 0 0 0; font-family: Arial, Helvetica, sans-serif;">
+        If you did not request a password reset, you can ignore this email.
+      </p>
+    </td>
+  </tr>
+</table>
       `.trim());
     const resetText = appendTeamEmailFooterText(
       `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`

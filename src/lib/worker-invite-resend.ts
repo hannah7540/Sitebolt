@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
+import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
@@ -161,19 +162,7 @@ export async function sendWorkerInviteEmailViaResend(
       <p style="font-size: 16px; line-height: 1.5; margin: 0; color: #334155; font-family: Arial, Helvetica, sans-serif;">
         You've been added to Site-Bolt. Please click the button below to set your password and access your account.
       </p>
-      <table border="0" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
-        <tr>
-          <td align="center" style="border-radius: 6px; background-color: #0F172A;">
-            <a href="${inviteLink}" target="_blank" style="font-size: 15px; font-family: sans-serif; color: #ffffff; text-decoration: none; border-radius: 6px; padding: 12px 24px; border: 1px solid #0F172A; display: inline-block; font-weight: 600;">
-              Set your password
-            </a>
-          </td>
-        </tr>
-      </table>
-      <p style="font-size: 13px; line-height: 1.5; margin: 0; color: #64748b; font-family: Arial, Helvetica, sans-serif;">
-        If the button doesn't work, copy and paste this link into your browser:<br />
-        <a href="${inviteLink}" target="_blank" style="color: #0F172A; word-break: break-all; text-decoration: underline;">${inviteLink}</a>
-      </p>
+      ${buildEmailCtaButtonHtml(inviteLink, "Set your password")}
     </td>
   </tr>
 </table>

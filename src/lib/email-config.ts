@@ -2,7 +2,7 @@
 export const DEFAULT_SYSTEM_FROM_ADDRESS = "hannah@site-bolt.com.au";
 
 /** Public support inbox shown in transactional email footers. */
-export const SITEBOLT_SUPPORT_EMAIL = "support@site-bolt.com.au";
+export const SITEBOLT_SUPPORT_EMAIL = "admin@site-bolt.com.au";
 
 export const DEFAULT_SYSTEM_FROM_NAME = "Site Bolt";
 

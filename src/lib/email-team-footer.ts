@@ -37,8 +37,8 @@ export function buildTeamEmailFooterHtml(): string {
       </p>
       <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #475569; font-family: ${FOOTER_FONT};">
         SiteBolt &mdash; construction safety &amp; compliance management.<br />
-        Need help?
-        <a href="mailto:${SITEBOLT_SUPPORT_EMAIL}" style="color: #0F172A; font-weight: 600; text-decoration: underline;">${SITEBOLT_SUPPORT_EMAIL}</a>
+        Need help? Email
+        <a href="mailto:${SITEBOLT_SUPPORT_EMAIL}" style="color: #2563EB; text-decoration: underline;">${SITEBOLT_SUPPORT_EMAIL}</a>
       </p>
       <img
         src="${SITEBOLT_EMAIL_BANNER_URL}"
@@ -55,7 +55,7 @@ export function buildTeamEmailFooterHtml(): string {
 }
 
 export function buildTeamEmailFooterText(): string {
-  return `\n\nThe Site-Bolt Team\nSiteBolt — construction safety & compliance management.\nNeed help? ${SITEBOLT_SUPPORT_EMAIL}\n${SITEBOLT_EMAIL_BANNER_URL}\n\n${CONFIDENTIALITY_DISCLAIMER}\n`;
+  return `\n\nThe Site-Bolt Team\nSiteBolt — construction safety & compliance management.\nNeed help? Email ${SITEBOLT_SUPPORT_EMAIL}\n${SITEBOLT_EMAIL_BANNER_URL}\n\n${CONFIDENTIALITY_DISCLAIMER}\n`;
 }
 
 export function hasTeamEmailFooter(html: string): boolean {

@@ -6,6 +6,7 @@ import {
 } from "@/lib/supabase/env";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { sendEmail } from "@/lib/email-service";
+import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 
 export function getAuthCallbackUrl(nextPath: string): string {
@@ -39,10 +40,10 @@ async function sendWorkerOnboardingLinkViaResend(
     to: [email],
     subject: "Set up your Site Bolt account",
     html: `
-      <p>Hi ${safeName},</p>
-      <p>You have been invited to join Site Bolt. Use the link below to set up your account:</p>
-      <p><a href="${actionLink}">Set up my account</a></p>
-      <p>If you did not expect this email, you can ignore it.</p>
+      <p style="font-family: Arial, Helvetica, sans-serif; color: #334155;">Hi ${safeName},</p>
+      <p style="font-family: Arial, Helvetica, sans-serif; color: #334155;">You have been invited to join Site Bolt. Use the button below to set up your account:</p>
+      ${buildEmailCtaButtonHtml(actionLink, "Set your password")}
+      <p style="font-family: Arial, Helvetica, sans-serif; color: #64748B; font-size: 14px;">If you did not expect this email, you can ignore it.</p>
     `,
     text: `Hi ${safeName},\n\nSet up your Site Bolt account: ${actionLink}`,
   });
