@@ -38,7 +38,7 @@ export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
 
 /** Hardcoded post-verify landing page. Never send invite/recovery links to /login or /admin. */
 export const PASSWORD_SETUP_REDIRECT_TO =
-  "https://site-bolt.com.au/setyourpassword";
+  "https://www.site-bolt.com.au/setyourpassword";
 
 /** Supabase generateLink redirectTo — always the public password form. */
 export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {

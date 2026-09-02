@@ -9,8 +9,8 @@ import { sendEmail } from "@/lib/email-service";
 import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 import {
-  buildDirectPasswordSetupLink,
   getAuthPasswordSetupRedirectTo,
+  isValidGeneratedAuthLink,
 } from "@/lib/worker-invite-link";
 
 export function getAuthCallbackUrl(nextPath: string): string {
@@ -85,12 +85,12 @@ export async function sendExistingUserOnboardingEmail(
       continue;
     }
 
-    const directLink = buildDirectPasswordSetupLink(data.properties);
-    if (!directLink) continue;
+    const actionLink = data?.properties?.action_link ?? null;
+    if (!isValidGeneratedAuthLink(actionLink)) continue;
 
     const sendResult = await sendWorkerOnboardingLinkViaResend(
       trimmedEmail,
-      directLink,
+      actionLink,
       fullName
     );
 

@@ -4,16 +4,13 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
 } from "@/lib/email-team-footer";
-import {
-  buildDirectPasswordSetupLink,
-  isValidGeneratedAuthLink,
-} from "@/lib/worker-invite-link";
+import { isValidGeneratedAuthLink } from "@/lib/worker-invite-link";
 
 export async function POST(req: Request) {
   const apiKey =
@@ -34,16 +31,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabaseAdmin = createSupabaseAdminClient();
 
     const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",
       email,
       options: {
-        redirectTo: "https://site-bolt.com.au/setyourpassword",
+        redirectTo: "https://www.site-bolt.com.au/setyourpassword",
       },
     });
 
@@ -52,9 +46,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    const actionLink = buildDirectPasswordSetupLink(data?.properties ?? null);
+    const actionLink = data?.properties?.action_link ?? null;
     if (!isValidGeneratedAuthLink(actionLink)) {
-      console.error("[/api/auth/reset-password] generateLink missing hashed_token");
+      console.error("[/api/auth/reset-password] generateLink missing action_link");
       return NextResponse.json({ success: true }, { status: 200 });
     }
 

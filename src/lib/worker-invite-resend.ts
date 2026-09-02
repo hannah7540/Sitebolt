@@ -223,10 +223,7 @@ export async function generateWorkerInviteSetupLink(
 
   try {
     const admin = createSupabaseAdminClient();
-    const appUrl = (
-      process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://www.site-bolt.com.au"
-    ).replace(/\/$/, "");
-    const targetUrl = `${appUrl}/setyourpassword`;
+    const targetUrl = "https://www.site-bolt.com.au/setyourpassword";
 
     let actionLink: string | null = null;
     let tokenHash: string | null = null;
@@ -243,7 +240,7 @@ export async function generateWorkerInviteSetupLink(
     tokenHash = recoveryParts.tokenHash;
     authUserId = recoveryParts.userId;
 
-    if (!actionLink && !tokenHash) {
+    if (!actionLink) {
       const inviteRes = await generateAuthLink(
         admin,
         "invite",
@@ -255,7 +252,7 @@ export async function generateWorkerInviteSetupLink(
       tokenHash = inviteParts.tokenHash;
       authUserId = inviteParts.userId ?? authUserId;
 
-      if (!actionLink && !tokenHash) {
+      if (!actionLink) {
         const { data: created, error: createError } =
           await admin.auth.admin.createUser({
             email: workerEmail,
@@ -276,12 +273,12 @@ export async function generateWorkerInviteSetupLink(
             retryParts.userId ?? created.user?.id ?? authUserId;
         }
 
-        if (!actionLink && !tokenHash) {
+        if (!actionLink) {
           const detail = formatUnknownError(
             recoveryRes.error ||
               inviteRes.error ||
               createError ||
-              "missing hashed_token and action_link"
+              "missing action_link"
           );
           console.error("[Auth Admin Failure]:", {
             recoveryError: recoveryRes.error,
@@ -297,34 +294,17 @@ export async function generateWorkerInviteSetupLink(
       }
     }
 
-    const finalLink = tokenHash
-      ? `${appUrl.startsWith("http") ? appUrl : "https://www.site-bolt.com.au"}/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`
-      : actionLink;
+    const finalLink = actionLink;
 
-    console.log("[DEBUG] has hashed_token:", Boolean(tokenHash));
     console.log("[DEBUG] has action_link:", Boolean(actionLink));
     console.log("[DEBUG] finalLink valid:", isValidGeneratedAuthLink(finalLink));
 
-    if (!finalLink) {
+    if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
       return {
         inviteLink: null,
         authUserId,
         error:
-          "Unable to generate SiteBolt auth link: missing hashed_token and action_link",
-      };
-    }
-
-    if (!isValidGeneratedAuthLink(finalLink) && tokenHash) {
-      const fallback = `https://www.site-bolt.com.au/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`;
-      console.log("[Generated Action Link]:", fallback);
-      return { inviteLink: fallback, authUserId, error: null };
-    }
-
-    if (!isValidGeneratedAuthLink(finalLink)) {
-      return {
-        inviteLink: null,
-        authUserId,
-        error: `Unable to generate SiteBolt auth link: constructed URL was rejected`,
+          "Unable to generate SiteBolt auth link: missing action_link from generateLink",
       };
     }
 
@@ -389,7 +369,7 @@ export async function sendWorkerInviteEmailViaResend(
       success: false,
       error:
         linkError ??
-        "Unable to generate SiteBolt auth link: missing hashed_token and action_link",
+        "Unable to generate SiteBolt auth link: missing action_link",
       message: null,
       messageId: null,
       actionLink: null,

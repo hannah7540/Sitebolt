@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import type { EmailOtpType, Session } from "@supabase/supabase-js";
+import { useSearchParams } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   passwordRequirementsLabel,
@@ -11,114 +12,56 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 const EXPIRED_LINK_MESSAGE =
-  "This password setup link is invalid or has expired. Please request a new one.";
-
-const OTP_TYPES = new Set<EmailOtpType>([
-  "signup",
-  "invite",
-  "magiclink",
-  "recovery",
-  "email",
-  "email_change",
-]);
-
-function isExpiredAuthError(message: string | null | undefined): boolean {
-  const value = (message ?? "").toLowerCase();
-  return (
-    value.includes("otp_expired") ||
-    value.includes("expired") ||
-    value.includes("access_denied") ||
-    value.includes("already been used")
-  );
-}
-
-function readHashAuthError(): string | null {
-  if (typeof window === "undefined") return null;
-  const hash = window.location.hash.replace(/^#/, "");
-  if (!hash) return null;
-  const params = new URLSearchParams(hash);
-  const error = params.get("error");
-  const code = params.get("error_code");
-  const description = params.get("error_description")?.replace(/\+/g, " ");
-  if (!error && !code && !description) return null;
-  if (isExpiredAuthError(`${error} ${code} ${description}`)) {
-    return EXPIRED_LINK_MESSAGE;
-  }
-  return description?.trim() || EXPIRED_LINK_MESSAGE;
-}
+  "This password setup link has expired or has already been used.";
 
 function SetYourPasswordForm() {
+  const searchParams = useSearchParams();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
+  const [isExpired, setIsExpired] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const startedRef = useRef(false);
+  const [resendEmail, setResendEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+  const isReadyRef = useRef(false);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
+    const emailFromQuery = searchParams.get("email")?.trim() ?? "";
+    if (emailFromQuery) {
+      setResendEmail(emailFromQuery);
+    }
+  }, [searchParams]);
 
+  useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let cancelled = false;
     let subscription: { unsubscribe: () => void } | null = null;
+    let timeoutId: number | undefined;
 
-    async function establishSession() {
-      const hashError = readHashAuthError();
-      if (hashError) {
+    function markReady(session?: Session | null) {
+      isReadyRef.current = true;
+      setIsReady(true);
+      setIsExpired(false);
+      setErrorMsg(null);
+      setLoading(false);
+      const sessionEmail = session?.user?.email?.trim();
+      if (sessionEmail) {
+        setResendEmail((current) => current || sessionEmail);
+      }
+    }
+
+    async function checkSession() {
+      const hash = window.location.hash;
+      if (hash.includes("error=") || hash.includes("otp_expired")) {
         if (!cancelled) {
-          setErrorMsg(hashError);
+          setErrorMsg(EXPIRED_LINK_MESSAGE);
+          setIsExpired(true);
           setLoading(false);
         }
         return;
-      }
-
-      const params = new URLSearchParams(window.location.search);
-      const tokenHash = params.get("token_hash");
-      const typeParam = (params.get("type") || "recovery") as EmailOtpType;
-      const type = OTP_TYPES.has(typeParam) ? typeParam : "recovery";
-
-      if (tokenHash) {
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type,
-        });
-        if (cancelled) return;
-        if (error) {
-          console.error("verifyOtp error:", error.message);
-          setErrorMsg(EXPIRED_LINK_MESSAGE);
-          setLoading(false);
-          return;
-        }
-        if (data.session) {
-          setIsReady(true);
-          setErrorMsg(null);
-          setLoading(false);
-          window.history.replaceState(null, "", window.location.pathname);
-          return;
-        }
-      }
-
-      const hash = window.location.hash.replace(/^#/, "");
-      if (hash.includes("access_token") && hash.includes("refresh_token")) {
-        const hashParams = new URLSearchParams(hash);
-        const accessToken = hashParams.get("access_token");
-        const refreshToken = hashParams.get("refresh_token");
-        if (accessToken && refreshToken) {
-          const { data } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (cancelled) return;
-          if (data.session) {
-            setIsReady(true);
-            setErrorMsg(null);
-            setLoading(false);
-            window.history.replaceState(null, "", window.location.pathname);
-            return;
-          }
-        }
       }
 
       const {
@@ -126,10 +69,24 @@ function SetYourPasswordForm() {
       } = await supabase.auth.getSession();
       if (cancelled) return;
       if (session) {
-        setIsReady(true);
-        setErrorMsg(null);
-        setLoading(false);
+        markReady(session);
         return;
+      }
+
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { data } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (cancelled) return;
+        if (data.session) {
+          markReady(data.session);
+          window.history.replaceState(null, "", window.location.pathname);
+          return;
+        }
       }
 
       const {
@@ -140,31 +97,76 @@ function SetYourPasswordForm() {
             event === "PASSWORD_RECOVERY" ||
             (event === "SIGNED_IN" && nextSession)
           ) {
-            setIsReady(true);
-            setErrorMsg(null);
-            setLoading(false);
+            markReady(nextSession);
           }
         }
       );
       subscription = authSub;
 
-      if (!tokenHash && !window.location.hash.includes("access_token")) {
-        setErrorMsg(
-          "No active password reset session found. Please request a new link."
-        );
-        setLoading(false);
-      } else {
-        setLoading(false);
-      }
+      timeoutId = window.setTimeout(async () => {
+        const {
+          data: { session: delayedSession },
+        } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (delayedSession) {
+          markReady(delayedSession);
+          return;
+        }
+        if (!isReadyRef.current) {
+          if (
+            !window.location.href.includes("token") &&
+            !window.location.hash
+          ) {
+            setErrorMsg("No active password reset session found.");
+            setIsExpired(true);
+          }
+          setLoading(false);
+        }
+      }, 1500);
     }
 
-    void establishSession();
+    void checkSession();
 
     return () => {
       cancelled = true;
       subscription?.unsubscribe();
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, []);
+
+  const requestNewLink = async () => {
+    const email = resendEmail.trim();
+    if (!email || !email.includes("@")) {
+      setErrorMsg("Enter your email to request a new password link.");
+      return;
+    }
+
+    setResending(true);
+    setResendSuccess(null);
+    setErrorMsg(null);
+
+    try {
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setErrorMsg(data.error || "Unable to send a new password link.");
+        return;
+      }
+      setResendSuccess(
+        "If an account exists, a new password link has been sent."
+      );
+    } catch {
+      setErrorMsg("Unable to send a new password link. Please try again.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -190,8 +192,9 @@ function SetYourPasswordForm() {
       } = await supabase.auth.getSession();
       if (!session) {
         setErrorMsg(
-          "Auth session not found. Please reload the link or request a new one."
+          "Auth session not found. Please request a new password link."
         );
+        setIsExpired(true);
         return;
       }
 
@@ -244,77 +247,118 @@ function SetYourPasswordForm() {
           Create a password for your Site-Bolt account.
         </p>
 
-        <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
-          <div className="space-y-1">
-            <label htmlFor="setyourpassword-new" className={labelClass}>
-              New Password
-            </label>
-            <input
-              id="setyourpassword-new"
-              name="password"
-              type="password"
-              className={inputClass}
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              autoComplete="new-password"
-              minLength={8}
-              required
-            />
+        {loading ? (
+          <p className="mb-4 flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+            Verifying your invite link…
+          </p>
+        ) : null}
+
+        {isReady && !errorMsg && !isExpired ? (
+          <p className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+            Link verified. Set your password below.
+          </p>
+        ) : null}
+
+        {errorMsg ? (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
+            {errorMsg}
           </div>
+        ) : null}
 
-          <div className="space-y-1">
-            <label htmlFor="setyourpassword-confirm" className={labelClass}>
-              Confirm Password
-            </label>
-            <input
-              id="setyourpassword-confirm"
-              name="confirmPassword"
-              type="password"
-              className={inputClass}
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              minLength={8}
-              required
-            />
+        {resendSuccess ? (
+          <div className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+            {resendSuccess}
           </div>
+        ) : null}
 
-          <p className="text-xs text-slate-500">{passwordRequirementsLabel()}</p>
-
-          {loading ? (
-            <p className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-              Verifying your invite link…
-            </p>
-          ) : null}
-
-          {isReady && !errorMsg ? (
-            <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
-              Link verified. Set your password below.
-            </p>
-          ) : null}
-
-          {errorMsg ? (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {errorMsg}
+        {isExpired ? (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label htmlFor="setyourpassword-resend-email" className={labelClass}>
+                Email
+              </label>
+              <input
+                id="setyourpassword-resend-email"
+                name="email"
+                type="email"
+                className={inputClass}
+                value={resendEmail}
+                onChange={(event) => setResendEmail(event.target.value)}
+                autoComplete="email"
+                required
+              />
             </div>
-          ) : null}
+            <button
+              type="button"
+              onClick={() => void requestNewLink()}
+              disabled={resending}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
+            >
+              {resending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Sending new link…
+                </>
+              ) : (
+                "Request New Password Link"
+              )}
+            </button>
+          </div>
+        ) : (
+          <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
+            <div className="space-y-1">
+              <label htmlFor="setyourpassword-new" className={labelClass}>
+                New Password
+              </label>
+              <input
+                id="setyourpassword-new"
+                name="password"
+                type="password"
+                className={inputClass}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={!isReady || submitting || loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Setting password…
-              </>
-            ) : (
-              "Set Password"
-            )}
-          </button>
-        </form>
+            <div className="space-y-1">
+              <label htmlFor="setyourpassword-confirm" className={labelClass}>
+                Confirm Password
+              </label>
+              <input
+                id="setyourpassword-confirm"
+                name="confirmPassword"
+                type="password"
+                className={inputClass}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+            </div>
+
+            <p className="text-xs text-slate-500">{passwordRequirementsLabel()}</p>
+
+            <button
+              type="submit"
+              disabled={!isReady || submitting || loading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Setting password…
+                </>
+              ) : (
+                "Set Password"
+              )}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
