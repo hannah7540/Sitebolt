@@ -1,6 +1,9 @@
 /** Default transactional sender for Resend + in-app notifications. */
 export const DEFAULT_SYSTEM_FROM_ADDRESS = "hannah@site-bolt.com.au";
 
+/** Public support inbox shown in transactional email footers. */
+export const SITEBOLT_SUPPORT_EMAIL = "admin@site-bolt.com.au";
+
 export const DEFAULT_SYSTEM_FROM_NAME = "Site Bolt";
 
 export const DEFAULT_SYSTEM_FROM_EMAIL = `${DEFAULT_SYSTEM_FROM_NAME} <${DEFAULT_SYSTEM_FROM_ADDRESS}>`;

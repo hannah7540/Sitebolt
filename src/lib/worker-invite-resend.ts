@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import type { User } from "@supabase/supabase-js";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
 import {
   appendTeamEmailFooter,
@@ -16,9 +17,13 @@ import {
 
 type GenerateLinkType = "invite" | "recovery" | "magiclink";
 
+export const PASSWORD_SETUP_LINK_SENT_MESSAGE =
+  "Password setup link sent successfully";
+
 export interface WorkerInviteEmailResult {
   success: boolean;
   error: string | null;
+  message: string | null;
   messageId: string | null;
   actionLink: string | null;
   authUserId?: string | null;
@@ -38,6 +43,34 @@ function getInviteOrigin(): string {
 
 function getPasswordSetupRedirectTo(origin: string): string {
   return `${origin}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(PASSWORD_SETUP_PATH)}`;
+}
+
+export async function findAuthUserByEmail(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  email: string
+): Promise<User | null> {
+  const target = email.trim().toLowerCase();
+  let page = 1;
+
+  while (page <= 20) {
+    const { data, error } = await admin.auth.admin.listUsers({
+      page,
+      perPage: 200,
+    });
+    if (error) {
+      console.warn("[worker-invite] listUsers failed:", error.message);
+      return null;
+    }
+
+    const match = data.users.find(
+      (user) => user.email?.trim().toLowerCase() === target
+    );
+    if (match) return match;
+    if (data.users.length < 200) break;
+    page += 1;
+  }
+
+  return null;
 }
 
 export async function generateWorkerInviteSetupLink(
@@ -114,13 +147,15 @@ export async function generateWorkerAuthActionLink(
 }
 
 export async function sendWorkerInviteEmailViaResend(
-  email: string
+  email: string,
+  _options?: { userAlreadyExists?: boolean }
 ): Promise<WorkerInviteEmailResult> {
   const trimmedEmail = email.trim();
   if (!trimmedEmail) {
     return {
       success: false,
       error: "email is required.",
+      message: null,
       messageId: null,
       actionLink: null,
       authUserId: null,
@@ -132,6 +167,7 @@ export async function sendWorkerInviteEmailViaResend(
     return {
       success: false,
       error: "RESEND_API_KEY is not configured.",
+      message: null,
       messageId: null,
       actionLink: null,
       authUserId: null,
@@ -145,6 +181,7 @@ export async function sendWorkerInviteEmailViaResend(
     return {
       success: false,
       error: linkError ?? "Unable to generate auth link.",
+      message: null,
       messageId: null,
       actionLink: null,
       authUserId,
@@ -185,6 +222,7 @@ export async function sendWorkerInviteEmailViaResend(
     return {
       success: false,
       error: resendResult.error.message,
+      message: null,
       messageId: null,
       actionLink: inviteLink,
       authUserId,
@@ -194,6 +232,7 @@ export async function sendWorkerInviteEmailViaResend(
   return {
     success: true,
     error: null,
+    message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
     messageId: resendResult.data?.id ?? null,
     actionLink: inviteLink,
     authUserId,

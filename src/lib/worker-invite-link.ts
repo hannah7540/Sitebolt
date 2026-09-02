@@ -76,3 +76,35 @@ export function buildPasswordResetCallbackUrl(hashedToken: string): string {
 export function getPasswordResetRedirectTo(): string {
   return `${PRODUCTION_SITE_URL}${AUTH_CONFIRM_PATH}?next=${encodeURIComponent(PASSWORD_RESET_NEXT_PATH)}`;
 }
+
+export function getAuthCallbackUrl(nextPath: string): string {
+  const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
+  return `${PRODUCTION_SITE_URL}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(next)}`;
+}
+
+export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {
+  return `${PRODUCTION_SITE_URL}${PASSWORD_SETUP_PATH}`;
+}
+
+export function isValidGeneratedAuthLink(link: string): boolean {
+  return Boolean(link && typeof link === "string" && link.length > 0);
+}
+
+export function buildAuthConfirmLink(input: {
+  tokenHash: string;
+  type?: string | null;
+  next?: string | null;
+  origin?: string | null;
+}): string | null {
+  const tokenHash = input.tokenHash.trim();
+  if (!tokenHash) return null;
+
+  const appUrl = (input.origin?.trim() || PRODUCTION_SITE_URL).replace(/\/$/, "");
+  const params = new URLSearchParams({
+    token_hash: tokenHash,
+    type: (input.type?.trim() || "recovery").toLowerCase(),
+    next: input.next?.trim() || PASSWORD_SETUP_PATH,
+  });
+
+  return `${appUrl}${AUTH_CONFIRM_PATH}?${params.toString()}`;
+}
