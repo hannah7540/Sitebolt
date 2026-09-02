@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   passwordRequirementsLabel,
@@ -16,7 +16,9 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 const EXPIRED_LINK_MESSAGE =
-  "This password setup link has expired or has already been used.";
+  "This password setup link has expired or has already been used. Please request a new one.";
+const NO_SESSION_MESSAGE =
+  "No active password reset session found. Please request a new link.";
 
 function SetYourPasswordForm() {
   const searchParams = useSearchParams();
@@ -25,7 +27,6 @@ function SetYourPasswordForm() {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
-  const [isExpired, setIsExpired] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState("");
   const [resending, setResending] = useState(false);
@@ -41,14 +42,13 @@ function SetYourPasswordForm() {
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
-    let cancelled = false;
+    let mounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
-    let timeoutId: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     function markReady(session?: Session | null) {
       isReadyRef.current = true;
       setIsReady(true);
-      setIsExpired(false);
       setErrorMsg(null);
       setLoading(false);
       const sessionEmail = session?.user?.email?.trim();
@@ -57,64 +57,72 @@ function SetYourPasswordForm() {
       }
     }
 
-    async function checkSession() {
+    async function initAuth() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (cancelled) return;
+      if (!mounted) return;
       if (session) {
         markReady(session);
         return;
       }
 
-      const {
-        data: { subscription: authSub },
-      } = supabase.auth.onAuthStateChange(
-        (_event: string, nextSession: Session | null) => {
-          if (nextSession) {
-            markReady(nextSession);
-          }
-        }
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      const params = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : ""
       );
-      subscription = authSub;
-
-      const params = new URLSearchParams(window.location.search);
-      const hash = window.location.hash;
       if (
-        params.get("error") === "expired" ||
         hash.includes("error=") ||
+        hash.includes("error_code=") ||
+        params.get("error") === "expired" ||
         hash.includes("otp_expired")
       ) {
         setErrorMsg(EXPIRED_LINK_MESSAGE);
-        setIsExpired(true);
         setLoading(false);
         return;
       }
 
-      timeoutId = window.setTimeout(async () => {
+      const {
+        data: { subscription: authSub },
+      } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, nextSession: Session | null) => {
+        if (!mounted) return;
+        if (
+          event === "PASSWORD_RECOVERY" ||
+          (event === "SIGNED_IN" && nextSession)
+        ) {
+          markReady(nextSession);
+        }
+      });
+
+      if (!mounted) {
+        authSub.unsubscribe();
+        return;
+      }
+      subscription = authSub;
+
+      timer = setTimeout(async () => {
+        if (!mounted) return;
         const {
-          data: { session: delayedSession },
+          data: { session: finalCheck },
         } = await supabase.auth.getSession();
-        if (cancelled) return;
-        if (delayedSession) {
-          markReady(delayedSession);
+        if (finalCheck) {
+          markReady(finalCheck);
           return;
         }
         if (!isReadyRef.current) {
-          setErrorMsg("No active password reset session found.");
-          setIsExpired(true);
+          setErrorMsg(NO_SESSION_MESSAGE);
           setLoading(false);
         }
-      }, 1500);
+      }, 2500);
     }
 
-    void checkSession();
+    void initAuth();
 
     return () => {
-      cancelled = true;
+      mounted = false;
       subscription?.unsubscribe();
-      if (timeoutId !== undefined) {
-        window.clearTimeout(timeoutId);
+      if (timer !== undefined) {
+        clearTimeout(timer);
       }
     };
   }, []);
@@ -128,7 +136,6 @@ function SetYourPasswordForm() {
 
     setResending(true);
     setResendSuccess(null);
-    setErrorMsg(null);
 
     try {
       const response = await fetch("/api/auth/reset-password", {
@@ -141,6 +148,7 @@ function SetYourPasswordForm() {
         setErrorMsg(data.error || "Unable to send a new password link.");
         return;
       }
+      setErrorMsg(null);
       setResendSuccess(
         "If an account exists, a new password link has been sent."
       );
@@ -177,7 +185,8 @@ function SetYourPasswordForm() {
         setErrorMsg(
           "Auth session not found. Please request a new password link."
         );
-        setIsExpired(true);
+        setIsReady(false);
+        isReadyRef.current = false;
         return;
       }
 
@@ -274,23 +283,17 @@ function SetYourPasswordForm() {
           Create a password for your Site-Bolt account.
         </p>
 
-        {loading ? (
+        {loading && !errorMsg ? (
           <p className="mb-4 flex items-center gap-2 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-            Verifying your invite link…
+            Verifying link...
           </p>
         ) : null}
 
-        {isReady && !errorMsg && !isExpired ? (
+        {isReady ? (
           <p className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
             Link verified. Set your password below.
           </p>
-        ) : null}
-
-        {errorMsg ? (
-          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
-            {errorMsg}
-          </div>
         ) : null}
 
         {resendSuccess ? (
@@ -299,8 +302,11 @@ function SetYourPasswordForm() {
           </div>
         ) : null}
 
-        {isExpired ? (
+        {!loading && !isReady && errorMsg ? (
           <div className="space-y-4">
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+              {errorMsg}
+            </div>
             <div className="space-y-1">
               <label htmlFor="setyourpassword-resend-email" className={labelClass}>
                 Email
@@ -332,8 +338,15 @@ function SetYourPasswordForm() {
               )}
             </button>
           </div>
-        ) : (
+        ) : null}
+
+        {isReady ? (
           <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
+            {errorMsg ? (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                {errorMsg}
+              </div>
+            ) : null}
             <div className="space-y-1">
               <label htmlFor="setyourpassword-new" className={labelClass}>
                 New Password
@@ -372,7 +385,7 @@ function SetYourPasswordForm() {
 
             <button
               type="submit"
-              disabled={!isReady || submitting || loading}
+              disabled={submitting}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60"
             >
               {submitting ? (
@@ -385,7 +398,7 @@ function SetYourPasswordForm() {
               )}
             </button>
           </form>
-        )}
+        ) : null}
       </div>
     </div>
   );
