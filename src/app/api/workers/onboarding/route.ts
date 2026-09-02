@@ -16,8 +16,7 @@ import {
 } from "@/lib/ensure-worker-profile";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
-import { applyWorkerInductionWorkflowRulesAdmin } from "@/lib/worker-induction-auto-assign";
-import { applyWorkerSwmsWorkflowRulesAdmin } from "@/lib/worker-swms-auto-assign";
+import { onWorkerOnboardingCompleted } from "@/lib/services/worker-assignment";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { sanitizeStoredPhoneNumber } from "@/lib/sms-phone";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
@@ -329,21 +328,11 @@ export async function POST(req: Request) {
   }
 
   try {
-    await applyWorkerInductionWorkflowRulesAdmin(admin, workerId, {
+    await onWorkerOnboardingCompleted(admin, workerId, {
       state: payRuleState ?? workerState,
-      includeExistingProjects: true,
     });
   } catch (cause) {
-    console.warn("[/api/workers/onboarding] induction auto-assign skipped:", cause);
-  }
-
-  try {
-    await applyWorkerSwmsWorkflowRulesAdmin(admin, workerId, {
-      assignCompanySwms: true,
-      includeExistingProjects: true,
-    });
-  } catch (cause) {
-    console.warn("[/api/workers/onboarding] SWMS auto-assign skipped:", cause);
+    console.warn("[/api/workers/onboarding] auto-assign skipped:", cause);
   }
 
   const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);

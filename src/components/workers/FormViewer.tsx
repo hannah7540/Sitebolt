@@ -31,6 +31,7 @@ import {
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import ModalActionFooter from "@/components/ui/ModalActionFooter";
+import PdfViewer from "@/components/documents/PdfViewer";
 
 interface FormViewerProps {
   assignment: FormWorkerAssignment;
@@ -330,10 +331,9 @@ export default function FormViewer({
                   >
                     <p className="mb-2 text-sm font-semibold text-slate-800">{block.label}</p>
                     {block.pdfUrl ? (
-                      <iframe
-                        title={block.label}
-                        src={block.pdfUrl}
-                        className="h-64 w-full rounded-lg border border-slate-200 bg-white"
+                      <PdfViewer
+                        fileUrl={block.pdfUrl}
+                        title={block.label || "Induction document"}
                       />
                     ) : (
                       <p className="text-sm text-slate-500">PDF attachment unavailable.</p>

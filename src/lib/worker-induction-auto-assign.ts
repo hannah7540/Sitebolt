@@ -212,6 +212,20 @@ async function insertInductionAssignment(
     "due_date",
   ] as const;
 
+  const { error: upsertError } = await client
+    .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+    .upsert([currentPayload], {
+      onConflict: "form_id,worker_id",
+      ignoreDuplicates: true,
+    });
+
+  if (!upsertError) {
+    return true;
+  }
+  if (isUniqueViolation(upsertError.message)) {
+    return false;
+  }
+
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { error } = await client
       .from(FORM_WORKER_ASSIGNMENTS_TABLE)

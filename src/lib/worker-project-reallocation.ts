@@ -1,11 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadCompanyProfile } from "@/lib/company-profile-service";
 import { sendEmail } from "@/lib/email-service";
-import {
-  assignProjectInductionsForWorker,
-  findActiveProjectInductionTemplates,
-} from "@/lib/worker-induction-auto-assign";
-import { assignProjectSwmsForWorker } from "@/lib/worker-swms-auto-assign";
+import { onWorkerProjectAssigned } from "@/lib/services/worker-assignment";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { getWorkerDisplayName, splitWorkerFullName } from "@/lib/worker-utils";
@@ -141,29 +137,23 @@ export async function processWorkerProjectReallocation(
 
   let inductionAssigned = false;
   try {
-    const templates = await findActiveProjectInductionTemplates(admin, projectId);
-    if (templates.length === 0) {
+    const assignment = await onWorkerProjectAssigned(admin, workerId, {
+      projectIds: [projectId],
+      projectNames: { [projectId]: projectName },
+    });
+    inductionAssigned = assignment.inductions.projectAssigned > 0;
+    warnings.push(...assignment.inductions.warnings, ...assignment.swms.warnings);
+    if (
+      assignment.inductions.projectAssigned === 0 &&
+      assignment.inductions.skipped === 0
+    ) {
       console.warn(
         `[worker-reallocation] no active project induction template for project ${projectId}.`
       );
     }
-
-    const assignResult = await assignProjectInductionsForWorker(admin, workerId, [projectId], {
-      projectNames: { [projectId]: projectName },
-    });
-    inductionAssigned = assignResult.assigned > 0;
-    warnings.push(...assignResult.warnings);
   } catch (cause) {
-    console.warn("[worker-reallocation] induction assignment error:", cause);
-    warnings.push("Project induction assignment skipped due to an error.");
-  }
-
-  try {
-    const swmsResult = await assignProjectSwmsForWorker(admin, workerId, [projectId]);
-    warnings.push(...swmsResult.warnings);
-  } catch (cause) {
-    console.warn("[worker-reallocation] SWMS assignment error:", cause);
-    warnings.push("Project SWMS assignment skipped due to an error.");
+    console.warn("[worker-reallocation] assignment error:", cause);
+    warnings.push("Project SWMS/induction assignment skipped due to an error.");
   }
 
   let emailSent = false;

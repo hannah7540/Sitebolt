@@ -1250,35 +1250,21 @@ export async function assignMasterWorkerToProject(input: {
     );
 
     try {
-      const { applyWorkerInductionWorkflowRulesForWorker } = await import(
-        "./worker-induction-auto-assign"
+      const { applyAutomaticWorkerAssignmentsForWorker } = await import(
+        "./services/worker-assignment"
       );
-      await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+      await applyAutomaticWorkerAssignmentsForWorker({
+        workerId,
         projectIds: [resolvedProjectId],
         projectNames: projectName
           ? { [resolvedProjectId]: projectName }
           : undefined,
-        includeExistingProjects: false,
-      });
-    } catch (cause) {
-      console.warn(
-        "[assignMasterWorkerToProject] induction auto-assign skipped:",
-        cause
-      );
-    }
-
-    try {
-      const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
-        "./worker-swms-auto-assign"
-      );
-      await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
+        syncCompanyFromWorkerState: true,
         assignCompanySwms: false,
-        projectIds: [resolvedProjectId],
-        includeExistingProjects: false,
       });
     } catch (cause) {
       console.warn(
-        "[assignMasterWorkerToProject] SWMS auto-assign skipped:",
+        "[assignMasterWorkerToProject] auto-assign skipped:",
         cause
       );
     }
@@ -1612,29 +1598,17 @@ export async function addWorker(
 
   if (workerId) {
     try {
-      const { applyWorkerInductionWorkflowRulesForWorker } = await import(
-        "./worker-induction-auto-assign"
+      const { applyAutomaticWorkerAssignmentsForWorker } = await import(
+        "./services/worker-assignment"
       );
-      await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+      await applyAutomaticWorkerAssignmentsForWorker({
+        workerId,
         state: worker.state ?? null,
         projectIds: resolvedProjectId ? [resolvedProjectId] : [],
-        includeExistingProjects: false,
-      });
-    } catch (cause) {
-      console.warn("[addWorker] induction auto-assign skipped:", cause);
-    }
-
-    try {
-      const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
-        "./worker-swms-auto-assign"
-      );
-      await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
         assignCompanySwms: true,
-        projectIds: resolvedProjectId ? [resolvedProjectId] : [],
-        includeExistingProjects: false,
       });
     } catch (cause) {
-      console.warn("[addWorker] SWMS auto-assign skipped:", cause);
+      console.warn("[addWorker] auto-assign skipped:", cause);
     }
   }
 
@@ -2025,33 +1999,21 @@ export async function updateWorker(
     const projectChanged = updates.assigned_project_id !== undefined;
     if (stateChanged || projectChanged) {
       try {
-        const { applyWorkerInductionWorkflowRulesForWorker } = await import(
-          "./worker-induction-auto-assign"
+        const { applyAutomaticWorkerAssignmentsForWorker } = await import(
+          "./services/worker-assignment"
         );
-        await applyWorkerInductionWorkflowRulesForWorker(workerId, {
+        await applyAutomaticWorkerAssignmentsForWorker({
+          workerId,
           state: stateChanged ? (updates.state ?? null) : undefined,
+          syncCompanyFromWorkerState: !stateChanged,
           projectIds: projectChanged
             ? [payload.assigned_project_id as string | null]
             : [],
-          includeExistingProjects: false,
-        });
-      } catch (cause) {
-        console.warn("[updateWorker] induction auto-assign skipped:", cause);
-      }
-    }
-
-    if (projectChanged) {
-      try {
-        const { applyWorkerSwmsWorkflowRulesForWorker } = await import(
-          "./worker-swms-auto-assign"
-        );
-        await applyWorkerSwmsWorkflowRulesForWorker(workerId, {
+          includeExistingProjects: !projectChanged,
           assignCompanySwms: false,
-          projectIds: [payload.assigned_project_id as string | null],
-          includeExistingProjects: false,
         });
       } catch (cause) {
-        console.warn("[updateWorker] SWMS auto-assign skipped:", cause);
+        console.warn("[updateWorker] auto-assign skipped:", cause);
       }
     }
   }
