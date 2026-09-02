@@ -8,6 +8,10 @@ import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
+import {
+  resolvePostPasswordSetupHref,
+  type WorkerPostPasswordStatus,
+} from "@/lib/post-password-redirect";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
@@ -207,18 +211,62 @@ function SetYourPasswordForm() {
         return;
       }
 
-      const { data: worker } = await supabase
-        .from("workers")
-        .select("onboarding_completed")
-        .eq("email", session.user.email)
-        .maybeSingle();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (worker && worker.onboarding_completed === false) {
-        window.location.href = "/onboarding";
-      } else {
-        window.location.href =
-          "/login?message=Password updated successfully. Please log in.";
+      let worker: WorkerPostPasswordStatus | null = null;
+      if (user?.email) {
+        const { data: clientWorker, error: workerErr } = await supabase
+          .from("workers")
+          .select("id, onboarding_completed, status, invite_status")
+          .eq("email", user.email)
+          .maybeSingle();
+
+        if (!workerErr && clientWorker?.id) {
+          worker = {
+            id: clientWorker.id,
+            onboarding_completed:
+              typeof clientWorker.onboarding_completed === "boolean"
+                ? clientWorker.onboarding_completed
+                : null,
+            status:
+              typeof clientWorker.status === "string"
+                ? clientWorker.status
+                : null,
+            invite_status:
+              typeof clientWorker.invite_status === "string"
+                ? clientWorker.invite_status
+                : null,
+          };
+        }
       }
+
+      if (!worker) {
+        const accessToken =
+          (await supabase.auth.getSession()).data.session?.access_token ??
+          session.access_token;
+        const statusRes = await fetch("/api/workers/check-status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (statusRes.ok) {
+          const payload = (await statusRes.json()) as {
+            worker?: WorkerPostPasswordStatus | null;
+            redirectTo?: string;
+          };
+          if (payload.redirectTo) {
+            window.location.href = payload.redirectTo;
+            return;
+          }
+          worker = payload.worker ?? null;
+        }
+      }
+
+      window.location.href = resolvePostPasswordSetupHref(worker);
     } catch (cause) {
       setErrorMsg(
         cause instanceof Error ? cause.message : "Failed to set password."
