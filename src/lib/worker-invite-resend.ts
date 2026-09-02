@@ -1,7 +1,5 @@
 import { Resend } from "resend";
-import type { AuthError, User } from "@supabase/supabase-js";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
-import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
@@ -9,38 +7,22 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  buildAuthConfirmLink,
-  isValidGeneratedAuthLink,
+  AUTH_CALLBACK_PATH,
+  PASSWORD_SETUP_PATH,
+  buildAuthCallbackUrl,
   resolveInviteSiteOrigin,
+  type AuthLinkType,
 } from "@/lib/worker-invite-link";
 
 type GenerateLinkType = "invite" | "recovery" | "magiclink";
 
-export const PASSWORD_SETUP_EMAIL_SUBJECT = "Set up your SiteBolt account password";
-export const PASSWORD_SETUP_LINK_SENT_MESSAGE =
-  "Password setup link sent successfully";
-
 export interface WorkerInviteEmailResult {
   success: boolean;
   error: string | null;
-  message: string | null;
   messageId: string | null;
   actionLink: string | null;
   authUserId?: string | null;
 }
-
-type GenerateLinkCallResult = {
-  data: {
-    user?: User | null;
-    properties?: {
-      action_link?: string | null;
-      hashed_token?: string | null;
-      token_hash?: string | null;
-      verification_type?: string | null;
-    } | null;
-  } | null;
-  error: AuthError | { message: string; status?: number; code?: string } | null;
-};
 
 function getResendClient(): Resend | null {
   const apiKey =
@@ -51,173 +33,22 @@ function getResendClient(): Resend | null {
 }
 
 function getInviteOrigin(): string {
-  return resolveInviteSiteOrigin(
-    process.env.NEXT_PUBLIC_APP_URL?.trim() || getSiteUrl()
-  );
+  return resolveInviteSiteOrigin(getSiteUrl());
 }
 
-function isExistingAuthUserError(
-  error: GenerateLinkCallResult["error"]
-): boolean {
-  if (!error) return false;
-
-  const status = "status" in error ? Number(error.status) : NaN;
-  if (status === 422) return true;
-
-  const code = ("code" in error ? String(error.code) : "").toLowerCase();
-  if (
-    code === "email_exists" ||
-    code === "user_already_exists" ||
-    code === "user_already_registered"
-  ) {
-    return true;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("already registered") ||
-    message.includes("already been registered") ||
-    message.includes("already exists") ||
-    message.includes("already has an account") ||
-    message.includes("email_exists")
-  );
-}
-
-function formatUnknownError(err: unknown): string {
-  if (!err) return "unknown error";
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === "string" && err.trim()) return err.trim();
-  if (typeof err === "object" && "message" in err) {
-    const message = (err as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return message.trim();
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}
-
-function readGeneratedLinkParts(data: GenerateLinkCallResult["data"]): {
-  actionLink: string | null;
-  tokenHash: string | null;
-  verificationType: string;
-  userId: string | null;
-} {
-  const props = data?.properties;
-  return {
-    actionLink: props?.action_link?.trim() || null,
-    tokenHash:
-      props?.hashed_token?.trim() || props?.token_hash?.trim() || null,
-    verificationType:
-      props?.verification_type?.trim() || "recovery",
-    userId: data?.user?.id ?? null,
-  };
-}
-
-async function generateAuthLink(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  type: GenerateLinkType,
-  email: string,
-  redirectTo: string
-): Promise<GenerateLinkCallResult> {
-  try {
-    const result = await admin.auth.admin.generateLink({
-      type,
-      email,
-      options: { redirectTo },
-    });
-    const properties = result.data?.properties as
-      | {
-          action_link?: string | null;
-          hashed_token?: string | null;
-          token_hash?: string | null;
-        }
-      | null
-      | undefined;
-    console.log("[DEBUG] generateLink", type, {
-      error: result.error?.message ?? null,
-      hasProperties: Boolean(properties),
-      hasHashedToken: Boolean(properties?.hashed_token || properties?.token_hash),
-      hasActionLink: Boolean(properties?.action_link),
-    });
-    return { data: result.data, error: result.error };
-  } catch (cause) {
-    const err = cause as { message?: string; status?: number; code?: string };
-    console.error("[Generate Link Error]:", cause);
-    return {
-      data: null,
-      error: {
-        message: err?.message || "Failed to generate auth link.",
-        status: err?.status,
-        code: err?.code,
-      },
-    };
-  }
-}
-
-export async function findAuthUserByEmail(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  email: string
-): Promise<User | null> {
-  const target = email.trim().toLowerCase();
-  let page = 1;
-
-  while (page <= 20) {
-    const { data, error } = await admin.auth.admin.listUsers({
-      page,
-      perPage: 200,
-    });
-    if (error) {
-      console.warn("[worker-invite] listUsers failed:", error.message);
-      return null;
-    }
-
-    const match = data.users.find(
-      (user) => user.email?.trim().toLowerCase() === target
-    );
-    if (match) return match;
-    if (data.users.length < 200) break;
-    page += 1;
-  }
-
-  return null;
+function getPasswordSetupRedirectTo(origin: string): string {
+  return `${origin}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(PASSWORD_SETUP_PATH)}`;
 }
 
 export async function generateWorkerInviteSetupLink(
   email: string,
-  _origin = getInviteOrigin(),
-  _options?: { userAlreadyExists?: boolean }
+  origin = getInviteOrigin()
 ): Promise<{
   inviteLink: string | null;
   authUserId: string | null;
   error: string | null;
 }> {
-  const workerEmail = email.trim().toLowerCase();
-  console.log("[DEBUG] Worker email:", workerEmail);
-  console.log(
-    "[DEBUG] Supabase URL present:",
-    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL)
-  );
-  console.log(
-    "[DEBUG] Service role key present:",
-    Boolean(
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
-    )
-  );
-
-  if (!workerEmail || !workerEmail.includes("@")) {
-    return {
-      inviteLink: null,
-      authUserId: null,
-      error: "email is required.",
-    };
-  }
-
   if (!isSupabaseAdminConfigured()) {
-    console.error(
-      "[Supabase Admin Init Error]: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables."
-    );
     return {
       inviteLink: null,
       authUserId: null,
@@ -225,117 +56,53 @@ export async function generateWorkerInviteSetupLink(
     };
   }
 
-  try {
-    const admin = createSupabaseAdminClient();
-    const targetUrl = "https://www.site-bolt.com.au/setyourpassword";
+  const admin = createSupabaseAdminClient();
+  const redirectTo = getPasswordSetupRedirectTo(origin);
+  const attempts: GenerateLinkType[] = ["invite", "recovery", "magiclink"];
+  let lastError: string | null = null;
+  let authUserId: string | null = null;
 
-    let tokenHash: string | null = null;
-    let verificationType = "recovery";
-    let authUserId: string | null = null;
-
-    const recoveryRes = await generateAuthLink(
-      admin,
-      "recovery",
-      workerEmail,
-      targetUrl
-    );
-    const recoveryParts = readGeneratedLinkParts(recoveryRes.data);
-    tokenHash = recoveryParts.tokenHash;
-    verificationType = recoveryParts.verificationType || "recovery";
-    authUserId = recoveryParts.userId;
-
-    if (!tokenHash) {
-      const inviteRes = await generateAuthLink(
-        admin,
-        "invite",
-        workerEmail,
-        targetUrl
-      );
-      const inviteParts = readGeneratedLinkParts(inviteRes.data);
-      tokenHash = inviteParts.tokenHash;
-      verificationType = inviteParts.verificationType || "invite";
-      authUserId = inviteParts.userId ?? authUserId;
-
-      if (!tokenHash) {
-        const { data: created, error: createError } =
-          await admin.auth.admin.createUser({
-            email: workerEmail,
-            email_confirm: true,
-          });
-
-        if (!createError || isExistingAuthUserError(createError)) {
-          const retryRes = await generateAuthLink(
-            admin,
-            "recovery",
-            workerEmail,
-            targetUrl
-          );
-          const retryParts = readGeneratedLinkParts(retryRes.data);
-          tokenHash = retryParts.tokenHash;
-          verificationType = retryParts.verificationType || "recovery";
-          authUserId =
-            retryParts.userId ?? created.user?.id ?? authUserId;
-        }
-
-        if (!tokenHash) {
-          const detail = formatUnknownError(
-            recoveryRes.error ||
-              inviteRes.error ||
-              createError ||
-              "missing hashed_token"
-          );
-          console.error("[Auth Admin Failure]:", {
-            recoveryError: recoveryRes.error,
-            inviteError: inviteRes.error,
-            createError,
-          });
-          return {
-            inviteLink: null,
-            authUserId,
-            error: `Unable to generate SiteBolt auth link: ${detail}`,
-          };
-        }
-      }
-    }
-
-    const appUrl = (
-      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-      "https://www.site-bolt.com.au"
-    ).replace(/\/$/, "");
-    const finalLink = buildAuthConfirmLink({
-      tokenHash,
-      type: verificationType,
-      next: "/setyourpassword",
-      origin: appUrl,
+  for (const type of attempts) {
+    const { data, error } = await admin.auth.admin.generateLink({
+      type,
+      email: email.trim(),
+      options: { redirectTo },
     });
 
-    console.log("[DEBUG] has hashed_token:", Boolean(tokenHash));
-    console.log("[DEBUG] finalLink valid:", isValidGeneratedAuthLink(finalLink));
+    if (error) {
+      lastError = error.message;
+      console.warn(`[worker-invite] generateLink(${type}) failed:`, error.message);
+      continue;
+    }
 
-    if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
+    authUserId = data.user?.id ?? authUserId;
+    const hashedToken = data.properties?.hashed_token ?? null;
+    const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
+
+    if (hashedToken) {
       return {
-        inviteLink: null,
+        inviteLink: buildAuthCallbackUrl(
+          hashedToken,
+          verificationType,
+          PASSWORD_SETUP_PATH,
+          origin
+        ),
         authUserId,
-        error:
-          "Unable to generate SiteBolt auth link: missing hashed_token from generateLink",
+        error: null,
       };
     }
 
-    console.log("[Generated Action Link]:", finalLink);
-    console.log("[Password setup confirm path]:", "/auth/confirm");
-    return {
-      inviteLink: finalLink,
-      authUserId,
-      error: null,
-    };
-  } catch (err: unknown) {
-    console.error("[Generate Link Error]:", err);
-    return {
-      inviteLink: null,
-      authUserId: null,
-      error: `Unable to generate SiteBolt auth link: ${formatUnknownError(err)}`,
-    };
+    const actionLink = data.properties?.action_link ?? null;
+    if (actionLink) {
+      return { inviteLink: actionLink, authUserId, error: null };
+    }
   }
+
+  return {
+    inviteLink: null,
+    authUserId,
+    error: lastError ?? "Unable to generate a secure password setup link.",
+  };
 }
 
 /** @deprecated Use generateWorkerInviteSetupLink */
@@ -347,15 +114,13 @@ export async function generateWorkerAuthActionLink(
 }
 
 export async function sendWorkerInviteEmailViaResend(
-  email: string,
-  options?: { userAlreadyExists?: boolean }
+  email: string
 ): Promise<WorkerInviteEmailResult> {
-  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedEmail = email.trim();
   if (!trimmedEmail) {
     return {
       success: false,
       error: "email is required.",
-      message: null,
       messageId: null,
       actionLink: null,
       authUserId: null,
@@ -367,54 +132,50 @@ export async function sendWorkerInviteEmailViaResend(
     return {
       success: false,
       error: "RESEND_API_KEY is not configured.",
-      message: null,
       messageId: null,
       actionLink: null,
       authUserId: null,
     };
   }
 
-  const { inviteLink: finalLink, authUserId, error: linkError } =
-    await generateWorkerInviteSetupLink(trimmedEmail, getInviteOrigin(), options);
+  const { inviteLink, authUserId, error: linkError } =
+    await generateWorkerInviteSetupLink(trimmedEmail);
 
-  if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
+  if (!inviteLink) {
     return {
       success: false,
-      error:
-        linkError ??
-        "Unable to generate SiteBolt auth link: missing hashed_token",
-      message: null,
+      error: linkError ?? "Unable to generate auth link.",
       messageId: null,
       actionLink: null,
       authUserId,
     };
   }
 
-  console.log("[Generated Action Link]:", finalLink);
-
   const inviteHtml = appendTeamEmailFooter(`
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-collapse: collapse;">
-  <tr>
-    <td style="padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1e293b;">
-      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px 0; color: #0F172A; font-family: Arial, Helvetica, sans-serif;">
-        Welcome to Site-Bolt
-      </h1>
-      <p style="font-size: 16px; line-height: 1.5; margin: 0; color: #334155; font-family: Arial, Helvetica, sans-serif;">
-        You've been added to Site-Bolt. Please click the button below to set your password and access your account.
-      </p>
-      ${buildEmailCtaButtonHtml(finalLink, "Set your password")}
-    </td>
-  </tr>
-</table>
+        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
+          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site-Bolt</h1>
+          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
+            You've been added to Site-Bolt. Please click the link below to set your password and access your account.
+          </p>
+          <p style="margin: 0 0 32px;">
+            <a href="${inviteLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+              Set Your Password
+            </a>
+          </p>
+          <p style="font-size: 14px; color: #64748b; margin: 0;">
+            If the button doesn't work, copy and paste this link into your browser:<br />
+            <a href="${inviteLink}" style="color: #ea580c; word-break: break-all;">${inviteLink}</a>
+          </p>
+        </div>
       `.trim());
   const inviteText = appendTeamEmailFooterText(
-    `You've been added to Site-Bolt. Please use the "Set your password" button in this email to access your account.`
+    `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`
   );
 
   const resendResult = await resend.emails.send({
     from: DEFAULT_SYSTEM_FROM_EMAIL,
     to: [trimmedEmail],
-    subject: PASSWORD_SETUP_EMAIL_SUBJECT,
+    subject: "You have been added to Site-Bolt",
     html: inviteHtml,
     text: inviteText,
   });
@@ -424,9 +185,8 @@ export async function sendWorkerInviteEmailViaResend(
     return {
       success: false,
       error: resendResult.error.message,
-      message: null,
       messageId: null,
-      actionLink: finalLink,
+      actionLink: inviteLink,
       authUserId,
     };
   }
@@ -434,9 +194,8 @@ export async function sendWorkerInviteEmailViaResend(
   return {
     success: true,
     error: null,
-    message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
     messageId: resendResult.data?.id ?? null,
-    actionLink: finalLink,
+    actionLink: inviteLink,
     authUserId,
   };
 }

@@ -1,124 +1,21 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
-export const AUTH_CONFIRM_PATH = "/auth/confirm";
+export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
-export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
+export const PASSWORD_RESET_OTP_PATH = "/reset-password";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
-
-function stripTrailingSlash(value: string): string {
-  return value.replace(/\/$/, "");
-}
-
-function isPlaceholderOrigin(value: string): boolean {
-  const lower = value.toLowerCase();
-  return (
-    !lower ||
-    lower.includes("google.com") ||
-    lower.includes("example.com") ||
-    lower.includes("placeholder")
-  );
-}
 
 export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
   const configured =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (configured && !isPlaceholderOrigin(configured)) {
-    return stripTrailingSlash(configured);
-  }
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
 
   const origin = requestOrigin?.trim();
-  if (origin && !origin.includes("localhost") && !isPlaceholderOrigin(origin)) {
-    return stripTrailingSlash(origin);
-  }
+  if (origin && !origin.includes("localhost")) return origin.replace(/\/$/, "");
 
   return PRODUCTION_SITE_URL;
-}
-
-/** Hardcoded post-verify landing page. Never send invite/recovery links to /login or /admin. */
-export const PASSWORD_SETUP_REDIRECT_TO =
-  "https://www.site-bolt.com.au/setyourpassword";
-
-/** Supabase generateLink redirectTo — always the public password form. */
-export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {
-  return PASSWORD_SETUP_REDIRECT_TO;
-}
-
-export function isValidGeneratedAuthLink(link: string | null | undefined): boolean {
-  const value = link?.trim() ?? "";
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-    const host = url.hostname.toLowerCase();
-    if (
-      host === "google.com" ||
-      host.endsWith(".google.com") ||
-      host === "example.com" ||
-      host.endsWith(".example.com")
-    ) {
-      return false;
-    }
-    return true;
-  } catch {
-    return value.startsWith("/setyourpassword");
-  }
-}
-
-/** App origin for password-setup emails (no trailing slash). */
-export function getPasswordSetupAppOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (configured && !isPlaceholderOrigin(configured)) {
-    return stripTrailingSlash(configured);
-  }
-  return PRODUCTION_SITE_URL;
-}
-
-type GeneratedLinkProperties = {
-  action_link?: string | null;
-  hashed_token?: string | null;
-  token_hash?: string | null;
-  verification_type?: string | null;
-} | null;
-
-/** Server-side OTP exchange URL. Never email the raw Supabase action_link. */
-export function buildAuthConfirmLink(input: {
-  tokenHash: string;
-  type?: string | null;
-  next?: string | null;
-  origin?: string | null;
-}): string | null {
-  const tokenHash = input.tokenHash.trim();
-  if (!tokenHash) return null;
-  const appUrl = stripTrailingSlash(
-    input.origin?.trim() || getPasswordSetupAppOrigin()
-  );
-  const params = new URLSearchParams({
-    token_hash: tokenHash,
-    type: (input.type?.trim() || "recovery").toLowerCase(),
-    next: input.next?.trim() || "/setyourpassword",
-  });
-  return `${appUrl}${AUTH_CONFIRM_PATH}?${params.toString()}`;
-}
-
-/**
- * Build a scanner-safe password setup URL using hashed_token.
- * Mail clients that prefetch action_link consume the OTP; hashed_token is
- * exchanged once on /auth/confirm.
- */
-export function buildDirectPasswordSetupLink(
-  properties: GeneratedLinkProperties
-): string | null {
-  const hashedToken =
-    properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
-  const type = (properties?.verification_type?.trim() || "recovery").toLowerCase();
-
-  if (hashedToken) {
-    return buildAuthConfirmLink({ tokenHash: hashedToken, type });
-  }
-
-  return null;
 }
 
 export function buildPasswordSetupPath(email?: string | null): string {
