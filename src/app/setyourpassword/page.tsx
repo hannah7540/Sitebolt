@@ -58,16 +58,6 @@ function SetYourPasswordForm() {
     }
 
     async function checkSession() {
-      const hash = window.location.hash;
-      if (hash.includes("error=") || hash.includes("otp_expired")) {
-        if (!cancelled) {
-          setErrorMsg(EXPIRED_LINK_MESSAGE);
-          setIsExpired(true);
-          setLoading(false);
-        }
-        return;
-      }
-
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -77,35 +67,29 @@ function SetYourPasswordForm() {
         return;
       }
 
-      const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
-      const accessToken = hashParams.get("access_token");
-      const refreshToken = hashParams.get("refresh_token");
-      if (accessToken && refreshToken) {
-        const { data } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (cancelled) return;
-        if (data.session) {
-          markReady(data.session);
-          window.history.replaceState(null, "", window.location.pathname);
-          return;
-        }
-      }
-
       const {
         data: { subscription: authSub },
       } = supabase.auth.onAuthStateChange(
-        (event: string, nextSession: Session | null) => {
-          if (
-            event === "PASSWORD_RECOVERY" ||
-            (event === "SIGNED_IN" && nextSession)
-          ) {
+        (_event: string, nextSession: Session | null) => {
+          if (nextSession) {
             markReady(nextSession);
           }
         }
       );
       subscription = authSub;
+
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash;
+      if (
+        params.get("error") === "expired" ||
+        hash.includes("error=") ||
+        hash.includes("otp_expired")
+      ) {
+        setErrorMsg(EXPIRED_LINK_MESSAGE);
+        setIsExpired(true);
+        setLoading(false);
+        return;
+      }
 
       timeoutId = window.setTimeout(async () => {
         const {
@@ -117,13 +101,8 @@ function SetYourPasswordForm() {
           return;
         }
         if (!isReadyRef.current) {
-          if (
-            !window.location.href.includes("token") &&
-            !window.location.hash
-          ) {
-            setErrorMsg("No active password reset session found.");
-            setIsExpired(true);
-          }
+          setErrorMsg("No active password reset session found.");
+          setIsExpired(true);
           setLoading(false);
         }
       }, 1500);

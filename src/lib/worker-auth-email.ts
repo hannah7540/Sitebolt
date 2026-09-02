@@ -9,6 +9,7 @@ import { sendEmail } from "@/lib/email-service";
 import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 import {
+  buildAuthConfirmLink,
   getAuthPasswordSetupRedirectTo,
   isValidGeneratedAuthLink,
 } from "@/lib/worker-invite-link";
@@ -85,8 +86,22 @@ export async function sendExistingUserOnboardingEmail(
       continue;
     }
 
-    const actionLink = data?.properties?.action_link ?? null;
-    if (!isValidGeneratedAuthLink(actionLink)) continue;
+    const properties = data?.properties as
+      | {
+          hashed_token?: string | null;
+          token_hash?: string | null;
+          verification_type?: string | null;
+        }
+      | null
+      | undefined;
+    const tokenHash =
+      properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
+    const actionLink = buildAuthConfirmLink({
+      tokenHash,
+      type: properties?.verification_type || "recovery",
+      next: "/setyourpassword",
+    });
+    if (!actionLink || !isValidGeneratedAuthLink(actionLink)) continue;
 
     const sendResult = await sendWorkerOnboardingLinkViaResend(
       trimmedEmail,

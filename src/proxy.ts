@@ -9,10 +9,25 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (
+    pathname.startsWith("/auth/confirm") ||
     pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/login")
   ) {
+    if (
+      pathname.startsWith("/setyourpassword") &&
+      request.nextUrl.searchParams.has("token_hash")
+    ) {
+      const dest = request.nextUrl.clone();
+      dest.pathname = "/auth/confirm";
+      if (!dest.searchParams.get("type")) {
+        dest.searchParams.set("type", "recovery");
+      }
+      if (!dest.searchParams.get("next")) {
+        dest.searchParams.set("next", "/setyourpassword");
+      }
+      return NextResponse.redirect(dest);
+    }
     return NextResponse.next();
   }
 
@@ -30,7 +45,9 @@ export async function proxy(request: NextRequest) {
 
   if (hasAuthPayload) {
     const dest = request.nextUrl.clone();
-    dest.pathname = "/auth/callback";
+    dest.pathname = request.nextUrl.searchParams.has("token_hash")
+      ? "/auth/confirm"
+      : "/auth/callback";
     if (!dest.searchParams.get("next")) {
       dest.searchParams.set("next", "/setyourpassword");
     }

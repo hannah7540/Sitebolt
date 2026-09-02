@@ -1,6 +1,6 @@
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
-export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
+export const AUTH_CONFIRM_PATH = "/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
 export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
@@ -82,25 +82,43 @@ type GeneratedLinkProperties = {
   verification_type?: string | null;
 } | null;
 
+/** Server-side OTP exchange URL. Never email the raw Supabase action_link. */
+export function buildAuthConfirmLink(input: {
+  tokenHash: string;
+  type?: string | null;
+  next?: string | null;
+  origin?: string | null;
+}): string | null {
+  const tokenHash = input.tokenHash.trim();
+  if (!tokenHash) return null;
+  const appUrl = stripTrailingSlash(
+    input.origin?.trim() || getPasswordSetupAppOrigin()
+  );
+  const params = new URLSearchParams({
+    token_hash: tokenHash,
+    type: (input.type?.trim() || "recovery").toLowerCase(),
+    next: input.next?.trim() || "/setyourpassword",
+  });
+  return `${appUrl}${AUTH_CONFIRM_PATH}?${params.toString()}`;
+}
+
 /**
  * Build a scanner-safe password setup URL using hashed_token.
  * Mail clients that prefetch action_link consume the OTP; hashed_token is
- * verified only when the worker opens /setyourpassword.
+ * exchanged once on /auth/confirm.
  */
 export function buildDirectPasswordSetupLink(
   properties: GeneratedLinkProperties
 ): string | null {
-  const cleanUrl = getPasswordSetupAppOrigin();
   const hashedToken =
     properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
   const type = (properties?.verification_type?.trim() || "recovery").toLowerCase();
 
   if (hashedToken) {
-    return `${cleanUrl}/setyourpassword?token_hash=${encodeURIComponent(hashedToken)}&type=${encodeURIComponent(type)}`;
+    return buildAuthConfirmLink({ tokenHash: hashedToken, type });
   }
 
-  const actionLink = properties?.action_link?.trim() ?? null;
-  return isValidGeneratedAuthLink(actionLink) ? actionLink : null;
+  return null;
 }
 
 export function buildPasswordSetupPath(email?: string | null): string {

@@ -10,7 +10,10 @@ import {
   appendTeamEmailFooter,
   appendTeamEmailFooterText,
 } from "@/lib/email-team-footer";
-import { isValidGeneratedAuthLink } from "@/lib/worker-invite-link";
+import {
+  buildAuthConfirmLink,
+  isValidGeneratedAuthLink,
+} from "@/lib/worker-invite-link";
 
 export async function POST(req: Request) {
   const apiKey =
@@ -46,9 +49,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    const actionLink = data?.properties?.action_link ?? null;
+    const properties = data?.properties as
+      | {
+          hashed_token?: string | null;
+          token_hash?: string | null;
+          verification_type?: string | null;
+        }
+      | null
+      | undefined;
+    const tokenHash =
+      properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      "https://www.site-bolt.com.au"
+    ).replace(/\/$/, "");
+    const actionLink = buildAuthConfirmLink({
+      tokenHash,
+      type: properties?.verification_type || "recovery",
+      next: "/setyourpassword",
+      origin: appUrl,
+    });
     if (!isValidGeneratedAuthLink(actionLink)) {
-      console.error("[/api/auth/reset-password] generateLink missing action_link");
+      console.error("[/api/auth/reset-password] generateLink missing hashed_token");
       return NextResponse.json({ success: true }, { status: 200 });
     }
 

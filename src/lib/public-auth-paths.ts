@@ -21,7 +21,8 @@ export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
     if (
       path.includes("/setyourpassword") ||
       path.includes("/reset-password") ||
-      path.includes("/onboarding")
+      path.includes("/onboarding") ||
+      path.includes("/auth/confirm")
     ) {
       return true;
     }
