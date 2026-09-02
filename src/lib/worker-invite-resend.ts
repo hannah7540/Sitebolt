@@ -8,7 +8,6 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  AUTH_CALLBACK_PATH,
   PASSWORD_SETUP_PATH,
   buildAuthCallbackUrl,
   resolveInviteSiteOrigin,
@@ -42,7 +41,7 @@ function getInviteOrigin(): string {
 }
 
 function getPasswordSetupRedirectTo(origin: string): string {
-  return `${origin}${AUTH_CALLBACK_PATH}?next=${encodeURIComponent(PASSWORD_SETUP_PATH)}`;
+  return `${origin.replace(/\/$/, "")}${PASSWORD_SETUP_PATH}`;
 }
 
 export async function findAuthUserByEmail(

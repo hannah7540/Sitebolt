@@ -12,8 +12,11 @@ import {
 
 const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 
-function buildPasswordResetRedirectUrl(email: string): string {
-  return `${PRODUCTION_SITE_URL}/reset-password?email=${encodeURIComponent(email.trim())}`;
+function getPasswordResetRedirectTo(): string {
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_SITE_URL
+  ).replace(/\/$/, "");
+  return `${appUrl}/setyourpassword`;
 }
 
 export async function POST(req: Request) {
@@ -29,9 +32,10 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const normalizedEmail =
+      typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
 
-    if (!email) {
+    if (!normalizedEmail) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
@@ -42,9 +46,9 @@ export async function POST(req: Request) {
 
     const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",
-      email,
+      email: normalizedEmail,
       options: {
-        redirectTo: buildPasswordResetRedirectUrl(email),
+        redirectTo: getPasswordResetRedirectTo(),
       },
     });
 
@@ -82,7 +86,7 @@ export async function POST(req: Request) {
 
     const resendResult = await resend.emails.send({
       from: "Site Bolt <hannah@site-bolt.com.au>",
-      to: [email],
+      to: [normalizedEmail],
       subject: "Reset your Site Bolt password",
       html: resetHtml,
       text: resetText,

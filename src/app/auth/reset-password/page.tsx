@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import RedirectToSetYourPassword from "@/components/auth/RedirectToSetYourPassword";
 
 export default function AuthResetPasswordRedirectPage() {
-  redirect("/setyourpassword");
+  return <RedirectToSetYourPassword />;
 }

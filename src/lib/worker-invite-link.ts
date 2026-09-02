@@ -3,7 +3,7 @@ export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
 export const PASSWORD_RESET_NEXT_PATH = "/update-password";
-export const PASSWORD_RESET_OTP_PATH = "/reset-password";
+export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
 
 export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
@@ -83,7 +83,10 @@ export function getAuthCallbackUrl(nextPath: string): string {
 }
 
 export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string {
-  return `${PRODUCTION_SITE_URL}${PASSWORD_SETUP_PATH}`;
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() || PRODUCTION_SITE_URL
+  ).replace(/\/$/, "");
+  return `${appUrl}${PASSWORD_SETUP_PATH}`;
 }
 
 export function isValidGeneratedAuthLink(link: string): boolean {
