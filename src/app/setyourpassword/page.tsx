@@ -2,7 +2,11 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import type {
+  AuthChangeEvent,
+  EmailOtpType,
+  Session,
+} from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   passwordRequirementsLabel,
@@ -19,6 +23,20 @@ const EXPIRED_LINK_MESSAGE =
   "This password setup link has expired or has already been used. Please request a new one.";
 const NO_SESSION_MESSAGE =
   "No active password reset session found. Please request a new link.";
+
+const OTP_TYPES = new Set<EmailOtpType>([
+  "signup",
+  "invite",
+  "magiclink",
+  "recovery",
+  "email",
+  "email_change",
+]);
+
+function resolveOtpType(value: string | null): EmailOtpType {
+  const type = (value || "recovery").toLowerCase() as EmailOtpType;
+  return OTP_TYPES.has(type) ? type : "recovery";
+}
 
 function SetYourPasswordForm() {
   const searchParams = useSearchParams();
@@ -58,6 +76,29 @@ function SetYourPasswordForm() {
     }
 
     async function initAuth() {
+      const pageParams = new URLSearchParams(window.location.search);
+      const tokenHash = pageParams.get("token_hash")?.trim() || "";
+      const otpType = resolveOtpType(pageParams.get("type"));
+
+      if (tokenHash) {
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: otpType,
+        });
+        if (!mounted) return;
+        if (!error && data.session) {
+          markReady(data.session);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
+        if (error) {
+          console.error("[SET_PASSWORD] verifyOtp failed:", error.message);
+          setErrorMsg(error.message);
+          setLoading(false);
+          return;
+        }
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -67,10 +108,8 @@ function SetYourPasswordForm() {
         return;
       }
 
-      const hash = typeof window !== "undefined" ? window.location.hash : "";
-      const params = new URLSearchParams(
-        typeof window !== "undefined" ? window.location.search : ""
-      );
+      const hash = window.location.hash;
+      const params = pageParams;
       if (
         hash.includes("error=") ||
         hash.includes("error_code=") ||

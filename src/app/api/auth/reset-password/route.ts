@@ -54,13 +54,28 @@ export async function POST(req: Request) {
 
     if (linkError) {
       console.error("[/api/auth/reset-password] generateLink failed:", linkError.message);
-      return NextResponse.json({ success: true }, { status: 200 });
+      return NextResponse.json(
+        { error: `Supabase link error: ${linkError.message}` },
+        { status: 400 }
+      );
     }
 
+    const tokenHash = data?.properties?.hashed_token;
     const actionLink = data?.properties?.action_link;
-    if (!actionLink) {
-      console.error("[/api/auth/reset-password] generateLink missing action_link");
-      return NextResponse.json({ success: true }, { status: 200 });
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_SITE_URL
+    ).replace(/\/$/, "");
+
+    // Direct URL on our domain so Supabase cannot strip the path or bounce to /
+    const directLink = tokenHash
+      ? `${appUrl}/setyourpassword?token_hash=${tokenHash}&type=recovery`
+      : actionLink;
+
+    if (!directLink) {
+      console.error(
+        "[/api/auth/reset-password] Neither token_hash nor action_link returned"
+      );
+      return NextResponse.json({ error: "Failed to generate link" }, { status: 500 });
     }
 
     const resend = new Resend(apiKey);
@@ -71,7 +86,7 @@ export async function POST(req: Request) {
             Click the button below to reset your password for your Site Bolt account.
           </p>
           <p style="margin: 0 0 32px; text-align: center;">
-            <a href="${actionLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+            <a href="${directLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
               Reset Your Password
             </a>
           </p>
@@ -81,7 +96,7 @@ export async function POST(req: Request) {
         </div>
       `.trim());
     const resetText = appendTeamEmailFooterText(
-      `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${actionLink}`
+      `Password Reset Request\n\nClick the link below to reset your password for your Site Bolt account:\n\n${directLink}`
     );
 
     const resendResult = await resend.emails.send({

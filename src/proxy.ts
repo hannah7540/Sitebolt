@@ -14,20 +14,6 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/login")
   ) {
-    if (
-      pathname.startsWith("/setyourpassword") &&
-      request.nextUrl.searchParams.has("token_hash")
-    ) {
-      const dest = request.nextUrl.clone();
-      dest.pathname = "/auth/confirm";
-      if (!dest.searchParams.get("type")) {
-        dest.searchParams.set("type", "recovery");
-      }
-      if (!dest.searchParams.get("next")) {
-        dest.searchParams.set("next", "/setyourpassword");
-      }
-      return NextResponse.redirect(dest);
-    }
     return NextResponse.next();
   }
 
