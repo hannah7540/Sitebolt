@@ -82,6 +82,35 @@ function isExistingAuthUserError(
   );
 }
 
+function formatUnknownError(err: unknown): string {
+  if (!err) return "unknown error";
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim()) return err.trim();
+  if (typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function readGeneratedLinkParts(data: GenerateLinkCallResult["data"]): {
+  actionLink: string | null;
+  tokenHash: string | null;
+  userId: string | null;
+} {
+  const props = data?.properties;
+  return {
+    actionLink: props?.action_link?.trim() || null,
+    tokenHash:
+      props?.hashed_token?.trim() || props?.token_hash?.trim() || null,
+    userId: data?.user?.id ?? null,
+  };
+}
+
 async function generateAuthLink(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   type: GenerateLinkType,
@@ -93,6 +122,20 @@ async function generateAuthLink(
       type,
       email,
       options: { redirectTo },
+    });
+    const properties = result.data?.properties as
+      | {
+          action_link?: string | null;
+          hashed_token?: string | null;
+          token_hash?: string | null;
+        }
+      | null
+      | undefined;
+    console.log("[DEBUG] generateLink", type, {
+      error: result.error?.message ?? null,
+      hasProperties: Boolean(properties),
+      hasHashedToken: Boolean(properties?.hashed_token || properties?.token_hash),
+      hasActionLink: Boolean(properties?.action_link),
     });
     return { data: result.data, error: result.error };
   } catch (cause) {
@@ -146,8 +189,20 @@ export async function generateWorkerInviteSetupLink(
   authUserId: string | null;
   error: string | null;
 }> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+  const workerEmail = email.trim().toLowerCase();
+  console.log("[DEBUG] Worker email:", workerEmail);
+  console.log(
+    "[DEBUG] Supabase URL present:",
+    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL)
+  );
+  console.log(
+    "[DEBUG] Service role key present:",
+    Boolean(
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+    )
+  );
+
+  if (!workerEmail || !workerEmail.includes("@")) {
     return {
       inviteLink: null,
       authUserId: null,
@@ -166,113 +221,128 @@ export async function generateWorkerInviteSetupLink(
     };
   }
 
-  const admin = createSupabaseAdminClient();
-  const appUrl = (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://www.site-bolt.com.au"
-  ).replace(/\/$/, "");
-  const targetUrl = `${appUrl}/setyourpassword`;
+  try {
+    const admin = createSupabaseAdminClient();
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://www.site-bolt.com.au"
+    ).replace(/\/$/, "");
+    const targetUrl = `${appUrl}/setyourpassword`;
 
-  let actionLink: string | null = null;
-  let tokenHash: string | null = null;
-  let authUserId: string | null = null;
+    let actionLink: string | null = null;
+    let tokenHash: string | null = null;
+    let authUserId: string | null = null;
 
-  const recoveryRes = await generateAuthLink(
-    admin,
-    "recovery",
-    normalizedEmail,
-    targetUrl
-  );
-
-  if (recoveryRes.data?.properties) {
-    actionLink = recoveryRes.data.properties.action_link || null;
-    tokenHash =
-      recoveryRes.data.properties.hashed_token ||
-      recoveryRes.data.properties.token_hash ||
-      null;
-    authUserId = recoveryRes.data.user?.id ?? null;
-  }
-
-  if (!actionLink && !tokenHash) {
-    const inviteRes = await generateAuthLink(
+    const recoveryRes = await generateAuthLink(
       admin,
-      "invite",
-      normalizedEmail,
+      "recovery",
+      workerEmail,
       targetUrl
     );
-
-    if (inviteRes.data?.properties) {
-      actionLink = inviteRes.data.properties.action_link || null;
-      tokenHash =
-        inviteRes.data.properties.hashed_token ||
-        inviteRes.data.properties.token_hash ||
-        null;
-      authUserId = inviteRes.data.user?.id ?? authUserId;
-    }
+    const recoveryParts = readGeneratedLinkParts(recoveryRes.data);
+    actionLink = recoveryParts.actionLink;
+    tokenHash = recoveryParts.tokenHash;
+    authUserId = recoveryParts.userId;
 
     if (!actionLink && !tokenHash) {
-      const { data: created, error: createError } = await admin.auth.admin.createUser({
-        email: normalizedEmail,
-        email_confirm: true,
-      });
-
-      if (!createError || isExistingAuthUserError(createError)) {
-        const retryRes = await generateAuthLink(
-          admin,
-          "recovery",
-          normalizedEmail,
-          targetUrl
-        );
-        actionLink = retryRes.data?.properties?.action_link || null;
-        tokenHash =
-          retryRes.data?.properties?.hashed_token ||
-          retryRes.data?.properties?.token_hash ||
-          null;
-        authUserId = retryRes.data?.user?.id ?? created.user?.id ?? authUserId;
-      }
+      const inviteRes = await generateAuthLink(
+        admin,
+        "invite",
+        workerEmail,
+        targetUrl
+      );
+      const inviteParts = readGeneratedLinkParts(inviteRes.data);
+      actionLink = inviteParts.actionLink;
+      tokenHash = inviteParts.tokenHash;
+      authUserId = inviteParts.userId ?? authUserId;
 
       if (!actionLink && !tokenHash) {
-        console.error("[Auth Admin Failure]:", {
-          recoveryError: recoveryRes.error,
-          inviteError: inviteRes.error,
-          createError,
-        });
-        return {
-          inviteLink: null,
-          authUserId,
-          error: `Failed to generate auth link: ${
-            recoveryRes.error?.message ||
-            inviteRes.error?.message ||
-            createError?.message ||
-            "missing hashed_token and action_link"
-          }`,
-        };
+        const { data: created, error: createError } =
+          await admin.auth.admin.createUser({
+            email: workerEmail,
+            email_confirm: true,
+          });
+
+        if (!createError || isExistingAuthUserError(createError)) {
+          const retryRes = await generateAuthLink(
+            admin,
+            "recovery",
+            workerEmail,
+            targetUrl
+          );
+          const retryParts = readGeneratedLinkParts(retryRes.data);
+          actionLink = retryParts.actionLink;
+          tokenHash = retryParts.tokenHash;
+          authUserId =
+            retryParts.userId ?? created.user?.id ?? authUserId;
+        }
+
+        if (!actionLink && !tokenHash) {
+          const detail = formatUnknownError(
+            recoveryRes.error ||
+              inviteRes.error ||
+              createError ||
+              "missing hashed_token and action_link"
+          );
+          console.error("[Auth Admin Failure]:", {
+            recoveryError: recoveryRes.error,
+            inviteError: inviteRes.error,
+            createError,
+          });
+          return {
+            inviteLink: null,
+            authUserId,
+            error: `Unable to generate SiteBolt auth link: ${detail}`,
+          };
+        }
       }
     }
-  }
 
-  const finalLink = tokenHash
-    ? `${appUrl}/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`
-    : actionLink;
+    const finalLink = tokenHash
+      ? `${appUrl.startsWith("http") ? appUrl : "https://www.site-bolt.com.au"}/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`
+      : actionLink;
 
-  if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
-    console.error("[Generate Link Error]:", "Unable to build a valid password setup URL", {
-      hasTokenHash: Boolean(tokenHash),
-      hasActionLink: Boolean(actionLink),
-    });
+    console.log("[DEBUG] has hashed_token:", Boolean(tokenHash));
+    console.log("[DEBUG] has action_link:", Boolean(actionLink));
+    console.log("[DEBUG] finalLink valid:", isValidGeneratedAuthLink(finalLink));
+
+    if (!finalLink) {
+      return {
+        inviteLink: null,
+        authUserId,
+        error:
+          "Unable to generate SiteBolt auth link: missing hashed_token and action_link",
+      };
+    }
+
+    if (!isValidGeneratedAuthLink(finalLink) && tokenHash) {
+      const fallback = `https://www.site-bolt.com.au/setyourpassword?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`;
+      console.log("[Generated Action Link]:", fallback);
+      return { inviteLink: fallback, authUserId, error: null };
+    }
+
+    if (!isValidGeneratedAuthLink(finalLink)) {
+      return {
+        inviteLink: null,
+        authUserId,
+        error: `Unable to generate SiteBolt auth link: constructed URL was rejected`,
+      };
+    }
+
+    console.log("[Generated Action Link]:", finalLink);
+    console.log("[Password setup redirectTo]:", targetUrl);
+    return {
+      inviteLink: finalLink,
+      authUserId,
+      error: null,
+    };
+  } catch (err: unknown) {
+    console.error("[Generate Link Error]:", err);
     return {
       inviteLink: null,
-      authUserId,
-      error: "Unable to generate a valid SiteBolt auth link.",
+      authUserId: null,
+      error: `Unable to generate SiteBolt auth link: ${formatUnknownError(err)}`,
     };
   }
-
-  console.log("[Generated Action Link]:", finalLink);
-  console.log("[Password setup redirectTo]:", targetUrl);
-  return {
-    inviteLink: finalLink,
-    authUserId,
-    error: null,
-  };
 }
 
 /** @deprecated Use generateWorkerInviteSetupLink */
@@ -317,7 +387,9 @@ export async function sendWorkerInviteEmailViaResend(
   if (!finalLink || !isValidGeneratedAuthLink(finalLink)) {
     return {
       success: false,
-      error: linkError ?? "Unable to generate a valid SiteBolt auth link.",
+      error:
+        linkError ??
+        "Unable to generate SiteBolt auth link: missing hashed_token and action_link",
       message: null,
       messageId: null,
       actionLink: null,

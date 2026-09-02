@@ -48,8 +48,10 @@ export async function POST(req: Request) {
 
     if (!sent.success) {
       return NextResponse.json(
-        { error: sent.error ?? "Failed to send invitation email." },
-        { status: 400 }
+        {
+          error: `Unable to generate SiteBolt auth link: ${sent.error || "unknown"}`,
+        },
+        { status: 500 }
       );
     }
 
@@ -81,8 +83,12 @@ export async function POST(req: Request) {
       { status: 200 }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
+    const message =
+      err instanceof Error ? err.message : JSON.stringify(err) || "unknown";
     console.error("[/api/workers/invite]", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: `Unable to generate SiteBolt auth link: ${message}` },
+      { status: 500 }
+    );
   }
 }

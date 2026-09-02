@@ -47,12 +47,22 @@ export function getAuthPasswordSetupRedirectTo(_origin?: string | null): string 
 
 export function isValidGeneratedAuthLink(link: string | null | undefined): boolean {
   const value = link?.trim() ?? "";
-  if (!value || isPlaceholderOrigin(value)) return false;
+  if (!value) return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "google.com" ||
+      host.endsWith(".google.com") ||
+      host === "example.com" ||
+      host.endsWith(".example.com")
+    ) {
+      return false;
+    }
+    return true;
   } catch {
-    return false;
+    return value.startsWith("/setyourpassword");
   }
 }
 

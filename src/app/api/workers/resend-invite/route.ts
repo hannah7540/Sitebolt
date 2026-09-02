@@ -98,8 +98,10 @@ export async function POST(req: Request) {
     console.log("[Generated Action Link]:", sent.actionLink);
     if (!sent.success) {
       return NextResponse.json(
-        { error: sent.error ?? "Failed to deliver the invitation email." },
-        { status: 400 }
+        {
+          error: `Unable to generate SiteBolt auth link: ${sent.error || "unknown"}`,
+        },
+        { status: 500 }
       );
     }
 
@@ -125,7 +127,12 @@ export async function POST(req: Request) {
       authUserId: sent.authUserId ?? authUser?.id ?? null,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message =
+      err instanceof Error ? err.message : JSON.stringify(err) || "unknown";
+    console.error("[/api/workers/resend-invite]", err);
+    return NextResponse.json(
+      { error: `Unable to generate SiteBolt auth link: ${message}` },
+      { status: 500 }
+    );
   }
 }
