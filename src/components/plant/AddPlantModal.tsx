@@ -103,7 +103,7 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
         service_contact_phone: values.serviceContactPhone.trim() || undefined,
         service_contact_company: values.serviceContactCompany.trim() || undefined,
         service_contact_email: values.serviceContactEmail.trim() || undefined,
-        project_id: values.projectId || null,
+        project_id: values.projectId.trim() || null,
         ...resolveHeavyVehicleFormPayload(values),
       });
 

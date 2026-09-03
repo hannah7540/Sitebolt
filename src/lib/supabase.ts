@@ -45,6 +45,7 @@ import {
   nullIfBlankDate,
   parseMissingColumnFromError,
   sanitizeWritePayload,
+  stripMissingColumn,
 } from "./form-payload-utils";
 import {
   insertSiteFormRecord,
@@ -976,12 +977,50 @@ function isMissingPlantTableError(message: string, table: string): boolean {
 function isMissingPlantColumnError(message: string, column: string): boolean {
   const lower = message.toLowerCase();
   const columnLower = column.toLowerCase();
+  const spaced = columnLower.replace(/_/g, " ");
   return (
-    lower.includes(columnLower) &&
+    (lower.includes(columnLower) || lower.includes(spaced)) &&
     (lower.includes("does not exist") ||
       lower.includes("could not find") ||
       lower.includes("schema cache"))
   );
+}
+
+const PLANT_MASTER_OPTIONAL_COLUMNS = [
+  "heavy_vehicle_check_required",
+  "last_heavy_vehicle_check_date",
+  "next_heavy_vehicle_check_due_date",
+  "project_id",
+  "service_contact_name",
+  "service_contact_phone",
+  "service_contact_company",
+  "service_contact_email",
+  "serial_number",
+  "current_hours",
+  "next_service_hours",
+  "prestart_template",
+  "make",
+  "model",
+] as const;
+
+function resolveOptionalPlantColumnFromError(
+  message: string,
+  payload: Record<string, unknown>,
+  optionalColumns: readonly string[] = PLANT_MASTER_OPTIONAL_COLUMNS
+): string | null {
+  const parsed = parseMissingColumnFromError(message);
+  if (parsed && parsed in payload) return parsed;
+
+  return (
+    optionalColumns.find(
+      (column) => column in payload && isMissingPlantColumnError(message, column)
+    ) ?? null
+  );
+}
+
+function resolvePlantProjectId(value: string | null | undefined): string | null {
+  const projectId = value?.trim() || "";
+  return projectId && isProjectUuid(projectId) ? projectId : null;
 }
 
 function buildPlantProjectRowPayload(
@@ -2089,33 +2128,55 @@ export async function addPlant(asset: {
   last_heavy_vehicle_check_date?: string | null;
   next_heavy_vehicle_check_due_date?: string | null;
 }): Promise<{ error: string | null; data: PlantAsset | null }> {
-  const projectId = asset.project_id?.trim() || null;
-  const {
-    assigned_project_id: _assignedProjectId,
-    current_project_id: _currentProjectId,
-    ...insertAsset
-  } = asset;
-  const { data, error } = await supabase
-    .from(MASTER_PLANT_TABLE)
-    .insert([
-      {
-        ...insertAsset,
-        project_id: projectId,
-        prestart_template: asset.prestart_template ?? "excavator",
-        status: "available",
-      },
-    ])
-    .select("*")
-    .single();
+  const payload: Record<string, unknown> = {
+    unit_number: asset.unit_number.trim(),
+    category: asset.category.trim(),
+    make: asset.make?.trim() || null,
+    model: asset.model?.trim() || null,
+    serial_number: asset.serial_number?.trim() || null,
+    current_hours: asset.current_hours ?? null,
+    next_service_hours: asset.next_service_hours ?? null,
+    prestart_template: asset.prestart_template ?? "excavator",
+    service_contact_name: asset.service_contact_name?.trim() || null,
+    service_contact_phone: asset.service_contact_phone?.trim() || null,
+    service_contact_company: asset.service_contact_company?.trim() || null,
+    service_contact_email: asset.service_contact_email?.trim() || null,
+    project_id: resolvePlantProjectId(asset.project_id),
+    heavy_vehicle_check_required: Boolean(asset.heavy_vehicle_check_required),
+    last_heavy_vehicle_check_date: asset.last_heavy_vehicle_check_date || null,
+    next_heavy_vehicle_check_due_date: asset.next_heavy_vehicle_check_due_date || null,
+    status: "available",
+  };
 
-  if (error) {
+  let currentPayload = { ...payload };
+
+  for (let attempt = 0; attempt <= PLANT_MASTER_OPTIONAL_COLUMNS.length + 1; attempt += 1) {
+    const { data, error } = await supabase
+      .from(MASTER_PLANT_TABLE)
+      .insert([currentPayload])
+      .select("*")
+      .single();
+
+    if (!error) {
+      return {
+        error: null,
+        data: normalizePlantRecord(data as RawPlantRow),
+      };
+    }
+
+    const missingColumn = resolveOptionalPlantColumnFromError(
+      error.message,
+      currentPayload
+    );
+    if (missingColumn) {
+      currentPayload = stripMissingColumn(currentPayload, missingColumn);
+      continue;
+    }
+
     return { error: error.message, data: null };
   }
 
-  return {
-    error: null,
-    data: normalizePlantRecord(data as RawPlantRow),
-  };
+  return { error: "Failed to register plant asset.", data: null };
 }
 
 export async function updatePlantTemplate(
@@ -2223,7 +2284,9 @@ export async function updatePlant(
     payload.service_contact_email = updates.service_contact_email?.trim() || null;
   }
   if (updates.heavy_vehicle_check_required !== undefined) {
-    payload.heavy_vehicle_check_required = updates.heavy_vehicle_check_required;
+    payload.heavy_vehicle_check_required = Boolean(
+      updates.heavy_vehicle_check_required
+    );
   }
   if (updates.last_heavy_vehicle_check_date !== undefined) {
     payload.last_heavy_vehicle_check_date =
@@ -2236,12 +2299,34 @@ export async function updatePlant(
   if (updates.plant_documents !== undefined) payload.plant_documents = updates.plant_documents;
   if (updates.photo_url !== undefined) payload.photo_url = updates.photo_url;
 
-  const { error } = await supabase
-    .from(MASTER_PLANT_TABLE)
-    .update(payload)
-    .eq("id", plantId);
+  let currentPayload = { ...payload };
+  let updateError: string | null = "Failed to update plant asset.";
 
-  if (error) return { error: error.message };
+  for (let attempt = 0; attempt <= PLANT_MASTER_OPTIONAL_COLUMNS.length + 1; attempt += 1) {
+    const { error } = await supabase
+      .from(MASTER_PLANT_TABLE)
+      .update(currentPayload)
+      .eq("id", plantId);
+
+    if (!error) {
+      updateError = null;
+      break;
+    }
+
+    const missingColumn = resolveOptionalPlantColumnFromError(
+      error.message,
+      currentPayload
+    );
+    if (missingColumn) {
+      currentPayload = stripMissingColumn(currentPayload, missingColumn);
+      continue;
+    }
+
+    updateError = error.message;
+    break;
+  }
+
+  if (updateError) return { error: updateError };
 
   const equipmentPayload: Record<string, unknown> = { updated_at: payload.updated_at };
   if (updates.unit_number !== undefined) {

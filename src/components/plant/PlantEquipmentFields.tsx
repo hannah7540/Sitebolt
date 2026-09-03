@@ -145,7 +145,7 @@ export function resolveHeavyVehicleFormPayload(values: PlantFormValues): {
   next_heavy_vehicle_check_due_date: string | null;
 } {
   return {
-    heavy_vehicle_check_required: values.heavyVehicleCheckRequired,
+    heavy_vehicle_check_required: Boolean(values.heavyVehicleCheckRequired),
     last_heavy_vehicle_check_date: values.heavyVehicleCheckRequired
       ? values.lastHeavyVehicleCheckDate.trim() || null
       : null,
