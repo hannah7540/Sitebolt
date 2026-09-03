@@ -34,8 +34,9 @@ interface WorkerRequestModalProps {
   onSubmitted: () => void;
 }
 
-interface UniformRowState extends UniformLineItem {
+interface UniformRowState extends Omit<UniformLineItem, "quantity"> {
   id: string;
+  quantity: number | "";
 }
 
 function createUniformRow(): UniformRowState {
@@ -100,21 +101,38 @@ export default function WorkerRequestModal({
 
   const updateUniformRow = (
     rowId: string,
-    field: keyof UniformLineItem,
-    value: string | number
+    field: keyof Omit<UniformLineItem, "quantity">,
+    value: string
   ) => {
+    setUniformRows((rows) =>
+      rows.map((row) => (row.id === rowId ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const handleQuantityChange = (rowId: string, value: string) => {
+    if (value !== "" && !/^\d+$/.test(value)) return;
     setUniformRows((rows) =>
       rows.map((row) =>
         row.id === rowId
           ? {
               ...row,
-              [field]:
-                field === "quantity"
-                  ? Math.max(1, Math.floor(Number(value) || 1))
-                  : value,
+              quantity: value === "" ? "" : Math.max(1, parseInt(value, 10)),
             }
           : row
       )
+    );
+  };
+
+  const handleQuantityBlur = (rowId: string) => {
+    setUniformRows((rows) =>
+      rows.map((row) => {
+        if (row.id !== rowId) return row;
+        const next = Number(row.quantity);
+        return {
+          ...row,
+          quantity: !Number.isFinite(next) || next < 1 ? 1 : next,
+        };
+      })
     );
   };
 
@@ -137,7 +155,7 @@ export default function WorkerRequestModal({
     const uniformItems: UniformLineItem[] = uniformRows.map(({ item, size, quantity }) => ({
       item,
       size,
-      quantity,
+      quantity: Number(quantity) || 1,
     }));
 
     setSaving(true);
@@ -345,8 +363,9 @@ export default function WorkerRequestModal({
                             max={99}
                             value={row.quantity}
                             onChange={(event) =>
-                              updateUniformRow(row.id, "quantity", event.target.value)
+                              handleQuantityChange(row.id, event.target.value)
                             }
+                            onBlur={() => handleQuantityBlur(row.id)}
                             className={inputClass}
                             required
                           />
