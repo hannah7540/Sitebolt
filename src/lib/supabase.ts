@@ -713,6 +713,8 @@ export interface PlantAsset {
   project_name: string | null;
   current_project_name: string | null;
   status: PlantStatus | string;
+  archived_at?: string | null;
+  archived_reason?: string | null;
   photo_url?: string | null;
   serial_number?: string | null;
   registration_code?: string | null;
@@ -897,6 +899,10 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
     project_name: record.project_name ?? null,
     current_project_name: record.current_project_name ?? null,
     status: record.status ?? "available",
+    archived_at: record.archived_at ? String(record.archived_at) : null,
+    archived_reason: record.archived_reason
+      ? String(record.archived_reason)
+      : null,
     photo_url: record.photo_url ?? null,
     serial_number: record.serial_number ?? null,
     registration_code: record.registration_code ?? null,
@@ -1024,6 +1030,8 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "heavy_vehicle_next_due_date",
   "registration_expiry_date",
   "registration_document_url",
+  "archived_at",
+  "archived_reason",
   "project_id",
   "categories",
   "assigned_worker_id",

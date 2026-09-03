@@ -65,6 +65,7 @@ export function isHeavyVehicleChecksRequired(plant: PlantAsset): boolean {
 
 export function isTaggedOut(plant: PlantAsset): boolean {
   const status = String(plant.status ?? "").toLowerCase();
+  if (status === "archived" || Boolean(plant.archived_at)) return false;
   return status === "out_of_service" || status === "out of service";
 }
 

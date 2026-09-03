@@ -1,7 +1,20 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, QrCode, Phone, AlertOctagon, Wrench, Link2, Pencil, Search, X } from "lucide-react";
+import {
+  Plus,
+  QrCode,
+  Phone,
+  AlertOctagon,
+  Wrench,
+  Link2,
+  Pencil,
+  Search,
+  X,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+} from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
 import {
   getPlantAssignedProjectIds,
@@ -21,9 +34,19 @@ import {
   isTaggedOut,
   formatReading,
 } from "@/lib/plant-utils";
+import {
+  archivePlantAsset,
+  restorePlantAsset,
+  deletePlantAsset,
+  isPlantArchived,
+  applyOptimisticPlantArchive,
+  applyOptimisticPlantRestore,
+} from "@/lib/plant-archive";
 import AddPlantModal from "./AddPlantModal";
 import PlantQRModal from "./PlantQRModal";
 import PlantDefectModal from "./PlantDefectModal";
+import PlantArchiveModal from "./PlantArchiveModal";
+import PlantDeleteConfirmModal from "./PlantDeleteConfirmModal";
 import PlantProfileView from "./PlantProfileView";
 import {
   organisationRowDomId,
@@ -128,13 +151,23 @@ function AvailableBadge() {
   );
 }
 
+function ArchivedBadge() {
+  return (
+    <span className="rounded bg-slate-200 px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">
+      Archived
+    </span>
+  );
+}
+
+type PlantListTab = "active" | "archived";
+
 export default function PlantAdminPanel({
   plant,
   loading,
   onRefresh,
   initialShowAdd = false,
 }: PlantAdminPanelProps) {
-  const { toast, showError, dismissToast } = useFormToast();
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
   const deepLinkHandledRef = useRef<string | null>(null);
   const [showAddPlant, setShowAddPlant] = useState(initialShowAdd);
@@ -146,6 +179,10 @@ export default function PlantAdminPanel({
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [plantList, setPlantList] = useState<PlantAsset[]>(plant);
   const [searchQuery, setSearchQuery] = useState("");
+  const [listTab, setListTab] = useState<PlantListTab>("active");
+  const [archiveTarget, setArchiveTarget] = useState<PlantAsset | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PlantAsset | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
   const [plantProjectMap, setPlantProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
 
@@ -203,12 +240,24 @@ export default function PlantAdminPanel({
     clearDeepLink();
   };
 
+  const activeCount = useMemo(
+    () => plantList.filter((item) => !isPlantArchived(item)).length,
+    [plantList]
+  );
+  const archivedCount = useMemo(
+    () => plantList.filter((item) => isPlantArchived(item)).length,
+    [plantList]
+  );
+
   const filteredPlantList = useMemo(() => {
-    if (!searchQuery.trim()) return plantList;
+    const byTab = plantList.filter((item) =>
+      listTab === "archived" ? isPlantArchived(item) : !isPlantArchived(item)
+    );
+    if (!searchQuery.trim()) return byTab;
 
     const q = searchQuery.toLowerCase().trim();
 
-    return plantList.filter((item) => {
+    return byTab.filter((item) => {
       const plantNum = (item.plant_number || item.unit_number || "").toLowerCase();
       const name = (item.name || "").toLowerCase();
       const make = (item.make || "").toLowerCase();
@@ -229,7 +278,53 @@ export default function PlantAdminPanel({
         category.includes(q)
       );
     });
-  }, [plantList, searchQuery]);
+  }, [plantList, searchQuery, listTab]);
+
+  const handleArchive = async (reason: string) => {
+    if (!archiveTarget) return;
+    setActionBusy(true);
+    const target = archiveTarget;
+    const { error } = await archivePlantAsset(target.id, reason);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    patchPlant(applyOptimisticPlantArchive(target, reason));
+    setArchiveTarget(null);
+    showSuccess("Asset archived successfully");
+    onRefresh();
+  };
+
+  const handleRestore = async (asset: PlantAsset) => {
+    setActionBusy(true);
+    const { error } = await restorePlantAsset(asset.id);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    patchPlant(applyOptimisticPlantRestore(asset));
+    showSuccess("Asset restored successfully");
+    onRefresh();
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setActionBusy(true);
+    const target = deleteTarget;
+    const { error } = await deletePlantAsset(target.id);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    setPlantList((prev) => prev.filter((row) => row.id !== target.id));
+    if (selectedPlant?.id === target.id) setSelectedPlant(null);
+    setDeleteTarget(null);
+    showSuccess("Asset permanently deleted");
+    onRefresh();
+  };
 
   useEffect(() => {
     void (async () => {
@@ -303,6 +398,29 @@ export default function PlantAdminPanel({
         ) : null}
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            { id: "active", label: "Active", count: activeCount },
+            { id: "archived", label: "Archived", count: archivedCount },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setListTab(tab.id)}
+            className={cn(
+              "rounded-lg px-4 py-2 text-sm font-semibold transition",
+              listTab === tab.id
+                ? "bg-orange-500 text-white shadow-sm"
+                : "border border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-orange-600"
+            )}
+          >
+            {tab.label} ({tab.count})
+          </button>
+        ))}
+      </div>
+
       {showAddPlant ? (
         <AddPlantModal
           onClose={() => setShowAddPlant(false)}
@@ -315,6 +433,7 @@ export default function PlantAdminPanel({
 
       <div className="space-y-4">
         {filteredPlantList.map((p) => {
+          const archived = isPlantArchived(p);
           const taggedOut = isTaggedOut(p);
           const metrics = getServiceMetrics(p);
           const assignedProjectIds = getPlantAssignedProjectIds(
@@ -373,9 +492,20 @@ export default function PlantAdminPanel({
                       Assigned: {resolvePlantAssignedProjectName(p)}
                     </p>
                   )}
+                  {archived && p.archived_reason ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Archive reason: {p.archived_reason}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  {taggedOut ? <TagOutBadge /> : <AvailableBadge />}
+                  {archived ? (
+                    <ArchivedBadge />
+                  ) : taggedOut ? (
+                    <TagOutBadge />
+                  ) : (
+                    <AvailableBadge />
+                  )}
                   {isHeavyVehicleChecksRequired(p) ? <HeavyVehicleBadge /> : null}
                   <HeavyVehicleInspectionBadge plant={p} />
                   <ServiceWarningBadge plant={p} />
@@ -395,7 +525,7 @@ export default function PlantAdminPanel({
                   Edit
                 </button>
 
-                {taggedOut ? (
+                {!archived && taggedOut ? (
                   <button
                     type="button"
                     onClick={() => setDefectPlant(p)}
@@ -404,7 +534,8 @@ export default function PlantAdminPanel({
                     <Wrench className="h-4 w-4" />
                     View Defect &amp; Clear Tag-Out
                   </button>
-                ) : (
+                ) : null}
+                {!archived && !taggedOut ? (
                   <button
                     type="button"
                     onClick={() => setQrPlant(p)}
@@ -413,14 +544,44 @@ export default function PlantAdminPanel({
                     <QrCode className="h-4 w-4" />
                     Generate / Print QR Code
                   </button>
+                ) : null}
+                {!archived ? (
+                  <button
+                    type="button"
+                    onClick={() => setAssignPlant(p)}
+                    className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+                  >
+                    <Link2 className="h-4 w-4" />
+                    Assign to Project
+                  </button>
+                ) : null}
+                {!archived ? (
+                  <button
+                    type="button"
+                    onClick={() => setArchiveTarget(p)}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                  >
+                    <Archive className="h-4 w-4" />
+                    Archive Asset
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => void handleRestore(p)}
+                    className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <ArchiveRestore className="h-4 w-4" />
+                    Restore Asset
+                  </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => setAssignPlant(p)}
-                  className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+                  onClick={() => setDeleteTarget(p)}
+                  className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
                 >
-                  <Link2 className="h-4 w-4" />
-                  Assign to Project
+                  <Trash2 className="h-4 w-4" />
+                  Delete Asset
                 </button>
               </div>
             </div>
@@ -446,6 +607,17 @@ export default function PlantAdminPanel({
         {plantList.length === 0 && !loading && !searchQuery.trim() ? (
           <p className="py-8 text-center text-slate-500">
             No plant added yet. Click &quot;Add Plant&quot; to register machinery.
+          </p>
+        ) : null}
+
+        {plantList.length > 0 &&
+        filteredPlantList.length === 0 &&
+        !loading &&
+        !searchQuery.trim() ? (
+          <p className="py-8 text-center text-slate-500">
+            {listTab === "archived"
+              ? "No archived plant assets."
+              : "No active plant assets."}
           </p>
         ) : null}
       </div>
@@ -482,6 +654,28 @@ export default function PlantAdminPanel({
           }}
         />
       )}
+
+      {archiveTarget ? (
+        <PlantArchiveModal
+          unitNumber={archiveTarget.unit_number}
+          saving={actionBusy}
+          onClose={() => {
+            if (!actionBusy) setArchiveTarget(null);
+          }}
+          onConfirm={handleArchive}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <PlantDeleteConfirmModal
+          unitNumber={deleteTarget.unit_number}
+          deleting={actionBusy}
+          onClose={() => {
+            if (!actionBusy) setDeleteTarget(null);
+          }}
+          onConfirm={handleDelete}
+        />
+      ) : null}
 
       {toast ? (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
