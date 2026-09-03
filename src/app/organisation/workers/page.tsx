@@ -4,9 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import WorkerDirectoryPanel from "@/components/workers/WorkerDirectoryPanel";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import { fetchAllWorkerVocs, type WorkerVoc } from "@/lib/supabase";
+import {
+  canAssignPayRules,
+  canManageSecuritySettings,
+  canViewFinancialFields,
+} from "@/lib/security-roles";
 
 export default function OrganisationWorkersPage() {
-  const { workers, loading } = useAdminConsole();
+  const { workers, loading, sessionRole } = useAdminConsole();
   const [workerVocs, setWorkerVocs] = useState<WorkerVoc[]>([]);
   const [vocsLoading, setVocsLoading] = useState(true);
 
@@ -35,6 +40,9 @@ export default function OrganisationWorkersPage() {
       onRefresh={() => {
         void loadVocs();
       }}
+      hideFinancialFields={!canViewFinancialFields(sessionRole)}
+      canAssignPayRules={canAssignPayRules(sessionRole)}
+      canManageWorkerRoles={canManageSecuritySettings(sessionRole)}
     />
   );
 }

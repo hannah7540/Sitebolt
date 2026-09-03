@@ -415,6 +415,7 @@ export default function WorkerDirectoryPanel({
         initialTab={profileInitialTab}
         lastSignInAt={lastSignInByWorkerId[selectedWorker.id] ?? null}
         canAssignPayRules={canAssignPayRules}
+        hideFinancialFields={hideFinancialFields}
         canManageWorkerRoles={canManageWorkerRoles}
         onBack={closeWorkerProfile}
         onWorkerUpdated={(updated) => {

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Camera,
+  Eye,
+  EyeOff,
   Loader2,
   Mail,
   Phone,
@@ -29,7 +31,13 @@ import {
   type WorkerCardVocEntry,
 } from "@/lib/worker-cards-vocs";
 import { getVocDisplayTitle } from "@/lib/voc-utils";
-import { buildWorkerFullName } from "@/lib/worker-utils";
+import {
+  buildWorkerFullName,
+  formatWorkerBsb,
+  maskWorkerAccountNumber,
+  maskWorkerTaxFileNumber,
+  WORKER_FIELD_NOT_PROVIDED,
+} from "@/lib/worker-utils";
 import {
   assignDefaultPayRuleToWorker,
   resolvePayRuleTemplateNameForWorker,
@@ -80,6 +88,7 @@ interface WorkerProfileViewProps {
   initialTab?: ProfileTab;
   lastSignInAt?: string | null;
   canAssignPayRules?: boolean;
+  hideFinancialFields?: boolean;
   canManageWorkerRoles?: boolean;
   onBack: () => void;
   onWorkerUpdated: (worker: Worker) => void;
@@ -131,10 +140,12 @@ export default function WorkerProfileView({
   initialTab = "basic",
   lastSignInAt = null,
   canAssignPayRules = false,
+  hideFinancialFields = false,
   canManageWorkerRoles = false,
   onBack,
   onWorkerUpdated,
 }: WorkerProfileViewProps) {
+  const canViewPayroll = canAssignPayRules && !hideFinancialFields;
   const [currentWorker, setCurrentWorker] = useState(worker);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
@@ -149,17 +160,17 @@ export default function WorkerProfileView({
 
   const visibleTabs = useMemo(
     () =>
-      canAssignPayRules
+      canViewPayroll
         ? TAB_ITEMS
         : TAB_ITEMS.filter((item) => item.id !== "financial"),
-    [canAssignPayRules]
+    [canViewPayroll]
   );
 
   useEffect(() => {
-    if (!canAssignPayRules && tab === "financial") {
+    if (!canViewPayroll && tab === "financial") {
       setTab("basic");
     }
-  }, [canAssignPayRules, tab]);
+  }, [canViewPayroll, tab]);
 
   useEffect(() => {
     setCurrentWorker(worker);
@@ -269,6 +280,11 @@ export default function WorkerProfileView({
         </div>
       </div>
 
+      <div className="mb-6 space-y-4">
+        <EmergencyContactCard worker={currentWorker} />
+        {canViewPayroll ? <FinancialPayrollCard worker={currentWorker} /> : null}
+      </div>
+
       <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {visibleTabs.map((item) => (
           <button
@@ -311,7 +327,7 @@ export default function WorkerProfileView({
       ) : (
         <FinancialInfoTab
           worker={currentWorker}
-          canAssignPayRules={canAssignPayRules}
+          canAssignPayRules={canViewPayroll}
           onSaved={patchWorker}
         />
       )}
@@ -331,6 +347,141 @@ export default function WorkerProfileView({
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
     </div>
+  );
+}
+
+function ProfileDetailField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-0.5 text-sm text-slate-900">{children}</dd>
+    </div>
+  );
+}
+
+function ProfileOptionalText({ value }: { value: string | null | undefined }) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>;
+  }
+  return <span className="font-medium text-slate-900">{trimmed}</span>;
+}
+
+function MaskedSecretField({
+  label,
+  value,
+  masked,
+  revealLabel,
+}: {
+  label: string;
+  value: string | null | undefined;
+  masked: string | null;
+  revealLabel: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const trimmed = value?.trim() ?? "";
+
+  if (!trimmed || !masked) {
+    return (
+      <ProfileDetailField label={label}>
+        <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>
+      </ProfileDetailField>
+    );
+  }
+
+  return (
+    <ProfileDetailField label={label}>
+      <span className="inline-flex items-center gap-2">
+        <span className="font-medium tabular-nums text-slate-900">
+          {revealed ? trimmed : masked}
+        </span>
+        <button
+          type="button"
+          onClick={() => setRevealed((open) => !open)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-orange-600"
+          aria-label={revealed ? `Hide ${revealLabel}` : `Show ${revealLabel}`}
+        >
+          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+      </span>
+    </ProfileDetailField>
+  );
+}
+
+function EmergencyContactCard({ worker }: { worker: Worker }) {
+  return (
+    <section className={cn(sectionClass, "space-y-3")} aria-labelledby="emergency-contact-heading">
+      <h2 id="emergency-contact-heading" className="text-sm font-semibold text-slate-900">
+        Emergency Contact
+      </h2>
+      <dl className="grid gap-3 sm:grid-cols-3">
+        <ProfileDetailField label="Contact Name">
+          <ProfileOptionalText value={worker.emergency_contact_name} />
+        </ProfileDetailField>
+        <ProfileDetailField label="Relationship">
+          <ProfileOptionalText value={worker.emergency_contact_relationship} />
+        </ProfileDetailField>
+        <ProfileDetailField label="Contact Phone Number">
+          <ProfileOptionalText value={worker.emergency_contact_phone} />
+        </ProfileDetailField>
+      </dl>
+    </section>
+  );
+}
+
+function FinancialPayrollCard({ worker }: { worker: Worker }) {
+  const formattedBsb = formatWorkerBsb(worker.bank_bsb);
+  const maskedAccount = maskWorkerAccountNumber(worker.bank_account_number);
+  const maskedTfn = maskWorkerTaxFileNumber(worker.tfn);
+
+  return (
+    <section
+      className={cn(sectionClass, "space-y-3")}
+      aria-labelledby="financial-payroll-heading"
+    >
+      <h2 id="financial-payroll-heading" className="text-sm font-semibold text-slate-900">
+        Financial & Payroll Details
+      </h2>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        <ProfileDetailField label="Bank Account Name">
+          <ProfileOptionalText value={worker.bank_name} />
+        </ProfileDetailField>
+        <ProfileDetailField label="BSB">
+          {formattedBsb ? (
+            <span className="font-medium tabular-nums text-slate-900">{formattedBsb}</span>
+          ) : (
+            <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>
+          )}
+        </ProfileDetailField>
+        <MaskedSecretField
+          label="Account Number"
+          value={worker.bank_account_number}
+          masked={maskedAccount}
+          revealLabel="account number"
+        />
+        <MaskedSecretField
+          label="Tax File Number (TFN)"
+          value={worker.tfn}
+          masked={maskedTfn}
+          revealLabel="tax file number"
+        />
+        <ProfileDetailField label="Superannuation Fund">
+          <ProfileOptionalText value={worker.super_fund} />
+        </ProfileDetailField>
+        <ProfileDetailField label="USI">
+          <ProfileOptionalText value={worker.super_usi} />
+        </ProfileDetailField>
+        <ProfileDetailField label="Super Member Number">
+          <ProfileOptionalText value={worker.super_member_number} />
+        </ProfileDetailField>
+      </dl>
+    </section>
   );
 }
 

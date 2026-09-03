@@ -243,6 +243,47 @@ export function canResendWorkerInvite(
   return isPending;
 }
 
+export const WORKER_FIELD_NOT_PROVIDED = "Not provided";
+
+/** Display helper for optional onboarding/profile text fields. */
+export function displayWorkerOptionalText(
+  value: string | null | undefined
+): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : WORKER_FIELD_NOT_PROVIDED;
+}
+
+/** Format a 6-digit BSB as `000-000`. Returns null when empty. */
+export function formatWorkerBsb(value: string | null | undefined): string | null {
+  const raw = value?.trim() ?? "";
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 6) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+  return raw;
+}
+
+/** Mask a bank account number as `••••1234`. Returns null when empty. */
+export function maskWorkerAccountNumber(
+  value: string | null | undefined
+): string | null {
+  const digits = (value ?? "").replace(/\s+/g, "").trim();
+  if (!digits) return null;
+  const visible = digits.slice(-4);
+  return `••••${visible}`;
+}
+
+/** Mask a TFN, showing only the last three characters. Returns null when empty. */
+export function maskWorkerTaxFileNumber(
+  value: string | null | undefined
+): string | null {
+  const digits = (value ?? "").replace(/\s+/g, "").trim();
+  if (!digits) return null;
+  const visible = digits.slice(-3);
+  return `•••${visible}`;
+}
+
 export const WORKER_DATE_FIELD_KEYS = [
   "dob",
   "white_card_issue_date",
