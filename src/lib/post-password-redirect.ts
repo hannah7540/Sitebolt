@@ -33,6 +33,8 @@ export function resolvePostPasswordSetupHref(
     return COMPLETED_PASSWORD_SETUP_LOGIN_HREF;
   }
 
+  // Quick invite workers still need the wizard even if password setup
+  // activated their account.
   if (worker.onboarding_completed === false) {
     return "/onboarding";
   }

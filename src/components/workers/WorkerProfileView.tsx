@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Camera,
   Loader2,
-  Lock,
   Mail,
   Phone,
   Save,
@@ -54,7 +53,7 @@ import {
   type SecurityRole,
 } from "@/lib/security-roles";
 import { cn } from "@/lib/utils";
-import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
+import { inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 import {
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
@@ -101,35 +100,26 @@ function WorkerProfileStatusBadge({ worker }: { worker: Worker }) {
     pending_induction: "bg-blue-100 text-blue-800",
     expired_ticket: "bg-red-100 text-red-800",
   };
+  const completed = worker.onboarding_completed === true;
   const label =
-    status === "pending_induction"
-      ? "Pending Induction"
-      : status === "expired_ticket"
-        ? "Non-Compliant"
-        : "Active";
+    status === "expired_ticket"
+      ? "Non-Compliant"
+      : completed || status === "active"
+        ? "Active"
+        : status === "pending_induction"
+          ? "Pending Induction"
+          : "Active";
+  const badgeClass =
+    status === "expired_ticket"
+      ? styles.expired_ticket
+      : completed || status === "active"
+        ? styles.active
+        : styles[status] ?? styles.active;
 
   return (
-    <span className={cn("rounded px-2.5 py-1 text-xs font-bold", styles[status] ?? styles.active)}>
+    <span className={cn("rounded px-2.5 py-1 text-xs font-bold", badgeClass)}>
       {label}
     </span>
-  );
-}
-
-function LockedField({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className={cn(labelClass, "flex items-center gap-1.5")}>
-        {label}
-        <Lock className="h-3 w-3 text-slate-400" aria-hidden />
-      </span>
-      <input className={cn(inputClass, "cursor-not-allowed bg-slate-50 text-slate-600")} value={value ?? ""} disabled readOnly />
-    </label>
   );
 }
 
@@ -822,6 +812,7 @@ function CardsVocsTab({
 function FinancialInfoTab({
   worker,
   canAssignPayRules,
+  onSaved,
 }: {
   worker: Worker;
   canAssignPayRules: boolean;
@@ -832,6 +823,76 @@ function FinancialInfoTab({
     worker.state === "NSW"
       ? resolveTravelPayrollCategory(worker.is_apprentice ?? false, worker.state)
       : null;
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    worker.emergency_contact_name ?? ""
+  );
+  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState(
+    worker.emergency_contact_relationship ?? ""
+  );
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    worker.emergency_contact_phone ?? ""
+  );
+  const [tfn, setTfn] = useState(worker.tfn ?? "");
+  const [bankName, setBankName] = useState(worker.bank_name ?? "");
+  const [bankBsb, setBankBsb] = useState(worker.bank_bsb ?? "");
+  const [bankAccountNumber, setBankAccountNumber] = useState(
+    worker.bank_account_number ?? ""
+  );
+  const [superFund, setSuperFund] = useState(worker.super_fund ?? "");
+  const [superUsi, setSuperUsi] = useState(worker.super_usi ?? "");
+  const [superMemberNumber, setSuperMemberNumber] = useState(
+    worker.super_member_number ?? ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEmergencyContactName(worker.emergency_contact_name ?? "");
+    setEmergencyContactRelationship(worker.emergency_contact_relationship ?? "");
+    setEmergencyContactPhone(worker.emergency_contact_phone ?? "");
+    setTfn(worker.tfn ?? "");
+    setBankName(worker.bank_name ?? "");
+    setBankBsb(worker.bank_bsb ?? "");
+    setBankAccountNumber(worker.bank_account_number ?? "");
+    setSuperFund(worker.super_fund ?? "");
+    setSuperUsi(worker.super_usi ?? "");
+    setSuperMemberNumber(worker.super_member_number ?? "");
+  }, [worker]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    const { error: updateError } = await updateWorker(worker.id, {
+      emergency_contact_name: emergencyContactName.trim() || null,
+      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+      emergency_contact_phone: emergencyContactPhone.trim() || null,
+      tfn: tfn.trim() || null,
+      bank_name: bankName.trim() || null,
+      bank_bsb: bankBsb.trim() || null,
+      bank_account_number: bankAccountNumber.trim() || null,
+      super_fund: superFund.trim() || null,
+      super_usi: superUsi.trim() || null,
+      super_member_number: superMemberNumber.trim() || null,
+    });
+    setSaving(false);
+    if (updateError) {
+      setError(updateError);
+      return;
+    }
+    onSaved({
+      ...worker,
+      emergency_contact_name: emergencyContactName.trim() || null,
+      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+      emergency_contact_phone: emergencyContactPhone.trim() || null,
+      tfn: tfn.trim() || null,
+      bank_name: bankName.trim() || null,
+      bank_bsb: bankBsb.trim() || null,
+      bank_account_number: bankAccountNumber.trim() || null,
+      super_fund: superFund.trim() || null,
+      super_usi: superUsi.trim() || null,
+      super_member_number: superMemberNumber.trim() || null,
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -859,58 +920,118 @@ function FinancialInfoTab({
         </div>
       ) : null}
 
-      <div className={cn(cardClass, "border-amber-200 bg-amber-50/60 p-4")}>
-        <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
-          <Lock className="h-4 w-4" />
-          Managed via Worker Onboarding / Self-Service
-        </p>
-        <p className="mt-1 text-xs text-amber-800">
-          Sensitive financial and personal details are read-only at the organisation admin level.
-          Workers update these fields during onboarding or through their self-service portal.
-        </p>
+      <div className={cn(sectionClass, "space-y-4")}>
+        <p className="text-sm font-semibold text-slate-900">Emergency contact</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block space-y-1 sm:col-span-2">
+            <span className={labelClass}>Contact name</span>
+            <input
+              className={inputClass}
+              value={emergencyContactName}
+              onChange={(event) => setEmergencyContactName(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>Relationship</span>
+            <input
+              className={inputClass}
+              value={emergencyContactRelationship}
+              onChange={(event) => setEmergencyContactRelationship(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>Phone</span>
+            <input
+              className={inputClass}
+              value={emergencyContactPhone}
+              onChange={(event) => setEmergencyContactPhone(event.target.value)}
+            />
+          </label>
+        </div>
       </div>
 
       <div className={cn(sectionClass, "space-y-4")}>
         <p className="text-sm font-semibold text-slate-900">Bank details</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <LockedField label="Account name" value={worker.bank_name} />
-          <LockedField label="BSB" value={worker.bank_bsb} />
-          <LockedField label="Account number" value={worker.bank_account_number} />
+          <label className="block space-y-1 sm:col-span-2">
+            <span className={labelClass}>Account name</span>
+            <input
+              className={inputClass}
+              value={bankName}
+              onChange={(event) => setBankName(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>BSB</span>
+            <input
+              className={inputClass}
+              value={bankBsb}
+              onChange={(event) => setBankBsb(event.target.value)}
+              inputMode="numeric"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>Account number</span>
+            <input
+              className={inputClass}
+              value={bankAccountNumber}
+              onChange={(event) => setBankAccountNumber(event.target.value)}
+              inputMode="numeric"
+            />
+          </label>
         </div>
       </div>
 
       <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Tax information</p>
-        <LockedField label="Tax File Number (TFN)" value={worker.tfn} />
-      </div>
-
-      <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Emergency contacts</p>
+        <p className="text-sm font-semibold text-slate-900">Tax & superannuation</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <LockedField label="Contact name" value={worker.emergency_contact_name} />
-          <LockedField label="Phone number" value={worker.emergency_contact_phone} />
-          <LockedField
-            label="Relationship"
-            value={worker.emergency_contact_relationship ?? worker.emergency_contact}
-          />
+          <label className="block space-y-1 sm:col-span-2">
+            <span className={labelClass}>TFN</span>
+            <input
+              className={inputClass}
+              value={tfn}
+              onChange={(event) => setTfn(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>Superannuation fund</span>
+            <input
+              className={inputClass}
+              value={superFund}
+              onChange={(event) => setSuperFund(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>USI</span>
+            <input
+              className={inputClass}
+              value={superUsi}
+              onChange={(event) => setSuperUsi(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1 sm:col-span-2">
+            <span className={labelClass}>Super member number</span>
+            <input
+              className={inputClass}
+              value={superMemberNumber}
+              onChange={(event) => setSuperMemberNumber(event.target.value)}
+            />
+          </label>
         </div>
       </div>
 
-      <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Superannuation fund</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <LockedField label="Fund name" value={worker.super_fund} />
-          <LockedField label="Member number" value={worker.super_member_number} />
-        </div>
-      </div>
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Redundancy fund</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <LockedField label="Fund name" value={worker.redundancy_fund_name} />
-          <LockedField label="Member number" value={worker.redundancy_member_number} />
-        </div>
-      </div>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void handleSave()}
+        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Save financial details
+      </button>
     </div>
   );
 }

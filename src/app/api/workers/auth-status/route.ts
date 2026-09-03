@@ -43,8 +43,14 @@ export async function POST(request: Request) {
 
         const emailConfirmed = Boolean(data.user.email_confirmed_at);
         if (lastSignInAt || emailConfirmed) {
+          const { data: workerRow } = await admin
+            .from("workers")
+            .select("onboarding_completed")
+            .eq("id", workerId)
+            .maybeSingle();
           const syncResult = await markWorkerAccountActivated(admin, workerId, {
-            completeOnboarding: false,
+            completeOnboarding: workerRow?.onboarding_completed === true,
+            acceptInvite: true,
           });
           if (!syncResult.error) {
             syncedWorkerIds.push(workerId);

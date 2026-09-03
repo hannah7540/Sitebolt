@@ -51,13 +51,42 @@ export default function WorkerEditModal({
     worker.assigned_vehicle_asset_id ?? null
   );
   const [whiteCardNumber, setWhiteCardNumber] = useState(worker.white_card_number ?? "");
+  const [whiteCardIssueDate, setWhiteCardIssueDate] = useState(
+    worker.white_card_issue_date ?? ""
+  );
   const [driversLicenceNumber, setDriversLicenceNumber] = useState(
     worker.drivers_licence_number ?? ""
+  );
+  const [driversLicenceClass, setDriversLicenceClass] = useState(
+    worker.drivers_licence_class ?? ""
   );
   const [driversLicenceExpiry, setDriversLicenceExpiry] = useState(
     worker.drivers_licence_expiry ?? ""
   );
   const [silicaCertNumber, setSilicaCertNumber] = useState(worker.silica_cert_number ?? "");
+  const [silicaCertIssueDate, setSilicaCertIssueDate] = useState(
+    worker.silica_cert_issue_date ?? ""
+  );
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    worker.emergency_contact_name ?? ""
+  );
+  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState(
+    worker.emergency_contact_relationship ?? ""
+  );
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    worker.emergency_contact_phone ?? ""
+  );
+  const [tfn, setTfn] = useState(worker.tfn ?? "");
+  const [bankName, setBankName] = useState(worker.bank_name ?? "");
+  const [bankBsb, setBankBsb] = useState(worker.bank_bsb ?? "");
+  const [bankAccountNumber, setBankAccountNumber] = useState(
+    worker.bank_account_number ?? ""
+  );
+  const [superFund, setSuperFund] = useState(worker.super_fund ?? "");
+  const [superUsi, setSuperUsi] = useState(worker.super_usi ?? "");
+  const [superMemberNumber, setSuperMemberNumber] = useState(
+    worker.super_member_number ?? ""
+  );
   const [securityRole, setSecurityRole] = useState<SecurityRole>(
     normalizeSecurityRole(worker.security_role)
   );
@@ -116,10 +145,23 @@ export default function WorkerEditModal({
       is_apprentice: isApprentice,
       has_company_vehicle: hasCompanyVehicle,
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
+      emergency_contact_name: emergencyContactName.trim() || null,
+      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+      emergency_contact_phone: emergencyContactPhone.trim() || null,
+      tfn: tfn.trim() || null,
+      bank_name: bankName.trim() || null,
+      bank_bsb: bankBsb.trim() || null,
+      bank_account_number: bankAccountNumber.trim() || null,
+      super_fund: superFund.trim() || null,
+      super_usi: superUsi.trim() || null,
+      super_member_number: superMemberNumber.trim() || null,
       white_card_number: whiteCardNumber.trim() || null,
+      white_card_issue_date: nullIfBlankWorkerDate(whiteCardIssueDate),
       drivers_licence_number: driversLicenceNumber.trim() || null,
+      drivers_licence_class: driversLicenceClass.trim() || null,
       drivers_licence_expiry: nullIfBlankWorkerDate(driversLicenceExpiry),
       silica_cert_number: silicaCertNumber.trim() || null,
+      silica_cert_issue_date: nullIfBlankWorkerDate(silicaCertIssueDate),
     });
 
     if (updateError) {
@@ -165,10 +207,23 @@ export default function WorkerEditModal({
       is_apprentice: isApprentice,
       has_company_vehicle: hasCompanyVehicle,
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
+      emergency_contact_name: emergencyContactName.trim() || null,
+      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+      emergency_contact_phone: emergencyContactPhone.trim() || null,
+      tfn: tfn.trim() || null,
+      bank_name: bankName.trim() || null,
+      bank_bsb: bankBsb.trim() || null,
+      bank_account_number: bankAccountNumber.trim() || null,
+      super_fund: superFund.trim() || null,
+      super_usi: superUsi.trim() || null,
+      super_member_number: superMemberNumber.trim() || null,
       white_card_number: whiteCardNumber.trim() || null,
+      white_card_issue_date: nullIfBlankWorkerDate(whiteCardIssueDate),
       drivers_licence_number: driversLicenceNumber.trim() || null,
+      drivers_licence_class: driversLicenceClass.trim() || null,
       drivers_licence_expiry: nullIfBlankWorkerDate(driversLicenceExpiry),
       silica_cert_number: silicaCertNumber.trim() || null,
+      silica_cert_issue_date: nullIfBlankWorkerDate(silicaCertIssueDate),
       photo_url: photoUrl,
       security_role: canManageWorkerRoles ? securityRole : worker.security_role,
       pay_rule_id: resolvedPayRuleId,
@@ -180,7 +235,7 @@ export default function WorkerEditModal({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={`${modalClass} max-h-[90vh] max-w-lg overflow-y-auto`}
+        className={`${modalClass} max-h-[90vh] max-w-2xl overflow-y-auto`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -323,6 +378,103 @@ export default function WorkerEditModal({
           />
 
           <div className={sectionClass}>
+            <p className="text-sm font-semibold text-slate-900">Emergency contact</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="block space-y-1 sm:col-span-2">
+                <span className={labelClass}>Contact name</span>
+                <input
+                  className={inputClass}
+                  value={emergencyContactName}
+                  onChange={(event) => setEmergencyContactName(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Relationship</span>
+                <input
+                  className={inputClass}
+                  value={emergencyContactRelationship}
+                  onChange={(event) =>
+                    setEmergencyContactRelationship(event.target.value)
+                  }
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Phone</span>
+                <input
+                  className={inputClass}
+                  value={emergencyContactPhone}
+                  onChange={(event) => setEmergencyContactPhone(event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className={sectionClass}>
+            <p className="text-sm font-semibold text-slate-900">Financial / payroll</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="block space-y-1 sm:col-span-2">
+                <span className={labelClass}>TFN</span>
+                <input
+                  className={inputClass}
+                  value={tfn}
+                  onChange={(event) => setTfn(event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="block space-y-1 sm:col-span-2">
+                <span className={labelClass}>Bank account name</span>
+                <input
+                  className={inputClass}
+                  value={bankName}
+                  onChange={(event) => setBankName(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>BSB</span>
+                <input
+                  className={inputClass}
+                  value={bankBsb}
+                  onChange={(event) => setBankBsb(event.target.value)}
+                  inputMode="numeric"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Account number</span>
+                <input
+                  className={inputClass}
+                  value={bankAccountNumber}
+                  onChange={(event) => setBankAccountNumber(event.target.value)}
+                  inputMode="numeric"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Superannuation fund</span>
+                <input
+                  className={inputClass}
+                  value={superFund}
+                  onChange={(event) => setSuperFund(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>USI</span>
+                <input
+                  className={inputClass}
+                  value={superUsi}
+                  onChange={(event) => setSuperUsi(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1 sm:col-span-2">
+                <span className={labelClass}>Super member number</span>
+                <input
+                  className={inputClass}
+                  value={superMemberNumber}
+                  onChange={(event) => setSuperMemberNumber(event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">Certifications</p>
             <div className="mt-3 space-y-3">
               <label className="block space-y-1">
@@ -334,11 +486,28 @@ export default function WorkerEditModal({
                 />
               </label>
               <label className="block space-y-1">
+                <span className={labelClass}>White card issue date</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={whiteCardIssueDate ?? ""}
+                  onChange={(event) => setWhiteCardIssueDate(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
                 <span className={labelClass}>Driver licence number</span>
                 <input
                   className={inputClass}
                   value={driversLicenceNumber}
                   onChange={(event) => setDriversLicenceNumber(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Driver licence class</span>
+                <input
+                  className={inputClass}
+                  value={driversLicenceClass}
+                  onChange={(event) => setDriversLicenceClass(event.target.value)}
                 />
               </label>
               <label className="block space-y-1">
@@ -356,6 +525,15 @@ export default function WorkerEditModal({
                   className={inputClass}
                   value={silicaCertNumber}
                   onChange={(event) => setSilicaCertNumber(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>Silica cert issue date</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={silicaCertIssueDate ?? ""}
+                  onChange={(event) => setSilicaCertIssueDate(event.target.value)}
                 />
               </label>
             </div>

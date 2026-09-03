@@ -34,6 +34,7 @@ import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
+import WorkerEditModal from "./WorkerEditModal";
 import { ResendInviteButton } from "./ResendInviteButton";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
@@ -100,15 +101,24 @@ function WorkerStatusBadge({ worker }: { worker: Worker }) {
     pending_induction: "bg-blue-100 text-blue-800",
     expired_ticket: "bg-red-100 text-red-800",
   };
+  const completed = worker.onboarding_completed === true;
   const label =
-    status === "pending_induction"
-      ? "Pending Induction"
-      : status === "expired_ticket"
-        ? "Non-Compliant"
-        : "Active";
+    status === "expired_ticket"
+      ? "Non-Compliant"
+      : completed || status === "active"
+        ? "Active"
+        : status === "pending_induction"
+          ? "Pending Induction"
+          : "Active";
+  const badgeClass =
+    status === "expired_ticket"
+      ? map.expired_ticket
+      : completed || status === "active"
+        ? map.active
+        : map[status] ?? map.active;
 
   return (
-    <span className={cn("rounded px-2 py-1 text-xs font-bold", map[status] ?? map.active)}>
+    <span className={cn("rounded px-2 py-1 text-xs font-bold", badgeClass)}>
       {label}
     </span>
   );
@@ -174,6 +184,7 @@ export default function WorkerDirectoryPanel({
   const [workerTab, setWorkerTab] = useState<WorkerTabFilter>("Current");
   const [showModal, setShowModal] = useState(initialShowAdd);
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
+  const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [profileInitialTab, setProfileInitialTab] = useState<WorkerProfileTab>("basic");
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [assignWorker, setAssignWorker] = useState<Worker | null>(null);
@@ -577,7 +588,7 @@ export default function WorkerDirectoryPanel({
                     >
                       <button
                         type="button"
-                        onClick={() => openWorkerProfile(w, "basic")}
+                        onClick={() => setEditingWorker(w)}
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -672,6 +683,17 @@ export default function WorkerDirectoryPanel({
 
       {toast && (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+      )}
+
+      {editingWorker && (
+        <WorkerEditModal
+          worker={editingWorker}
+          onClose={() => setEditingWorker(null)}
+          onSaved={(updated) => {
+            patchWorker(updated);
+          }}
+          canManageWorkerRoles={canManageWorkerRoles}
+        />
       )}
 
       {assignWorker && (

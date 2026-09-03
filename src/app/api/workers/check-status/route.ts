@@ -7,6 +7,8 @@ import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { markWorkerAccountActivated } from "@/lib/ensure-worker-profile";
+import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
 import {
   resolvePostPasswordSetupHref,
   type WorkerPostPasswordStatus,
@@ -114,7 +116,22 @@ async function handleCheckStatus(req: Request) {
     }
 
     const admin = createSupabaseAdminClient();
-    const worker = await findWorkerForUser(admin, user);
+    let worker = await findWorkerForUser(admin, user);
+
+    if (worker) {
+      const email = user.email?.trim() ?? "";
+      await linkWorkerAuthAccount(admin, {
+        workerId: worker.id,
+        authUserId: user.id,
+        email: email || worker.id,
+        fullName: email.split("@")[0] || "Worker",
+      });
+      await markWorkerAccountActivated(admin, worker.id, {
+        completeOnboarding: worker.onboarding_completed === true,
+        acceptInvite: true,
+      });
+      worker = await findWorkerForUser(admin, user);
+    }
 
     return NextResponse.json({
       worker,

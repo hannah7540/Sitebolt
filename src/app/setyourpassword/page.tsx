@@ -242,6 +242,27 @@ function SetYourPasswordForm() {
         data: { user },
       } = await supabase.auth.getUser();
 
+      const accessToken =
+        (await supabase.auth.getSession()).data.session?.access_token ??
+        session.access_token;
+      const statusRes = await fetch("/api/workers/check-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (statusRes.ok) {
+        const payload = (await statusRes.json()) as {
+          worker?: WorkerPostPasswordStatus | null;
+          redirectTo?: string;
+        };
+        window.location.href =
+          payload.redirectTo ?? resolvePostPasswordSetupHref(payload.worker);
+        return;
+      }
+
       let worker: WorkerPostPasswordStatus | null = null;
       if (user?.email) {
         const { data: clientWorker, error: workerErr } = await supabase
@@ -266,30 +287,6 @@ function SetYourPasswordForm() {
                 ? clientWorker.invite_status
                 : null,
           };
-        }
-      }
-
-      if (!worker) {
-        const accessToken =
-          (await supabase.auth.getSession()).data.session?.access_token ??
-          session.access_token;
-        const statusRes = await fetch("/api/workers/check-status", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        if (statusRes.ok) {
-          const payload = (await statusRes.json()) as {
-            worker?: WorkerPostPasswordStatus | null;
-            redirectTo?: string;
-          };
-          if (payload.redirectTo) {
-            window.location.href = payload.redirectTo;
-            return;
-          }
-          worker = payload.worker ?? null;
         }
       }
 

@@ -210,6 +210,7 @@ export function canResendWorkerInvite(
     email?: string | null;
     status?: string | null;
     invite_status?: string | null;
+    onboarding_completed?: boolean | null;
     is_revoked?: boolean;
     is_archived?: boolean;
     induction_completed_at?: string | null;
@@ -225,21 +226,21 @@ export function canResendWorkerInvite(
   if (!worker.email?.trim()) return false;
 
   const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
-  const status = (worker.status ?? "").toLowerCase();
-  const neverLoggedIn = !lastSignInAt;
-  const pendingActivation =
-    PENDING_INVITE_STATUSES.has(status) || status === "pending_induction";
+  const status = (worker.status ?? "").trim().toLowerCase();
 
-  if (inviteStatus === "accepted" && !neverLoggedIn) {
-    return false;
-  }
+  // Hide for workers who already finished onboarding or are fully active.
+  if (worker.onboarding_completed === true) return false;
+  if (status === "active") return false;
+  if (inviteStatus === "accepted" && lastSignInAt) return false;
 
-  return (
-    inviteStatus === "pending" ||
+  const isPending =
+    status === "invited" ||
+    status === "pending" ||
+    status === "pending_induction" ||
     PENDING_INVITE_STATUSES.has(inviteStatus) ||
-    pendingActivation ||
-    neverLoggedIn
-  );
+    worker.onboarding_completed === false;
+
+  return isPending;
 }
 
 export const WORKER_DATE_FIELD_KEYS = [
