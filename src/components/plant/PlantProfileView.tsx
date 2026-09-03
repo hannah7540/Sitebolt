@@ -29,13 +29,13 @@ import {
   serializePlantDocuments,
   type PlantDocumentRecord,
 } from "@/lib/plant-documents";
+import { serializePlantCategories } from "@/lib/plant-categories";
 import { getProjectName } from "@/lib/projects";
 import {
   PRESTART_TEMPLATES,
   type PrestartTemplate,
 } from "@/lib/prestart-templates";
 import { isTaggedOut } from "@/lib/plant-utils";
-import WorkerAssignedProjectsPicker from "@/components/organisation/WorkerAssignedProjectsPicker";
 import PlantDocumentsEditor from "@/components/plant/PlantDocumentsEditor";
 import PlantEquipmentFields, {
   plantFormValuesFromAsset,
@@ -256,7 +256,7 @@ function BasicInfoTab({
 }) {
   const initialAssignedWorkerId = plant.assigned_worker_id ?? null;
   const [values, setValues] = useState<PlantFormValues>(() =>
-    plantFormValuesFromAsset(plant)
+    plantFormValuesFromAsset(plant, undefined, projectIds[0] ?? null)
   );
   const [name, setName] = useState(plant.name ?? "");
   const [registrationCode, setRegistrationCode] = useState(plant.registration_code ?? "");
@@ -288,7 +288,7 @@ function BasicInfoTab({
   }, []);
 
   useEffect(() => {
-    setValues(plantFormValuesFromAsset(plant));
+    setValues(plantFormValuesFromAsset(plant, undefined, projectIds[0] ?? null));
     setName(plant.name ?? "");
     setRegistrationCode(plant.registration_code ?? "");
     setHourlyCostRate(plant.hourly_cost_rate != null ? String(plant.hourly_cost_rate) : "");
@@ -301,6 +301,9 @@ function BasicInfoTab({
     value: PlantFormValues[K]
   ) => {
     setValues((prev) => ({ ...prev, [key]: value }));
+    if (key === "projectId") {
+      onProjectIdsChange(value ? [String(value)] : []);
+    }
   };
 
   const workerOptions = useMemo(() => {
@@ -323,8 +326,9 @@ function BasicInfoTab({
   }, [plant.assigned_worker_name, values.assignedWorkerId, workers]);
 
   const handleSave = async () => {
-    if (!values.unitNumber.trim() || !values.category.trim()) {
-      setError("Unit number and category are required.");
+    const category = serializePlantCategories(values.categories);
+    if (!values.unitNumber.trim() || !category) {
+      setError("Unit number and at least one category are required.");
       return;
     }
 
@@ -346,7 +350,7 @@ function BasicInfoTab({
     const { error: updateError } = await updatePlant(plant.id, {
       unit_number: values.unitNumber.trim(),
       name: name.trim() || null,
-      category: values.category.trim(),
+      category,
       make: values.make.trim() || null,
       model: values.model.trim() || null,
       serial_number: values.serialNumber.trim() || null,
@@ -388,7 +392,9 @@ function BasicInfoTab({
       return;
     }
 
-    const { error: assignError } = await setPlantProjectAssignments(plant, projectIds);
+    const nextProjectIds = values.projectId ? [values.projectId] : [];
+    const { error: assignError } = await setPlantProjectAssignments(plant, nextProjectIds);
+    onProjectIdsChange(nextProjectIds);
     setSaving(false);
 
     if (assignError) {
@@ -400,7 +406,7 @@ function BasicInfoTab({
       ...plant,
       unit_number: values.unitNumber.trim(),
       name: name.trim() || null,
-      category: values.category.trim(),
+      category,
       make: values.make.trim() || null,
       model: values.model.trim() || null,
       serial_number: values.serialNumber.trim() || null,
@@ -420,6 +426,9 @@ function BasicInfoTab({
       assigned_worker_name: selectedWorker
         ? resolvePlantWorkerOptionLabel(selectedWorker)
         : null,
+      project_id: values.projectId || null,
+      assigned_project_id: values.projectId || null,
+      current_project_id: values.projectId || null,
     });
   };
 
@@ -433,6 +442,7 @@ function BasicInfoTab({
         values={values}
         onChange={setField}
         workers={workerOptions}
+        projects={projects}
         loadingWorkers={loadingWorkers}
         disabled={saving}
       />
@@ -498,16 +508,6 @@ function BasicInfoTab({
             ))}
           </select>
         </label>
-      </div>
-
-      <div className="space-y-2">
-        <span className={labelClass}>Assigned projects</span>
-        <WorkerAssignedProjectsPicker
-          projects={projects}
-          selectedIds={projectIds}
-          onChange={onProjectIdsChange}
-          saving={saving}
-        />
       </div>
 
       {error && (

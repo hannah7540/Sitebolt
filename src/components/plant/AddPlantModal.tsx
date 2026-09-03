@@ -3,11 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { addPlant } from "@/lib/supabase";
+import { serializePlantCategories } from "@/lib/plant-categories";
 import {
   fetchActiveWorkersForPlantAssignment,
   resolvePlantWorkerOptionLabel,
   syncPlantWorkerAssignment,
 } from "@/lib/plant-worker-assignment";
+import { setPlantProjectAssignments } from "@/lib/project-assignments";
+import {
+  fetchProjects,
+  filterActiveProjects,
+  getCachedProjects,
+  type DbProject,
+} from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import PlantEquipmentFields, {
   createEmptyPlantFormValues,
@@ -26,6 +34,9 @@ interface AddPlantModalProps {
 export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) {
   const [values, setValues] = useState<PlantFormValues>(createEmptyPlantFormValues());
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [projects, setProjects] = useState<DbProject[]>(() =>
+    filterActiveProjects(getCachedProjects())
+  );
   const [loadingWorkers, setLoadingWorkers] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,9 +46,13 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
 
     void (async () => {
       setLoadingWorkers(true);
-      const rows = await fetchActiveWorkersForPlantAssignment();
+      const [rows, projectRows] = await Promise.all([
+        fetchActiveWorkersForPlantAssignment(),
+        fetchProjects(),
+      ]);
       if (!cancelled) {
         setWorkers(rows);
+        setProjects(filterActiveProjects(projectRows));
         setLoadingWorkers(false);
       }
     })();
@@ -59,8 +74,9 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!values.unitNumber.trim() || !values.category.trim()) {
-      setError("Unit number and category are required.");
+    const category = serializePlantCategories(values.categories);
+    if (!values.unitNumber.trim() || !category) {
+      setError("Unit number and at least one category are required.");
       return;
     }
 
@@ -76,7 +92,7 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
     try {
       const result = await addPlant({
         unit_number: values.unitNumber.trim(),
-        category: values.category.trim(),
+        category,
         make: values.make.trim() || undefined,
         model: values.model.trim() || undefined,
         serial_number: values.serialNumber.trim() || undefined,
@@ -87,11 +103,21 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
         service_contact_phone: values.serviceContactPhone.trim() || undefined,
         service_contact_company: values.serviceContactCompany.trim() || undefined,
         service_contact_email: values.serviceContactEmail.trim() || undefined,
+        project_id: values.projectId || null,
         ...resolveHeavyVehicleFormPayload(values),
       });
 
       if (result.error || !result.data) {
         setError(result.error ?? "Failed to register plant asset.");
+        return;
+      }
+
+      const assignResult = await setPlantProjectAssignments(
+        result.data,
+        values.projectId ? [values.projectId] : []
+      );
+      if (assignResult.error) {
+        setError(assignResult.error);
         return;
       }
 
@@ -146,6 +172,7 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
           values={values}
           onChange={setField}
           workers={workerOptions}
+          projects={projects}
           loadingWorkers={loadingWorkers}
           disabled={saving}
         />

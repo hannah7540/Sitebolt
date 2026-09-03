@@ -5,8 +5,22 @@ import {
   PRESTART_TEMPLATE_LABELS,
   type PrestartTemplate,
 } from "@/lib/prestart-templates";
+import {
+  PLANT_EQUIPMENT_CATEGORIES,
+  parsePlantCategories,
+  serializePlantCategories,
+  togglePlantCategory,
+} from "@/lib/plant-categories";
 import { resolvePlantWorkerOptionLabel } from "@/lib/plant-worker-assignment";
-import type { Worker } from "@/lib/supabase";
+import {
+  resolvePlantAssignedProjectId,
+  type PlantAsset,
+  type Worker,
+} from "@/lib/supabase";
+import {
+  filterActiveProjects,
+  type DbProject,
+} from "@/lib/project-resolver";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 const TEMPLATES = Object.keys(PRESTART_TEMPLATE_LABELS) as PrestartTemplate[];
@@ -14,6 +28,8 @@ const TEMPLATES = Object.keys(PRESTART_TEMPLATE_LABELS) as PrestartTemplate[];
 export interface PlantFormValues {
   unitNumber: string;
   category: string;
+  categories: string[];
+  projectId: string;
   make: string;
   model: string;
   serialNumber: string;
@@ -37,6 +53,7 @@ interface PlantEquipmentFieldsProps {
     value: PlantFormValues[K]
   ) => void;
   workers: Worker[];
+  projects?: DbProject[];
   loadingWorkers?: boolean;
   disabled?: boolean;
   showTemplate?: boolean;
@@ -48,6 +65,8 @@ export function createEmptyPlantFormValues(
   return {
     unitNumber: "",
     category: "",
+    categories: [],
+    projectId: "",
     make: "",
     model: "",
     serialNumber: "",
@@ -66,29 +85,38 @@ export function createEmptyPlantFormValues(
 }
 
 export function plantFormValuesFromAsset(
-  plant: {
-    unit_number: string;
-    category: string;
-    make?: string | null;
-    model?: string | null;
-    serial_number?: string | null;
-    current_hours?: number | null;
-    next_service_hours?: number | null;
-    service_contact_company?: string | null;
-    service_contact_name?: string | null;
-    service_contact_email?: string | null;
-    service_contact_phone?: string | null;
-    prestart_template?: PrestartTemplate | null;
-    assigned_worker_id?: string | null;
-    heavy_vehicle_check_required?: boolean;
-    last_heavy_vehicle_check_date?: string | null;
-    next_heavy_vehicle_check_due_date?: string | null;
-  },
-  assignedWorkerIdOverride?: string | null
+  plant: Pick<
+    PlantAsset,
+    | "unit_number"
+    | "category"
+    | "make"
+    | "model"
+    | "serial_number"
+    | "current_hours"
+    | "next_service_hours"
+    | "service_contact_company"
+    | "service_contact_name"
+    | "service_contact_email"
+    | "service_contact_phone"
+    | "prestart_template"
+    | "assigned_worker_id"
+    | "heavy_vehicle_check_required"
+    | "last_heavy_vehicle_check_date"
+    | "next_heavy_vehicle_check_due_date"
+    | "assigned_project_id"
+    | "project_id"
+    | "current_project_id"
+  >,
+  assignedWorkerIdOverride?: string | null,
+  assignedProjectIdOverride?: string | null
 ): PlantFormValues {
+  const categories = parsePlantCategories(plant.category);
   return {
     unitNumber: plant.unit_number ?? "",
-    category: plant.category ?? "",
+    category: serializePlantCategories(categories) || (plant.category ?? ""),
+    categories,
+    projectId:
+      assignedProjectIdOverride ?? resolvePlantAssignedProjectId(plant),
     make: plant.make ?? "",
     model: plant.model ?? "",
     serialNumber: plant.serial_number ?? "",
@@ -161,11 +189,30 @@ export default function PlantEquipmentFields({
   values,
   onChange,
   workers,
+  projects = [],
   loadingWorkers = false,
   disabled = false,
   showTemplate = true,
 }: PlantEquipmentFieldsProps) {
   const workerOptions = [...workers];
+  const selectedCategories = parsePlantCategories(values.categories);
+  const projectOptions = (() => {
+    const active = filterActiveProjects(projects);
+    if (
+      values.projectId &&
+      !active.some((project) => project.id === values.projectId)
+    ) {
+      const current = projects.find((project) => project.id === values.projectId);
+      if (current) return [current, ...active];
+    }
+    return active;
+  })();
+
+  const handleCategoryToggle = (category: (typeof PLANT_EQUIPMENT_CATEGORIES)[number]) => {
+    const next = togglePlantCategory(values.categories, category);
+    onChange("categories", next);
+    onChange("category", serializePlantCategories(next));
+  };
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -181,16 +228,41 @@ export default function PlantEquipmentFields({
         />
       </label>
       <label className="block sm:col-span-2">
-        <span className={labelClass}>Category *</span>
-        <input
+        <span className={labelClass}>Project</span>
+        <select
           className={inputClass}
-          value={values.category ?? ""}
-          onChange={(event) => onChange("category", event.target.value)}
-          placeholder="8t Excavator"
-          required
+          value={values.projectId ?? ""}
+          onChange={(event) => onChange("projectId", event.target.value)}
           disabled={disabled}
-        />
+        >
+          <option value="">Unassigned</option>
+          {projectOptions.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
       </label>
+      <fieldset className="sm:col-span-2 space-y-2">
+        <legend className={labelClass}>Category *</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {PLANT_EQUIPMENT_CATEGORIES.map((category) => (
+            <label
+              key={category}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
+            >
+              <input
+                type="checkbox"
+                checked={selectedCategories.includes(category)}
+                onChange={() => handleCategoryToggle(category)}
+                disabled={disabled}
+                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+              />
+              {category}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <label className="block">
         <span className={labelClass}>Make</span>
         <input

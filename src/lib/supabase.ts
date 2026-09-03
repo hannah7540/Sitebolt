@@ -2082,15 +2082,25 @@ export async function addPlant(asset: {
   service_contact_phone?: string;
   service_contact_company?: string;
   service_contact_email?: string;
+  project_id?: string | null;
+  assigned_project_id?: string | null;
+  current_project_id?: string | null;
   heavy_vehicle_check_required?: boolean;
   last_heavy_vehicle_check_date?: string | null;
   next_heavy_vehicle_check_due_date?: string | null;
 }): Promise<{ error: string | null; data: PlantAsset | null }> {
+  const projectId = asset.project_id?.trim() || null;
+  const {
+    assigned_project_id: _assignedProjectId,
+    current_project_id: _currentProjectId,
+    ...insertAsset
+  } = asset;
   const { data, error } = await supabase
     .from(MASTER_PLANT_TABLE)
     .insert([
       {
-        ...asset,
+        ...insertAsset,
+        project_id: projectId,
         prestart_template: asset.prestart_template ?? "excavator",
         status: "available",
       },

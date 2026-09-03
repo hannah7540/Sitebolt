@@ -33,8 +33,28 @@ import {
 } from "@/hooks/useOrganisationEntityDeepLink";
 import { useFormToast } from "@/hooks/useFormToast";
 import Toast from "@/components/ui/Toast";
+import { parsePlantCategories } from "@/lib/plant-categories";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
+
+function PlantCategoryBadges({ category }: { category: string }) {
+  const selected = parsePlantCategories(category);
+  if (selected.length === 0) {
+    return <span>{category || "—"}</span>;
+  }
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {selected.map((item) => (
+        <span
+          key={item}
+          className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700"
+        >
+          {item}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 type PlantProfileTab = "basic" | "prestarts" | "documentation" | "service-history";
 
@@ -320,7 +340,7 @@ export default function PlantAdminPanel({
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">{p.unit_number}</h3>
                   <p className="text-sm text-slate-600">
-                    {p.category}
+                    <PlantCategoryBadges category={p.category} />
                     {p.make && ` · ${p.make}`}
                     {p.model && ` ${p.model}`}
                   </p>
