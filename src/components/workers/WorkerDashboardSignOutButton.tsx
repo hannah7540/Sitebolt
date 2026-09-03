@@ -1,23 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 
-const WORKER_HOME_PATHS = new Set([
-  "/worker-dashboard",
-  "/worker-dashboard/",
-  "/worker/dashboard",
-  "/worker/dashboard/",
-]);
-
 export default function WorkerDashboardSignOutButton() {
-  const pathname = usePathname() ?? "";
-  const isHomePage = WORKER_HOME_PATHS.has(pathname);
   const [signingOut, setSigningOut] = useState(false);
-
-  if (!isHomePage) return null;
 
   const handleSignOut = async () => {
     if (signingOut) return;
@@ -30,15 +18,15 @@ export default function WorkerDashboardSignOutButton() {
   };
 
   return (
-    <div className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-50">
+    <div className="mt-12 mb-8 flex justify-center px-4 sm:justify-end">
       <button
         type="button"
         onClick={() => void handleSignOut()}
         disabled={signingOut}
-        className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-900/80 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition-colors hover:bg-slate-900 disabled:opacity-70"
+        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:opacity-70"
         aria-label="Sign Out"
       >
-        <LogOut className="h-4 w-4" />
+        <LogOut className="h-4 w-4 text-slate-500" />
         <span>{signingOut ? "Signing out…" : "Sign Out"}</span>
       </button>
     </div>
