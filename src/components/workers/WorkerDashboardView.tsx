@@ -1182,7 +1182,12 @@ export default function WorkerDashboardView({
         </div>
       </header>
 
-      <main className="mx-auto max-w-lg p-4 pb-8">
+      <main
+        className={cn(
+          "mx-auto max-w-lg px-4 pt-4",
+          embedded ? "pb-8" : "worker-mobile-content-pad"
+        )}
+      >
         {isProfileLoading && (
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
             <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
