@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { addPlant } from "@/lib/supabase";
 import { serializePlantCategories } from "@/lib/plant-categories";
-import { buildRegisterPlantAssetPayload } from "@/lib/plant-register-payload";
+import {
+  buildRegisterPlantAssetPayload,
+  hasHeavyVehicleFormErrors,
+  validateHeavyVehicleFormFields,
+  type HeavyVehicleFormErrors,
+} from "@/lib/plant-register-payload";
 import {
   fetchActiveWorkersForPlantAssignment,
   resolvePlantWorkerOptionLabel,
@@ -39,6 +44,9 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
   );
   const [loadingWorkers, setLoadingWorkers] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingRegistration, setUploadingRegistration] = useState(false);
+  const [heavyVehicleErrors, setHeavyVehicleErrors] =
+    useState<HeavyVehicleFormErrors>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,6 +91,18 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
     const parsed = parsePlantFormNumbers(values);
     if (parsed.error) {
       setError(parsed.error);
+      return;
+    }
+
+    const hvErrors = validateHeavyVehicleFormFields(values);
+    setHeavyVehicleErrors(hvErrors);
+    if (hasHeavyVehicleFormErrors(hvErrors)) {
+      setError("Please complete all required heavy vehicle fields.");
+      return;
+    }
+
+    if (uploadingRegistration) {
+      setError("Please wait for the registration document to finish uploading.");
       return;
     }
 
@@ -161,6 +181,9 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
           projects={projects}
           loadingWorkers={loadingWorkers}
           disabled={saving}
+          fieldErrors={heavyVehicleErrors}
+          onFieldErrorChange={setHeavyVehicleErrors}
+          onUploadingChange={setUploadingRegistration}
         />
 
         {error ? (
@@ -179,10 +202,12 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
           </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || uploadingRegistration}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {saving || uploadingRegistration ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
             Save Asset
           </button>
         </div>

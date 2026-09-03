@@ -30,7 +30,12 @@ import {
   type PlantDocumentRecord,
 } from "@/lib/plant-documents";
 import { serializePlantCategories } from "@/lib/plant-categories";
-import { buildRegisterPlantAssetPayload } from "@/lib/plant-register-payload";
+import {
+  buildRegisterPlantAssetPayload,
+  hasHeavyVehicleFormErrors,
+  validateHeavyVehicleFormFields,
+  type HeavyVehicleFormErrors,
+} from "@/lib/plant-register-payload";
 import { getProjectName } from "@/lib/projects";
 import {
   PRESTART_TEMPLATES,
@@ -268,6 +273,9 @@ function BasicInfoTab({
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingRegistration, setUploadingRegistration] = useState(false);
+  const [heavyVehicleErrors, setHeavyVehicleErrors] =
+    useState<HeavyVehicleFormErrors>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -294,6 +302,7 @@ function BasicInfoTab({
     setHourlyCostRate(plant.hourly_cost_rate != null ? String(plant.hourly_cost_rate) : "");
     setOwnershipType(plant.ownership_type ?? "company");
     setStatus(normalizePlantStatus(plant.status));
+    setHeavyVehicleErrors({});
   }, [plant]);
 
   const setField = <K extends keyof PlantFormValues>(
@@ -335,6 +344,18 @@ function BasicInfoTab({
     const parsedNumbers = parsePlantFormNumbers(values);
     if (parsedNumbers.error) {
       setError(parsedNumbers.error);
+      return;
+    }
+
+    const hvErrors = validateHeavyVehicleFormFields(values);
+    setHeavyVehicleErrors(hvErrors);
+    if (hasHeavyVehicleFormErrors(hvErrors)) {
+      setError("Please complete all required heavy vehicle fields.");
+      return;
+    }
+
+    if (uploadingRegistration) {
+      setError("Please wait for the registration document to finish uploading.");
       return;
     }
 
@@ -407,6 +428,10 @@ function BasicInfoTab({
       heavy_vehicle_check_required: mapped.heavy_vehicle_check_required,
       last_heavy_vehicle_check_date: mapped.last_heavy_vehicle_check_date,
       next_heavy_vehicle_check_due_date: mapped.next_heavy_vehicle_check_due_date,
+      heavy_vehicle_last_completed_date: mapped.heavy_vehicle_last_completed_date,
+      heavy_vehicle_next_due_date: mapped.heavy_vehicle_next_due_date,
+      registration_expiry_date: mapped.registration_expiry_date,
+      registration_document_url: mapped.registration_document_url,
       name: name.trim() || null,
       registration_code: registrationCode.trim() || null,
       hourly_cost_rate: parsedRate,
@@ -438,6 +463,9 @@ function BasicInfoTab({
         projects={projects}
         loadingWorkers={loadingWorkers}
         disabled={saving}
+        fieldErrors={heavyVehicleErrors}
+        onFieldErrorChange={setHeavyVehicleErrors}
+        onUploadingChange={setUploadingRegistration}
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -511,7 +539,7 @@ function BasicInfoTab({
 
       <button
         type="button"
-        disabled={saving}
+        disabled={saving || uploadingRegistration}
         onClick={() => void handleSave()}
         className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
       >

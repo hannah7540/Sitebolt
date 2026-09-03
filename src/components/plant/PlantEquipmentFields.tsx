@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import {
   PRESTART_TEMPLATE_LABELS,
@@ -13,6 +15,10 @@ import {
 } from "@/lib/plant-categories";
 import { resolvePlantWorkerOptionLabel } from "@/lib/plant-worker-assignment";
 import {
+  type HeavyVehicleFormErrors,
+} from "@/lib/plant-register-payload";
+import { uploadPlantRegistrationDocument } from "@/lib/plant-doc-upload";
+import {
   resolvePlantAssignedProjectId,
   type PlantAsset,
   type Worker,
@@ -21,6 +27,7 @@ import {
   filterActiveProjects,
   type DbProject,
 } from "@/lib/project-resolver";
+import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 const TEMPLATES = Object.keys(PRESTART_TEMPLATE_LABELS) as PrestartTemplate[];
@@ -44,6 +51,8 @@ export interface PlantFormValues {
   heavyVehicleCheckRequired: boolean;
   lastHeavyVehicleCheckDate: string;
   nextHeavyVehicleCheckDueDate: string;
+  registrationExpiryDate: string;
+  registrationDocumentUrl: string | null;
 }
 
 interface PlantEquipmentFieldsProps {
@@ -57,6 +66,9 @@ interface PlantEquipmentFieldsProps {
   loadingWorkers?: boolean;
   disabled?: boolean;
   showTemplate?: boolean;
+  fieldErrors?: HeavyVehicleFormErrors;
+  onFieldErrorChange?: (errors: HeavyVehicleFormErrors) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 export function createEmptyPlantFormValues(
@@ -81,6 +93,8 @@ export function createEmptyPlantFormValues(
     heavyVehicleCheckRequired: false,
     lastHeavyVehicleCheckDate: "",
     nextHeavyVehicleCheckDueDate: "",
+    registrationExpiryDate: "",
+    registrationDocumentUrl: null,
   };
 }
 
@@ -103,6 +117,10 @@ export function plantFormValuesFromAsset(
     | "heavy_vehicle_check_required"
     | "last_heavy_vehicle_check_date"
     | "next_heavy_vehicle_check_due_date"
+    | "heavy_vehicle_last_completed_date"
+    | "heavy_vehicle_next_due_date"
+    | "registration_expiry_date"
+    | "registration_document_url"
     | "assigned_project_id"
     | "project_id"
     | "current_project_id"
@@ -134,23 +152,45 @@ export function plantFormValuesFromAsset(
         ? assignedWorkerIdOverride
         : plant.assigned_worker_id ?? null,
     heavyVehicleCheckRequired: plant.heavy_vehicle_check_required ?? false,
-    lastHeavyVehicleCheckDate: plant.last_heavy_vehicle_check_date ?? "",
-    nextHeavyVehicleCheckDueDate: plant.next_heavy_vehicle_check_due_date ?? "",
+    lastHeavyVehicleCheckDate:
+      plant.heavy_vehicle_last_completed_date ??
+      plant.last_heavy_vehicle_check_date ??
+      "",
+    nextHeavyVehicleCheckDueDate:
+      plant.heavy_vehicle_next_due_date ??
+      plant.next_heavy_vehicle_check_due_date ??
+      "",
+    registrationExpiryDate: plant.registration_expiry_date ?? "",
+    registrationDocumentUrl: plant.registration_document_url ?? null,
   };
 }
 
 export function resolveHeavyVehicleFormPayload(values: PlantFormValues): {
   heavy_vehicle_check_required: boolean;
+  heavy_vehicle_last_completed_date: string | null;
+  heavy_vehicle_next_due_date: string | null;
   last_heavy_vehicle_check_date: string | null;
   next_heavy_vehicle_check_due_date: string | null;
+  registration_expiry_date: string | null;
+  registration_document_url: string | null;
 } {
+  const lastCompleted = values.heavyVehicleCheckRequired
+    ? values.lastHeavyVehicleCheckDate.trim() || null
+    : null;
+  const nextDue = values.heavyVehicleCheckRequired
+    ? values.nextHeavyVehicleCheckDueDate.trim() || null
+    : null;
   return {
     heavy_vehicle_check_required: Boolean(values.heavyVehicleCheckRequired),
-    last_heavy_vehicle_check_date: values.heavyVehicleCheckRequired
-      ? values.lastHeavyVehicleCheckDate.trim() || null
+    heavy_vehicle_last_completed_date: lastCompleted,
+    heavy_vehicle_next_due_date: nextDue,
+    last_heavy_vehicle_check_date: lastCompleted,
+    next_heavy_vehicle_check_due_date: nextDue,
+    registration_expiry_date: values.heavyVehicleCheckRequired
+      ? values.registrationExpiryDate.trim() || null
       : null,
-    next_heavy_vehicle_check_due_date: values.heavyVehicleCheckRequired
-      ? values.nextHeavyVehicleCheckDueDate.trim() || null
+    registration_document_url: values.heavyVehicleCheckRequired
+      ? values.registrationDocumentUrl?.trim() || null
       : null,
   };
 }
@@ -185,6 +225,11 @@ export function parsePlantFormNumbers(values: PlantFormValues): {
   return { currentHours, nextServiceDueHours, error: null };
 }
 
+function FieldHint({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="mt-1 text-sm text-red-600">{message}</p>;
+}
+
 export default function PlantEquipmentFields({
   values,
   onChange,
@@ -193,8 +238,48 @@ export default function PlantEquipmentFields({
   loadingWorkers = false,
   disabled = false,
   showTemplate = true,
+  fieldErrors,
+  onFieldErrorChange,
+  onUploadingChange,
 }: PlantEquipmentFieldsProps) {
   const workerOptions = [...workers];
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingRegistration, setUploadingRegistration] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const clearFieldError = (key: keyof HeavyVehicleFormErrors) => {
+    if (!fieldErrors?.[key] || !onFieldErrorChange) return;
+    const next = { ...fieldErrors };
+    delete next[key];
+    onFieldErrorChange(next);
+  };
+
+  const resetHeavyVehicleFields = () => {
+    onChange("lastHeavyVehicleCheckDate", "");
+    onChange("nextHeavyVehicleCheckDueDate", "");
+    onChange("registrationExpiryDate", "");
+    onChange("registrationDocumentUrl", null);
+    setUploadError(null);
+    onFieldErrorChange?.({});
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRegistrationFile = async (file: File | null) => {
+    if (!file) return;
+    setUploadError(null);
+    setUploadingRegistration(true);
+    onUploadingChange?.(true);
+    const result = await uploadPlantRegistrationDocument(file);
+    setUploadingRegistration(false);
+    onUploadingChange?.(false);
+    if (result.error || !result.url) {
+      onChange("registrationDocumentUrl", null);
+      setUploadError(result.error ?? "Failed to upload registration document.");
+      return;
+    }
+    onChange("registrationDocumentUrl", result.url);
+    clearFieldError("registrationDocument");
+  };
   const selectedCategories = parsePlantCategories(values.categories);
   const projectOptions = (() => {
     const active = filterActiveProjects(projects);
@@ -400,12 +485,9 @@ export default function PlantEquipmentFields({
             onChange={(event) => {
               const checked = event.target.checked;
               onChange("heavyVehicleCheckRequired", checked);
-              if (!checked) {
-                onChange("lastHeavyVehicleCheckDate", "");
-                onChange("nextHeavyVehicleCheckDueDate", "");
-              }
+              if (!checked) resetHeavyVehicleFields();
             }}
-            disabled={disabled}
+            disabled={disabled || uploadingRegistration}
             className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
           />
           <span className={labelClass}>Heavy Vehicle Checks Required?</span>
@@ -413,29 +495,92 @@ export default function PlantEquipmentFields({
         {values.heavyVehicleCheckRequired ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className={labelClass}>Last Heavy Vehicle Check Date</span>
+              <span className={labelClass}>Last Completed Date *</span>
               <input
                 type="date"
-                className={inputClass}
+                className={cn(
+                  inputClass,
+                  fieldErrors?.lastCompletedDate && "border-red-500"
+                )}
                 value={values.lastHeavyVehicleCheckDate ?? ""}
-                onChange={(event) =>
-                  onChange("lastHeavyVehicleCheckDate", event.target.value)
-                }
-                disabled={disabled}
+                onChange={(event) => {
+                  onChange("lastHeavyVehicleCheckDate", event.target.value);
+                  clearFieldError("lastCompletedDate");
+                }}
+                disabled={disabled || uploadingRegistration}
               />
+              <FieldHint message={fieldErrors?.lastCompletedDate} />
             </label>
             <label className="block">
-              <span className={labelClass}>Next Heavy Vehicle Check Due Date</span>
+              <span className={labelClass}>Next Due Date *</span>
               <input
                 type="date"
-                className={inputClass}
+                className={cn(
+                  inputClass,
+                  fieldErrors?.nextDueDate && "border-red-500"
+                )}
                 value={values.nextHeavyVehicleCheckDueDate ?? ""}
-                onChange={(event) =>
-                  onChange("nextHeavyVehicleCheckDueDate", event.target.value)
-                }
-                disabled={disabled}
+                onChange={(event) => {
+                  onChange("nextHeavyVehicleCheckDueDate", event.target.value);
+                  clearFieldError("nextDueDate");
+                }}
+                disabled={disabled || uploadingRegistration}
               />
+              <FieldHint message={fieldErrors?.nextDueDate} />
             </label>
+            <label className="block">
+              <span className={labelClass}>Registration Expiry Date *</span>
+              <input
+                type="date"
+                className={cn(
+                  inputClass,
+                  fieldErrors?.registrationExpiryDate && "border-red-500"
+                )}
+                value={values.registrationExpiryDate ?? ""}
+                onChange={(event) => {
+                  onChange("registrationExpiryDate", event.target.value);
+                  clearFieldError("registrationExpiryDate");
+                }}
+                disabled={disabled || uploadingRegistration}
+              />
+              <FieldHint message={fieldErrors?.registrationExpiryDate} />
+            </label>
+            <div className="block">
+              <span className={labelClass}>Registration Document *</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                className={cn(
+                  inputClass,
+                  fieldErrors?.registrationDocument && "border-red-500"
+                )}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  void handleRegistrationFile(file);
+                }}
+                disabled={disabled || uploadingRegistration}
+              />
+              {uploadingRegistration ? (
+                <p className="mt-1 inline-flex items-center gap-1 text-sm text-slate-600">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Uploading registration document…
+                </p>
+              ) : null}
+              {values.registrationDocumentUrl && !uploadingRegistration ? (
+                <a
+                  href={values.registrationDocumentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-sm font-medium text-orange-700 hover:underline"
+                >
+                  View uploaded document
+                </a>
+              ) : null}
+              <FieldHint
+                message={uploadError ?? fieldErrors?.registrationDocument}
+              />
+            </div>
           </div>
         ) : null}
       </div>

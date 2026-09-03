@@ -25,6 +25,47 @@ export interface RegisterPlantFormInput {
   heavyVehicleCheckRequired: boolean;
   lastHeavyVehicleCheckDate?: string;
   nextHeavyVehicleCheckDueDate?: string;
+  registrationExpiryDate?: string;
+  registrationDocumentUrl?: string | null;
+}
+
+export type HeavyVehicleFormErrors = {
+  lastCompletedDate?: string;
+  nextDueDate?: string;
+  registrationExpiryDate?: string;
+  registrationDocument?: string;
+};
+
+export function validateHeavyVehicleFormFields(
+  values: RegisterPlantFormInput
+): HeavyVehicleFormErrors {
+  if (!values.heavyVehicleCheckRequired) return {};
+
+  const errors: HeavyVehicleFormErrors = {};
+  if (!nullIfBlank(values.lastHeavyVehicleCheckDate)) {
+    errors.lastCompletedDate = "Last completed date is required.";
+  }
+  if (!nullIfBlank(values.nextHeavyVehicleCheckDueDate)) {
+    errors.nextDueDate = "Next due date is required.";
+  }
+  if (!nullIfBlank(values.registrationExpiryDate)) {
+    errors.registrationExpiryDate = "Registration expiry date is required.";
+  }
+  if (!nullIfBlank(values.registrationDocumentUrl)) {
+    errors.registrationDocument = "Registration document is required.";
+  }
+  return errors;
+}
+
+export function hasHeavyVehicleFormErrors(
+  errors: HeavyVehicleFormErrors
+): boolean {
+  return Boolean(
+    errors.lastCompletedDate ||
+      errors.nextDueDate ||
+      errors.registrationExpiryDate ||
+      errors.registrationDocument
+  );
 }
 
 /** Empty or non-UUID values become null so Postgres uuid columns do not reject "". */
@@ -68,6 +109,18 @@ export function buildRegisterPlantAssetPayload(values: RegisterPlantFormInput) {
   const nextServiceDueHours = numberOrNull(values.nextServiceDueHours);
   const preStartTemplate = asPrestartTemplate(values.prestartTemplate);
   const heavyVehicleCheckRequired = Boolean(values.heavyVehicleCheckRequired);
+  const lastCompletedDate = heavyVehicleCheckRequired
+    ? nullIfBlank(values.lastHeavyVehicleCheckDate)
+    : null;
+  const nextDueDate = heavyVehicleCheckRequired
+    ? nullIfBlank(values.nextHeavyVehicleCheckDueDate)
+    : null;
+  const registrationExpiryDate = heavyVehicleCheckRequired
+    ? nullIfBlank(values.registrationExpiryDate)
+    : null;
+  const registrationDocumentUrl = heavyVehicleCheckRequired
+    ? nullIfBlank(values.registrationDocumentUrl)
+    : null;
 
   return {
     unit_number: values.unitNumber.trim(),
@@ -88,12 +141,12 @@ export function buildRegisterPlantAssetPayload(values: RegisterPlantFormInput) {
     pre_start_template: preStartTemplate,
     prestart_template: preStartTemplate,
     heavy_vehicle_check_required: heavyVehicleCheckRequired,
-    last_heavy_vehicle_check_date: heavyVehicleCheckRequired
-      ? nullIfBlank(values.lastHeavyVehicleCheckDate)
-      : null,
-    next_heavy_vehicle_check_due_date: heavyVehicleCheckRequired
-      ? nullIfBlank(values.nextHeavyVehicleCheckDueDate)
-      : null,
+    heavy_vehicle_last_completed_date: lastCompletedDate,
+    heavy_vehicle_next_due_date: nextDueDate,
+    last_heavy_vehicle_check_date: lastCompletedDate,
+    next_heavy_vehicle_check_due_date: nextDueDate,
+    registration_expiry_date: registrationExpiryDate,
+    registration_document_url: registrationDocumentUrl,
   };
 }
 

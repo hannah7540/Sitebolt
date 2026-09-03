@@ -724,6 +724,10 @@ export interface PlantAsset {
   heavy_vehicle_check_required?: boolean;
   last_heavy_vehicle_check_date?: string | null;
   next_heavy_vehicle_check_due_date?: string | null;
+  heavy_vehicle_last_completed_date?: string | null;
+  heavy_vehicle_next_due_date?: string | null;
+  registration_expiry_date?: string | null;
+  registration_document_url?: string | null;
   created_at?: string;
 }
 
@@ -905,9 +909,29 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
     heavy_vehicle_check_required: record.heavy_vehicle_check_required === true,
     last_heavy_vehicle_check_date: record.last_heavy_vehicle_check_date
       ? String(record.last_heavy_vehicle_check_date)
-      : null,
+      : record.heavy_vehicle_last_completed_date
+        ? String(record.heavy_vehicle_last_completed_date)
+        : null,
     next_heavy_vehicle_check_due_date: record.next_heavy_vehicle_check_due_date
       ? String(record.next_heavy_vehicle_check_due_date)
+      : record.heavy_vehicle_next_due_date
+        ? String(record.heavy_vehicle_next_due_date)
+        : null,
+    heavy_vehicle_last_completed_date: record.heavy_vehicle_last_completed_date
+      ? String(record.heavy_vehicle_last_completed_date)
+      : record.last_heavy_vehicle_check_date
+        ? String(record.last_heavy_vehicle_check_date)
+        : null,
+    heavy_vehicle_next_due_date: record.heavy_vehicle_next_due_date
+      ? String(record.heavy_vehicle_next_due_date)
+      : record.next_heavy_vehicle_check_due_date
+        ? String(record.next_heavy_vehicle_check_due_date)
+        : null,
+    registration_expiry_date: record.registration_expiry_date
+      ? String(record.registration_expiry_date)
+      : null,
+    registration_document_url: record.registration_document_url
+      ? String(record.registration_document_url)
       : null,
     created_at: record.created_at,
   };
@@ -996,6 +1020,10 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "heavy_vehicle_check_required",
   "last_heavy_vehicle_check_date",
   "next_heavy_vehicle_check_due_date",
+  "heavy_vehicle_last_completed_date",
+  "heavy_vehicle_next_due_date",
+  "registration_expiry_date",
+  "registration_document_url",
   "project_id",
   "categories",
   "assigned_worker_id",
@@ -2158,10 +2186,19 @@ export async function addPlant(
     pre_start_template: preStartTemplate,
     prestart_template: preStartTemplate,
     heavy_vehicle_check_required: Boolean(asset.heavy_vehicle_check_required),
-    last_heavy_vehicle_check_date: nullIfBlank(asset.last_heavy_vehicle_check_date),
-    next_heavy_vehicle_check_due_date: nullIfBlank(
-      asset.next_heavy_vehicle_check_due_date
+    heavy_vehicle_last_completed_date: nullIfBlank(
+      asset.heavy_vehicle_last_completed_date
     ),
+    heavy_vehicle_next_due_date: nullIfBlank(asset.heavy_vehicle_next_due_date),
+    last_heavy_vehicle_check_date: nullIfBlank(
+      asset.last_heavy_vehicle_check_date ??
+        asset.heavy_vehicle_last_completed_date
+    ),
+    next_heavy_vehicle_check_due_date: nullIfBlank(
+      asset.next_heavy_vehicle_check_due_date ?? asset.heavy_vehicle_next_due_date
+    ),
+    registration_expiry_date: nullIfBlank(asset.registration_expiry_date),
+    registration_document_url: nullIfBlank(asset.registration_document_url),
     status: "available",
   };
 
@@ -2258,6 +2295,10 @@ export async function updatePlant(
     heavy_vehicle_check_required?: boolean;
     last_heavy_vehicle_check_date?: string | null;
     next_heavy_vehicle_check_due_date?: string | null;
+    heavy_vehicle_last_completed_date?: string | null;
+    heavy_vehicle_next_due_date?: string | null;
+    registration_expiry_date?: string | null;
+    registration_document_url?: string | null;
     plant_documents?: unknown;
     photo_url?: string | null;
   }
@@ -2333,14 +2374,36 @@ export async function updatePlant(
       updates.heavy_vehicle_check_required
     );
   }
-  if (updates.last_heavy_vehicle_check_date !== undefined) {
-    payload.last_heavy_vehicle_check_date = nullIfBlank(
-      updates.last_heavy_vehicle_check_date
+  if (
+    updates.heavy_vehicle_last_completed_date !== undefined ||
+    updates.last_heavy_vehicle_check_date !== undefined
+  ) {
+    const lastCompleted = nullIfBlank(
+      updates.heavy_vehicle_last_completed_date ??
+        updates.last_heavy_vehicle_check_date
+    );
+    payload.heavy_vehicle_last_completed_date = lastCompleted;
+    payload.last_heavy_vehicle_check_date = lastCompleted;
+  }
+  if (
+    updates.heavy_vehicle_next_due_date !== undefined ||
+    updates.next_heavy_vehicle_check_due_date !== undefined
+  ) {
+    const nextDue = nullIfBlank(
+      updates.heavy_vehicle_next_due_date ??
+        updates.next_heavy_vehicle_check_due_date
+    );
+    payload.heavy_vehicle_next_due_date = nextDue;
+    payload.next_heavy_vehicle_check_due_date = nextDue;
+  }
+  if (updates.registration_expiry_date !== undefined) {
+    payload.registration_expiry_date = nullIfBlank(
+      updates.registration_expiry_date
     );
   }
-  if (updates.next_heavy_vehicle_check_due_date !== undefined) {
-    payload.next_heavy_vehicle_check_due_date = nullIfBlank(
-      updates.next_heavy_vehicle_check_due_date
+  if (updates.registration_document_url !== undefined) {
+    payload.registration_document_url = nullIfBlank(
+      updates.registration_document_url
     );
   }
   if (updates.plant_documents !== undefined) payload.plant_documents = updates.plant_documents;
