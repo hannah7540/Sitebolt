@@ -1,11 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 
+const WORKER_HOME_PATHS = new Set([
+  "/worker-dashboard",
+  "/worker-dashboard/",
+  "/worker/dashboard",
+  "/worker/dashboard/",
+]);
+
 export default function WorkerDashboardSignOutButton() {
+  const pathname = usePathname() ?? "";
+  const isHomePage = WORKER_HOME_PATHS.has(pathname);
   const [signingOut, setSigningOut] = useState(false);
+
+  if (!isHomePage) return null;
 
   const handleSignOut = async () => {
     if (signingOut) return;

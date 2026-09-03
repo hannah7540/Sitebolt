@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase";
 import { DATABASE_CONNECTION_ERROR_MESSAGE } from "@/lib/project-resolver";
 import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
+import WorkerDashboardSignOutButton from "@/components/workers/WorkerDashboardSignOutButton";
 import { cardClass } from "@/lib/ui-classes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
@@ -180,14 +181,17 @@ function WorkerDashboardContent() {
 
 export default function WorkerDashboardPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-transparent">
-          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-        </div>
-      }
-    >
-      <WorkerDashboardContent />
-    </Suspense>
+    <>
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center bg-transparent">
+            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+          </div>
+        }
+      >
+        <WorkerDashboardContent />
+      </Suspense>
+      <WorkerDashboardSignOutButton />
+    </>
   );
 }
