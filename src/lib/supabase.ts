@@ -26,6 +26,12 @@ import {
   handleSupabaseNetworkFetchError,
 } from "./project-resolver";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
+import {
+  asPrestartTemplate,
+  numberOrNull,
+  numberOrZero,
+  type RegisterPlantAssetPayload,
+} from "./plant-register-payload";
 import { validateActBreakRequirement } from "./timesheet-act-break-validation";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
 import type { InsuranceDocumentAttachment } from "./insurance-utils";
@@ -991,6 +997,8 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "last_heavy_vehicle_check_date",
   "next_heavy_vehicle_check_due_date",
   "project_id",
+  "categories",
+  "assigned_worker_id",
   "service_contact_name",
   "service_contact_phone",
   "service_contact_company",
@@ -998,7 +1006,9 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "serial_number",
   "current_hours",
   "next_service_hours",
+  "next_service_due_hours",
   "prestart_template",
+  "pre_start_template",
   "make",
   "model",
 ] as const;
@@ -1021,6 +1031,11 @@ function resolveOptionalPlantColumnFromError(
 function resolvePlantProjectId(value: string | null | undefined): string | null {
   const projectId = value?.trim() || "";
   return projectId && isProjectUuid(projectId) ? projectId : null;
+}
+
+function resolvePlantWorkerId(value: string | null | undefined): string | null {
+  const workerId = value?.trim() || "";
+  return workerId && isProjectUuid(workerId) ? workerId : null;
 }
 
 function buildPlantProjectRowPayload(
@@ -2108,43 +2123,45 @@ export async function setWorkerRevokedState(
   }
 }
 
-export async function addPlant(asset: {
-  unit_number: string;
-  category: string;
-  make?: string;
-  model?: string;
-  serial_number?: string;
-  current_hours?: number | null;
-  next_service_hours?: number | null;
-  prestart_template?: PrestartTemplate;
-  service_contact_name?: string;
-  service_contact_phone?: string;
-  service_contact_company?: string;
-  service_contact_email?: string;
-  project_id?: string | null;
-  assigned_project_id?: string | null;
-  current_project_id?: string | null;
-  heavy_vehicle_check_required?: boolean;
-  last_heavy_vehicle_check_date?: string | null;
-  next_heavy_vehicle_check_due_date?: string | null;
-}): Promise<{ error: string | null; data: PlantAsset | null }> {
+export async function addPlant(
+  asset: RegisterPlantAssetPayload & {
+    assigned_project_id?: string | null;
+    current_project_id?: string | null;
+    prestart_template?: string | null;
+  }
+): Promise<{ error: string | null; data: PlantAsset | null }> {
+  const projectId = resolvePlantProjectId(asset.project_id);
+  const assignedWorkerId = resolvePlantWorkerId(asset.assigned_worker_id);
+  const nextServiceDueHours = numberOrNull(
+    asset.next_service_due_hours ?? asset.next_service_hours
+  );
+  const preStartTemplate =
+    asPrestartTemplate(asset.pre_start_template) ??
+    asPrestartTemplate(asset.prestart_template);
+
   const payload: Record<string, unknown> = {
     unit_number: asset.unit_number.trim(),
+    project_id: projectId,
     category: asset.category.trim(),
-    make: asset.make?.trim() || null,
-    model: asset.model?.trim() || null,
-    serial_number: asset.serial_number?.trim() || null,
-    current_hours: asset.current_hours ?? null,
-    next_service_hours: asset.next_service_hours ?? null,
-    prestart_template: asset.prestart_template ?? "excavator",
-    service_contact_name: asset.service_contact_name?.trim() || null,
-    service_contact_phone: asset.service_contact_phone?.trim() || null,
-    service_contact_company: asset.service_contact_company?.trim() || null,
-    service_contact_email: asset.service_contact_email?.trim() || null,
-    project_id: resolvePlantProjectId(asset.project_id),
+    categories: Array.isArray(asset.categories) ? asset.categories : [],
+    make: nullIfBlank(asset.make),
+    model: nullIfBlank(asset.model),
+    serial_number: nullIfBlank(asset.serial_number),
+    current_hours: numberOrZero(asset.current_hours),
+    next_service_due_hours: nextServiceDueHours,
+    next_service_hours: nextServiceDueHours,
+    service_contact_company: nullIfBlank(asset.service_contact_company),
+    service_contact_name: nullIfBlank(asset.service_contact_name),
+    service_contact_phone: nullIfBlank(asset.service_contact_phone),
+    service_contact_email: nullIfBlank(asset.service_contact_email),
+    assigned_worker_id: assignedWorkerId,
+    pre_start_template: preStartTemplate,
+    prestart_template: preStartTemplate,
     heavy_vehicle_check_required: Boolean(asset.heavy_vehicle_check_required),
-    last_heavy_vehicle_check_date: asset.last_heavy_vehicle_check_date || null,
-    next_heavy_vehicle_check_due_date: asset.next_heavy_vehicle_check_due_date || null,
+    last_heavy_vehicle_check_date: nullIfBlank(asset.last_heavy_vehicle_check_date),
+    next_heavy_vehicle_check_due_date: nullIfBlank(
+      asset.next_heavy_vehicle_check_due_date
+    ),
     status: "available",
   };
 
@@ -2226,13 +2243,18 @@ export async function updatePlant(
     hourly_cost_rate?: number | null;
     ownership_type?: string | null;
     status?: string;
-    prestart_template?: PrestartTemplate | null;
+    prestart_template?: PrestartTemplate | string | null;
     current_hours?: number | null;
     next_service_hours?: number | null;
     service_contact_name?: string | null;
     service_contact_phone?: string | null;
     service_contact_company?: string | null;
     service_contact_email?: string | null;
+    project_id?: string | null;
+    categories?: string[];
+    assigned_worker_id?: string | null;
+    next_service_due_hours?: number | null;
+    pre_start_template?: string | null;
     heavy_vehicle_check_required?: boolean;
     last_heavy_vehicle_check_date?: string | null;
     next_heavy_vehicle_check_due_date?: string | null;
@@ -2262,14 +2284,37 @@ export async function updatePlant(
     payload.ownership_type = updates.ownership_type?.trim() || null;
   }
   if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.prestart_template !== undefined) {
-    payload.prestart_template = updates.prestart_template;
+  if (updates.project_id !== undefined) {
+    payload.project_id = resolvePlantProjectId(updates.project_id);
+  }
+  if (updates.categories !== undefined) {
+    payload.categories = Array.isArray(updates.categories) ? updates.categories : [];
+  }
+  if (updates.assigned_worker_id !== undefined) {
+    payload.assigned_worker_id = resolvePlantWorkerId(updates.assigned_worker_id);
+  }
+  if (
+    updates.prestart_template !== undefined ||
+    updates.pre_start_template !== undefined
+  ) {
+    const template =
+      asPrestartTemplate(updates.pre_start_template) ??
+      asPrestartTemplate(updates.prestart_template);
+    payload.pre_start_template = template;
+    payload.prestart_template = template;
   }
   if (updates.current_hours !== undefined) {
-    payload.current_hours = updates.current_hours;
+    payload.current_hours = numberOrZero(updates.current_hours);
   }
-  if (updates.next_service_hours !== undefined) {
-    payload.next_service_hours = updates.next_service_hours;
+  if (
+    updates.next_service_hours !== undefined ||
+    updates.next_service_due_hours !== undefined
+  ) {
+    const nextServiceDueHours = numberOrNull(
+      updates.next_service_due_hours ?? updates.next_service_hours
+    );
+    payload.next_service_due_hours = nextServiceDueHours;
+    payload.next_service_hours = nextServiceDueHours;
   }
   if (updates.service_contact_name !== undefined) {
     payload.service_contact_name = updates.service_contact_name?.trim() || null;
@@ -2289,12 +2334,14 @@ export async function updatePlant(
     );
   }
   if (updates.last_heavy_vehicle_check_date !== undefined) {
-    payload.last_heavy_vehicle_check_date =
-      updates.last_heavy_vehicle_check_date || null;
+    payload.last_heavy_vehicle_check_date = nullIfBlank(
+      updates.last_heavy_vehicle_check_date
+    );
   }
   if (updates.next_heavy_vehicle_check_due_date !== undefined) {
-    payload.next_heavy_vehicle_check_due_date =
-      updates.next_heavy_vehicle_check_due_date || null;
+    payload.next_heavy_vehicle_check_due_date = nullIfBlank(
+      updates.next_heavy_vehicle_check_due_date
+    );
   }
   if (updates.plant_documents !== undefined) payload.plant_documents = updates.plant_documents;
   if (updates.photo_url !== undefined) payload.photo_url = updates.photo_url;

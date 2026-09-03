@@ -30,6 +30,7 @@ import {
   type PlantDocumentRecord,
 } from "@/lib/plant-documents";
 import { serializePlantCategories } from "@/lib/plant-categories";
+import { buildRegisterPlantAssetPayload } from "@/lib/plant-register-payload";
 import { getProjectName } from "@/lib/projects";
 import {
   PRESTART_TEMPLATES,
@@ -40,7 +41,6 @@ import PlantDocumentsEditor from "@/components/plant/PlantDocumentsEditor";
 import PlantEquipmentFields, {
   plantFormValuesFromAsset,
   parsePlantFormNumbers,
-  resolveHeavyVehicleFormPayload,
   type PlantFormValues,
 } from "@/components/plant/PlantEquipmentFields";
 import PlantPhotoEditModal from "@/components/plant/PlantPhotoEditModal";
@@ -347,25 +347,14 @@ function BasicInfoTab({
     setSaving(true);
     setError(null);
 
+    const mapped = buildRegisterPlantAssetPayload(values);
     const { error: updateError } = await updatePlant(plant.id, {
-      unit_number: values.unitNumber.trim(),
+      ...mapped,
       name: name.trim() || null,
-      category,
-      make: values.make.trim() || null,
-      model: values.model.trim() || null,
-      serial_number: values.serialNumber.trim() || null,
       registration_code: registrationCode.trim() || null,
       hourly_cost_rate: parsedRate,
       ownership_type: ownershipType,
       status,
-      prestart_template: values.prestartTemplate,
-      current_hours: parsedNumbers.currentHours,
-      next_service_hours: parsedNumbers.nextServiceDueHours,
-      service_contact_name: values.serviceContactName.trim() || null,
-      service_contact_phone: values.serviceContactPhone.trim() || null,
-      service_contact_company: values.serviceContactCompany.trim() || null,
-      service_contact_email: values.serviceContactEmail.trim() || null,
-      ...resolveHeavyVehicleFormPayload(values),
     });
 
     if (updateError) {
@@ -375,12 +364,12 @@ function BasicInfoTab({
     }
 
     const selectedWorker = workerOptions.find(
-      (worker) => worker.id === values.assignedWorkerId
+      (worker) => worker.id === mapped.assigned_worker_id
     );
     const syncResult = await syncPlantWorkerAssignment({
       plantId: plant.id,
       previousWorkerId: initialAssignedWorkerId,
-      nextWorkerId: values.assignedWorkerId,
+      nextWorkerId: mapped.assigned_worker_id,
       nextWorkerName: selectedWorker
         ? resolvePlantWorkerOptionLabel(selectedWorker)
         : null,
@@ -392,7 +381,7 @@ function BasicInfoTab({
       return;
     }
 
-    const nextProjectIds = values.projectId ? [values.projectId] : [];
+    const nextProjectIds = mapped.project_id ? [mapped.project_id] : [];
     const { error: assignError } = await setPlantProjectAssignments(plant, nextProjectIds);
     onProjectIdsChange(nextProjectIds);
     setSaving(false);
@@ -404,31 +393,35 @@ function BasicInfoTab({
 
     onSaved({
       ...plant,
-      unit_number: values.unitNumber.trim(),
+      unit_number: mapped.unit_number,
+      category: mapped.category,
+      make: mapped.make,
+      model: mapped.model,
+      serial_number: mapped.serial_number,
+      current_hours: mapped.current_hours,
+      next_service_hours: mapped.next_service_hours,
+      service_contact_company: mapped.service_contact_company,
+      service_contact_name: mapped.service_contact_name,
+      service_contact_phone: mapped.service_contact_phone,
+      service_contact_email: mapped.service_contact_email,
+      heavy_vehicle_check_required: mapped.heavy_vehicle_check_required,
+      last_heavy_vehicle_check_date: mapped.last_heavy_vehicle_check_date,
+      next_heavy_vehicle_check_due_date: mapped.next_heavy_vehicle_check_due_date,
       name: name.trim() || null,
-      category,
-      make: values.make.trim() || null,
-      model: values.model.trim() || null,
-      serial_number: values.serialNumber.trim() || null,
       registration_code: registrationCode.trim() || null,
       hourly_cost_rate: parsedRate,
       ownership_type: ownershipType,
       status,
-      prestart_template: values.prestartTemplate,
-      current_hours: parsedNumbers.currentHours,
-      next_service_hours: parsedNumbers.nextServiceDueHours,
-      service_contact_name: values.serviceContactName.trim() || null,
-      service_contact_phone: values.serviceContactPhone.trim() || null,
-      service_contact_company: values.serviceContactCompany.trim() || null,
-      service_contact_email: values.serviceContactEmail.trim() || null,
-      ...resolveHeavyVehicleFormPayload(values),
-      assigned_worker_id: values.assignedWorkerId,
+      prestart_template:
+        (mapped.prestart_template as PrestartTemplate | null) ??
+        values.prestartTemplate,
+      assigned_worker_id: mapped.assigned_worker_id,
       assigned_worker_name: selectedWorker
         ? resolvePlantWorkerOptionLabel(selectedWorker)
         : null,
-      project_id: values.projectId || null,
-      assigned_project_id: values.projectId || null,
-      current_project_id: values.projectId || null,
+      project_id: mapped.project_id,
+      assigned_project_id: mapped.project_id,
+      current_project_id: mapped.project_id,
     });
   };
 

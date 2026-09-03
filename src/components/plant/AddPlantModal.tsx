@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { addPlant } from "@/lib/supabase";
 import { serializePlantCategories } from "@/lib/plant-categories";
+import { buildRegisterPlantAssetPayload } from "@/lib/plant-register-payload";
 import {
   fetchActiveWorkersForPlantAssignment,
   resolvePlantWorkerOptionLabel,
@@ -20,7 +21,6 @@ import type { Worker } from "@/lib/supabase";
 import PlantEquipmentFields, {
   createEmptyPlantFormValues,
   parsePlantFormNumbers,
-  resolveHeavyVehicleFormPayload,
   type PlantFormValues,
 } from "@/components/plant/PlantEquipmentFields";
 import { cn } from "@/lib/utils";
@@ -90,22 +90,8 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
     setError(null);
 
     try {
-      const result = await addPlant({
-        unit_number: values.unitNumber.trim(),
-        category,
-        make: values.make.trim() || undefined,
-        model: values.model.trim() || undefined,
-        serial_number: values.serialNumber.trim() || undefined,
-        current_hours: parsed.currentHours,
-        next_service_hours: parsed.nextServiceDueHours,
-        prestart_template: values.prestartTemplate,
-        service_contact_name: values.serviceContactName.trim() || undefined,
-        service_contact_phone: values.serviceContactPhone.trim() || undefined,
-        service_contact_company: values.serviceContactCompany.trim() || undefined,
-        service_contact_email: values.serviceContactEmail.trim() || undefined,
-        project_id: values.projectId.trim() || null,
-        ...resolveHeavyVehicleFormPayload(values),
-      });
+      const payload = buildRegisterPlantAssetPayload(values);
+      const result = await addPlant(payload);
 
       if (result.error || !result.data) {
         setError(result.error ?? "Failed to register plant asset.");
@@ -114,21 +100,21 @@ export default function AddPlantModal({ onClose, onSaved }: AddPlantModalProps) 
 
       const assignResult = await setPlantProjectAssignments(
         result.data,
-        values.projectId ? [values.projectId] : []
+        payload.project_id ? [payload.project_id] : []
       );
       if (assignResult.error) {
         setError(assignResult.error);
         return;
       }
 
-      if (values.assignedWorkerId) {
+      if (payload.assigned_worker_id) {
         const selectedWorker = workerOptions.find(
-          (worker) => worker.id === values.assignedWorkerId
+          (worker) => worker.id === payload.assigned_worker_id
         );
         const syncResult = await syncPlantWorkerAssignment({
           plantId: result.data.id,
           previousWorkerId: null,
-          nextWorkerId: values.assignedWorkerId,
+          nextWorkerId: payload.assigned_worker_id,
           nextWorkerName: selectedWorker
             ? resolvePlantWorkerOptionLabel(selectedWorker)
             : null,

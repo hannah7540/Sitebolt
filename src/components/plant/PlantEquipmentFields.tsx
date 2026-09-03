@@ -156,16 +156,16 @@ export function resolveHeavyVehicleFormPayload(values: PlantFormValues): {
 }
 
 export function parsePlantFormNumbers(values: PlantFormValues): {
-  currentHours: number | null;
+  currentHours: number;
   nextServiceDueHours: number | null;
   error: string | null;
 } {
   const currentHours = values.currentHours.trim()
     ? Number(values.currentHours)
-    : null;
+    : 0;
   if (values.currentHours.trim() && Number.isNaN(currentHours)) {
     return {
-      currentHours: null,
+      currentHours: 0,
       nextServiceDueHours: null,
       error: "Current hours must be a valid number.",
     };
