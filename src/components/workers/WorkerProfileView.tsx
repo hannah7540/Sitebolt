@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
 import {
   ArrowLeft,
   Camera,
@@ -36,7 +36,6 @@ import {
   formatWorkerBsb,
   maskWorkerAccountNumber,
   maskWorkerTaxFileNumber,
-  WORKER_FIELD_NOT_PROVIDED,
 } from "@/lib/worker-utils";
 import {
   assignDefaultPayRuleToWorker,
@@ -280,11 +279,6 @@ export default function WorkerProfileView({
         </div>
       </div>
 
-      <div className="mb-6 space-y-4">
-        <EmergencyContactCard worker={currentWorker} />
-        {canViewPayroll ? <FinancialPayrollCard worker={currentWorker} /> : null}
-      </div>
-
       <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {visibleTabs.map((item) => (
           <button
@@ -350,138 +344,58 @@ export default function WorkerProfileView({
   );
 }
 
-function ProfileDetailField({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{children}</dd>
-    </div>
-  );
-}
-
-function ProfileOptionalText({ value }: { value: string | null | undefined }) {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>;
-  }
-  return <span className="font-medium text-slate-900">{trimmed}</span>;
-}
-
-function MaskedSecretField({
+function MaskedTextInput({
   label,
   value,
+  onChange,
   masked,
   revealLabel,
+  autoComplete = "off",
+  inputMode,
+  className,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: string;
+  onChange: (value: string) => void;
   masked: string | null;
   revealLabel: string;
+  autoComplete?: string;
+  inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
+  className?: string;
 }) {
   const [revealed, setRevealed] = useState(false);
-  const trimmed = value?.trim() ?? "";
-
-  if (!trimmed || !masked) {
-    return (
-      <ProfileDetailField label={label}>
-        <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>
-      </ProfileDetailField>
-    );
-  }
+  const showPlain = revealed || !masked;
 
   return (
-    <ProfileDetailField label={label}>
-      <span className="inline-flex items-center gap-2">
-        <span className="font-medium tabular-nums text-slate-900">
-          {revealed ? trimmed : masked}
-        </span>
-        <button
-          type="button"
-          onClick={() => setRevealed((open) => !open)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-orange-600"
-          aria-label={revealed ? `Hide ${revealLabel}` : `Show ${revealLabel}`}
-        >
-          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-        </button>
-      </span>
-    </ProfileDetailField>
-  );
-}
-
-function EmergencyContactCard({ worker }: { worker: Worker }) {
-  return (
-    <section className={cn(sectionClass, "space-y-3")} aria-labelledby="emergency-contact-heading">
-      <h2 id="emergency-contact-heading" className="text-sm font-semibold text-slate-900">
-        Emergency Contact
-      </h2>
-      <dl className="grid gap-3 sm:grid-cols-3">
-        <ProfileDetailField label="Contact Name">
-          <ProfileOptionalText value={worker.emergency_contact_name} />
-        </ProfileDetailField>
-        <ProfileDetailField label="Relationship">
-          <ProfileOptionalText value={worker.emergency_contact_relationship} />
-        </ProfileDetailField>
-        <ProfileDetailField label="Contact Phone Number">
-          <ProfileOptionalText value={worker.emergency_contact_phone} />
-        </ProfileDetailField>
-      </dl>
-    </section>
-  );
-}
-
-function FinancialPayrollCard({ worker }: { worker: Worker }) {
-  const formattedBsb = formatWorkerBsb(worker.bank_bsb);
-  const maskedAccount = maskWorkerAccountNumber(worker.bank_account_number);
-  const maskedTfn = maskWorkerTaxFileNumber(worker.tfn);
-
-  return (
-    <section
-      className={cn(sectionClass, "space-y-3")}
-      aria-labelledby="financial-payroll-heading"
-    >
-      <h2 id="financial-payroll-heading" className="text-sm font-semibold text-slate-900">
-        Financial & Payroll Details
-      </h2>
-      <dl className="grid gap-3 sm:grid-cols-2">
-        <ProfileDetailField label="Bank Account Name">
-          <ProfileOptionalText value={worker.bank_name} />
-        </ProfileDetailField>
-        <ProfileDetailField label="BSB">
-          {formattedBsb ? (
-            <span className="font-medium tabular-nums text-slate-900">{formattedBsb}</span>
-          ) : (
-            <span className="text-slate-400">{WORKER_FIELD_NOT_PROVIDED}</span>
-          )}
-        </ProfileDetailField>
-        <MaskedSecretField
-          label="Account Number"
-          value={worker.bank_account_number}
-          masked={maskedAccount}
-          revealLabel="account number"
+    <label className={cn("block space-y-1", className)}>
+      <span className={labelClass}>{label}</span>
+      <div className="relative">
+        <input
+          className={cn(inputClass, masked ? "pr-10" : null)}
+          value={showPlain ? value : masked}
+          onChange={(event) => {
+            if (!revealed) setRevealed(true);
+            onChange(event.target.value);
+          }}
+          onFocus={() => {
+            if (!revealed) setRevealed(true);
+          }}
+          readOnly={!showPlain}
+          autoComplete={autoComplete}
+          inputMode={inputMode}
         />
-        <MaskedSecretField
-          label="Tax File Number (TFN)"
-          value={worker.tfn}
-          masked={maskedTfn}
-          revealLabel="tax file number"
-        />
-        <ProfileDetailField label="Superannuation Fund">
-          <ProfileOptionalText value={worker.super_fund} />
-        </ProfileDetailField>
-        <ProfileDetailField label="USI">
-          <ProfileOptionalText value={worker.super_usi} />
-        </ProfileDetailField>
-        <ProfileDetailField label="Super Member Number">
-          <ProfileOptionalText value={worker.super_member_number} />
-        </ProfileDetailField>
-      </dl>
-    </section>
+        {masked ? (
+          <button
+            type="button"
+            onClick={() => setRevealed((open) => !open)}
+            className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-orange-600"
+            aria-label={revealed ? `Hide ${revealLabel}` : `Show ${revealLabel}`}
+          >
+            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        ) : null}
+      </div>
+    </label>
   );
 }
 
@@ -505,6 +419,15 @@ function BasicInfoTab({
   const [addressLine2, setAddressLine2] = useState(worker.address_line_2 ?? "");
   const [suburb, setSuburb] = useState(worker.suburb ?? "");
   const [postcode, setPostcode] = useState(worker.postcode ?? "");
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    worker.emergency_contact_name ?? ""
+  );
+  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState(
+    worker.emergency_contact_relationship ?? ""
+  );
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    worker.emergency_contact_phone ?? ""
+  );
   const [trade, setTrade] = useState(worker.trade ?? "");
   const [isApprentice, setIsApprentice] = useState(worker.is_apprentice ?? false);
   const [hasCompanyVehicle, setHasCompanyVehicle] = useState(
@@ -540,6 +463,9 @@ function BasicInfoTab({
     setAddressLine2(worker.address_line_2 ?? "");
     setSuburb(worker.suburb ?? "");
     setPostcode(worker.postcode ?? "");
+    setEmergencyContactName(worker.emergency_contact_name ?? "");
+    setEmergencyContactRelationship(worker.emergency_contact_relationship ?? "");
+    setEmergencyContactPhone(worker.emergency_contact_phone ?? "");
     setTrade(worker.trade ?? "");
     setIsApprentice(worker.is_apprentice ?? false);
     setHasCompanyVehicle(worker.has_company_vehicle ?? false);
@@ -604,6 +530,9 @@ function BasicInfoTab({
         address_line_2: addressLine2.trim() || null,
         suburb: suburb.trim() || null,
         postcode: postcode.trim() || null,
+        emergency_contact_name: emergencyContactName.trim() || null,
+        emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+        emergency_contact_phone: emergencyContactPhone.trim() || null,
         trade: trade.trim() || null,
         is_apprentice: isApprentice,
         has_company_vehicle: hasCompanyVehicle,
@@ -663,6 +592,9 @@ function BasicInfoTab({
         address_line_2: addressLine2.trim() || null,
         suburb: suburb.trim() || null,
         postcode: postcode.trim() || null,
+        emergency_contact_name: emergencyContactName.trim() || null,
+        emergency_contact_relationship: emergencyContactRelationship.trim() || null,
+        emergency_contact_phone: emergencyContactPhone.trim() || null,
         trade: trade.trim() || null,
         is_apprentice: isApprentice,
         has_company_vehicle: hasCompanyVehicle,
@@ -748,6 +680,34 @@ function BasicInfoTab({
             value={postcode}
             onChange={(e) => setPostcode(e.target.value)}
             autoComplete="postal-code"
+          />
+        </label>
+        <p className="sm:col-span-2 text-sm font-semibold text-slate-900">Emergency Contact</p>
+        <label className="block space-y-1 sm:col-span-2">
+          <span className={labelClass}>Contact Name</span>
+          <input
+            className={inputClass}
+            value={emergencyContactName}
+            onChange={(e) => setEmergencyContactName(e.target.value)}
+            autoComplete="name"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Relationship</span>
+          <input
+            className={inputClass}
+            value={emergencyContactRelationship}
+            onChange={(e) => setEmergencyContactRelationship(e.target.value)}
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className={labelClass}>Contact Phone Number</span>
+          <input
+            className={inputClass}
+            value={emergencyContactPhone}
+            onChange={(e) => setEmergencyContactPhone(e.target.value)}
+            inputMode="tel"
+            autoComplete="tel"
           />
         </label>
         <label className="block space-y-1">
@@ -974,15 +934,6 @@ function FinancialInfoTab({
     worker.state === "NSW"
       ? resolveTravelPayrollCategory(worker.is_apprentice ?? false, worker.state)
       : null;
-  const [emergencyContactName, setEmergencyContactName] = useState(
-    worker.emergency_contact_name ?? ""
-  );
-  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState(
-    worker.emergency_contact_relationship ?? ""
-  );
-  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
-    worker.emergency_contact_phone ?? ""
-  );
   const [tfn, setTfn] = useState(worker.tfn ?? "");
   const [bankName, setBankName] = useState(worker.bank_name ?? "");
   const [bankBsb, setBankBsb] = useState(worker.bank_bsb ?? "");
@@ -998,9 +949,6 @@ function FinancialInfoTab({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setEmergencyContactName(worker.emergency_contact_name ?? "");
-    setEmergencyContactRelationship(worker.emergency_contact_relationship ?? "");
-    setEmergencyContactPhone(worker.emergency_contact_phone ?? "");
     setTfn(worker.tfn ?? "");
     setBankName(worker.bank_name ?? "");
     setBankBsb(worker.bank_bsb ?? "");
@@ -1013,13 +961,11 @@ function FinancialInfoTab({
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    const formattedBsb = formatWorkerBsb(bankBsb);
     const { error: updateError } = await updateWorker(worker.id, {
-      emergency_contact_name: emergencyContactName.trim() || null,
-      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
-      emergency_contact_phone: emergencyContactPhone.trim() || null,
       tfn: tfn.trim() || null,
       bank_name: bankName.trim() || null,
-      bank_bsb: bankBsb.trim() || null,
+      bank_bsb: formattedBsb,
       bank_account_number: bankAccountNumber.trim() || null,
       super_fund: superFund.trim() || null,
       super_usi: superUsi.trim() || null,
@@ -1032,12 +978,9 @@ function FinancialInfoTab({
     }
     onSaved({
       ...worker,
-      emergency_contact_name: emergencyContactName.trim() || null,
-      emergency_contact_relationship: emergencyContactRelationship.trim() || null,
-      emergency_contact_phone: emergencyContactPhone.trim() || null,
       tfn: tfn.trim() || null,
       bank_name: bankName.trim() || null,
-      bank_bsb: bankBsb.trim() || null,
+      bank_bsb: formattedBsb,
       bank_account_number: bankAccountNumber.trim() || null,
       super_fund: superFund.trim() || null,
       super_usi: superUsi.trim() || null,
@@ -1072,44 +1015,15 @@ function FinancialInfoTab({
       ) : null}
 
       <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Emergency contact</p>
+        <p className="text-sm font-semibold text-slate-900">Financial & Payroll Details</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block space-y-1 sm:col-span-2">
-            <span className={labelClass}>Contact name</span>
-            <input
-              className={inputClass}
-              value={emergencyContactName}
-              onChange={(event) => setEmergencyContactName(event.target.value)}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className={labelClass}>Relationship</span>
-            <input
-              className={inputClass}
-              value={emergencyContactRelationship}
-              onChange={(event) => setEmergencyContactRelationship(event.target.value)}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className={labelClass}>Phone</span>
-            <input
-              className={inputClass}
-              value={emergencyContactPhone}
-              onChange={(event) => setEmergencyContactPhone(event.target.value)}
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Bank details</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-1 sm:col-span-2">
-            <span className={labelClass}>Account name</span>
+            <span className={labelClass}>Bank Account Name</span>
             <input
               className={inputClass}
               value={bankName}
               onChange={(event) => setBankName(event.target.value)}
+              autoComplete="off"
             />
           </label>
           <label className="block space-y-1">
@@ -1118,35 +1032,33 @@ function FinancialInfoTab({
               className={inputClass}
               value={bankBsb}
               onChange={(event) => setBankBsb(event.target.value)}
+              onBlur={() => {
+                const formatted = formatWorkerBsb(bankBsb);
+                if (formatted) setBankBsb(formatted);
+              }}
               inputMode="numeric"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className={labelClass}>Account number</span>
-            <input
-              className={inputClass}
-              value={bankAccountNumber}
-              onChange={(event) => setBankAccountNumber(event.target.value)}
-              inputMode="numeric"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className={cn(sectionClass, "space-y-4")}>
-        <p className="text-sm font-semibold text-slate-900">Tax & superannuation</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-1 sm:col-span-2">
-            <span className={labelClass}>TFN</span>
-            <input
-              className={inputClass}
-              value={tfn}
-              onChange={(event) => setTfn(event.target.value)}
+              placeholder="000-000"
               autoComplete="off"
             />
           </label>
+          <MaskedTextInput
+            label="Account Number"
+            value={bankAccountNumber}
+            onChange={setBankAccountNumber}
+            masked={maskWorkerAccountNumber(bankAccountNumber)}
+            revealLabel="account number"
+            inputMode="numeric"
+          />
+          <MaskedTextInput
+            label="Tax File Number (TFN)"
+            value={tfn}
+            onChange={setTfn}
+            masked={maskWorkerTaxFileNumber(tfn)}
+            revealLabel="tax file number"
+            className="sm:col-span-2"
+          />
           <label className="block space-y-1">
-            <span className={labelClass}>Superannuation fund</span>
+            <span className={labelClass}>Superannuation Fund</span>
             <input
               className={inputClass}
               value={superFund}
@@ -1159,14 +1071,16 @@ function FinancialInfoTab({
               className={inputClass}
               value={superUsi}
               onChange={(event) => setSuperUsi(event.target.value)}
+              autoComplete="off"
             />
           </label>
           <label className="block space-y-1 sm:col-span-2">
-            <span className={labelClass}>Super member number</span>
+            <span className={labelClass}>Super Member Number</span>
             <input
               className={inputClass}
               value={superMemberNumber}
               onChange={(event) => setSuperMemberNumber(event.target.value)}
+              autoComplete="off"
             />
           </label>
         </div>
