@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import {
   SITE_FORM_CONFIGS,
@@ -26,6 +26,8 @@ interface SiteFormDetailModalProps {
   form: SiteFormSubmission;
   workers: Worker[];
   onClose: () => void;
+  onMarkRead?: () => Promise<void> | void;
+  markingRead?: boolean;
 }
 
 function collectPhotoUrls(form: SiteFormSubmission): string[] {
@@ -40,6 +42,8 @@ export default function SiteFormDetailModal({
   form,
   workers,
   onClose,
+  onMarkRead,
+  markingRead = false,
 }: SiteFormDetailModalProps) {
   const submitter = workers.find((worker) => worker.id === form.worker_id);
   const submitterName = submitter
@@ -77,8 +81,13 @@ export default function SiteFormDetailModal({
             }`}
             meta={`Submitted by ${submitterName}`}
           />
-          <button type="button" onClick={onClose} aria-label="Close" className="shrink-0">
-            <X className="h-5 w-5 text-slate-400" />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -295,6 +304,20 @@ export default function SiteFormDetailModal({
             </div>
           )}
         </div>
+
+        {onMarkRead ? (
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              disabled={markingRead}
+              onClick={() => void onMarkRead()}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+            >
+              {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Mark as Read
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

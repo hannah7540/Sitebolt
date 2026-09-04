@@ -150,7 +150,7 @@ export default function AdminIncidentDetailModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
             aria-label="Close"
           >
             <X className="h-5 w-5" />

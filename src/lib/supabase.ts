@@ -1477,6 +1477,8 @@ export interface PlantPrestart {
   defect_resolved_at?: string | null;
   submitted_at?: string | null;
   created_at: string;
+  is_read?: boolean | null;
+  read_at?: string | null;
 }
 
 export async function fetchWorkers(): Promise<Worker[]> {
