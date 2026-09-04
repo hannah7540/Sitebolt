@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import type { AccountsTimesheetRow } from "@/lib/accounts-timesheets";
+import {
+  timesheetHasResolvablePayRule,
+  type AccountsTimesheetRow,
+} from "@/lib/accounts-timesheets";
 import {
   calculateTimesheetPay,
   formatPayCurrency,
@@ -73,6 +76,10 @@ export default function TimesheetPayBreakdownPanel({
     : MEAL_ALLOWANCE_HOURS_THRESHOLD;
 
   if (!payRule) {
+    if (timesheetHasResolvablePayRule(timesheet)) {
+      return null;
+    }
+
     return (
       <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         No pay rule assigned to this worker. Set the worker&apos;s state/region on their

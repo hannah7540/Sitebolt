@@ -48,6 +48,7 @@ import { resolveLeaveTimesheetDaySpec } from "./leave-timesheet-rules";
 import { enumerateDateRange } from "./scheduler-utils";
 import { getProjectDisplayName } from "./project-resolver";
 import { isDateInPayWeek } from "./pay-week-utils";
+import { resolvePayRuleTemplateNameForWorker } from "./worker-pay-rule-assignment";
 
 export type AccountsTimesheetFilter =
   | "all"
@@ -727,14 +728,62 @@ export function summarizeTimesheetHours(rows: AccountsTimesheetRow[]): {
   };
 }
 
-/** Resolve the pay rule linked to a worker timesheet row via workers.pay_rate_id. */
+function findPayRuleById(
+  payRules: PayRateRule[],
+  id: string | null | undefined
+): PayRateRule | null {
+  const trimmed = id?.trim();
+  if (!trimmed) return null;
+  return payRules.find((rule) => rule.id === trimmed) ?? null;
+}
+
+function findPayRuleByName(
+  payRules: PayRateRule[],
+  name: string | null | undefined
+): PayRateRule | null {
+  const trimmed = name?.trim().toLowerCase();
+  if (!trimmed) return null;
+  return (
+    payRules.find((rule) => rule.rule_name.trim().toLowerCase() === trimmed) ??
+    payRules.find((rule) => rule.rule_name.trim().toLowerCase().includes(trimmed)) ??
+    null
+  );
+}
+
+/**
+ * Resolve the pay rule for a timesheet the same way payroll export does:
+ * explicit worker pay_rule_id / pay_rate_id, then the state-derived Site Worker mapping.
+ */
 export function resolveTimesheetPayRule(
-  row: AccountsTimesheetRow,
+  row: Pick<AccountsTimesheetRow, "pay_rate_id" | "worker_state">,
   payRules: PayRateRule[]
 ): PayRateRule | null {
-  const payRateId = row.pay_rate_id?.trim();
-  if (!payRateId) return null;
-  return payRules.find((rule) => rule.id === payRateId) ?? null;
+  const byId = findPayRuleById(payRules, row.pay_rate_id);
+  if (byId) return byId;
+
+  const templateName = resolvePayRuleTemplateNameForWorker(row.worker_state);
+  const byTemplateName = findPayRuleByName(payRules, templateName);
+  if (byTemplateName) return byTemplateName;
+
+  const state = normalizeWorkerStateRegion(row.worker_state);
+  if (state) {
+    const byState = payRules.find((rule) =>
+      rule.rule_name.trim().toUpperCase().startsWith(state)
+    );
+    if (byState) return byState;
+  }
+
+  return null;
+}
+
+/** True when a timesheet already has a pay rule via stored id, worker state, or name lookup. */
+export function timesheetHasResolvablePayRule(
+  row: Pick<AccountsTimesheetRow, "pay_rate_id" | "worker_state">,
+  payRules: PayRateRule[] = []
+): boolean {
+  if (row.pay_rate_id?.trim()) return true;
+  if (normalizeWorkerStateRegion(row.worker_state)) return true;
+  return resolveTimesheetPayRule(row, payRules) != null;
 }
 
 /** Admin-only gross pay calculation for Accounts timesheets. */
