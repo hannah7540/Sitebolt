@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,7 @@ interface MasterDashboardInfoModalProps {
   subtitle?: string;
   rows: Array<{ label: string; value: string }>;
   onClose: () => void;
+  actions?: ReactNode;
 }
 
 export default function MasterDashboardInfoModal({
@@ -16,6 +18,7 @@ export default function MasterDashboardInfoModal({
   subtitle,
   rows,
   onClose,
+  actions,
 }: MasterDashboardInfoModalProps) {
   return (
     <div className={modalOverlayClass} onClick={onClose}>
@@ -47,6 +50,7 @@ export default function MasterDashboardInfoModal({
             </div>
           ))}
         </dl>
+        {actions ? <div className="mt-6 flex justify-end gap-2">{actions}</div> : null}
       </div>
     </div>
   );

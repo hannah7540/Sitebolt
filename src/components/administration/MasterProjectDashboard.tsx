@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   AlertTriangle,
   Ban,
+  Bell,
   CalendarOff,
   Check,
   ClipboardCheck,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/leave-requests";
 import { markPlantPrestartRead } from "@/lib/plant-prestart-mutations";
 import { markSiteFormViewed } from "@/lib/site-form-mutations";
+import { sendInductionReminderNotification } from "@/lib/induction-reminder-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -189,6 +191,7 @@ export default function MasterProjectDashboard() {
   const [expanded, setExpanded] = useState<ExpandedView | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [leaveActingId, setLeaveActingId] = useState<string | null>(null);
+  const [sendingInductionId, setSendingInductionId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -292,6 +295,22 @@ export default function MasterProjectDashboard() {
   const resolveWorkerName = (workerId: string, fallback?: string | null) => {
     const worker = workers.find((row) => row.id === workerId);
     return fallback?.trim() || (worker ? getWorkerDisplayName(worker) : "Worker");
+  };
+
+  const handleSendInductionNotification = async (assignment: FormWorkerAssignment) => {
+    const workerName = resolveWorkerName(assignment.worker_id, assignment.worker_name);
+    setSendingInductionId(assignment.id);
+    const result = await sendInductionReminderNotification({
+      workerId: assignment.worker_id,
+      inductionTitle: assignment.form_title?.trim() || "your assigned induction",
+      templateId: assignment.form_id,
+    });
+    setSendingInductionId(null);
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+    showSuccess(`Notification sent to ${workerName}`);
   };
 
   return (
@@ -551,6 +570,21 @@ export default function MasterProjectDashboard() {
               value: expanded.record.assigned_at?.slice(0, 10) || "—",
             },
           ]}
+          actions={
+            <button
+              type="button"
+              disabled={sendingInductionId === expanded.record.id}
+              onClick={() => void handleSendInductionNotification(expanded.record)}
+              className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+            >
+              {sendingInductionId === expanded.record.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Bell className="h-4 w-4" />
+              )}
+              Send Notification
+            </button>
+          }
           onClose={() => setExpanded(null)}
         />
       ) : null}
