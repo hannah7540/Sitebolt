@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import {
+  FLEET_REGO_REQUIRED_MESSAGE,
   FLEET_STATUSES,
   fetchActiveWorkersForFleetAssignment,
   insertOrganizationFleetVehicle,
@@ -35,6 +36,7 @@ export default function AddFleetModal({
   const [activeTab, setActiveTab] = useState<FleetFormTab>("basic");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [regoError, setRegoError] = useState<string | null>(null);
 
   const [unitNumber, setUnitNumber] = useState(vehicle?.unit_number ?? "");
   const [make, setMake] = useState(vehicle?.make ?? "");
@@ -121,15 +123,25 @@ export default function AddFleetModal({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const rego = registration.trim();
+    if (!rego) {
+      setActiveTab("basic");
+      setRegoError(FLEET_REGO_REQUIRED_MESSAGE);
+      setError(FLEET_REGO_REQUIRED_MESSAGE);
+      return;
+    }
+
     setSaving(true);
     setError(null);
+    setRegoError(null);
 
     try {
       const payload = {
         unitNumber,
         make,
         model,
-        registration,
+        rego,
+        registration: rego,
         currentHours: Number(currentHours) || 0,
         status,
         regoExpiryDate: regoExpiryDate || null,
@@ -291,13 +303,21 @@ export default function AddFleetModal({
               />
             </label>
             <label className="block">
-              <span className={labelClass}>Registration</span>
+              <span className={labelClass}>Registration / Rego *</span>
               <input
-                className={inputClass}
+                className={cn(inputClass, regoError && "border-red-500")}
                 value={registration ?? ""}
-                onChange={(e) => setRegistration(e.target.value)}
+                onChange={(e) => {
+                  setRegistration(e.target.value);
+                  if (regoError) setRegoError(null);
+                }}
                 placeholder="YLH60R"
+                required
+                aria-invalid={Boolean(regoError)}
               />
+              {regoError ? (
+                <p className="mt-1 text-xs text-red-600">{regoError}</p>
+              ) : null}
             </label>
             <label className="block">
               <span className={labelClass}>Current Hours Reading</span>

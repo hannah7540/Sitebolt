@@ -22,6 +22,7 @@ const OPTIONAL_FLEET_COLUMNS = [
   "make",
   "model",
   "registration",
+  "rego",
   "rego_expiry_date",
   "rego_document_url",
   "insurance_expiry_date",
@@ -40,6 +41,8 @@ const FLEET_MISSING_TABLE_MESSAGE =
 
 const FLEET_RLS_MESSAGE =
   "You don't have permission to save this fleet vehicle. Confirm INSERT/UPDATE policies on organization_fleet allow your signed-in user (run migration 146_organization_fleet_authenticated_access.sql).";
+
+export const FLEET_REGO_REQUIRED_MESSAGE = "Registration / Rego is required";
 
 export const FLEET_STATUSES = ["Active", "Maintenance", "Out of Service"] as const;
 
@@ -71,7 +74,11 @@ export interface FleetVehicleInput {
   unitNumber: string;
   make?: string | null;
   model?: string | null;
+  rego?: string | null;
   registration?: string | null;
+  registration_number?: string | null;
+  rego_number?: string | null;
+  plate?: string | null;
   regoExpiryDate?: string | null;
   regoDocumentUrl?: string | null;
   insuranceExpiryDate?: string | null;
@@ -90,7 +97,13 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
     unit_number: String(row.unit_number ?? ""),
     make: row.make ? String(row.make) : null,
     model: row.model ? String(row.model) : null,
-    registration: row.registration ? String(row.registration) : null,
+    registration: firstNonEmptyText(
+      row.registration,
+      row.rego,
+      row.registration_number,
+      row.rego_number,
+      row.plate
+    ),
     rego_expiry_date: row.rego_expiry_date ? String(row.rego_expiry_date) : null,
     rego_document_url: row.rego_document_url ? String(row.rego_document_url) : null,
     insurance_expiry_date: row.insurance_expiry_date
@@ -114,6 +127,31 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
     created_at: row.created_at ? String(row.created_at) : undefined,
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };
+}
+
+function firstNonEmptyText(...values: unknown[]): string | null {
+  for (const value of values) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+export function resolveFleetRego(
+  input: Pick<
+    FleetVehicleInput,
+    "rego" | "registration" | "registration_number" | "rego_number" | "plate"
+  >
+): string {
+  return (
+    firstNonEmptyText(
+      input.rego,
+      input.registration,
+      input.registration_number,
+      input.rego_number,
+      input.plate
+    ) ?? ""
+  );
 }
 
 function nullIfBlankUuid(value: string | null | undefined): string | null {
@@ -141,6 +179,13 @@ function formatFleetWriteError(error: { message?: string; code?: string }): stri
     hint: "",
   });
   if (isFleetRlsError(error)) return FLEET_RLS_MESSAGE;
+  const constraintMessage = `${error.message ?? ""} ${normalized?.details ?? ""}`.toLowerCase();
+  if (
+    (normalized?.code === "23502" || constraintMessage.includes("not-null constraint")) &&
+    /(?<![a-z0-9_])rego(?![a-z0-9_])/.test(constraintMessage)
+  ) {
+    return FLEET_REGO_REQUIRED_MESSAGE;
+  }
   if (isSupabaseMissingColumnError(normalized)) {
     return error.message || "Fleet table schema is missing a required column.";
   }
@@ -153,6 +198,19 @@ function formatFleetWriteError(error: { message?: string; code?: string }): stri
   return error.message || "Failed to save fleet vehicle.";
 }
 
+function columnMentionedInError(message: string, column: string): boolean {
+  const lower = message.toLowerCase();
+  const columnLower = column.toLowerCase();
+  if (columnLower === "rego") {
+    return (
+      lower.includes("'rego'") ||
+      lower.includes('"rego"') ||
+      /(?<![a-z0-9_])rego(?![a-z0-9_])/.test(lower)
+    );
+  }
+  return lower.includes(columnLower) || lower.includes(columnLower.replace(/_/g, " "));
+}
+
 function resolveOptionalFleetColumn(
   message: string,
   payload: Record<string, unknown>
@@ -161,20 +219,19 @@ function resolveOptionalFleetColumn(
   if (parsed && parsed in payload) return parsed;
   return (
     OPTIONAL_FLEET_COLUMNS.find(
-      (column) =>
-        column in payload &&
-        (message.toLowerCase().includes(column) ||
-          message.toLowerCase().includes(column.replace(/_/g, " ")))
+      (column) => column in payload && columnMentionedInError(message, column)
     ) ?? null
   );
 }
 
 function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
+  const rego = resolveFleetRego(input);
   const payload: Record<string, unknown> = {
     unit_number: input.unitNumber.trim(),
     make: input.make?.trim() || null,
     model: input.model?.trim() || null,
-    registration: input.registration?.trim() || null,
+    rego,
+    registration: rego || null,
     rego_expiry_date: nullIfBlankDate(input.regoExpiryDate),
     rego_document_url: input.regoDocumentUrl ?? null,
     insurance_expiry_date: nullIfBlankDate(input.insuranceExpiryDate),
@@ -191,7 +248,9 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     payload.assigned_worker_name = input.assignedWorkerName?.trim() || null;
   }
 
-  return sanitizeWritePayload(payload, { requiredTextKeys: ["unit_number"] });
+  return sanitizeWritePayload(payload, {
+    requiredTextKeys: ["unit_number", "rego"],
+  });
 }
 
 async function fetchFleetVehicleById(
@@ -300,6 +359,10 @@ export async function insertOrganizationFleetVehicle(
     return { error: "Unit number is required.", data: null };
   }
 
+  if (!resolveFleetRego(input)) {
+    return { error: FLEET_REGO_REQUIRED_MESSAGE, data: null };
+  }
+
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured.", data: null };
   }
@@ -316,6 +379,10 @@ export async function updateOrganizationFleetVehicle(
 ): Promise<{ error: string | null; data: OrganizationFleetVehicle | null }> {
   if (!id.trim()) {
     return { error: "Vehicle id is required.", data: null };
+  }
+
+  if (!resolveFleetRego(input)) {
+    return { error: FLEET_REGO_REQUIRED_MESSAGE, data: null };
   }
 
   if (!isSupabaseConfigured()) {
