@@ -1,4 +1,5 @@
 import { daysUntil } from "./worker-utils";
+import { isFleetArchived } from "./fleet-archive";
 import type { FleetDocumentType, FleetStatus, OrganizationFleetVehicle } from "./organization-fleet";
 
 export function getFleetRegoExpiryStatus(expiryDate: string | null | undefined): {
@@ -59,10 +60,17 @@ export function getFleetDocumentExpiryLabel(
   return `Expires in ${days} days`;
 }
 
-export function fleetStatusMeta(status: FleetStatus): {
+export function fleetStatusMeta(status: FleetStatus | "archived" | string): {
   label: string;
   badgeClass: string;
 } {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "archived") {
+    return {
+      label: "Archived",
+      badgeClass: "bg-slate-200 text-slate-700",
+    };
+  }
   switch (status) {
     case "Maintenance":
       return {
@@ -140,6 +148,7 @@ export function collectExpiringFleetAlerts(
   const alerts: ExpiringFleetAlert[] = [];
 
   for (const vehicle of vehicles) {
+    if (isFleetArchived(vehicle)) continue;
     for (const documentType of ["rego", "insurance"] as const) {
       const expiryDate =
         documentType === "rego"
@@ -172,6 +181,7 @@ export function matchesFleetSearch(
     vehicle.model,
     vehicle.registration,
     vehicle.status,
+    vehicle.archived_reason,
     vehicle.assigned_worker_name,
     vehicle.assigned_project_name,
   ]

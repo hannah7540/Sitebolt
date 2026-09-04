@@ -45,7 +45,11 @@ export default function AddFleetModal({
   const [currentHours, setCurrentHours] = useState(
     vehicle?.current_hours != null ? String(vehicle.current_hours) : ""
   );
-  const [status, setStatus] = useState<FleetStatus>(vehicle?.status ?? "Active");
+  const [status, setStatus] = useState<FleetStatus>(
+    FLEET_STATUSES.includes(vehicle?.status as FleetStatus)
+      ? (vehicle?.status as FleetStatus)
+      : "Active"
+  );
   const [regoExpiryDate, setRegoExpiryDate] = useState(vehicle?.rego_expiry_date ?? "");
   const [insuranceExpiryDate, setInsuranceExpiryDate] = useState(
     vehicle?.insurance_expiry_date ?? ""
@@ -113,7 +117,11 @@ export default function AddFleetModal({
     setCurrentHours(
       vehicle.current_hours != null ? String(vehicle.current_hours) : ""
     );
-    setStatus(vehicle.status ?? "Active");
+    setStatus(
+      FLEET_STATUSES.includes(vehicle.status as FleetStatus)
+        ? (vehicle.status as FleetStatus)
+        : "Active"
+    );
     setRegoExpiryDate(vehicle.rego_expiry_date ?? "");
     setInsuranceExpiryDate(vehicle.insurance_expiry_date ?? "");
     setRegoDocumentUrl(vehicle.rego_document_url ?? "");

@@ -65,7 +65,9 @@ export interface OrganizationFleetVehicle {
   assigned_worker_name: string | null;
   assigned_project_id: string | null;
   assigned_project_name: string | null;
-  status: FleetStatus;
+  status: FleetStatus | "archived";
+  archived_at?: string | null;
+  archived_reason?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -123,10 +125,20 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
     assigned_project_name: row.assigned_project_name
       ? String(row.assigned_project_name)
       : null,
-    status: (row.status as FleetStatus) ?? "Active",
+    status: normalizeFleetStatus(row.status),
+    archived_at: row.archived_at ? String(row.archived_at) : null,
+    archived_reason: row.archived_reason ? String(row.archived_reason) : null,
     created_at: row.created_at ? String(row.created_at) : undefined,
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };
+}
+
+function normalizeFleetStatus(value: unknown): FleetStatus | "archived" {
+  const raw = String(value ?? "").trim();
+  if (raw.toLowerCase() === "archived") return "archived";
+  if (FLEET_STATUSES.includes(raw as FleetStatus)) return raw as FleetStatus;
+  if (raw.toLowerCase() === "active") return "Active";
+  return "Active";
 }
 
 function firstNonEmptyText(...values: unknown[]): string | null {

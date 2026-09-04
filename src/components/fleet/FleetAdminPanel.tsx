@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Search } from "lucide-react";
+import { Archive, ArchiveRestore, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import {
   fetchOrganizationFleet,
   FLEET_STATUSES,
@@ -10,6 +10,15 @@ import {
   type OrganizationFleetVehicle,
 } from "@/lib/organization-fleet";
 import {
+  archiveFleetVehicle,
+  deleteFleetVehicle,
+  fleetVehicleDisplayName,
+  isFleetArchived,
+  restoreFleetVehicle,
+  applyOptimisticFleetArchive,
+  applyOptimisticFleetRestore,
+} from "@/lib/fleet-archive";
+import {
   fleetStatusMeta,
   formatFleetAssignedWorker,
   getFleetRegoExpiryStatus,
@@ -17,6 +26,8 @@ import {
 } from "@/lib/fleet-utils";
 import AddFleetModal from "@/components/fleet/AddFleetModal";
 import FleetDocumentsModal from "@/components/fleet/FleetDocumentsModal";
+import FleetArchiveModal from "@/components/fleet/FleetArchiveModal";
+import FleetDeleteConfirmModal from "@/components/fleet/FleetDeleteConfirmModal";
 import {
   organisationRowDomId,
   scrollToOrganisationRow,
@@ -28,8 +39,10 @@ import Toast from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 
+type FleetListTab = "active" | "archived";
+
 export default function FleetAdminPanel() {
-  const { toast, showError, dismissToast } = useFormToast();
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
   const deepLinkHandledRef = useRef<string | null>(null);
   const [vehicles, setVehicles] = useState<OrganizationFleetVehicle[]>([]);
@@ -43,6 +56,12 @@ export default function FleetAdminPanel() {
   const [documentsDocumentType, setDocumentsDocumentType] =
     useState<FleetDocumentType>("rego");
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [listTab, setListTab] = useState<FleetListTab>("active");
+  const [archiveTarget, setArchiveTarget] = useState<OrganizationFleetVehicle | null>(
+    null
+  );
+  const [deleteTarget, setDeleteTarget] = useState<OrganizationFleetVehicle | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const loadFleet = useCallback(async () => {
     setLoading(true);
@@ -71,6 +90,7 @@ export default function FleetAdminPanel() {
     }
 
     deepLinkHandledRef.current = deepLinkKey;
+    setListTab(isFleetArchived(vehicle) ? "archived" : "active");
     setHighlightId(vehicle.id);
     scrollToOrganisationRow(organisationRowDomId("fleet", vehicle.id));
 
@@ -102,15 +122,79 @@ export default function FleetAdminPanel() {
     clearDeepLink();
   };
 
+  const activeCount = useMemo(
+    () => vehicles.filter((vehicle) => !isFleetArchived(vehicle)).length,
+    [vehicles]
+  );
+  const archivedCount = useMemo(
+    () => vehicles.filter((vehicle) => isFleetArchived(vehicle)).length,
+    [vehicles]
+  );
+
   const filteredVehicles = useMemo(() => {
     return vehicles.filter((vehicle) => {
+      const archived = isFleetArchived(vehicle);
+      const matchesTab = listTab === "archived" ? archived : !archived;
       const matchesStatus =
-        statusFilter === "All" || vehicle.status === statusFilter;
+        listTab === "archived" ||
+        statusFilter === "All" ||
+        vehicle.status === statusFilter;
       const matchesSearch =
         !searchQuery.trim() || matchesFleetSearch(vehicle, searchQuery);
-      return matchesStatus && matchesSearch;
+      return matchesTab && matchesStatus && matchesSearch;
     });
-  }, [vehicles, searchQuery, statusFilter]);
+  }, [vehicles, searchQuery, statusFilter, listTab]);
+
+  const patchVehicle = useCallback((updated: OrganizationFleetVehicle) => {
+    setVehicles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+  }, []);
+
+  const handleArchive = async (reason: string) => {
+    if (!archiveTarget) return;
+    setActionBusy(true);
+    const target = archiveTarget;
+    const { error } = await archiveFleetVehicle(target.id, reason);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    patchVehicle(applyOptimisticFleetArchive(target, reason));
+    setArchiveTarget(null);
+    showSuccess("Fleet vehicle archived");
+    void loadFleet();
+  };
+
+  const handleRestore = async (vehicle: OrganizationFleetVehicle) => {
+    setActionBusy(true);
+    const { error } = await restoreFleetVehicle(vehicle.id);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    patchVehicle(applyOptimisticFleetRestore(vehicle));
+    showSuccess("Fleet vehicle restored");
+    void loadFleet();
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setActionBusy(true);
+    const target = deleteTarget;
+    const { error } = await deleteFleetVehicle(target.id);
+    setActionBusy(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    setVehicles((prev) => prev.filter((row) => row.id !== target.id));
+    if (editVehicle?.id === target.id) setEditVehicle(null);
+    if (documentsVehicle?.id === target.id) setDocumentsVehicle(null);
+    setDeleteTarget(null);
+    showSuccess("Fleet vehicle deleted");
+    void loadFleet();
+  };
 
   return (
     <div>
@@ -144,20 +228,45 @@ export default function FleetAdminPanel() {
             className={cn(inputClass, "pl-9")}
           />
         </div>
-        <select
-          className={cn(inputClass, "max-w-xs")}
-          value={statusFilter}
-          onChange={(event) =>
-            setStatusFilter(event.target.value as FleetStatus | "All")
-          }
-        >
-          <option value="All">All statuses</option>
-          {FLEET_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
+        {listTab === "active" ? (
+          <select
+            className={cn(inputClass, "max-w-xs")}
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as FleetStatus | "All")
+            }
+          >
+            <option value="All">All statuses</option>
+            {FLEET_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            { id: "active", label: "Active", count: activeCount },
+            { id: "archived", label: "Archived", count: archivedCount },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setListTab(tab.id)}
+            className={cn(
+              "rounded-lg px-4 py-2 text-sm font-semibold transition",
+              listTab === tab.id
+                ? "bg-orange-500 text-white shadow-sm"
+                : "border border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-orange-600"
+            )}
+          >
+            {tab.label} ({tab.count})
+          </button>
+        ))}
       </div>
 
       {loading ? (
@@ -184,13 +293,20 @@ export default function FleetAdminPanel() {
               {filteredVehicles.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                    No fleet vehicles match your search.
+                    {searchQuery.trim()
+                      ? "No fleet vehicles match your search."
+                      : listTab === "archived"
+                        ? "No archived fleet vehicles."
+                        : "No active fleet vehicles."}
                   </td>
                 </tr>
               ) : (
                 filteredVehicles.map((vehicle) => {
+                  const archived = isFleetArchived(vehicle);
                   const regoStatus = getFleetRegoExpiryStatus(vehicle.rego_expiry_date);
-                  const status = fleetStatusMeta(vehicle.status);
+                  const status = fleetStatusMeta(
+                    archived ? "archived" : vehicle.status
+                  );
 
                   return (
                     <tr
@@ -255,6 +371,34 @@ export default function FleetAdminPanel() {
                           >
                             Upload Documents
                           </button>
+                          {!archived ? (
+                            <button
+                              type="button"
+                              onClick={() => setArchiveTarget(vehicle)}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <Archive className="h-3.5 w-3.5" />
+                              Archive Vehicle
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => void handleRestore(vehicle)}
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              <ArchiveRestore className="h-3.5 w-3.5" />
+                              Restore Vehicle
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(vehicle)}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete Vehicle
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -287,6 +431,28 @@ export default function FleetAdminPanel() {
           documentType={documentsDocumentType}
           onClose={closeDocumentsModal}
           onSaved={() => void loadFleet()}
+        />
+      ) : null}
+
+      {archiveTarget ? (
+        <FleetArchiveModal
+          vehicleLabel={fleetVehicleDisplayName(archiveTarget)}
+          saving={actionBusy}
+          onClose={() => {
+            if (!actionBusy) setArchiveTarget(null);
+          }}
+          onConfirm={handleArchive}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <FleetDeleteConfirmModal
+          vehicleLabel={fleetVehicleDisplayName(deleteTarget)}
+          deleting={actionBusy}
+          onClose={() => {
+            if (!actionBusy) setDeleteTarget(null);
+          }}
+          onConfirm={handleDelete}
         />
       ) : null}
 
