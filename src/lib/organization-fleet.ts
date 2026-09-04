@@ -1,7 +1,45 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { nullIfBlankDate } from "./form-payload-utils";
+import {
+  nullIfBlankDate,
+  parseMissingColumnFromError,
+  sanitizeWritePayload,
+  stripMissingColumn,
+} from "./form-payload-utils";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseRelationMissingError,
+  isSupabaseSchemaCacheError,
+  isSupabaseTableUnavailableError,
+  isSupabaseZeroRowsError,
+  toSupabaseRequestError,
+} from "./supabase-errors";
 import { getWorkerDisplayName } from "./worker-utils";
 import type { Worker } from "./supabase";
+
+const FLEET_TABLE = "organization_fleet";
+
+const OPTIONAL_FLEET_COLUMNS = [
+  "make",
+  "model",
+  "registration",
+  "rego_expiry_date",
+  "rego_document_url",
+  "insurance_expiry_date",
+  "insurance_document_url",
+  "current_hours",
+  "assigned_worker_id",
+  "assigned_worker_name",
+  "assigned_project_id",
+  "assigned_project_name",
+  "status",
+  "updated_at",
+] as const;
+
+const FLEET_MISSING_TABLE_MESSAGE =
+  "Fleet table is missing. Run migration 056_organization_fleet_and_documents.sql in Supabase.";
+
+const FLEET_RLS_MESSAGE =
+  "You don't have permission to save this fleet vehicle. Confirm INSERT/UPDATE policies on organization_fleet allow your signed-in user (run migration 146_organization_fleet_authenticated_access.sql).";
 
 export const FLEET_STATUSES = ["Active", "Maintenance", "Out of Service"] as const;
 
@@ -78,6 +116,59 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
   };
 }
 
+function nullIfBlankUuid(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function isFleetRlsError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? "");
+  const lower = String(error.message ?? "").toLowerCase();
+  return (
+    code === "42501" ||
+    lower.includes("row-level security") ||
+    lower.includes("permission denied") ||
+    lower.includes("not authorized")
+  );
+}
+
+function formatFleetWriteError(error: { message?: string; code?: string }): string {
+  const normalized = toSupabaseRequestError({
+    message: error.message ?? "",
+    code: error.code ?? "",
+    details: "",
+    hint: "",
+  });
+  if (isFleetRlsError(error)) return FLEET_RLS_MESSAGE;
+  if (isSupabaseMissingColumnError(normalized)) {
+    return error.message || "Fleet table schema is missing a required column.";
+  }
+  if (
+    isSupabaseRelationMissingError(normalized) ||
+    (isSupabaseSchemaCacheError(normalized) && !isSupabaseMissingColumnError(normalized))
+  ) {
+    return FLEET_MISSING_TABLE_MESSAGE;
+  }
+  return error.message || "Failed to save fleet vehicle.";
+}
+
+function resolveOptionalFleetColumn(
+  message: string,
+  payload: Record<string, unknown>
+): string | null {
+  const parsed = parseMissingColumnFromError(message);
+  if (parsed && parsed in payload) return parsed;
+  return (
+    OPTIONAL_FLEET_COLUMNS.find(
+      (column) =>
+        column in payload &&
+        (message.toLowerCase().includes(column) ||
+          message.toLowerCase().includes(column.replace(/_/g, " ")))
+    ) ?? null
+  );
+}
+
 function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     unit_number: input.unitNumber.trim(),
@@ -89,30 +180,111 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     insurance_expiry_date: nullIfBlankDate(input.insuranceExpiryDate),
     insurance_document_url: input.insuranceDocumentUrl ?? null,
     current_hours: input.currentHours ?? 0,
-    assigned_project_id: input.assignedProjectId ?? null,
+    assigned_project_id: nullIfBlankUuid(input.assignedProjectId),
     assigned_project_name: input.assignedProjectName?.trim() || null,
     status: input.status ?? "Active",
     updated_at: new Date().toISOString(),
   };
 
   if (input.assignedWorkerId !== undefined) {
-    payload.assigned_worker_id = input.assignedWorkerId;
-    payload.assigned_worker_name = input.assignedWorkerName ?? null;
+    payload.assigned_worker_id = nullIfBlankUuid(input.assignedWorkerId);
+    payload.assigned_worker_name = input.assignedWorkerName?.trim() || null;
   }
 
-  return payload;
+  return sanitizeWritePayload(payload, { requiredTextKeys: ["unit_number"] });
+}
+
+async function fetchFleetVehicleById(
+  id: string
+): Promise<OrganizationFleetVehicle | null> {
+  const { data, error } = await supabase
+    .from(FLEET_TABLE)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return normalizeFleetRow(data as Record<string, unknown>);
+}
+
+async function fetchLatestFleetVehicleByUnitNumber(
+  unitNumber: string
+): Promise<OrganizationFleetVehicle | null> {
+  const { data, error } = await supabase
+    .from(FLEET_TABLE)
+    .select("*")
+    .eq("unit_number", unitNumber)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return normalizeFleetRow(data as Record<string, unknown>);
+}
+
+async function writeFleetVehicle(input: {
+  mode: "insert" | "update";
+  id?: string;
+  payload: Record<string, unknown>;
+}): Promise<{ error: string | null; data: OrganizationFleetVehicle | null }> {
+  let currentPayload = { ...input.payload };
+
+  for (let attempt = 0; attempt <= OPTIONAL_FLEET_COLUMNS.length + 1; attempt += 1) {
+    const query =
+      input.mode === "insert"
+        ? supabase.from(FLEET_TABLE).insert([currentPayload]).select("*").single()
+        : supabase
+            .from(FLEET_TABLE)
+            .update(currentPayload)
+            .eq("id", input.id ?? "")
+            .select("*")
+            .single();
+
+    const { data, error } = await query;
+
+    if (!error && data) {
+      return { error: null, data: normalizeFleetRow(data as Record<string, unknown>) };
+    }
+
+    if (error && isSupabaseZeroRowsError(error)) {
+      const recovered =
+        input.mode === "update" && input.id
+          ? await fetchFleetVehicleById(input.id)
+          : await fetchLatestFleetVehicleByUnitNumber(
+              String(currentPayload.unit_number ?? "")
+            );
+      if (recovered) return { error: null, data: recovered };
+    }
+
+    if (error && isSupabaseMissingColumnError(error)) {
+      const missing = resolveOptionalFleetColumn(error.message, currentPayload);
+      if (missing) {
+        currentPayload = stripMissingColumn(currentPayload, missing);
+        continue;
+      }
+    }
+
+    if (error) {
+      return { error: formatFleetWriteError(error), data: null };
+    }
+  }
+
+  return { error: "Failed to save fleet vehicle.", data: null };
 }
 
 export async function fetchOrganizationFleet(): Promise<OrganizationFleetVehicle[]> {
   if (!isSupabaseConfigured()) return [];
 
   const { data, error } = await supabase
-    .from("organization_fleet")
+    .from(FLEET_TABLE)
     .select("*")
     .order("unit_number", { ascending: true });
 
   if (error) {
-    if (!error.message.toLowerCase().includes("organization_fleet")) {
+    if (
+      !isSupabaseRelationMissingError(error) &&
+      !isSupabaseTableUnavailableError(error, FLEET_TABLE)
+    ) {
       console.error("Failed to fetch organization fleet:", error.message);
     }
     return [];
@@ -128,24 +300,14 @@ export async function insertOrganizationFleetVehicle(
     return { error: "Unit number is required.", data: null };
   }
 
-  const { data, error } = await supabase
-    .from("organization_fleet")
-    .insert([buildFleetPayload(input)])
-    .select("*")
-    .single();
-
-  if (error) {
-    if (error.message.toLowerCase().includes("organization_fleet")) {
-      return {
-        error:
-          "Fleet table is missing. Run migration 056_organization_fleet_and_documents.sql in Supabase.",
-        data: null,
-      };
-    }
-    return { error: error.message, data: null };
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured.", data: null };
   }
 
-  return { error: null, data: normalizeFleetRow(data as Record<string, unknown>) };
+  return writeFleetVehicle({
+    mode: "insert",
+    payload: buildFleetPayload(input),
+  });
 }
 
 export async function updateOrganizationFleetVehicle(
@@ -156,18 +318,15 @@ export async function updateOrganizationFleetVehicle(
     return { error: "Vehicle id is required.", data: null };
   }
 
-  const { data, error } = await supabase
-    .from("organization_fleet")
-    .update(buildFleetPayload(input))
-    .eq("id", id)
-    .select("*")
-    .single();
-
-  if (error) {
-    return { error: error.message, data: null };
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured.", data: null };
   }
 
-  return { error: null, data: normalizeFleetRow(data as Record<string, unknown>) };
+  return writeFleetVehicle({
+    mode: "update",
+    id,
+    payload: buildFleetPayload(input),
+  });
 }
 
 function isActiveWorkerForFleetAssignment(worker: Worker): boolean {
@@ -233,22 +392,23 @@ export async function syncFleetVehicleWorkerAssignment(input: {
   const previousId = input.previousWorkerId?.trim() || null;
   const nextId = input.nextWorkerId?.trim() || null;
 
-  const { error: vehicleError } = await supabase
-    .from("organization_fleet")
-    .update({
+  const assignResult = await writeFleetVehicle({
+    mode: "update",
+    id: input.vehicleId,
+    payload: {
       assigned_worker_id: nextId,
       assigned_worker_name: nextId ? input.nextWorkerName?.trim() || null : null,
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.vehicleId);
+    },
+  });
 
-  if (vehicleError) {
-    return { error: vehicleError.message };
+  if (assignResult.error) {
+    return { error: assignResult.error };
   }
 
   if (nextId) {
     const { error: detachError } = await supabase
-      .from("organization_fleet")
+      .from(FLEET_TABLE)
       .update({
         assigned_worker_id: null,
         assigned_worker_name: null,
@@ -258,7 +418,7 @@ export async function syncFleetVehicleWorkerAssignment(input: {
       .neq("id", input.vehicleId);
 
     if (detachError) {
-      return { error: detachError.message };
+      return { error: formatFleetWriteError(detachError) };
     }
   }
 
@@ -304,16 +464,9 @@ export async function updateFleetDocumentCompliance(input: {
     }
   }
 
-  const { data, error } = await supabase
-    .from("organization_fleet")
-    .update(payload)
-    .eq("id", input.id)
-    .select("*")
-    .single();
-
-  if (error) {
-    return { error: error.message, data: null };
-  }
-
-  return { error: null, data: normalizeFleetRow(data as Record<string, unknown>) };
+  return writeFleetVehicle({
+    mode: "update",
+    id: input.id,
+    payload,
+  });
 }
