@@ -729,7 +729,7 @@ function ProjectsSection({
   selectedProjectId?: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="border-b border-slate-200 pb-3">
@@ -737,23 +737,21 @@ function ProjectsSection({
         type="button"
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
+        aria-expanded={open}
       >
         <span className="flex items-center gap-2">
           <FolderKanban className="h-4 w-4" />
-          PROJECTS
+          PROJECTS ({projects.length})
         </span>
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
       </button>
       {open && (
         <div className="space-y-1 px-2">
-          {projects.map((project, index) => (
+          {projects.map((project) => (
             <ProjectAccordion
               key={project.id ?? project.label}
               project={project}
-              defaultExpanded={
-                project.id === selectedProjectId ||
-                (!selectedProjectId && index === 0)
-              }
+              defaultExpanded={project.id === selectedProjectId}
               activeView={activeView}
               selectedProjectId={selectedProjectId}
               onNavigate={onNavigate}
