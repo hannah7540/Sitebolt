@@ -30,6 +30,10 @@ import {
   type TimesheetLineCategory,
 } from "@/lib/timesheet-line-items";
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
+import {
+  isActTimesheetJurisdiction,
+  validateActBreakRequirement,
+} from "@/lib/timesheet-act-break-validation";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -147,6 +151,11 @@ export default function AccountsAddTimesheets() {
     return resolvePayRuleTemplateNameForWorker(selectedWorker.state) ?? "—";
   }, [selectedWorker]);
 
+  const isActWorker = isActTimesheetJurisdiction({
+    workerState: selectedWorker?.state,
+    payRuleName: payRuleLabel === "—" ? null : payRuleLabel,
+  });
+
   const resetForm = () => {
     setWorkDate(todayIso);
     setSelectedProjectId("");
@@ -199,6 +208,19 @@ export default function AccountsAddTimesheets() {
 
     if (totals.dailyTotalHours <= 0) {
       showError("Daily total must be greater than 0 hours.");
+      return;
+    }
+
+    const actBreakError = validateActBreakRequirement({
+      workerState: selectedWorker.state,
+      payRuleName: payRuleLabel === "—" ? null : payRuleLabel,
+      submit: true,
+      breaks: [],
+      breakMinutes,
+      activities,
+    });
+    if (actBreakError) {
+      showError(actBreakError);
       return;
     }
 
@@ -457,19 +479,27 @@ export default function AccountsAddTimesheets() {
               {!isLeaveEntry ? (
               <div>
                 <label htmlFor="break-minutes" className={labelClass}>
-                  Break (minutes)
+                  Break (minutes){isActWorker ? " *" : ""}
                 </label>
                 <input
                   id="break-minutes"
                   type="number"
-                  min={0}
+                  min={isActWorker ? 1 : 0}
                   step={1}
+                  required={isActWorker}
                   value={breakMinutes}
                   onChange={(event) =>
                     setBreakMinutes(Math.max(0, Number(event.target.value) || 0))
                   }
                   className={inputClass}
                 />
+                {isActWorker ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-800">
+                    A break must be recorded for ACT timesheets.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">Optional for this worker.</p>
+                )}
               </div>
               ) : null}
 

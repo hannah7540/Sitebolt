@@ -13,6 +13,7 @@ import {
 } from "@/lib/timesheet-options";
 import {
   createDefaultBreakSlot,
+  createEmptyBreakSlot,
   calculateDailyTotalsFromSlots,
   formatTimesheetHours,
   formatTimesheetHoursLabel,
@@ -45,9 +46,10 @@ import {
   type TimesheetLineCategory,
 } from "@/lib/timesheet-line-items";
 import {
-  isActWorkerState,
+  isActTimesheetJurisdiction,
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
+import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
 import {
   getPayWeekRange,
   formatPayWeekRange,
@@ -230,12 +232,24 @@ export default function WorkerTimesheetModal({
 
   const workerTrade = selectedTask?.name ?? resolveWorkerTrade(worker);
   const isNewEntry = !entryForSelectedDate;
-  const isActWorker = isActWorkerState(worker.state);
+  const assignedPayRuleName = resolvePayRuleTemplateNameForWorker(worker.state);
+  const isActWorker = isActTimesheetJurisdiction({
+    workerState: worker.state,
+    payRuleName: assignedPayRuleName,
+  });
   const showBreakSection = hasWorkLineItems(activities);
+
+  useEffect(() => {
+    if (!isActWorker || !showBreakSection) return;
+    setBreaks((rows) => (rows.length === 0 ? [createEmptyBreakSlot()] : rows));
+  }, [isActWorker, showBreakSection]);
 
   const breakErrors = useMemo(
     () =>
-      breaks.map((row) => validateBreakSlot(row.startTime, row.endTime)),
+      breaks.map((row) => {
+        if (!row.startTime && !row.endTime) return null;
+        return validateBreakSlot(row.startTime, row.endTime);
+      }),
     [breaks]
   );
 
@@ -351,6 +365,7 @@ export default function WorkerTimesheetModal({
     if (submit) {
       const actBreakError = validateActBreakRequirement({
         workerState: worker.state,
+        payRuleName: assignedPayRuleName,
         submit: true,
         breaks,
         breakMinutes: Math.round(totals.breakHours * 60),
@@ -720,10 +735,12 @@ export default function WorkerTimesheetModal({
             </div>
 
             {isActWorker ? (
-              <p className="text-xs text-slate-500">
-                ACT workers must record at least one break for work shifts.
+              <p className="text-xs font-semibold text-amber-800">
+                Break start and finish times are required for ACT timesheets.
               </p>
-            ) : null}
+            ) : (
+              <p className="text-xs text-slate-500">Breaks are optional.</p>
+            )}
 
             {breakSectionError ? (
               <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -748,9 +765,13 @@ export default function WorkerTimesheetModal({
                     <button
                       type="button"
                       onClick={() =>
-                        setBreaks((rows) => rows.filter((item) => item.id !== row.id))
+                        setBreaks((rows) => {
+                          if (isActWorker && rows.length <= 1) return rows;
+                          return rows.filter((item) => item.id !== row.id);
+                        })
                       }
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700"
+                      disabled={isActWorker && breaks.length <= 1}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       Remove
@@ -758,10 +779,13 @@ export default function WorkerTimesheetModal({
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <label className={labelClass}>Start</label>
+                      <label className={labelClass}>
+                        Start{isActWorker ? " *" : ""}
+                      </label>
                       <input
                         type="time"
                         value={row.startTime}
+                        required={isActWorker}
                         onChange={(event) =>
                           updateBreak(row.id, "startTime", event.target.value)
                         }
@@ -769,10 +793,13 @@ export default function WorkerTimesheetModal({
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Finish</label>
+                      <label className={labelClass}>
+                        Finish{isActWorker ? " *" : ""}
+                      </label>
                       <input
                         type="time"
                         value={row.endTime}
+                        required={isActWorker}
                         onChange={(event) =>
                           updateBreak(row.id, "endTime", event.target.value)
                         }

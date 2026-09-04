@@ -1000,8 +1000,20 @@ function FinancialInfoTab({
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-slate-500">Assigned pay rule</dt>
-              <dd className="font-semibold text-slate-900">
-                {assignedRuleName ?? "Not assigned — set state/region on Basic Info"}
+              <dd className="mt-1">
+                <select
+                  className={inputClass}
+                  value={assignedRuleName ?? ""}
+                  disabled
+                  aria-label="Assigned pay rule"
+                >
+                  <option value="">
+                    {assignedRuleName ?? "Not assigned — set state/region on Basic Info"}
+                  </option>
+                  {assignedRuleName ? (
+                    <option value={assignedRuleName}>{assignedRuleName}</option>
+                  ) : null}
+                </select>
               </dd>
             </div>
             {travelCategory ? (

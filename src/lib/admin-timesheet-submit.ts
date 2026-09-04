@@ -10,8 +10,7 @@ import {
   type TimesheetActivitySlot,
   type TimesheetBreakSlot,
 } from "./timesheet-utils";
-import { validateActBreakRequirement } from "./timesheet-act-break-validation";
-import { normalizeWorkerStateRegion } from "./worker-state-region";
+import { validateActBreakRequirement, resolveTimesheetBreakContext } from "./timesheet-act-break-validation";
 import {
   formatTimesheetProjectDisplayName,
   type TimesheetProject,
@@ -130,27 +129,6 @@ function buildLegacyPayload(full: Record<string, unknown>): Record<string, unkno
   });
 }
 
-async function resolveWorkerState(
-  admin: SupabaseClient,
-  workerId: string,
-  providedState?: string | null
-): Promise<string | null> {
-  if (providedState !== undefined) {
-    const normalized = normalizeWorkerStateRegion(providedState);
-    return normalized ?? (providedState?.trim() || null);
-  }
-
-  const { data } = await admin
-    .from("workers")
-    .select("state")
-    .eq("id", workerId)
-    .maybeSingle();
-
-  const state = (data as { state?: string | null } | null)?.state;
-  const normalized = normalizeWorkerStateRegion(state);
-  return normalized ?? (state?.trim() || null);
-}
-
 function resolveTotals(input: AdminTimesheetSubmitInput): ReturnType<typeof calculateDailyTotalsFromSlots> {
   const syncedActivities = input.activities.map(syncLineItemFields);
   const breaks = input.breaks ?? [];
@@ -201,9 +179,14 @@ export async function submitApprovedTimesheetAdmin(
     return { error: "Daily total must be greater than 0 hours.", data: null };
   }
 
-  const workerState = await resolveWorkerState(admin, input.workerId, input.workerState);
+  const { workerState, payRuleName } = await resolveTimesheetBreakContext(
+    admin,
+    input.workerId,
+    input.workerState
+  );
   const actBreakError = validateActBreakRequirement({
     workerState,
+    payRuleName,
     submit: true,
     breaks: input.breaks ?? [],
     breakMinutes: Math.round(totals.breakHours * 60),

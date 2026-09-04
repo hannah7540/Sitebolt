@@ -41,6 +41,14 @@ export function createDefaultBreakSlot(): TimesheetBreakSlot {
   };
 }
 
+export function createEmptyBreakSlot(): TimesheetBreakSlot {
+  return {
+    id: `break-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    startTime: "",
+    endTime: "",
+  };
+}
+
 export function timeToMinutes(time: string): number {
   const [h, m] = time.slice(0, 5).split(":").map(Number);
   return h * 60 + m;

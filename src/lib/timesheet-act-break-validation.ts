@@ -6,13 +6,13 @@ import {
 } from "./timesheet-utils";
 import { hasWorkLineItems } from "./timesheet-line-items";
 import {
-  isWorkerStateRegion,
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
 } from "./worker-state-region";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const ACT_BREAK_REQUIRED_MESSAGE =
-  "Workers based in ACT must record a break for work shifts.";
+  "A break must be recorded for ACT timesheets.";
 
 const WORK_ACTIVITY_LABEL = "WORKING ON SITE";
 
@@ -43,6 +43,20 @@ const LEAVE_TIMESHEET_NOTE_MARKERS = [
 
 export function isActWorkerState(state: string | null | undefined): boolean {
   return normalizeWorkerStateRegion(state) === "ACT";
+}
+
+export function isActPayRuleName(name: string | null | undefined): boolean {
+  const normalized = String(name ?? "").trim().toUpperCase();
+  if (!normalized) return false;
+  return normalized.startsWith("ACT") || /(^|[^A-Z])ACT([^A-Z]|$)/.test(normalized);
+}
+
+/** True when the worker's state or assigned pay rule is ACT. */
+export function isActTimesheetJurisdiction(input: {
+  workerState?: string | null;
+  payRuleName?: string | null;
+}): boolean {
+  return isActWorkerState(input.workerState) || isActPayRuleName(input.payRuleName);
 }
 
 export function hasRecordedTimesheetBreak(
@@ -97,6 +111,7 @@ export function isStandardWorkTimesheetSubmission(input: {
 
 export interface ActBreakValidationInput {
   workerState?: string | null;
+  payRuleName?: string | null;
   submit?: boolean;
   breaks?: TimesheetBreakSlot[];
   breakMinutes?: number | null;
@@ -110,7 +125,14 @@ export function validateActBreakRequirement(
   input: ActBreakValidationInput
 ): string | null {
   if (!input.submit) return null;
-  if (!isActWorkerState(input.workerState)) return null;
+  if (
+    !isActTimesheetJurisdiction({
+      workerState: input.workerState,
+      payRuleName: input.payRuleName,
+    })
+  ) {
+    return null;
+  }
   if (
     !hasWorkLineItems(
       (input.activities ?? []) as TimesheetActivitySlot[]
@@ -140,13 +162,15 @@ export function validateActBreakRequirement(
 
 export function validateActBreakForTimesheetPayload(
   workerState: string | null | undefined,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  payRuleName?: string | null
 ): string | null {
   const breaks = normalizeBreaksFromPayload(payload);
   const activities = normalizeActivitiesFromPayload(payload);
 
   return validateActBreakRequirement({
     workerState,
+    payRuleName,
     submit: true,
     breaks,
     breakMinutes: Number(payload.break_minutes ?? 0),
@@ -199,4 +223,49 @@ export function resolveWorkerStateForBreakValidation(
   state: string | null | undefined
 ): WorkerStateRegion | null {
   return normalizeWorkerStateRegion(state);
+}
+
+export async function resolveTimesheetBreakContext(
+  client: SupabaseClient,
+  workerId: string,
+  providedState?: string | null
+): Promise<{ workerState: string | null; payRuleName: string | null }> {
+  const trimmedId = workerId.trim();
+  if (!trimmedId) {
+    const normalized = normalizeWorkerStateRegion(providedState);
+    return {
+      workerState: normalized ?? (providedState?.trim() || null),
+      payRuleName: null,
+    };
+  }
+
+  const { data } = await client
+    .from("workers")
+    .select("state, pay_rule_id, pay_rule_template_id")
+    .eq("id", trimmedId)
+    .maybeSingle();
+
+  const row = data as {
+    state?: string | null;
+    pay_rule_id?: string | null;
+    pay_rule_template_id?: string | null;
+  } | null;
+
+  const rawState = providedState !== undefined ? providedState : row?.state;
+  const normalized = normalizeWorkerStateRegion(rawState);
+  const workerState = normalized ?? (typeof rawState === "string" ? rawState.trim() || null : null);
+
+  const templateId = String(row?.pay_rule_template_id ?? row?.pay_rule_id ?? "").trim();
+  let payRuleName: string | null = null;
+  if (templateId) {
+    const { data: template } = await client
+      .from("pay_rule_templates")
+      .select("name")
+      .eq("id", templateId)
+      .maybeSingle();
+    const name = (template as { name?: string | null } | null)?.name;
+    payRuleName = typeof name === "string" && name.trim() ? name.trim() : null;
+  }
+
+  return { workerState, payRuleName };
 }

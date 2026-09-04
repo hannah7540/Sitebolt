@@ -22,6 +22,11 @@ import {
 import { cn } from "@/lib/utils";
 import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
 import WorkerSecurityRoleSelect from "./WorkerSecurityRoleSelect";
+import StateRegionSelector from "./StateRegionSelector";
+import {
+  normalizeWorkerStateRegion,
+  type WorkerStateRegion,
+} from "@/lib/worker-state-region";
 
 interface WorkerEditModalProps {
   worker: Worker;
@@ -43,6 +48,9 @@ export default function WorkerEditModal({
   const [email, setEmail] = useState(worker.email);
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [trade, setTrade] = useState(worker.trade ?? "");
+  const [state, setState] = useState<WorkerStateRegion | null>(
+    normalizeWorkerStateRegion(worker.state)
+  );
   const [isApprentice, setIsApprentice] = useState(worker.is_apprentice ?? false);
   const [hasCompanyVehicle, setHasCompanyVehicle] = useState(
     worker.has_company_vehicle ?? false
@@ -128,6 +136,10 @@ export default function WorkerEditModal({
       setError("First name, last name, and email are required.");
       return;
     }
+    if (!state) {
+      setError("State / Region is required.");
+      return;
+    }
     if (hasCompanyVehicle && !assignedVehicleId) {
       setError("Please select a company vehicle.");
       return;
@@ -142,6 +154,7 @@ export default function WorkerEditModal({
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      state,
       is_apprentice: isApprentice,
       has_company_vehicle: hasCompanyVehicle,
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
@@ -185,10 +198,10 @@ export default function WorkerEditModal({
     let resolvedPayRuleId =
       worker.pay_rule_id ?? worker.pay_rule_template_id ?? null;
 
-    if (worker.state) {
+    if (state) {
       const { templateId } = await assignDefaultPayRuleToWorker(
         worker.id,
-        worker.state,
+        state,
         isApprentice
       );
       resolvedPayRuleId = templateId ?? resolvedPayRuleId;
@@ -204,6 +217,7 @@ export default function WorkerEditModal({
       email: email.trim(),
       phone: phone.trim() || null,
       trade: trade.trim() || null,
+      state,
       is_apprentice: isApprentice,
       has_company_vehicle: hasCompanyVehicle,
       assigned_vehicle_asset_id: hasCompanyVehicle ? assignedVehicleId : null,
@@ -348,6 +362,15 @@ export default function WorkerEditModal({
               placeholder="e.g. Electrician, Leading Hand"
             />
           </label>
+
+          <div>
+            <StateRegionSelector
+              id={`edit-worker-state-${worker.id}`}
+              value={state}
+              onChange={setState}
+              disabled={saving || uploadingPhoto}
+            />
+          </div>
 
           {canManageWorkerRoles ? (
             <WorkerSecurityRoleSelect

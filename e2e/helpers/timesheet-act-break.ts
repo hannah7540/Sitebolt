@@ -33,6 +33,16 @@ export function assertActBreakValidationRules(): void {
   expect(
     validateActBreakRequirement({
       workerState: "NSW",
+      payRuleName: "ACT Site Worker",
+      submit: true,
+      breaks: [],
+      activities: workActivities,
+    })
+  ).toBe(ACT_BREAK_REQUIRED_MESSAGE);
+
+  expect(
+    validateActBreakRequirement({
+      workerState: "WA",
       submit: true,
       breaks: [],
       activities: workActivities,

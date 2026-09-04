@@ -6,6 +6,7 @@ import {
   WORKER_STATE_REGION_OPTIONS,
   type WorkerStateRegion,
 } from "@/lib/worker-state-region";
+import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
 
 interface StateRegionSelectorProps {
   id?: string;
@@ -24,6 +25,8 @@ export default function StateRegionSelector({
   disabled = false,
   className,
 }: StateRegionSelectorProps) {
+  const assignedPayRule = resolvePayRuleTemplateNameForWorker(value);
+
   return (
     <fieldset className={className} disabled={disabled}>
       <legend className={labelClass}>
@@ -61,7 +64,9 @@ export default function StateRegionSelector({
         })}
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        Pay rule is assigned automatically from state/region (no manual selection).
+        {assignedPayRule
+          ? `Pay rule assigned automatically: ${assignedPayRule}`
+          : "Pay rule is assigned automatically from state/region (NSW, ACT, WA, or NZ)."}
       </p>
     </fieldset>
   );

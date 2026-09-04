@@ -32,8 +32,7 @@ import {
   numberOrZero,
   type RegisterPlantAssetPayload,
 } from "./plant-register-payload";
-import { validateActBreakRequirement } from "./timesheet-act-break-validation";
-import { normalizeWorkerStateRegion } from "./worker-state-region";
+import { validateActBreakRequirement, resolveTimesheetBreakContext } from "./timesheet-act-break-validation";
 import type { InsuranceDocumentAttachment } from "./insurance-utils";
 import {
   buildProjectScopeOrFilter,
@@ -2087,6 +2086,19 @@ export async function updateWorker(
     .eq("id", workerId);
 
   if (!error) {
+    if (updates.state) {
+      try {
+        const { assignDefaultPayRuleToWorker } = await import("./worker-pay-rule-assignment");
+        await assignDefaultPayRuleToWorker(
+          workerId,
+          updates.state,
+          updates.is_apprentice
+        );
+      } catch (cause) {
+        console.warn("[updateWorker] pay rule assignment skipped:", cause);
+      }
+    }
+
     const stateChanged = updates.state !== undefined;
     const projectChanged = updates.assigned_project_id !== undefined;
     if (stateChanged || projectChanged) {
@@ -2875,21 +2887,14 @@ export async function insertWorkerTimesheet(input: {
     };
   }
 
-  const { data: workerRow } = await supabase
-    .from("workers")
-    .select("state")
-    .eq("id", input.workerId)
-    .maybeSingle();
-
-  const workerState =
-    normalizeWorkerStateRegion(
-      (workerRow as { state?: string | null } | null)?.state
-    ) ??
-    (workerRow as { state?: string | null } | null)?.state ??
-    null;
+  const { workerState, payRuleName } = await resolveTimesheetBreakContext(
+    supabase,
+    input.workerId
+  );
 
   const actBreakError = validateActBreakRequirement({
     workerState,
+    payRuleName,
     submit: true,
     breaks: [],
     breakMinutes: input.breakMinutes,

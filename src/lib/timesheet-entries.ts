@@ -21,8 +21,8 @@ import {
 import { nullIfBlank, nullIfBlankDate, sanitizeWritePayload } from "./form-payload-utils";
 import {
   validateActBreakRequirement,
+  resolveTimesheetBreakContext,
 } from "./timesheet-act-break-validation";
-import { normalizeWorkerStateRegion } from "./worker-state-region";
 import {
   formatTimesheetProjectDisplayName,
   type TimesheetProject,
@@ -221,29 +221,6 @@ function buildLegacyPayload(full: Record<string, unknown>): Record<string, unkno
   });
 }
 
-async function resolveWorkerStateForTimesheet(
-  workerId: string,
-  providedState?: string | null
-): Promise<string | null> {
-  if (providedState !== undefined) {
-    const normalized = normalizeWorkerStateRegion(providedState);
-    return normalized ?? (providedState?.trim() || null);
-  }
-
-  if (!isSupabaseConfigured()) return null;
-
-  const { data, error } = await supabase
-    .from("workers")
-    .select("state")
-    .eq("id", workerId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  const state = (data as { state?: string | null }).state;
-  const normalized = normalizeWorkerStateRegion(state);
-  return normalized ?? (state?.trim() || null);
-}
-
 export async function saveWorkerTimesheetEntry(
   input: SaveWorkerTimesheetInput
 ): Promise<{ error: string | null; data: WorkerTimesheet | null }> {
@@ -264,12 +241,14 @@ export async function saveWorkerTimesheetEntry(
   const totals = calculateDailyTotalsFromSlots(syncedActivities, input.breaks);
 
   if (input.submit) {
-    const workerState = await resolveWorkerStateForTimesheet(
+    const { workerState, payRuleName } = await resolveTimesheetBreakContext(
+      supabase,
       input.workerId,
       input.workerState
     );
     const actBreakError = validateActBreakRequirement({
       workerState,
+      payRuleName,
       submit: true,
       breaks: input.breaks,
       breakMinutes: Math.round(totals.breakHours * 60),
