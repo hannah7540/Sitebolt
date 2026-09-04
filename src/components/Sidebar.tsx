@@ -53,7 +53,10 @@ import {
 } from "@/lib/security-roles";
 import { filterProjectsForRole } from "@/lib/rbac-guards";
 import { parseConsoleRoute } from "@/lib/console-nav-routes";
-import { resolveOrganisationActiveView, isOrganisationNavActive } from "@/lib/organisation-nav-routes";
+import {
+  isInductionsPath,
+  isOrganisationNavActive,
+} from "@/lib/organisation-nav-routes";
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
@@ -80,6 +83,7 @@ export type ActiveView =
   | "org-insurances"
   | "org-projects"
   | "org-workers"
+  | "org-inductions"
   | "org-plant"
   | "org-assets"
   | "org-security"
@@ -591,6 +595,7 @@ export default function Sidebar({
       { label: "Insurances", href: "/organisation/insurances" },
       { label: "Projects", href: "/organisation/projects" },
       { label: "Workers", href: "/organisation/workers" },
+      { label: "Inductions", href: "/admin/forms/inductions" },
       { label: "Plant", href: "/organisation/plant" },
       { label: "Fleet", href: "/organisation/fleet" },
       { label: "Alerts", href: "/organisation/alerts", badge: complianceAlertCount },
@@ -987,7 +992,8 @@ function AdministrationSection({
   pathname: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const isFormsRoute = pathname?.startsWith("/admin/forms") ?? false;
+  const isFormsRoute =
+    (pathname?.startsWith("/admin/forms") ?? false) && !isInductionsPath(pathname);
   const isMasterDashboard =
     pathname === "/admin" ||
     pathname === "/admin/dashboard" ||
@@ -1046,15 +1052,6 @@ function AdministrationSection({
             </button>
             {formsOpen ? (
               <div className="space-y-1 pb-1">
-                <RouteNavLink
-                  label="Inductions"
-                  href="/admin/forms/inductions"
-                  depth={1}
-                  active={
-                    pathname === "/admin/forms/inductions" ||
-                    pathname?.startsWith("/admin/forms/inductions/")
-                  }
-                />
                 <RouteNavLink
                   label="RFI"
                   href="/admin/forms/rfi"
@@ -1120,7 +1117,8 @@ function OrganisationSection({
   pathname: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const isOrganisationRoute = pathname?.startsWith("/organisation") ?? false;
+  const isOrganisationRoute =
+    (pathname?.startsWith("/organisation") ?? false) || isInductionsPath(pathname);
   const [open, setOpen] = useState(isOrganisationRoute);
 
   return (
