@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-const BUCKET = "fleet-uploads";
+export const FLEET_DOCUMENTS_BUCKET = "plant-documents";
 
 export async function uploadFleetDocument(
   file: File,
@@ -9,10 +9,13 @@ export async function uploadFleetDocument(
 ): Promise<{ url: string | null; error: string | null }> {
   try {
     const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
-    const path = `${fleetId}/${documentType}-${Date.now()}.${ext}`;
+    const path = `fleet/${fleetId}/${documentType}-${Date.now()}.${ext}`;
+    const bucketName = FLEET_DOCUMENTS_BUCKET;
+
+    console.log("Target Storage Bucket:", bucketName);
 
     const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
+      .from(bucketName)
       .upload(path, file, {
         upsert: true,
         contentType: file.type || undefined,
@@ -22,7 +25,7 @@ export async function uploadFleetDocument(
       return { url: null, error: uploadError.message };
     }
 
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    const { data } = supabase.storage.from(bucketName).getPublicUrl(path);
     return { url: data.publicUrl, error: null };
   } catch (error) {
     return {
