@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import {
   SITE_FORM_CONFIGS,
@@ -25,6 +25,8 @@ interface SafetyWalkDetailModalProps {
   form: SiteFormSubmission;
   workers: Worker[];
   onClose: () => void;
+  onMarkRead?: () => Promise<void> | void;
+  markingRead?: boolean;
 }
 
 function SafetyWalkQuestionCard({
@@ -95,6 +97,8 @@ export default function SafetyWalkDetailModal({
   form,
   workers,
   onClose,
+  onMarkRead,
+  markingRead = false,
 }: SafetyWalkDetailModalProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const config = SITE_FORM_CONFIGS.safety_walk;
@@ -125,8 +129,13 @@ export default function SafetyWalkDetailModal({
             }`}
             meta={`Submitted by ${submitterName}`}
           />
-          <button type="button" onClick={onClose} aria-label="Close" className="shrink-0">
-            <X className="h-5 w-5 text-slate-400" />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -137,6 +146,30 @@ export default function SafetyWalkDetailModal({
               {form.location_scope || "Not recorded"}
             </p>
           </div>
+
+          {galleryPhotos.length > 0 ? (
+            <div className={sectionClass}>
+              <p className="mb-2 text-sm font-semibold text-slate-900">Photos</p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {galleryPhotos.map((photo, index) => (
+                  <button
+                    key={`${photo.fieldId}-${index}`}
+                    type="button"
+                    onClick={() => setLightboxIndex(index)}
+                    className="overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-orange-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                    aria-label={`View photo ${index + 1} of ${galleryPhotos.length}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt={photo.label}
+                      className="h-28 w-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {config.sections.map((section) => (
             <div key={section.id}>
@@ -211,13 +244,27 @@ export default function SafetyWalkDetailModal({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700"
-        >
-          Close
-        </button>
+        {onMarkRead ? (
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              disabled={markingRead}
+              onClick={() => void onMarkRead()}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+            >
+              {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Mark as Read
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-4 w-full rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700"
+          >
+            Close
+          </button>
+        )}
       </div>
 
       {lightboxIndex != null && galleryPhotos.length > 0 ? (

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 export interface LightboxImage {
   url: string;
@@ -20,16 +21,15 @@ export default function ImageLightboxGallery({
   onClose,
 }: ImageLightboxGalleryProps) {
   const [index, setIndex] = useState(initialIndex);
-  const [zoom, setZoom] = useState(1);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setIndex(initialIndex);
-    setZoom(1);
   }, [initialIndex]);
-
-  useEffect(() => {
-    setZoom(1);
-  }, [index]);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -52,90 +52,52 @@ export default function ImageLightboxGallery({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
         return;
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
+        event.stopPropagation();
         goPrevious();
         return;
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
+        event.stopPropagation();
         goNext();
-        return;
-      }
-      if (event.key === "+" || event.key === "=") {
-        event.preventDefault();
-        setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))));
-        return;
-      }
-      if (event.key === "-") {
-        event.preventDefault();
-        setZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))));
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [goNext, goPrevious, onClose]);
 
-  if (images.length === 0) return null;
+  if (images.length === 0 || !mounted) return null;
 
   const current = images[index] ?? images[0]!;
-
-  return (
+  const overlay = (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/92"
       role="dialog"
       aria-modal="true"
       aria-label="Photo gallery"
-      onClick={onClose}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
     >
       <button
         type="button"
-        onClick={onClose}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
         aria-label="Close gallery"
-        className="absolute right-4 top-4 z-10 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
+        className="absolute right-4 top-4 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700"
       >
-        <X className="h-6 w-6" />
+        <X className="h-7 w-7" />
       </button>
-
-      <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/50 p-1">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))));
-          }}
-          aria-label="Zoom out"
-          className="rounded-full p-2 text-white hover:bg-black/60"
-        >
-          <ZoomOut className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setZoom((value) => (value > 1 ? 1 : 2));
-          }}
-          className="min-w-[3.5rem] px-2 text-center text-xs font-semibold text-white"
-          aria-label="Toggle zoom"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))));
-          }}
-          aria-label="Zoom in"
-          className="rounded-full p-2 text-white hover:bg-black/60"
-        >
-          <ZoomIn className="h-5 w-5" />
-        </button>
-      </div>
 
       {images.length > 1 ? (
         <>
@@ -146,9 +108,9 @@ export default function ImageLightboxGallery({
               goPrevious();
             }}
             aria-label="Previous photo"
-            className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white hover:bg-black/70"
+            className="absolute left-3 top-1/2 z-20 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg hover:bg-orange-500 hover:text-white sm:left-6 sm:h-16 sm:w-16"
           >
-            <ChevronLeft className="h-7 w-7" />
+            <ChevronLeft className="h-10 w-10" />
           </button>
           <button
             type="button"
@@ -157,32 +119,34 @@ export default function ImageLightboxGallery({
               goNext();
             }}
             aria-label="Next photo"
-            className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white hover:bg-black/70"
+            className="absolute right-3 top-1/2 z-20 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg hover:bg-orange-500 hover:text-white sm:right-6 sm:h-16 sm:w-16"
           >
-            <ChevronRight className="h-7 w-7" />
+            <ChevronRight className="h-10 w-10" />
           </button>
         </>
       ) : null}
 
       <div
-        className="flex max-h-[92vh] max-w-[96vw] flex-col items-center gap-3 overflow-auto px-14"
+        className="flex max-h-[92vh] max-w-[96vw] flex-col items-center gap-4 px-16 sm:px-24"
         onClick={(event) => event.stopPropagation()}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={current.url}
           alt={current.alt}
-          className="max-h-[82vh] max-w-full origin-center object-contain transition-transform duration-150"
-          style={{ transform: `scale(${zoom})` }}
-          onDoubleClick={() => setZoom((value) => (value > 1 ? 1 : 2))}
+          className="max-h-[78vh] max-w-full object-contain"
         />
-        <p className="max-w-xl text-center text-sm text-white/90">
-          {current.alt}
-          {images.length > 1 ? (
-            <span className="text-white/60">{` · ${index + 1} of ${images.length}`}</span>
+        <div className="flex flex-col items-center gap-1 text-center">
+          <p className="rounded-full bg-white/15 px-4 py-1 text-sm font-semibold text-white">
+            {index + 1} of {images.length}
+          </p>
+          {current.alt ? (
+            <p className="max-w-xl text-sm text-white/80">{current.alt}</p>
           ) : null}
-        </p>
+        </div>
       </div>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }

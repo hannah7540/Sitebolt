@@ -1,10 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import {
   SITE_FORM_CONFIGS,
   SITE_FORM_LABELS,
+  collectSafetyWalkGalleryPhotos,
   formatFormDataValue,
   formatSiteFormDate,
   getFormDataLabel,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/site-forms";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import FormBrandingHeader from "@/components/ui/FormBrandingHeader";
+import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import SiteFormAdditionalWorkersDisplay from "@/components/workers/SiteFormAdditionalWorkersDisplay";
 import {
   modalOverlayClass,
@@ -45,12 +48,34 @@ export default function SiteFormDetailModal({
   onMarkRead,
   markingRead = false,
 }: SiteFormDetailModalProps) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const submitter = workers.find((worker) => worker.id === form.worker_id);
   const submitterName = submitter
     ? getWorkerDisplayName(submitter)
     : form.worker_id.slice(0, 8);
   const config = SITE_FORM_CONFIGS[form.form_type];
   const allPhotos = collectPhotoUrls(form);
+  const galleryImages = useMemo(() => {
+    if (form.form_type === "safety_walk") {
+      return collectSafetyWalkGalleryPhotos(form).map((photo) => ({
+        url: photo.url,
+        alt: photo.label,
+      }));
+    }
+    return allPhotos.map((url, index) => ({
+      url,
+      alt: `Photo ${index + 1}`,
+    }));
+  }, [form, allPhotos]);
+  const galleryIndexByUrl = useMemo(
+    () => new Map(galleryImages.map((photo, index) => [photo.url, index])),
+    [galleryImages]
+  );
+
+  const openPhoto = (url: string) => {
+    const index = galleryIndexByUrl.get(url);
+    if (index != null) setLightboxIndex(index);
+  };
 
   const sectionPhotoFields = config.sections.flatMap((section) =>
     section.fields
@@ -116,6 +141,11 @@ export default function SiteFormDetailModal({
                     Array.isArray(value) &&
                     value.includes("Other") &&
                     otherText.trim();
+                  const photoUrl =
+                    field.photoFieldId &&
+                    typeof form.form_data[field.photoFieldId] === "string"
+                      ? (form.form_data[field.photoFieldId] as string)
+                      : null;
 
                   if (
                     field.type === "tri_state_with_photo" ||
@@ -132,6 +162,21 @@ export default function SiteFormDetailModal({
                         <dd className="mt-0.5 text-sm text-slate-900">
                           {formatFormDataValue(value ?? null)}
                         </dd>
+                        {photoUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => openPhoto(photoUrl)}
+                            className="mt-2 block overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:border-orange-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                            aria-label={`View photo for ${field.label}`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={photoUrl}
+                              alt={`${field.label} photo`}
+                              className="h-28 w-full object-cover sm:h-32 sm:w-40"
+                            />
+                          </button>
+                        ) : null}
                       </div>
                     );
                   }
@@ -211,11 +256,11 @@ export default function SiteFormDetailModal({
                       <p className="mb-1 text-xs font-medium text-slate-500">
                         {row.label} ({formatFormDataValue(row.answer ?? null)})
                       </p>
-                      <a
-                        href={row.photoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block overflow-hidden rounded-xl border border-slate-200 bg-white"
+                      <button
+                        type="button"
+                        onClick={() => openPhoto(row.photoUrl!)}
+                        className="block w-full overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-orange-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        aria-label={`View photo for ${row.label}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -223,7 +268,7 @@ export default function SiteFormDetailModal({
                           alt={row.label}
                           className="max-h-56 w-full object-contain"
                         />
-                      </a>
+                      </button>
                     </div>
                   ) : null
                 )}
@@ -231,21 +276,21 @@ export default function SiteFormDetailModal({
             </div>
           )}
 
-          {allPhotos.length > 0 && (
+          {galleryImages.length > 0 && (
             <div className={sectionClass}>
               <p className="mb-2 text-sm font-semibold text-slate-900">Photos</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {allPhotos.map((url) => (
-                  <a
-                    key={url}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {galleryImages.map((photo, index) => (
+                  <button
+                    key={`${photo.url}-${index}`}
+                    type="button"
+                    onClick={() => setLightboxIndex(index)}
+                    className="overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-orange-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                    aria-label={`View photo ${index + 1} of ${galleryImages.length}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="Site form" className="max-h-56 w-full object-contain" />
-                  </a>
+                    <img src={photo.url} alt={photo.alt} className="h-36 w-full object-cover" />
+                  </button>
                 ))}
               </div>
             </div>
@@ -319,6 +364,14 @@ export default function SiteFormDetailModal({
           </div>
         ) : null}
       </div>
+
+      {lightboxIndex != null && galleryImages.length > 0 ? (
+        <ImageLightboxGallery
+          images={galleryImages}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      ) : null}
     </div>
   );
 }

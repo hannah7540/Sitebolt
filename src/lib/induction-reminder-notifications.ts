@@ -87,7 +87,7 @@ export async function sendInductionReminderNotification(input: {
     recipient_id: resolved.userId,
     worker_id: input.workerId,
     title: "Induction Incomplete",
-    message: `Please complete your assigned induction: ${inductionTitle}`,
+    message: `Reminder: Please complete your assigned induction: ${inductionTitle}`,
     type: "induction_reminder",
     read: false,
     is_read: false,

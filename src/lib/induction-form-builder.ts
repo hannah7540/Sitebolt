@@ -70,6 +70,7 @@ export interface FormWorkerAssignment {
   project_id: string | null;
   status: "pending" | "in_progress" | "completed";
   assigned_at: string;
+  due_date?: string | null;
   completed_at: string | null;
   assigned_by: string | null;
   form_title?: string;
@@ -775,6 +776,7 @@ function mapFormWorkerAssignmentRow(record: Record<string, unknown>): FormWorker
     project_id: record.project_id ? String(record.project_id) : null,
     status: normalizeAssignmentStatus(record.status),
     assigned_at: String(record.assigned_at ?? new Date().toISOString()),
+    due_date: record.due_date ? String(record.due_date) : null,
     completed_at: record.completed_at ? String(record.completed_at) : null,
     assigned_by: record.assigned_by ? String(record.assigned_by) : null,
     form_title: record.form_title

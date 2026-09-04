@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   AlertTriangle,
   Ban,
-  Bell,
   CalendarOff,
   Check,
   ClipboardCheck,
@@ -46,9 +45,10 @@ import { useFormToast } from "@/hooks/useFormToast";
 import Toast from "@/components/ui/Toast";
 import AdminIncidentDetailModal from "@/components/administration/forms/AdminIncidentDetailModal";
 import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
-import SiteFormDetailModal from "@/components/dashboard/SiteFormDetailModal";
+import SiteFormDetailRouter from "@/components/dashboard/SiteFormDetailRouter";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
 import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
+import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
 import type { IncidentReportRecord } from "@/lib/incident-reports";
 import type { PlantPrestart } from "@/lib/supabase";
 import type { SiteFormSubmission } from "@/lib/site-forms";
@@ -112,7 +112,7 @@ type ExpandedView =
   | { type: "siteForm"; record: SiteFormSubmission }
   | { type: "leave"; record: LeaveRequest }
   | { type: "swms"; record: SwmsAssignmentRecord }
-  | { type: "induction"; record: FormWorkerAssignment };
+  | { type: "inductions" };
 
 function WidgetCard({
   title,
@@ -121,6 +121,7 @@ function WidgetCard({
   icon: Icon,
   iconClassName,
   onSelect,
+  onHeaderClick,
   renderActions,
 }: {
   title: string;
@@ -129,6 +130,7 @@ function WidgetCard({
   icon: LucideIcon;
   iconClassName: string;
   onSelect: (id: string) => void;
+  onHeaderClick?: () => void;
   renderActions?: (id: string) => ReactNode;
 }) {
   return (
@@ -136,6 +138,10 @@ function WidgetCard({
       <button
         type="button"
         onClick={() => {
+          if (onHeaderClick) {
+            onHeaderClick();
+            return;
+          }
           if (data.items[0]) onSelect(data.items[0].id);
         }}
         className="mb-4 flex w-full items-start gap-3 text-left"
@@ -313,6 +319,11 @@ export default function MasterProjectDashboard() {
     showSuccess(`Notification sent to ${workerName}`);
   };
 
+  const formatInductionDueDate = (assignment: FormWorkerAssignment) => {
+    const raw = assignment.due_date || assignment.assigned_at;
+    return raw?.slice(0, 10) || "—";
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -382,11 +393,13 @@ export default function MasterProjectDashboard() {
                     if (record) setExpanded({ type: "swms", record });
                     return;
                   }
-                  const record = filteredSnapshot.incompleteInductions.find(
-                    (row) => row.id === id
-                  );
-                  if (record) setExpanded({ type: "induction", record });
+                  setExpanded({ type: "inductions" });
                 }}
+                onHeaderClick={
+                  widget.key === "incompleteInductions"
+                    ? () => setExpanded({ type: "inductions" })
+                    : undefined
+                }
                 renderActions={
                   widget.key === "leaveRequests"
                     ? (id) => {
@@ -505,7 +518,7 @@ export default function MasterProjectDashboard() {
       ) : null}
 
       {expanded?.type === "siteForm" ? (
-        <SiteFormDetailModal
+        <SiteFormDetailRouter
           form={expanded.record}
           workers={workers}
           onClose={() => setExpanded(null)}
@@ -554,37 +567,13 @@ export default function MasterProjectDashboard() {
         />
       ) : null}
 
-      {expanded?.type === "induction" ? (
-        <MasterDashboardInfoModal
-          title="Incomplete induction"
-          subtitle={resolveWorkerName(expanded.record.worker_id, expanded.record.worker_name)}
-          rows={[
-            {
-              label: "Worker",
-              value: resolveWorkerName(expanded.record.worker_id, expanded.record.worker_name),
-            },
-            { label: "Induction", value: expanded.record.form_title || "—" },
-            { label: "Status", value: expanded.record.status },
-            {
-              label: "Assigned",
-              value: expanded.record.assigned_at?.slice(0, 10) || "—",
-            },
-          ]}
-          actions={
-            <button
-              type="button"
-              disabled={sendingInductionId === expanded.record.id}
-              onClick={() => void handleSendInductionNotification(expanded.record)}
-              className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
-            >
-              {sendingInductionId === expanded.record.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Bell className="h-4 w-4" />
-              )}
-              Send Notification
-            </button>
-          }
+      {expanded?.type === "inductions" ? (
+        <IncompleteInductionsListModal
+          assignments={filteredSnapshot.incompleteInductions}
+          sendingId={sendingInductionId}
+          resolveWorkerName={resolveWorkerName}
+          formatDueDate={formatInductionDueDate}
+          onSendNotification={(assignment) => void handleSendInductionNotification(assignment)}
           onClose={() => setExpanded(null)}
         />
       ) : null}
