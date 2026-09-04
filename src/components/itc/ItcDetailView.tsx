@@ -213,6 +213,15 @@ export default function ItcDetailView({
             operatorOptions={operatorOptions}
             onUpdated={onUpdated}
             onChangeRequest={() => void handleChangeRequest(step.step_index)}
+            pressureTestContext={{
+              site: itc.zone_code ?? projectName,
+              project: projectName,
+              subcontractor: itc.subcontractor_name ?? itc.assigned_name ?? "A Plus Plumbing",
+              lineFrom: itc.upstream_pit_number ?? itc.start_location ?? "",
+              lineTo: itc.downstream_pit_number ?? itc.end_location ?? "",
+              sizeMaterial: itc.material_and_size ?? "",
+              lengthM: itc.length_of_run_m ?? itc.length_m,
+            }}
           />
         ))}
       </div>

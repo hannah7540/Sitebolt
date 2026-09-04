@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import PressureTestModal, {
+  type PressureTestItcContext,
+} from "@/components/itc/PressureTestModal";
 import {
   submitItcSignoff,
   upsertItcSignoffDraft,
@@ -26,6 +29,7 @@ interface ItcStepSignoffCardProps {
   isAdmin?: boolean;
   roverOptions: string[];
   operatorOptions: string[];
+  pressureTestContext?: PressureTestItcContext;
   onUpdated: () => void;
   onChangeRequest: () => void;
 }
@@ -42,6 +46,7 @@ export default function ItcStepSignoffCard({
   isAdmin = false,
   roverOptions,
   operatorOptions,
+  pressureTestContext,
   onUpdated,
   onChangeRequest,
 }: ItcStepSignoffCardProps) {
@@ -54,6 +59,7 @@ export default function ItcStepSignoffCard({
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [pressureTestOpen, setPressureTestOpen] = useState(false);
 
   useEffect(() => {
     setComments(signoff?.comments ?? "");
@@ -156,6 +162,28 @@ export default function ItcStepSignoffCard({
               className={inputClass}
             />
           </label>
+        </div>
+      );
+    }
+
+    if (type === "pressure_test") {
+      return (
+        <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+          <p className="text-sm font-semibold text-orange-950">
+            AS 2566.2 Section M5 hydraulic pressure test
+          </p>
+          <p className="mt-1 text-sm text-orange-900">
+            Record hourly readings (0–8 hours), calculate allowable volume, and capture
+            subcontractor and principal contractor signatures.
+          </p>
+          <button
+            type="button"
+            disabled={!isUnlocked && !isSubmitted}
+            onClick={() => setPressureTestOpen(true)}
+            className="mt-3 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {isSubmitted ? "View pressure test certificate" : "Open pressure test"}
+          </button>
         </div>
       );
     }
@@ -303,6 +331,7 @@ export default function ItcStepSignoffCard({
     }
   };
 
+  const isPressureTest = String(step.field_spec?.type ?? "") === "pressure_test";
   const signedAt = signoff?.signed_at ?? signoff?.submitted_at;
 
   return (
@@ -355,6 +384,21 @@ export default function ItcStepSignoffCard({
           <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
             Complete and submit the previous step to unlock fields and signature for this step.
           </p>
+        ) : isPressureTest ? (
+          <>
+            {renderConditionalFields()}
+            {isSubmitted ? (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={onChangeRequest}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Request Change
+              </button>
+            ) : null}
+            {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+          </>
         ) : (
           <>
             {renderConditionalFields()}
@@ -453,6 +497,24 @@ export default function ItcStepSignoffCard({
           </>
         )}
       </div>
+
+      {pressureTestOpen && pressureTestContext ? (
+        <PressureTestModal
+          itcId={itcId}
+          projectId={projectId}
+          context={pressureTestContext}
+          workerId={workerId}
+          workerName={workerName}
+          stepIndex={step.step_index}
+          isAdmin={isAdmin}
+          readOnly={!isUnlocked}
+          onClose={() => setPressureTestOpen(false)}
+          onSaved={() => {
+            setPressureTestOpen(false);
+            onUpdated();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

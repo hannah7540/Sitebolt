@@ -4,6 +4,8 @@ import { resolveProjectId } from "./project-resolver";
 import {
   DEFAULT_ITC_FORM_STEPS,
   deriveItcStatus,
+  getItcFormSteps,
+  isHydraulicDiscipline,
   isItcStepUnlocked,
   type ItcChangeRequestStatus,
   type ItcConduitConfig,
@@ -314,28 +316,38 @@ function normalizeInspectionActivity(row: Record<string, unknown>): ItcInspectio
   };
 }
 
-function buildDefaultInspectionActivities(itcId: string): ItcInspectionActivity[] {
-  return STANDARD_ITC_INSPECTION_ACTIVITIES.map((activity, index) => ({
-    id: `${itcId}-act-${activity.activity_number}`,
-    itc_id: itcId,
-    activity_number: activity.activity_number,
-    title: activity.title,
-    inspection_criteria: activity.inspection_criteria,
-    check_result: null,
-    requires_photo: activity.requires_photo,
-    check_by: null,
-    checked_date: null,
-    comments: null,
-    photo_url: null,
-    sort_order: index,
-  }));
+function buildDefaultInspectionActivities(
+  itcId: string,
+  discipline?: string | null
+): ItcInspectionActivity[] {
+  return STANDARD_ITC_INSPECTION_ACTIVITIES.map((activity, index) => {
+    const isPressure =
+      isHydraulicDiscipline(discipline) && activity.activity_number === 12;
+    return {
+      id: `${itcId}-act-${activity.activity_number}`,
+      itc_id: itcId,
+      activity_number: activity.activity_number,
+      title: isPressure ? "Pressure test" : activity.title,
+      inspection_criteria: isPressure
+        ? "AS 2566.2 Section M5 pressure test completed and recorded."
+        : activity.inspection_criteria,
+      check_result: null,
+      requires_photo: activity.requires_photo,
+      check_by: null,
+      checked_date: null,
+      comments: null,
+      photo_url: null,
+      sort_order: index,
+    };
+  });
 }
 
 export function mergeInspectionActivities(
   itcId: string,
-  stored: ItcInspectionActivity[]
+  stored: ItcInspectionActivity[],
+  discipline?: string | null
 ): ItcInspectionActivity[] {
-  const defaults = buildDefaultInspectionActivities(itcId);
+  const defaults = buildDefaultInspectionActivities(itcId, discipline);
   if (!stored.length) return defaults;
 
   return defaults.map((template) => {
@@ -521,8 +533,22 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
     changeRequests: (crRows ?? []).map((row) =>
       normalizeChangeRequest(row as Record<string, unknown>)
     ),
-    steps: DEFAULT_ITC_FORM_STEPS,
-    inspectionActivities: mergeInspectionActivities(itcId, []),
+    steps: getItcFormSteps(
+      String(
+        (itcRow as { trade_discipline?: string | null }).trade_discipline ??
+          (itcRow as { service_discipline?: string | null }).service_discipline ??
+          ""
+      )
+    ),
+    inspectionActivities: mergeInspectionActivities(
+      itcId,
+      [],
+      String(
+        (itcRow as { trade_discipline?: string | null }).trade_discipline ??
+          (itcRow as { service_discipline?: string | null }).service_discipline ??
+          ""
+      )
+    ),
   };
 }
 

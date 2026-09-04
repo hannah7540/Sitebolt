@@ -175,6 +175,30 @@ export const DEMO_ITC_ZONES = [
   { zone_code: "SUB-A", zone_name: "Substation A", map_x: 0.55, map_y: 0.62, sort_order: 4 },
 ];
 
+export function isHydraulicDiscipline(value: string | null | undefined): boolean {
+  return /hydraulic/i.test(String(value ?? ""));
+}
+
+export const HYDRAULIC_PRESSURE_TEST_STEP: ItcFormStepTemplate = {
+  step_key: "pressure_test",
+  step_index: 4,
+  title: "Pressure test",
+  description: "AS 2566.2 Section M5 hydraulic pressure test with hourly readings.",
+  compliance_text:
+    "I confirm the pressure test was completed in accordance with AS 2566.2 Section M5 and the recorded readings, calculations, and signatures are accurate.",
+  field_spec: { type: "pressure_test" },
+};
+
+/** Hydraulic ITCs replace CCTV inspection with a pressure test. */
+export function getItcFormSteps(discipline?: string | null): ItcFormStepTemplate[] {
+  if (!isHydraulicDiscipline(discipline)) return DEFAULT_ITC_FORM_STEPS;
+  return DEFAULT_ITC_FORM_STEPS.map((step) =>
+    step.step_key === "cctv"
+      ? { ...HYDRAULIC_PRESSURE_TEST_STEP, step_index: step.step_index }
+      : step
+  );
+}
+
 export function formatConduitConfig(conduits: ItcConduitConfig[]): string {
   if (!conduits.length) return "—";
   return conduits.map((row) => `${row.n}×${row.size}`).join(", ");
