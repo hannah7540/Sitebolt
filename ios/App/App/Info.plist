@@ -46,9 +46,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>This app requires camera access to capture and upload photos.</string>
+	<string>SiteBolt uses your camera to capture and attach site photos directly to safety walks, incident reports, plant pre-start inspections, and compliance documentation.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>This app requires access to your photo library to select and upload photos.</string>
+	<string>SiteBolt requires photo library access to allow workers and supervisors to upload existing site photos, tickets, licenses, and inspection evidence to project registers.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>This app requires permission to save photos to your photo library.</string>
 </dict>
