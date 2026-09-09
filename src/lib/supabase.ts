@@ -2100,19 +2100,27 @@ export async function updateWorker(
     }
 
     const stateChanged = updates.state !== undefined;
-    const projectChanged = updates.assigned_project_id !== undefined;
+    const projectChanged =
+      updates.assigned_project_id !== undefined ||
+      updates.assigned_project_ids !== undefined;
     if (stateChanged || projectChanged) {
       try {
         const { applyAutomaticWorkerAssignmentsForWorker } = await import(
           "./services/worker-assignment"
         );
+        const projectIds = [
+          ...(Array.isArray(updates.assigned_project_ids)
+            ? updates.assigned_project_ids
+            : []),
+          ...(updates.assigned_project_id !== undefined
+            ? [payload.assigned_project_id as string | null]
+            : []),
+        ];
         await applyAutomaticWorkerAssignmentsForWorker({
           workerId,
           state: stateChanged ? (updates.state ?? null) : undefined,
           syncCompanyFromWorkerState: !stateChanged,
-          projectIds: projectChanged
-            ? [payload.assigned_project_id as string | null]
-            : [],
+          projectIds,
           includeExistingProjects: !projectChanged,
           assignCompanySwms: false,
         });
@@ -3267,6 +3275,20 @@ export async function updateWorkerAssignedProjectIds(
         };
       }
       return { error: error.message };
+    }
+
+    try {
+      const { applyAutomaticWorkerAssignmentsForWorker } = await import(
+        "./services/worker-assignment"
+      );
+      await applyAutomaticWorkerAssignmentsForWorker({
+        workerId: workerId.trim(),
+        projectIds: ids,
+        syncCompanyFromWorkerState: true,
+        assignCompanySwms: false,
+      });
+    } catch (cause) {
+      console.warn("[updateWorkerAssignedProjectIds] auto-assign skipped:", cause);
     }
 
     return { error: null };

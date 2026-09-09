@@ -14,6 +14,15 @@ import {
   WORKER_STATE_REGION_OPTIONS,
 } from "@/lib/worker-state-region";
 import { WORKER_INDUCTIONS_CHANGED_EVENT } from "@/lib/worker-induction-events";
+import {
+  parseMissingColumnFromError,
+  stripMissingColumn,
+} from "@/lib/form-payload-utils";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseRelationMissingError,
+  isSupabaseSchemaCacheError,
+} from "@/lib/supabase-errors";
 
 export { WORKER_INDUCTIONS_CHANGED_EVENT } from "@/lib/worker-induction-events";
 
@@ -30,6 +39,8 @@ type InductionTemplateRow = {
   project_id: string | null;
   scope: "company" | "project";
   system_template_key?: string | null;
+  state?: string | null;
+  jurisdiction?: string | null;
 };
 
 type WorkerLookupRow = {
@@ -42,6 +53,8 @@ type WorkerLookupRow = {
   state: string | null;
   assigned_project_id: string | null;
   assigned_project_ids: string[] | null;
+  auth_user_id?: string | null;
+  user_id?: string | null;
 };
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -68,12 +81,18 @@ function isUniqueViolation(message: string): boolean {
   );
 }
 
-/** True when title/key indicates a company induction for the given state (ACT/NSW/WA/NZ). */
+/** True when title/key/state tag indicates a company induction for the given state (ACT/NSW/WA/NZ). */
 export function companyInductionMatchesState(
   title: string | null | undefined,
   systemTemplateKey: string | null | undefined,
-  state: WorkerStateRegion
+  state: WorkerStateRegion,
+  templateState?: string | null
 ): boolean {
+  const taggedState = normalizeWorkerStateRegion(templateState);
+  if (taggedState) {
+    return taggedState === state;
+  }
+
   const upperState = state.toUpperCase();
   const key = (systemTemplateKey ?? "").trim().toUpperCase();
   if (key) {
@@ -94,6 +113,15 @@ export function companyInductionMatchesState(
   return tokenPattern.test(titleText);
 }
 
+export function formatSiteInductionAssignedMessage(
+  inductionTitle: string,
+  projectName: string | null | undefined
+): string {
+  const title = inductionTitle.trim() || "Site induction";
+  const project = projectName?.trim() || "the assigned project";
+  return `New Site Induction Assigned: ${title} for ${project}`;
+}
+
 export function notifyWorkerInductionsChanged(workerId?: string | null): void {
   if (typeof window === "undefined") return;
   try {
@@ -111,20 +139,100 @@ async function fetchWorkerLookup(
   client: SupabaseClient,
   workerId: string
 ): Promise<WorkerLookupRow | null> {
-  const { data, error } = await client
-    .from("workers")
-    .select(
-      "id, email, first_name, last_name, full_name, worker_name, state, assigned_project_id, assigned_project_ids"
-    )
-    .eq("id", workerId)
-    .maybeSingle();
+  const selects = [
+    "id, email, first_name, last_name, full_name, worker_name, state, assigned_project_id, assigned_project_ids, auth_user_id, user_id",
+    "id, email, first_name, last_name, full_name, worker_name, state, assigned_project_id, assigned_project_ids, auth_user_id",
+    "id, email, first_name, last_name, full_name, worker_name, state, assigned_project_id, assigned_project_ids",
+  ];
 
-  if (error) {
-    console.warn("[induction-auto-assign] worker lookup failed:", error.message);
-    return null;
+  for (const select of selects) {
+    const { data, error } = await client
+      .from("workers")
+      .select(select)
+      .eq("id", workerId)
+      .maybeSingle();
+
+    if (!error) {
+      return ((data as unknown) as WorkerLookupRow | null) ?? null;
+    }
+    if (!isMissingColumnError(error.message, "user_id") && !isMissingColumnError(error.message, "auth_user_id")) {
+      console.warn("[induction-auto-assign] worker lookup failed:", error.message);
+      return null;
+    }
   }
 
-  return (data as WorkerLookupRow | null) ?? null;
+  return null;
+}
+
+function firstNonEmpty(...values: unknown[]): string | null {
+  for (const value of values) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+async function insertSiteInductionAssignedNotification(
+  client: SupabaseClient,
+  input: {
+    worker: WorkerLookupRow;
+    workerId: string;
+    inductionTitle: string;
+    projectName: string | null;
+    templateId: string;
+    projectId?: string | null;
+  }
+): Promise<void> {
+  const userId = firstNonEmpty(input.worker.auth_user_id, input.worker.user_id);
+  const message = formatSiteInductionAssignedMessage(
+    input.inductionTitle,
+    input.projectName
+  );
+
+  let payload: Record<string, unknown> = {
+    user_id: userId,
+    recipient_id: userId,
+    worker_id: input.workerId,
+    title: "New Site Induction Assigned",
+    message,
+    type: "site_induction_assigned",
+    read: false,
+    is_read: false,
+    metadata: {
+      template_id: input.templateId,
+      project_id: input.projectId ?? null,
+      project_name: input.projectName,
+      sent_at: new Date().toISOString(),
+    },
+  };
+
+  if (!userId) {
+    payload = stripMissingColumn(payload, "user_id");
+    payload = stripMissingColumn(payload, "recipient_id");
+  }
+
+  for (let attempt = 0; attempt <= 8; attempt += 1) {
+    const { error } = await client.from("notifications").insert([payload]);
+    if (!error) return;
+
+    if (isSupabaseMissingColumnError(error)) {
+      const parsed = parseMissingColumnFromError(error.message);
+      if (parsed && parsed in payload) {
+        payload = stripMissingColumn(payload, parsed);
+        continue;
+      }
+    }
+
+    if (isSupabaseRelationMissingError(error) || isSupabaseSchemaCacheError(error)) {
+      console.warn(
+        "[induction-auto-assign] notifications table unavailable; site induction notice skipped."
+      );
+      return;
+    }
+
+    console.warn("[induction-auto-assign] site induction notice skipped:", error.message);
+    return;
+  }
 }
 
 async function workerAlreadyHasInductionAssignment(
@@ -263,75 +371,72 @@ async function insertInductionAssignment(
   return false;
 }
 
+function mapCompanyInductionRow(row: Record<string, unknown>): InductionTemplateRow {
+  return {
+    id: String(row.id),
+    title: String(row.title ?? "Company induction"),
+    project_id: row.project_id ? String(row.project_id) : null,
+    scope: "company",
+    system_template_key: row.system_template_key ? String(row.system_template_key) : null,
+    state: row.state ? String(row.state) : null,
+    jurisdiction: row.jurisdiction ? String(row.jurisdiction) : null,
+  };
+}
+
+function companyTemplateMatchesWorkerState(
+  row: Record<string, unknown>,
+  state: WorkerStateRegion
+): boolean {
+  const taggedState = firstNonEmpty(row.state, row.jurisdiction);
+  return companyInductionMatchesState(
+    row.title ? String(row.title) : null,
+    row.system_template_key ? String(row.system_template_key) : null,
+    state,
+    taggedState
+  );
+}
+
 async function findActiveCompanyInductionsForState(
   client: SupabaseClient,
   state: WorkerStateRegion
 ): Promise<InductionTemplateRow[]> {
-  try {
-    const { data, error } = await client
-      .from(INDUCTION_FORM_TEMPLATES_TABLE)
-      .select("id, title, project_id, scope, status, system_template_key")
-      .eq("scope", "company")
-      .eq("status", "active");
+  const selects = [
+    "id, title, project_id, scope, status, system_template_key, state, jurisdiction",
+    "id, title, project_id, scope, status, system_template_key, state",
+    "id, title, project_id, scope, status, system_template_key",
+    "id, title, project_id, scope, status",
+  ];
 
-    if (error) {
-      if (isMissingColumnError(error.message, "system_template_key")) {
-        const fallback = await client
-          .from(INDUCTION_FORM_TEMPLATES_TABLE)
-          .select("id, title, project_id, scope, status")
-          .eq("scope", "company")
-          .eq("status", "active");
-        if (fallback.error) {
-          if (isMissingTableError(fallback.error.message, INDUCTION_FORM_TEMPLATES_TABLE)) {
-            return [];
-          }
-          console.warn(
-            "[induction-auto-assign] company template lookup failed:",
-            fallback.error.message
-          );
-          return [];
-        }
-        return ((fallback.data ?? []) as Record<string, unknown>[])
-          .filter((row) =>
-            companyInductionMatchesState(
-              row.title ? String(row.title) : null,
-              null,
-              state
-            )
-          )
-          .map((row) => ({
-            id: String(row.id),
-            title: String(row.title ?? "Company induction"),
-            project_id: row.project_id ? String(row.project_id) : null,
-            scope: "company" as const,
-            system_template_key: null,
-          }));
+  try {
+    for (const select of selects) {
+      const { data, error } = await client
+        .from(INDUCTION_FORM_TEMPLATES_TABLE)
+        .select(select)
+        .eq("scope", "company")
+        .eq("status", "active");
+
+      if (!error) {
+        return ((data ?? []) as unknown as Record<string, unknown>[])
+          .filter((row) => companyTemplateMatchesWorkerState(row, state))
+          .map(mapCompanyInductionRow);
       }
 
       if (isMissingTableError(error.message, INDUCTION_FORM_TEMPLATES_TABLE)) {
         return [];
       }
+      if (
+        isMissingColumnError(error.message, "system_template_key") ||
+        isMissingColumnError(error.message, "state") ||
+        isMissingColumnError(error.message, "jurisdiction")
+      ) {
+        continue;
+      }
+
       console.warn("[induction-auto-assign] company template lookup failed:", error.message);
       return [];
     }
 
-    return ((data ?? []) as Record<string, unknown>[])
-      .filter((row) =>
-        companyInductionMatchesState(
-          row.title ? String(row.title) : null,
-          row.system_template_key ? String(row.system_template_key) : null,
-          state
-        )
-      )
-      .map((row) => ({
-        id: String(row.id),
-        title: String(row.title ?? "Company induction"),
-        project_id: row.project_id ? String(row.project_id) : null,
-        scope: "company" as const,
-        system_template_key: row.system_template_key
-          ? String(row.system_template_key)
-          : null,
-      }));
+    return [];
   } catch (cause) {
     console.warn("[induction-auto-assign] company template lookup error:", cause);
     return [];
@@ -526,6 +631,14 @@ export async function assignProjectInductionsForWorker(
         });
         if (created) {
           assigned += 1;
+          await insertSiteInductionAssignedNotification(client, {
+            worker,
+            workerId,
+            inductionTitle: template.title,
+            projectName,
+            templateId: template.id,
+            projectId,
+          });
         } else {
           skipped += 1;
         }
