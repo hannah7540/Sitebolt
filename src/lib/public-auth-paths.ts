@@ -24,7 +24,8 @@ export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
       path.includes("/setyourpassword") ||
       path.includes("/reset-password") ||
       path.includes("/onboarding") ||
-      path.includes("/auth/confirm")
+      path.includes("/auth/confirm") ||
+      isPlantPrestartPath(path)
     ) {
       return true;
     }

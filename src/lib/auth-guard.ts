@@ -15,7 +15,7 @@ export function buildLoginRedirectPath(nextPath?: string | null): string {
   if (!trimmed || trimmed === "/" || trimmed.startsWith("/login")) {
     return "/login";
   }
-  return `/login?next=${encodeURIComponent(trimmed)}`;
+  return `/login?returnTo=${encodeURIComponent(trimmed)}&next=${encodeURIComponent(trimmed)}`;
 }
 
 /** Alias for callers that prefer redirect_to naming. */

@@ -16,7 +16,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     typeof window !== "undefined" &&
     (window.location.pathname.includes("/setyourpassword") ||
       window.location.pathname.includes("/reset-password") ||
-      window.location.pathname.includes("/onboarding"))
+      window.location.pathname.includes("/onboarding") ||
+      isPlantPrestartPath(window.location.pathname))
   ) {
     return <>{children}</>;
   }

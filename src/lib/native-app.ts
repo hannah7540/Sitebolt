@@ -47,7 +47,10 @@ export function resolvePostLoginPath(
   const returnPathname = returnPath?.split("?")[0] ?? "";
 
   if (isNativeMobileApp()) {
-    if (returnPath && isPlantPrestartPath(returnPathname)) {
+    if (
+      returnPath &&
+      (isPlantPrestartPath(returnPathname) || returnPathname.startsWith("/scan/"))
+    ) {
       return returnPath;
     }
     return resolveNativeWorkerDashboardPath(workerId);

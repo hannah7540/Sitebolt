@@ -378,11 +378,23 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     if (context.user) {
       const nextParam =
         request.nextUrl.searchParams.get("next") ??
+        request.nextUrl.searchParams.get("returnTo") ??
         request.nextUrl.searchParams.get("redirect") ??
         request.nextUrl.searchParams.get("redirect_to");
+      let nextPath = "";
+      if (nextParam?.startsWith("/")) {
+        nextPath = nextParam;
+      } else if (nextParam) {
+        try {
+          const parsed = new URL(nextParam);
+          nextPath = `${parsed.pathname}${parsed.search}`;
+        } catch {
+          nextPath = "";
+        }
+      }
       let destination =
-        nextParam?.startsWith("/")
-          ? nextParam
+        nextPath.startsWith("/")
+          ? nextPath
           : resolveAuthenticatedHomePath(context, request);
       if (isNativeAppRequest(request) && shouldRedirectNativePath(destination)) {
         destination = resolveNativeWorkerDashboardPath(context.workerId);
@@ -412,6 +424,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     const loginUrl = new URL("/login", request.url);
     const nextPath = `${pathname}${request.nextUrl.search}`;
     if (nextPath !== "/" && !nextPath.startsWith("/login")) {
+      loginUrl.searchParams.set("returnTo", nextPath);
       loginUrl.searchParams.set("next", nextPath);
     }
     return redirectWithCookies(

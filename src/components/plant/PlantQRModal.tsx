@@ -16,7 +16,7 @@ interface PlantQRModalProps {
 
 export default function PlantQRModal({ plant, onClose }: PlantQRModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
-  const prestartUrl = getPrestartUrl(plant.id);
+  const cleanUrl = getPrestartUrl(plant.id);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -77,16 +77,11 @@ export default function PlantQRModal({ plant, onClose }: PlantQRModalProps) {
           </p>
 
           <div className="my-6 rounded-xl bg-white p-4">
-            <QRCodeSVG
-              value={prestartUrl}
-              size={200}
-              level="H"
-              title={prestartUrl}
-            />
+            <QRCodeSVG value={cleanUrl} size={200} level="M" />
           </div>
 
-          <p className="url max-w-xs break-all text-xs text-slate-500" data-prestart-url={prestartUrl}>
-            {prestartUrl}
+          <p className="url max-w-xs break-all text-xs text-slate-500" data-prestart-url={cleanUrl}>
+            {cleanUrl}
           </p>
         </div>
 

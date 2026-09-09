@@ -108,18 +108,30 @@ export function readConsoleOpenAdd(
   return searchParams?.get(CONSOLE_OPEN_ADD_SEARCH_PARAM) === "1";
 }
 
-/** Prefer `next`, then legacy `redirect_to`, for post-login return URLs. */
+function asInternalReturnPath(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/")) return trimmed;
+
+  try {
+    const url = new URL(trimmed);
+    const path = `${url.pathname}${url.search}`;
+    if (path.startsWith("/") && path !== "/login") return path;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+/** Prefer `next`, then `returnTo` / `redirect` / `redirect_to`. */
 export function readLoginReturnPath(
   searchParams?: Pick<URLSearchParams, "get"> | null
 ): string | null {
-  const next = searchParams?.get("next")?.trim();
-  if (next?.startsWith("/")) return next;
-
-  const redirect = searchParams?.get("redirect")?.trim();
-  if (redirect?.startsWith("/")) return redirect;
-
-  const redirectTo = searchParams?.get("redirect_to")?.trim();
-  if (redirectTo?.startsWith("/")) return redirectTo;
-
-  return null;
+  return (
+    asInternalReturnPath(searchParams?.get("next")) ??
+    asInternalReturnPath(searchParams?.get("returnTo")) ??
+    asInternalReturnPath(searchParams?.get("redirect")) ??
+    asInternalReturnPath(searchParams?.get("redirect_to"))
+  );
 }
