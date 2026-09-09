@@ -12,7 +12,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/auth/confirm") ||
     pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/onboarding") ||
-    pathname.startsWith("/login")
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/support")
   ) {
     return NextResponse.next();
   }

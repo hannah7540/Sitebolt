@@ -24,7 +24,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     shouldSkipAuthRedirect(pathname) ||
     pathname.startsWith("/setyourpassword") ||
     pathname.startsWith("/login") ||
-    pathname.startsWith("/auth/")
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/support")
   ) {
     return <>{children}</>;
   }

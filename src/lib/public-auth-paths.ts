@@ -49,7 +49,9 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/set-password") ||
     path.startsWith("/onboarding") ||
     path.startsWith("/auth/callback") ||
-    path.startsWith("/auth/confirm")
+    path.startsWith("/auth/confirm") ||
+    path.startsWith("/privacy") ||
+    path.startsWith("/support")
   );
 }
 

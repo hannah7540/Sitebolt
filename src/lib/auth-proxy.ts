@@ -29,6 +29,7 @@ import {
 const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/privacy",
+  "/support",
   "/auth/",
   "/auth/callback",
   "/auth/confirm",
