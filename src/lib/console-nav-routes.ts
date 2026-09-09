@@ -115,6 +115,9 @@ export function readLoginReturnPath(
   const next = searchParams?.get("next")?.trim();
   if (next?.startsWith("/")) return next;
 
+  const redirect = searchParams?.get("redirect")?.trim();
+  if (redirect?.startsWith("/")) return redirect;
+
   const redirectTo = searchParams?.get("redirect_to")?.trim();
   if (redirectTo?.startsWith("/")) return redirectTo;
 

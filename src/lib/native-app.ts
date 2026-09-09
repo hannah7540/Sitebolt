@@ -7,6 +7,7 @@ import {
   shouldRedirectNativePath,
 } from "@/lib/native-app-paths";
 import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 
 export {
   NATIVE_WORKER_HOME_PATH,
@@ -42,11 +43,16 @@ export function resolvePostLoginPath(
   workerId: string | null | undefined,
   options?: { returnPath?: string | null; defaultPath?: string }
 ): string {
+  const returnPath = options?.returnPath?.trim();
+  const returnPathname = returnPath?.split("?")[0] ?? "";
+
   if (isNativeMobileApp()) {
+    if (returnPath && isPlantPrestartPath(returnPathname)) {
+      return returnPath;
+    }
     return resolveNativeWorkerDashboardPath(workerId);
   }
 
-  const returnPath = options?.returnPath?.trim();
   if (returnPath && returnPath.startsWith("/") && !shouldRedirectNativePath(returnPath)) {
     return returnPath;
   }

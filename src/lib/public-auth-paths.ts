@@ -1,3 +1,5 @@
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+
 export const PUBLIC_AUTH_FLOW_PATHS = [
   "/setyourpassword",
   "/reset-password",
@@ -51,7 +53,9 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/auth/callback") ||
     path.startsWith("/auth/confirm") ||
     path.startsWith("/privacy") ||
-    path.startsWith("/support")
+    path.startsWith("/support") ||
+    path.startsWith("/scan/") ||
+    isPlantPrestartPath(path)
   );
 }
 

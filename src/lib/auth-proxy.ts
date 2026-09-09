@@ -25,6 +25,7 @@ import {
 import {
   isPublicAuthFlowPath,
 } from "@/lib/public-auth-paths";
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -43,6 +44,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/swms/sign/",
   "/scan/",
   "/prestart/",
+  "/pre-start/",
 ] as const;
 
 const AUTH_REQUIRED_PREFIXES = [
@@ -70,6 +72,7 @@ export const AUTH_PROXY_MATCHER = [
 
 function isPublicPath(pathname: string): boolean {
   if (isPublicAuthFlowPath(pathname)) return true;
+  if (isPlantPrestartPath(pathname)) return true;
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
@@ -95,7 +98,9 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/set-password") ||
     pathname.startsWith("/onboarding") ||
     pathname === "/worker/dashboard" ||
-    pathname.startsWith("/portal/")
+    pathname.startsWith("/portal/") ||
+    pathname.startsWith("/scan/") ||
+    isPlantPrestartPath(pathname)
   );
 }
 
@@ -373,6 +378,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     if (context.user) {
       const nextParam =
         request.nextUrl.searchParams.get("next") ??
+        request.nextUrl.searchParams.get("redirect") ??
         request.nextUrl.searchParams.get("redirect_to");
       let destination =
         nextParam?.startsWith("/")

@@ -1,5 +1,7 @@
 /** Server-safe native app path rules (no Capacitor imports). */
 
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+
 export const NATIVE_WORKER_HOME_PATH = "/worker-dashboard";
 
 export const NATIVE_ALLOWED_PATH_PREFIXES = [
@@ -19,6 +21,8 @@ export const NATIVE_ALLOWED_PATH_PREFIXES = [
   "/portal/",
   "/swms/sign/",
   "/prestart/",
+  "/pre-start/",
+  "/plant/",
   "/scan/",
   "/worker/",
 ] as const;
@@ -48,6 +52,7 @@ export function resolveNativeWorkerDashboardPath(
 
 export function isNativeAllowedPath(pathname: string): boolean {
   if (pathname === NATIVE_WORKER_HOME_PATH) return true;
+  if (isPlantPrestartPath(pathname)) return true;
   return NATIVE_ALLOWED_PATH_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(prefix)
   );

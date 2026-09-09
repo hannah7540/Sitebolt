@@ -1,12 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runAuthProxy } from "@/lib/auth-proxy";
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 
 /**
  * Next.js 16 Proxy entry — refreshes Supabase sessions and enforces RBAC redirects.
  * @see https://nextjs.org/docs/app/getting-started/proxy
  */
 export async function proxy(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
+  const cleanedPath = request.nextUrl.pathname.replace(/[)\].,]+$/, "");
+  if (cleanedPath !== request.nextUrl.pathname) {
+    const dest = request.nextUrl.clone();
+    dest.pathname = cleanedPath;
+    return NextResponse.redirect(dest);
+  }
+
+  const pathname = cleanedPath;
 
   if (
     pathname.startsWith("/auth/confirm") ||
@@ -14,7 +22,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/privacy") ||
-    pathname.startsWith("/support")
+    pathname.startsWith("/support") ||
+    isPlantPrestartPath(pathname)
   ) {
     return NextResponse.next();
   }

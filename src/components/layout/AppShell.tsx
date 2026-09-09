@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import BrandingRoot from "@/components/branding/BrandingRoot";
 import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
+import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 
 /**
  * Password-setup and onboarding routes skip BrandingRoot so they are never
@@ -26,7 +27,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/privacy") ||
-    pathname.startsWith("/support")
+    pathname.startsWith("/support") ||
+    pathname.startsWith("/scan/") ||
+    isPlantPrestartPath(pathname)
   ) {
     return <>{children}</>;
   }

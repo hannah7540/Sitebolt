@@ -946,8 +946,9 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
 export function verifyMasterPlantId(
   plant: PlantAssignmentSource | string | null | undefined
 ): { plantId: string; error: string | null } {
-  const plantId =
+  const rawId =
     typeof plant === "string" ? plant.trim() : resolveAssignmentPlantId(plant);
+  const plantId = rawId.replace(/[)\].,]+$/g, "").trim();
 
   if (!plantId) {
     return { plantId: "", error: "Plant id is required." };
@@ -2617,12 +2618,7 @@ export async function submitPlantPrestart(input: {
   return { error: updateError?.message ?? null };
 }
 
-export function getPrestartUrl(plantId: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "");
-  return `${base}/prestart/${plantId}`;
-}
+export { getPrestartUrl } from "./plant-prestart-url";
 
 export async function fetchLatestDefectPrestart(
   plantId: string

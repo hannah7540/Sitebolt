@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Printer, X } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
-import { getPrestartUrl } from "@/lib/supabase";
+import { getPrestartUrl } from "@/lib/plant-prestart-url";
 import { PRESTART_TEMPLATE_LABELS } from "@/lib/prestart-templates";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { modalClass, modalOverlayClass } from "@/lib/ui-classes";
@@ -77,10 +77,17 @@ export default function PlantQRModal({ plant, onClose }: PlantQRModalProps) {
           </p>
 
           <div className="my-6 rounded-xl bg-white p-4">
-            <QRCodeSVG value={prestartUrl} size={200} level="H" />
+            <QRCodeSVG
+              value={prestartUrl}
+              size={200}
+              level="H"
+              title={prestartUrl}
+            />
           </div>
 
-          <p className="url max-w-xs text-xs text-slate-500">{prestartUrl}</p>
+          <p className="url max-w-xs break-all text-xs text-slate-500" data-prestart-url={prestartUrl}>
+            {prestartUrl}
+          </p>
         </div>
 
         <div className="mt-6 flex gap-3">
