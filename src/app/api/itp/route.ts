@@ -43,11 +43,20 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await createProjectItpAdmin(admin, body);
+  try {
+    const result = await createProjectItpAdmin(admin, body);
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ itpId: result.itpId });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to create ITP.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ itpId: result.itpId });
 }

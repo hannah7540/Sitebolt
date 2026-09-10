@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { nullIfBlank, sanitizeWritePayload } from "./form-payload-utils";
+import { nullIfBlank } from "./form-payload-utils";
 import { resolveProjectId } from "./project-resolver";
 import {
   DEFAULT_ITC_FORM_STEPS,
@@ -23,6 +23,15 @@ import {
 } from "./itc-naming";
 import type { ItcInspectionActivity } from "./itc-batch-templates";
 import { STANDARD_ITC_INSPECTION_ACTIVITIES } from "./itc-batch-templates";
+import {
+  ITC_PHOTO_COLUMNS,
+  ITC_SIGNOFF_COLUMNS,
+  ITC_STEP_PHOTO_COLUMNS,
+  PROJECT_ITC_COLUMNS,
+  retryItpItcWrite,
+  retryItpItcWriteMany,
+  sanitizeItpItcWritePayload,
+} from "./itp-itc-payload";
 
 export interface ItcZone {
   id: string;
@@ -173,10 +182,12 @@ export interface BulkCreateItcInput {
   trenchGroup?: string;
 }
 
-function stripItcPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeWritePayload(
-    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
-  );
+function stripItcPayload(
+  payload: Record<string, unknown>,
+  columns: readonly string[] = PROJECT_ITC_COLUMNS,
+  complete = false
+): Record<string, unknown> {
+  return sanitizeItpItcWritePayload(payload, columns, { complete });
 }
 
 async function submitItcSignoffViaApi(input: {
@@ -619,8 +630,16 @@ export async function bulkCreateItcs(
 
     if (rows.length === 0) return { error: "No ITCs generated.", created: 0 };
 
-    const { error } = await supabase.from("project_itcs").insert(rows);
-    if (error) return { error: error.message, created: 0 };
+    const sanitized = rows.map((row) => stripItcPayload({ ...row, form_data: {} }));
+    const insertResult = await retryItpItcWriteMany(
+      "project_itcs.bulk_insert",
+      sanitized,
+      async (nextRows) => {
+        const { error } = await supabase.from("project_itcs").insert(nextRows);
+        return { error };
+      }
+    );
+    if (insertResult.error) return { error: insertResult.error, created: 0 };
     return { error: null, created: rows.length };
   } catch (error) {
     return {
@@ -646,6 +665,7 @@ export async function saveItcPhoto(input: {
     itc_id: input.itcId,
     slot_key: input.slotKey,
     photo_url: input.photoUrl ?? null,
+    photos: input.photoUrl ? [input.photoUrl] : [],
     not_required: input.notRequired ?? false,
     not_required_reason: input.notRequiredReason?.trim() || null,
     gps_lat: input.gpsLat ?? null,
@@ -653,13 +673,15 @@ export async function saveItcPhoto(input: {
     captured_at: new Date().toISOString(),
     uploaded_by: input.uploadedBy ?? null,
     updated_at: new Date().toISOString(),
-  });
+  }, ITC_PHOTO_COLUMNS);
 
-  const { error } = await supabase.from("itc_photos").upsert(payload, {
-    onConflict: "itc_id,slot_key",
+  const result = await retryItpItcWrite("itc_photos.upsert", payload, async (next) => {
+    const { error } = await supabase.from("itc_photos").upsert(next, {
+      onConflict: "itc_id,slot_key",
+    });
+    return { error };
   });
-
-  return { error: error?.message ?? null };
+  return { error: result.error };
 }
 
 export async function upsertItcSignoffDraft(input: {
@@ -710,22 +732,26 @@ export async function upsertItcSignoffDraft(input: {
     author_name: input.authorName.trim(),
     comments: nullIfBlank(input.comments),
     field_data: input.fieldData ?? {},
+    form_data: input.fieldData ?? {},
     signature_url: nullIfBlank(input.signatureUrl),
+    signatures: input.signatureUrl ? [input.signatureUrl] : [],
     status: "draft" as const,
     updated_at: new Date().toISOString(),
-  });
+  }, ITC_SIGNOFF_COLUMNS);
 
-  const { data, error } = existing?.id
-    ? await supabase
-        .from("itc_signoffs")
-        .update(payload)
-        .eq("id", existing.id)
-        .select("*")
-        .single()
-    : await supabase.from("itc_signoffs").insert(payload).select("*").single();
+  const result = await retryItpItcWrite(
+    existing?.id ? "itc_signoffs.update" : "itc_signoffs.insert",
+    payload,
+    async (next) => {
+      const { data, error } = existing?.id
+        ? await supabase.from("itc_signoffs").update(next).eq("id", existing.id).select("*").single()
+        : await supabase.from("itc_signoffs").insert(next).select("*").single();
+      return { data, error };
+    }
+  );
 
-  if (error || !data) return { error: error?.message ?? "Failed to save draft" };
-  return { error: null, signoff: normalizeSignoff(data as Record<string, unknown>) };
+  if (result.error || !result.data) return { error: result.error ?? "Failed to save draft" };
+  return { error: null, signoff: normalizeSignoff(result.data as Record<string, unknown>) };
 }
 
 export async function submitItcSignoff(input: {
@@ -790,22 +816,27 @@ export async function submitItcSignoff(input: {
       }
     : {};
 
-  const { error } = await supabase
-    .from("itc_signoffs")
-    .update(
-      stripItcPayload({
-        status: "submitted",
-        submitted_at: submittedAt,
-        signed_at: submittedAt,
-        signed_by_worker_id: input.signedByWorkerId,
-        updated_at: submittedAt,
-        ...verifyPayload,
-      })
-    )
-    .eq("id", input.signoffId)
-    .eq("status", "draft");
+  const submitResult = await retryItpItcWrite(
+    "itc_signoffs.submit",
+    stripItcPayload({
+      status: "submitted",
+      submitted_at: submittedAt,
+      signed_at: submittedAt,
+      signed_by_worker_id: input.signedByWorkerId,
+      updated_at: submittedAt,
+      ...verifyPayload,
+    }, ITC_SIGNOFF_COLUMNS),
+    async (next) => {
+      const { error } = await supabase
+        .from("itc_signoffs")
+        .update(next)
+        .eq("id", input.signoffId)
+        .eq("status", "draft");
+      return { error };
+    }
+  );
 
-  if (error) return { error: error.message };
+  if (submitResult.error) return { error: submitResult.error };
 
   const { data: signoffs, error: signoffsError } = await supabase
     .from("itc_signoffs")
@@ -825,18 +856,25 @@ export async function submitItcSignoff(input: {
     submittedSteps: submittedCount,
   });
 
-  const { error: itcUpdateError } = await supabase
-    .from("project_itcs")
-    .update(
-      stripItcPayload({
+  const itcUpdate = await retryItpItcWrite(
+    "project_itcs.progress",
+    stripItcPayload(
+      {
         progress_percent: progress,
         status,
         updated_at: submittedAt,
-      })
-    )
-    .eq("id", input.itcId);
+        completed_at: status === "completed" || status === "complete" ? submittedAt : undefined,
+      },
+      PROJECT_ITC_COLUMNS,
+      status === "completed" || status === "complete"
+    ),
+    async (next) => {
+      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      return { error };
+    }
+  );
 
-  if (itcUpdateError) return { error: itcUpdateError.message };
+  if (itcUpdate.error) return { error: itcUpdate.error };
 
   return { error: null };
 }
@@ -896,10 +934,22 @@ export async function createItcChangeRequest(input: {
 
   if (error) return { error: error.message };
 
-  await supabase
-    .from("project_itcs")
-    .update({ has_open_cr: true, status: "issue", updated_at: new Date().toISOString() })
-    .eq("id", input.itcId);
+  const crUpdate = await retryItpItcWrite(
+    "project_itcs.open_cr",
+    stripItcPayload({
+      has_open_cr: true,
+      status: "issue",
+      updated_at: new Date().toISOString(),
+    }),
+    async (next) => {
+      const { error: updateError } = await supabase
+        .from("project_itcs")
+        .update(next)
+        .eq("id", input.itcId);
+      return { error: updateError };
+    }
+  );
+  if (crUpdate.error) return { error: crUpdate.error };
 
   return { error: null };
 }
@@ -911,18 +961,24 @@ export async function verifyItcSignoff(input: {
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const { error } = await supabase
-    .from("itc_signoffs")
-    .update({
+  const result = await retryItpItcWrite(
+    "itc_signoffs.verify",
+    stripItcPayload({
       verified_by: input.verifiedBy,
       verified_by_name: input.verifiedByName.trim(),
       verified_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.signoffId)
-    .eq("status", "submitted");
-
-  return { error: error?.message ?? null };
+    }, ITC_SIGNOFF_COLUMNS),
+    async (next) => {
+      const { error } = await supabase
+        .from("itc_signoffs")
+        .update(next)
+        .eq("id", input.signoffId)
+        .eq("status", "submitted");
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export async function fetchVerificationQueue(projectId: string): Promise<ItcSignoff[]> {
@@ -1010,10 +1066,18 @@ export async function reviewItcChangeRequest(input: {
   if (error) return { error: error.message };
 
   if (input.status === "approved") {
-    await supabase
-      .from("project_itcs")
-      .update({ has_open_cr: false, updated_at: reviewedAt })
-      .eq("id", input.itcId);
+    const crClear = await retryItpItcWrite(
+      "project_itcs.clear_cr",
+      stripItcPayload({ has_open_cr: false, updated_at: reviewedAt }),
+      async (next) => {
+        const { error: updateError } = await supabase
+          .from("project_itcs")
+          .update(next)
+          .eq("id", input.itcId);
+        return { error: updateError };
+      }
+    );
+    if (crClear.error) return { error: crClear.error };
   }
 
   return { error: null };
@@ -1075,14 +1139,26 @@ export async function addItcStepPhoto(input: {
     uploaded_by_name: input.uploadedByName ?? null,
   };
 
-  const { data, error } = await supabase
-    .from("itc_step_photos")
-    .insert([payload])
-    .select("*")
-    .single();
+  const insertResult = await retryItpItcWrite(
+    "itc_step_photos.insert",
+    stripItcPayload(payload, ITC_STEP_PHOTO_COLUMNS),
+    async (next) => {
+      const { data, error } = await supabase
+        .from("itc_step_photos")
+        .insert([next])
+        .select("*")
+        .single();
+      return { data, error };
+    }
+  );
 
-  if (error || !data) return { error: error?.message ?? "Failed to save step photo" };
-  return { error: null, photo: normalizeStepPhoto(data as Record<string, unknown>) };
+  if (insertResult.error || !insertResult.data) {
+    return { error: insertResult.error ?? "Failed to save step photo" };
+  }
+  return {
+    error: null,
+    photo: normalizeStepPhoto(insertResult.data as Record<string, unknown>),
+  };
 }
 
 export async function setStepPhotoApproval(input: {
@@ -1131,12 +1207,16 @@ export async function setStepPhotoApproval(input: {
         approved_at: null,
       };
 
-  const { error } = await supabase
-    .from("itc_step_photos")
-    .update(payload)
-    .eq("id", input.photoId);
+  const photoResult = await retryItpItcWrite(
+    "itc_step_photos.approve",
+    stripItcPayload(payload, ITC_STEP_PHOTO_COLUMNS),
+    async (next) => {
+      const { error } = await supabase.from("itc_step_photos").update(next).eq("id", input.photoId);
+      return { error };
+    }
+  );
 
-  return { error: error?.message ?? null };
+  return { error: photoResult.error };
 }
 
 export async function getNextItcSequence(
@@ -1179,9 +1259,9 @@ export async function createItcDraft(input: {
   const sequence = await getNextItcSequence(resolved, zone, service);
   const itcNumber = formatItcAutoName(zone, service, sequence);
 
-  const { data, error } = await supabase
-    .from("project_itcs")
-    .insert({
+  const insertResult = await retryItpItcWrite(
+    "project_itcs.draft",
+    stripItcPayload({
       project_id: resolved,
       itc_number: itcNumber,
       zone_code: zone,
@@ -1191,15 +1271,23 @@ export async function createItcDraft(input: {
       status: "not_started",
       progress_percent: 0,
       form_data: {},
-    })
-    .select("*")
-    .single();
+      checklist: [],
+    }),
+    async (payload) => {
+      const { data, error } = await supabase
+        .from("project_itcs")
+        .insert(payload)
+        .select("*")
+        .single();
+      return { data, error };
+    }
+  );
 
-  if (error || !data) {
-    return { error: error?.message ?? "Failed to create ITC draft" };
+  if (insertResult.error || !insertResult.data) {
+    return { error: insertResult.error ?? "Failed to create ITC draft" };
   }
 
-  return { error: null, itc: normalizeItc(data as Record<string, unknown>) };
+  return { error: null, itc: normalizeItc(insertResult.data as Record<string, unknown>) };
 }
 
 export async function updateItcTradeForm(input: {
@@ -1208,25 +1296,27 @@ export async function updateItcTradeForm(input: {
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const formData = input.payload.form_data;
-  const updatePayload: Record<string, unknown> = {
-    ...input.payload,
-    updated_at: new Date().toISOString(),
-  };
+  try {
+    const updatePayload = stripItcPayload({
+      ...input.payload,
+      updated_at: new Date().toISOString(),
+      start_location: input.payload.upstream_pit_number ?? input.payload.start_location,
+      end_location: input.payload.downstream_pit_number ?? input.payload.end_location,
+    });
 
-  if (input.payload.upstream_pit_number) {
-    updatePayload.start_location = input.payload.upstream_pit_number;
+    const result = await retryItpItcWrite("project_itcs.trade_form", updatePayload, async (next) => {
+      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      return { error };
+    });
+    return { error: result.error };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Network error while saving. Please try again.",
+    };
   }
-  if (input.payload.downstream_pit_number) {
-    updatePayload.end_location = input.payload.downstream_pit_number;
-  }
-
-  const { error } = await supabase
-    .from("project_itcs")
-    .update(updatePayload)
-    .eq("id", input.itcId);
-
-  return { error: error?.message ?? null };
 }
 
 export async function updateItcGpsLocation(input: {
@@ -1237,16 +1327,20 @@ export async function updateItcGpsLocation(input: {
 }): Promise<{ error: string | null; linkedTests?: string[] }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const { error } = await supabase
-    .from("project_itcs")
-    .update({
+  const gpsResult = await retryItpItcWrite(
+    "project_itcs.gps",
+    stripItcPayload({
       gps_lat: input.gpsLat,
       gps_lng: input.gpsLng,
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.itcId);
+    }),
+    async (next) => {
+      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      return { error };
+    }
+  );
 
-  if (error) return { error: error.message };
+  if (gpsResult.error) return { error: gpsResult.error };
 
   const { linkItcToNearbyCompactionTests } = await import("./itc-compaction-service");
   const linkedTests = await linkItcToNearbyCompactionTests(

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, X } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import { bulkSignOffItcStep } from "@/lib/itc-service";
 import { DEFAULT_ITC_FORM_STEPS } from "@/lib/itc-templates";
 import { uploadItcSignature } from "@/lib/itc-upload";
+import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import { inputClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 
 interface ItcBulkSignOffModalProps {
@@ -25,6 +27,7 @@ export default function ItcBulkSignOffModal({
   onClose,
   onSigned,
 }: ItcBulkSignOffModalProps) {
+  const router = useRouter();
   const [stepIndex, setStepIndex] = useState(1);
   const [comments, setComments] = useState("");
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
@@ -44,39 +47,46 @@ export default function ItcBulkSignOffModal({
     setLoading(true);
     setMessage(null);
 
-    const blob = await fetch(signatureDataUrl).then((response) => response.blob());
-    const upload = await uploadItcSignature({
-      projectId,
-      itcId: itcIds[0] ?? "bulk",
-      stepKey: selectedStep.step_key,
-      blob,
-    });
+    try {
+      const blob = await fetch(signatureDataUrl).then((response) => response.blob());
+      const upload = await uploadItcSignature({
+        projectId,
+        itcId: itcIds[0] ?? "bulk",
+        stepKey: selectedStep.step_key,
+        blob,
+      });
 
-    if (upload.error || !upload.url) {
+      if (upload.error || !upload.url) {
+        setMessage(upload.error ?? "Signature upload failed.");
+        return;
+      }
+
+      const result = await bulkSignOffItcStep({
+        itcIds,
+        stepKey: selectedStep.step_key,
+        stepIndex: selectedStep.step_index,
+        authorId,
+        authorName,
+        comments,
+        signatureUrl: upload.url,
+      });
+
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+
+      setMessage(ITP_ITC_COMPLETED_TOAST);
+      router.refresh();
+      onSigned();
+      window.setTimeout(() => onClose(), 900);
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again."
+      );
+    } finally {
       setLoading(false);
-      setMessage(upload.error ?? "Signature upload failed.");
-      return;
     }
-
-    const result = await bulkSignOffItcStep({
-      itcIds,
-      stepKey: selectedStep.step_key,
-      stepIndex: selectedStep.step_index,
-      authorId,
-      authorName,
-      comments,
-      signatureUrl: upload.url,
-    });
-
-    setLoading(false);
-    if (result.error) {
-      setMessage(result.error);
-      return;
-    }
-
-    setMessage(`Signed step across ${result.signed} ITC(s).`);
-    onSigned();
-    onClose();
   };
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2, Plus, Save } from "lucide-react";
 import {
   fetchItcMasterSpecs,
@@ -27,6 +28,7 @@ import {
   type ProjectItc,
 } from "@/lib/itc-service";
 import { uploadItcMarkup } from "@/lib/itc-upload";
+import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +39,7 @@ interface ItcTradeFormPanelProps {
 const DISCIPLINES: ItcTradeDiscipline[] = ["Electrical", "Drainage", "Hydraulics"];
 
 export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps) {
+  const router = useRouter();
   const [itcs, setItcs] = useState<ProjectItc[]>([]);
   const [discipline, setDiscipline] = useState<ItcTradeDiscipline>("Electrical");
   const [selectedItcId, setSelectedItcId] = useState("");
@@ -51,16 +54,23 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [itcRows, specs] = await Promise.all([
-      fetchProjectItcs(projectId),
-      fetchItcMasterSpecs(projectId),
-    ]);
-    setItcs(itcRows);
-    const spec = specs.find((row) => row.discipline === discipline);
-    setMaterials(spec?.materials ?? []);
-    setZones(spec?.zones ?? []);
-    setServiceTypes(spec?.service_types ?? []);
-    setLoading(false);
+    try {
+      const [itcRows, specs] = await Promise.all([
+        fetchProjectItcs(projectId),
+        fetchItcMasterSpecs(projectId),
+      ]);
+      setItcs(itcRows);
+      const spec = specs.find((row) => row.discipline === discipline);
+      setMaterials(spec?.materials ?? []);
+      setZones(spec?.zones ?? []);
+      setServiceTypes(spec?.service_types ?? []);
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [projectId, discipline]);
 
   useEffect(() => {
@@ -129,21 +139,26 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
   const handleCreateDraft = async () => {
     setCreating(true);
     setMessage(null);
-    const defaultZone = zones[0] ?? form.zone ?? "SITE";
-    const result = await createItcDraft({
-      projectId,
-      zoneCode: defaultZone,
-      serviceDiscipline: discipline,
-      serviceType: form.service_type || discipline,
-    });
-    setCreating(false);
-    if (result.error || !result.itc) {
-      setMessage(result.error ?? "Failed to create ITC draft.");
-      return;
+    try {
+      const defaultZone = zones[0] ?? form.zone ?? "SITE";
+      const result = await createItcDraft({
+        projectId,
+        zoneCode: defaultZone,
+        serviceDiscipline: discipline,
+        serviceType: form.service_type || discipline,
+      });
+      if (result.error || !result.itc) {
+        setMessage(result.error ?? "Failed to create ITC draft.");
+        return;
+      }
+      setMessage(`Draft created: ${result.itc.itc_number}`);
+      await load();
+      setSelectedItcId(result.itc.id);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to create ITC draft.");
+    } finally {
+      setCreating(false);
     }
-    setMessage(`Draft created: ${result.itc.itc_number}`);
-    await load();
-    setSelectedItcId(result.itc.id);
   };
 
   const handleSave = async () => {
@@ -161,9 +176,10 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
       }
       setMessage(
         formComplete
-          ? "ITC saved."
+          ? ITP_ITC_COMPLETED_TOAST
           : "Draft saved. Warning: Service data incomplete — you can complete this later."
       );
+      router.refresh();
       await load();
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Failed to save ITC.");
@@ -174,13 +190,18 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
 
   const handleRedlineUpload = async (file: File) => {
     setSaving(true);
-    const upload = await uploadItcMarkup({ projectId, discipline, file });
-    setSaving(false);
-    if (upload.error || !upload.url) {
-      setMessage(upload.error ?? "Upload failed");
-      return;
+    try {
+      const upload = await uploadItcMarkup({ projectId, discipline, file });
+      if (upload.error || !upload.url) {
+        setMessage(upload.error ?? "Upload failed");
+        return;
+      }
+      setForm((current) => ({ ...current, redline_markup_url: upload.url! }));
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Network error while saving. Please try again.");
+    } finally {
+      setSaving(false);
     }
-    setForm((current) => ({ ...current, redline_markup_url: upload.url! }));
   };
 
   if (loading) {

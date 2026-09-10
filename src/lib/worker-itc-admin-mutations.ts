@@ -1,20 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isSchemaCacheColumnError } from "./form-payload-utils";
 import {
-  isSchemaCacheColumnError,
-  parseMissingColumnFromError,
-  sanitizeWritePayload,
-  stripMissingColumn,
-} from "./form-payload-utils";
+  ITC_CHECKLIST_ENTRY_COLUMNS,
+  PROJECT_ITC_COLUMNS,
+  retryItpItcWrite,
+  sanitizeItpItcWritePayload,
+} from "./itp-itc-payload";
 import {
   ITC_ATTACHMENTS_BUCKET,
   buildUniqueStorageFileName,
 } from "./itp-itc-storage";
 import { WORKER_ITC_CHECKLIST_TEMPLATE } from "./worker-itc-checklist-templates";
 
-function stripPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeWritePayload(
-    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
-  );
+function stripPayload(
+  payload: Record<string, unknown>,
+  columns: readonly string[],
+  complete = false
+): Record<string, unknown> {
+  return sanitizeItpItcWritePayload(payload, columns, { complete });
 }
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -32,50 +35,35 @@ async function updateWithMissingColumnFallback(
   table: string,
   payload: Record<string, unknown>,
   matchColumn: string,
-  matchValue: string
+  matchValue: string,
+  columns: readonly string[],
+  complete = false
 ): Promise<{ error: string | null }> {
-  let nextPayload = stripPayload({ ...payload });
-  let attempts = 0;
-
-  while (attempts < 8) {
-    const { error } = await admin.from(table).update(nextPayload).eq(matchColumn, matchValue);
-    if (!error) return { error: null };
-
-    const missingColumn = parseMissingColumnFromError(error.message);
-    if (!missingColumn || !(missingColumn in nextPayload)) {
-      return { error: error.message };
+  return retryItpItcWrite(
+    `${table}.update`,
+    stripPayload(payload, columns, complete),
+    async (next) => {
+      const { error } = await admin.from(table).update(next).eq(matchColumn, matchValue);
+      return { error };
     }
-
-    nextPayload = stripMissingColumn(nextPayload, missingColumn);
-    attempts += 1;
-  }
-
-  return { error: "Failed to update ITC record after removing unsupported columns." };
+  );
 }
 
 async function upsertWithMissingColumnFallback(
   admin: SupabaseClient,
   table: string,
   payload: Record<string, unknown>,
-  onConflict: string
+  onConflict: string,
+  columns: readonly string[]
 ): Promise<{ error: string | null }> {
-  let nextPayload = stripPayload({ ...payload });
-  let attempts = 0;
-
-  while (attempts < 8) {
-    const { error } = await admin.from(table).upsert(nextPayload, { onConflict });
-    if (!error) return { error: null };
-
-    const missingColumn = parseMissingColumnFromError(error.message);
-    if (!missingColumn || !(missingColumn in nextPayload)) {
-      return { error: error.message };
+  return retryItpItcWrite(
+    `${table}.upsert`,
+    stripPayload(payload, columns),
+    async (next) => {
+      const { error } = await admin.from(table).upsert(next, { onConflict });
+      return { error };
     }
-
-    nextPayload = stripMissingColumn(nextPayload, missingColumn);
-    attempts += 1;
-  }
-
-  return { error: "Failed to save checklist entry after removing unsupported columns." };
+  );
 }
 
 export interface WorkerItcPlanRow {
@@ -440,17 +428,23 @@ export async function saveWorkerItcChecklistAdmin(
         is_checked: item.is_checked ?? false,
         notes: item.notes ?? null,
         photo_url: item.photo_url ?? null,
+        photos: item.photo_url ? [item.photo_url] : [],
         worker_id: input.workerId,
         worker_name: input.workerName.trim(),
         sort_order: item.sort_order ?? 0,
         updated_at: now,
+        form_data: {
+          item_key: item.item_key,
+          notes: item.notes ?? null,
+        },
       };
 
       const { error } = await upsertWithMissingColumnFallback(
         admin,
         "itc_checklist_entries",
         payload,
-        "itc_id,item_key"
+        "itc_id,item_key",
+        ITC_CHECKLIST_ENTRY_COLUMNS
       );
 
       if (error) {
@@ -469,7 +463,8 @@ export async function saveWorkerItcChecklistAdmin(
         updated_at: now,
       },
       "id",
-      input.itcId
+      input.itcId,
+      PROJECT_ITC_COLUMNS
     );
 
     if (statusUpdate.error && !isMissingTableError(statusUpdate.error, "project_itcs")) {
@@ -514,7 +509,9 @@ export async function completeWorkerItcAdmin(
         updated_at: now,
       },
       "id",
-      input.itcId
+      input.itcId,
+      PROJECT_ITC_COLUMNS,
+      true
     );
   } catch (error) {
     return {

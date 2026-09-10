@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import PressureTestModal, {
@@ -12,6 +13,7 @@ import {
   type ItcSignoff,
 } from "@/lib/itc-service";
 import { uploadItcSignature } from "@/lib/itc-upload";
+import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import type { ItcFormStepTemplate } from "@/lib/itc-templates";
 import { isItcStepUnlocked } from "@/lib/itc-templates";
 import { cardClass, inputClass } from "@/lib/ui-classes";
@@ -50,6 +52,7 @@ export default function ItcStepSignoffCard({
   onUpdated,
   onChangeRequest,
 }: ItcStepSignoffCardProps) {
+  const router = useRouter();
   const [comments, setComments] = useState(signoff?.comments ?? "");
   const [fieldData, setFieldData] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -284,50 +287,55 @@ export default function ItcStepSignoffCard({
     setLoading(true);
     setMessage(null);
 
-    const draft = await persistDraft();
-    if (draft.error) {
+    try {
+      const draft = await persistDraft();
+      if (draft.error) {
+        setMessage(draft.error);
+        return;
+      }
+
+      if (!draft.signatureUrl) {
+        setMessage("A signature is required before submitting this step.");
+        return;
+      }
+
+      const refreshed = await upsertItcSignoffDraft({
+        itcId,
+        stepKey: step.step_key,
+        stepIndex: step.step_index,
+        authorId: workerId,
+        authorName: workerName,
+        comments,
+        fieldData,
+        signatureUrl: draft.signatureUrl,
+      });
+
+      if (refreshed.error || !refreshed.signoff) {
+        setMessage(refreshed.error ?? "Save draft before submitting.");
+        return;
+      }
+
+      const result = await submitItcSignoff({
+        signoffId: refreshed.signoff.id,
+        itcId,
+        signedByWorkerId: workerId,
+        autoVerify: isAdmin,
+        verifiedBy: isAdmin ? workerId : undefined,
+        verifiedByName: isAdmin ? workerName : undefined,
+      });
+
+      setMessage(result.error ?? ITP_ITC_COMPLETED_TOAST);
+      if (!result.error) {
+        setSignatureDataUrl(null);
+        router.refresh();
+        onUpdated();
+      }
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again."
+      );
+    } finally {
       setLoading(false);
-      setMessage(draft.error);
-      return;
-    }
-
-    if (!draft.signatureUrl) {
-      setLoading(false);
-      setMessage("A signature is required before submitting this step.");
-      return;
-    }
-
-    const refreshed = await upsertItcSignoffDraft({
-      itcId,
-      stepKey: step.step_key,
-      stepIndex: step.step_index,
-      authorId: workerId,
-      authorName: workerName,
-      comments,
-      fieldData,
-      signatureUrl: draft.signatureUrl,
-    });
-
-    if (refreshed.error || !refreshed.signoff) {
-      setLoading(false);
-      setMessage(refreshed.error ?? "Save draft before submitting.");
-      return;
-    }
-
-    const result = await submitItcSignoff({
-      signoffId: refreshed.signoff.id,
-      itcId,
-      signedByWorkerId: workerId,
-      autoVerify: isAdmin,
-      verifiedBy: isAdmin ? workerId : undefined,
-      verifiedByName: isAdmin ? workerName : undefined,
-    });
-
-    setLoading(false);
-    setMessage(result.error ?? "ITC Checklist submitted successfully");
-    if (!result.error) {
-      setSignatureDataUrl(null);
-      onUpdated();
     }
   };
 

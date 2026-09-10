@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Camera, Loader2 } from "lucide-react";
 import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
@@ -13,6 +14,7 @@ import {
   uploadWorkerItcChecklistPhoto,
   type WorkerItcChecklistEntryRow,
 } from "@/lib/worker-itc-service";
+import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +35,7 @@ export default function WorkerItcChecklistForm({
   onClose,
   onCompleted,
 }: WorkerItcChecklistFormProps) {
+  const router = useRouter();
   const [entries, setEntries] = useState<WorkerItcChecklistEntryRow[]>([]);
   const [itcNumber, setItcNumber] = useState("");
   const [loading, setLoading] = useState(true);
@@ -46,15 +49,19 @@ export default function WorkerItcChecklistForm({
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await fetchWorkerItcDetail(itcId);
-    if (result.error || !result.itc) {
-      setError(result.error ?? "Unable to load ITC checklist.");
+    try {
+      const result = await fetchWorkerItcDetail(itcId);
+      if (result.error || !result.itc) {
+        setError(result.error ?? "Unable to load ITC checklist.");
+        return;
+      }
+      setItcNumber(result.itc.itc_number);
+      setEntries(result.entries);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load ITC checklist.");
+    } finally {
       setLoading(false);
-      return;
     }
-    setItcNumber(result.itc.itc_number);
-    setEntries(result.entries);
-    setLoading(false);
   }, [itcId]);
 
   useEffect(() => {
@@ -76,18 +83,25 @@ export default function WorkerItcChecklistForm({
 
   const handlePhotoUpload = async (itemKey: string, file: File) => {
     setUploadingKey(itemKey);
-    const upload = await uploadWorkerItcChecklistPhoto({
-      projectId,
-      itcId,
-      itemKey,
-      file,
-    });
-    setUploadingKey(null);
-    if (upload.error || !upload.url) {
-      setToast({ message: upload.error ?? "Photo upload failed.", variant: "error" });
-      return;
+    try {
+      const upload = await uploadWorkerItcChecklistPhoto({
+        projectId,
+        itcId,
+        itemKey,
+        file,
+      });
+      if (upload.error || !upload.url) {
+        setToast({ message: upload.error ?? "Photo upload failed.", variant: "error" });
+        return;
+      }
+      updateEntry(itemKey, { photo_url: upload.url });
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again.";
+      setToast({ message, variant: "error" });
+    } finally {
+      setUploadingKey(null);
     }
-    updateEntry(itemKey, { photo_url: upload.url });
   };
 
   const buildSavePayload = () =>
@@ -104,46 +118,63 @@ export default function WorkerItcChecklistForm({
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    const result = await saveWorkerItcChecklist({
-      itcId,
-      workerId,
-      workerName,
-      items: buildSavePayload(),
-    });
-    setSaving(false);
-    if (result.error) {
-      setError(result.error);
-      setToast({ message: result.error, variant: "error" });
-      return;
+    try {
+      const result = await saveWorkerItcChecklist({
+        itcId,
+        workerId,
+        workerName,
+        items: buildSavePayload(),
+      });
+      if (result.error) {
+        setError(result.error);
+        setToast({ message: result.error, variant: "error" });
+        return;
+      }
+      setToast({ message: "ITC progress saved successfully.", variant: "success" });
+      await load();
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again.";
+      setError(message);
+      setToast({ message, variant: "error" });
+    } finally {
+      setSaving(false);
     }
-    setToast({ message: "ITC progress saved successfully.", variant: "success" });
-    await load();
   };
 
   const handleComplete = async () => {
     setSaving(true);
     setError(null);
-    const saveResult = await saveWorkerItcChecklist({
-      itcId,
-      workerId,
-      workerName,
-      items: buildSavePayload(),
-    });
-    if (saveResult.error) {
-      setSaving(false);
-      setError(saveResult.error);
-      return;
-    }
+    try {
+      const saveResult = await saveWorkerItcChecklist({
+        itcId,
+        workerId,
+        workerName,
+        items: buildSavePayload(),
+      });
+      if (saveResult.error) {
+        setError(saveResult.error);
+        setToast({ message: saveResult.error, variant: "error" });
+        return;
+      }
 
-    const completeResult = await completeWorkerItc({ itcId, workerId });
-    setSaving(false);
-    if (completeResult.error) {
-      setError(completeResult.error);
-      setToast({ message: completeResult.error, variant: "error" });
-      return;
+      const completeResult = await completeWorkerItc({ itcId, workerId });
+      if (completeResult.error) {
+        setError(completeResult.error);
+        setToast({ message: completeResult.error, variant: "error" });
+        return;
+      }
+      setToast({ message: ITP_ITC_COMPLETED_TOAST, variant: "success" });
+      router.refresh();
+      window.setTimeout(() => onCompleted(), 900);
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again.";
+      setError(message);
+      setToast({ message, variant: "error" });
+    } finally {
+      setSaving(false);
     }
-    setToast({ message: "ITC marked complete.", variant: "success" });
-    onCompleted();
   };
 
   const handleMobileBack = useCallback(() => {

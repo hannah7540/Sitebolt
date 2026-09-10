@@ -1,4 +1,4 @@
-export type ItpStatus = "draft" | "in_progress" | "submitted" | "approved";
+export type ItpStatus = "draft" | "in_progress" | "submitted" | "approved" | "completed";
 export type ItpPointType = "H" | "W" | "S" | "R";
 export type ItpItemStatus = "pending" | "conforming" | "non_conforming" | "na";
 
@@ -33,6 +33,7 @@ export const ITP_STATUS_LABELS: Record<ItpStatus, string> = {
   in_progress: "In Progress",
   submitted: "Submitted",
   approved: "Approved",
+  completed: "Completed",
 };
 
 export const ITP_POINT_TYPE_LABELS: Record<ItpPointType, string> = {

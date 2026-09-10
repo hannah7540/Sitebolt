@@ -4,33 +4,46 @@ import type {
   WorkerItcPlanRow,
   WorkerItcRegisterRow,
 } from "./worker-itc-admin-mutations";
+import { ITC_NETWORK_ERROR } from "./itp-itc-payload";
 
 async function readJson<T>(response: Response): Promise<{ data?: T; error: string | null }> {
-  const payload = (await response.json()) as { error?: string } & T;
-  if (!response.ok) {
-    return { error: payload.error ?? "Request failed" };
+  try {
+    const payload = (await response.json()) as { error?: string } & T;
+    if (!response.ok) {
+      return { error: payload.error ?? "Request failed" };
+    }
+    return { data: payload, error: null };
+  } catch {
+    return { error: ITC_NETWORK_ERROR };
   }
-  return { data: payload, error: null };
 }
 
 export async function fetchWorkerItcPlan(
   projectId: string
 ): Promise<{ plan: WorkerItcPlanRow | null; error: string | null }> {
-  const response = await fetch(
-    `/api/worker/itc/plan?projectId=${encodeURIComponent(projectId)}`
-  );
-  const result = await readJson<{ plan: WorkerItcPlanRow | null }>(response);
-  return { plan: result.data?.plan ?? null, error: result.error };
+  try {
+    const response = await fetch(
+      `/api/worker/itc/plan?projectId=${encodeURIComponent(projectId)}`
+    );
+    const result = await readJson<{ plan: WorkerItcPlanRow | null }>(response);
+    return { plan: result.data?.plan ?? null, error: result.error };
+  } catch {
+    return { plan: null, error: ITC_NETWORK_ERROR };
+  }
 }
 
 export async function fetchWorkerItcRegister(
   projectId: string
 ): Promise<{ itcs: WorkerItcRegisterRow[]; error: string | null }> {
-  const response = await fetch(
-    `/api/worker/itc/register?projectId=${encodeURIComponent(projectId)}`
-  );
-  const result = await readJson<{ itcs: WorkerItcRegisterRow[] }>(response);
-  return { itcs: result.data?.itcs ?? [], error: result.error };
+  try {
+    const response = await fetch(
+      `/api/worker/itc/register?projectId=${encodeURIComponent(projectId)}`
+    );
+    const result = await readJson<{ itcs: WorkerItcRegisterRow[] }>(response);
+    return { itcs: result.data?.itcs ?? [], error: result.error };
+  } catch {
+    return { itcs: [], error: ITC_NETWORK_ERROR };
+  }
 }
 
 export async function fetchWorkerItcDetail(itcId: string): Promise<{
@@ -38,16 +51,20 @@ export async function fetchWorkerItcDetail(itcId: string): Promise<{
   entries: WorkerItcChecklistEntryRow[];
   error: string | null;
 }> {
-  const response = await fetch(`/api/worker/itc/${encodeURIComponent(itcId)}`);
-  const result = await readJson<{
-    itc: WorkerItcRegisterRow | null;
-    entries: WorkerItcChecklistEntryRow[];
-  }>(response);
-  return {
-    itc: result.data?.itc ?? null,
-    entries: result.data?.entries ?? [],
-    error: result.error,
-  };
+  try {
+    const response = await fetch(`/api/worker/itc/${encodeURIComponent(itcId)}`);
+    const result = await readJson<{
+      itc: WorkerItcRegisterRow | null;
+      entries: WorkerItcChecklistEntryRow[];
+    }>(response);
+    return {
+      itc: result.data?.itc ?? null,
+      entries: result.data?.entries ?? [],
+      error: result.error,
+    };
+  } catch {
+    return { itc: null, entries: [], error: ITC_NETWORK_ERROR };
+  }
 }
 
 export async function saveWorkerItcChecklist(input: {
@@ -56,29 +73,37 @@ export async function saveWorkerItcChecklist(input: {
   workerName: string;
   items: SaveChecklistItemInput[];
 }): Promise<{ error: string | null }> {
-  const response = await fetch("/api/worker/itc/checklist/save", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const result = await readJson<{ ok?: boolean }>(response);
-  return { error: result.error };
+  try {
+    const response = await fetch("/api/worker/itc/checklist/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const result = await readJson<{ ok?: boolean }>(response);
+    return { error: result.error };
+  } catch {
+    return { error: ITC_NETWORK_ERROR };
+  }
 }
 
 export async function completeWorkerItc(input: {
   itcId: string;
   workerId: string;
 }): Promise<{ error: string | null }> {
-  const response = await fetch(
-    `/api/worker/itc/${encodeURIComponent(input.itcId)}/complete`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workerId: input.workerId }),
-    }
-  );
-  const result = await readJson<{ ok?: boolean }>(response);
-  return { error: result.error };
+  try {
+    const response = await fetch(
+      `/api/worker/itc/${encodeURIComponent(input.itcId)}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId: input.workerId }),
+      }
+    );
+    const result = await readJson<{ ok?: boolean }>(response);
+    return { error: result.error };
+  } catch {
+    return { error: ITC_NETWORK_ERROR };
+  }
 }
 
 export async function uploadWorkerItcChecklistPhoto(input: {
@@ -93,13 +118,17 @@ export async function uploadWorkerItcChecklistPhoto(input: {
   formData.append("itemKey", input.itemKey);
   formData.append("file", input.file);
 
-  const response = await fetch("/api/worker/itc/checklist/upload", {
-    method: "POST",
-    body: formData,
-  });
+  try {
+    const response = await fetch("/api/worker/itc/checklist/upload", {
+      method: "POST",
+      body: formData,
+    });
 
-  const result = await readJson<{ url?: string | null }>(response);
-  return { url: result.data?.url ?? null, error: result.error };
+    const result = await readJson<{ url?: string | null }>(response);
+    return { url: result.data?.url ?? null, error: result.error };
+  } catch {
+    return { url: null, error: ITC_NETWORK_ERROR };
+  }
 }
 
 export function getWorkerItcPinColor(status: string): string {

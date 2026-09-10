@@ -1,11 +1,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sanitizeWritePayload } from "./form-payload-utils";
 import { getItpTemplate, type ItpPointType } from "./itp-templates";
 import { resolveProjectId } from "./project-resolver";
 import {
   DEFAULT_ITC_FORM_STEPS,
   deriveItcStatus,
 } from "./itc-templates";
+import {
+  ITC_SIGNOFF_COLUMNS,
+  PROJECT_ITC_COLUMNS,
+  PROJECT_ITP_COLUMNS,
+  PROJECT_ITP_ITEM_COLUMNS,
+  retryItpItcWrite,
+  retryItpItcWriteMany,
+  sanitizeItpItcWritePayload,
+} from "./itp-itc-payload";
 
 export interface CreateItpItemInput {
   item_number: number;
@@ -25,10 +33,12 @@ export interface CreateItpAdminInput {
   items?: CreateItpItemInput[];
 }
 
-function stripPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeWritePayload(
-    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
-  );
+function stripPayload(
+  payload: Record<string, unknown>,
+  columns: readonly string[],
+  complete = false
+): Record<string, unknown> {
+  return sanitizeItpItcWritePayload(payload, columns, { complete });
 }
 
 async function resolveProject(projectId: string): Promise<string> {
@@ -89,20 +99,28 @@ export async function createProjectItpAdmin(
       location_area: input.location_area?.trim() || null,
       status: "draft",
       template_key: input.template_key ?? null,
+      form_data: {},
       updated_at: new Date().toISOString(),
-    });
+    }, PROJECT_ITP_COLUMNS);
 
-    const { data: itpRow, error: itpError } = await admin
-      .from("project_itps")
-      .insert(headerPayload)
-      .select("id")
-      .single();
+    const insertResult = await retryItpItcWrite(
+      "admin.project_itps.insert",
+      headerPayload,
+      async (payload) => {
+        const { data, error } = await admin
+          .from("project_itps")
+          .insert(payload)
+          .select("id")
+          .single();
+        return { data, error };
+      }
+    );
 
-    if (itpError || !itpRow) {
-      return { error: itpError?.message ?? "Failed to create ITP" };
+    if (insertResult.error || !insertResult.data) {
+      return { error: insertResult.error ?? "Failed to create ITP" };
     }
 
-    const itpId = String(itpRow.id);
+    const itpId = String((insertResult.data as { id: string }).id);
 
     if (items.length > 0) {
       const itemPayload = items.map((item, index) =>
@@ -114,14 +132,24 @@ export async function createProjectItpAdmin(
           point_type: item.point_type,
           status: "pending",
           sort_order: index,
+          photo_urls: [],
+          checklist: [],
+          form_data: {},
           updated_at: new Date().toISOString(),
-        })
+        }, PROJECT_ITP_ITEM_COLUMNS)
       );
 
-      const { error: itemsError } = await admin.from("project_itp_items").insert(itemPayload);
-      if (itemsError) {
+      const itemsResult = await retryItpItcWriteMany(
+        "admin.project_itp_items.insert",
+        itemPayload,
+        async (rows) => {
+          const { error } = await admin.from("project_itp_items").insert(rows);
+          return { error };
+        }
+      );
+      if (itemsResult.error) {
         await admin.from("project_itps").delete().eq("id", itpId);
-        return { error: itemsError.message };
+        return { error: itemsResult.error };
       }
     }
 
@@ -138,17 +166,25 @@ export async function updateItpStatusAdmin(
   itpId: string,
   status: string
 ): Promise<{ error: string | null }> {
-  const { error } = await admin
-    .from("project_itps")
-    .update(
-      stripPayload({
+  const complete =
+    status === "submitted" || status === "approved" || status === "completed";
+  const result = await retryItpItcWrite(
+    "admin.project_itps.status",
+    stripPayload(
+      {
         status,
         updated_at: new Date().toISOString(),
-      })
-    )
-    .eq("id", itpId);
-
-  return { error: error?.message ?? null };
+        completed_at: complete ? new Date().toISOString() : undefined,
+      },
+      PROJECT_ITP_COLUMNS,
+      status === "completed"
+    ),
+    async (payload) => {
+      const { error } = await admin.from("project_itps").update(payload).eq("id", itpId);
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export async function updateItpItemAdmin(
@@ -156,17 +192,21 @@ export async function updateItpItemAdmin(
   itemId: string,
   patch: Record<string, unknown>
 ): Promise<{ error: string | null }> {
-  const { error } = await admin
-    .from("project_itp_items")
-    .update(
-      stripPayload({
+  const result = await retryItpItcWrite(
+    "admin.project_itp_items.update",
+    stripPayload(
+      {
         ...patch,
         updated_at: new Date().toISOString(),
-      })
-    )
-    .eq("id", itemId);
-
-  return { error: error?.message ?? null };
+      },
+      PROJECT_ITP_ITEM_COLUMNS
+    ),
+    async (payload) => {
+      const { error } = await admin.from("project_itp_items").update(payload).eq("id", itemId);
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export async function submitItcSignoffAdmin(
@@ -207,22 +247,27 @@ export async function submitItcSignoffAdmin(
       }
     : {};
 
-  const { error: submitError } = await admin
-    .from("itc_signoffs")
-    .update(
-      stripPayload({
-        status: "submitted",
-        submitted_at: submittedAt,
-        signed_at: submittedAt,
-        signed_by_worker_id: input.signedByWorkerId,
-        updated_at: submittedAt,
-        ...verifyPayload,
-      })
-    )
-    .eq("id", input.signoffId)
-    .eq("status", "draft");
+  const submitResult = await retryItpItcWrite(
+    "admin.itc_signoffs.submit",
+    stripPayload({
+      status: "submitted",
+      submitted_at: submittedAt,
+      signed_at: submittedAt,
+      signed_by_worker_id: input.signedByWorkerId,
+      updated_at: submittedAt,
+      ...verifyPayload,
+    }, ITC_SIGNOFF_COLUMNS),
+    async (payload) => {
+      const { error } = await admin
+        .from("itc_signoffs")
+        .update(payload)
+        .eq("id", input.signoffId)
+        .eq("status", "draft");
+      return { error };
+    }
+  );
 
-  if (submitError) return { error: submitError.message };
+  if (submitResult.error) return { error: submitResult.error };
 
   const { data: signoffs, error: signoffsError } = await admin
     .from("itc_signoffs")
@@ -244,19 +289,26 @@ export async function submitItcSignoffAdmin(
     submittedSteps: submittedCount,
   });
 
-  const { error: itcUpdateError } = await admin
-    .from("project_itcs")
-    .update(
-      stripPayload({
+  const itcUpdate = await retryItpItcWrite(
+    "admin.project_itcs.progress",
+    stripPayload(
+      {
         progress_percent: progress,
         status,
         updated_at: submittedAt,
-      })
-    )
-    .eq("id", input.itcId);
+        completed_at: status === "completed" || status === "complete" ? submittedAt : undefined,
+      },
+      PROJECT_ITC_COLUMNS,
+      status === "completed" || status === "complete"
+    ),
+    async (payload) => {
+      const { error } = await admin.from("project_itcs").update(payload).eq("id", input.itcId);
+      return { error };
+    }
+  );
 
-  if (itcUpdateError) {
-    return { error: itcUpdateError.message };
+  if (itcUpdate.error) {
+    return { error: itcUpdate.error };
   }
 
   return { error: null };

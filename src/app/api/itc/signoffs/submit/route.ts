@@ -48,18 +48,27 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await submitItcSignoffAdmin(admin, {
-    signoffId: body.signoffId.trim(),
-    itcId: body.itcId.trim(),
-    signedByWorkerId: body.signedByWorkerId.trim(),
-    autoVerify: body.autoVerify === true,
-    verifiedBy: body.verifiedBy?.trim(),
-    verifiedByName: body.verifiedByName?.trim(),
-  });
+  try {
+    const result = await submitItcSignoffAdmin(admin, {
+      signoffId: body.signoffId.trim(),
+      itcId: body.itcId.trim(),
+      signedByWorkerId: body.signedByWorkerId.trim(),
+      autoVerify: body.autoVerify === true,
+      verifiedBy: body.verifiedBy?.trim(),
+      verifiedByName: body.verifiedByName?.trim(),
+    });
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to submit ITC sign-off.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ ok: true });
 }

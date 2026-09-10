@@ -37,11 +37,20 @@ export async function PATCH(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await updateItpItemAdmin(admin, body.itemId.trim(), body.patch);
+  try {
+    const result = await updateItpItemAdmin(admin, body.itemId.trim(), body.patch);
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to update ITP item.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ ok: true });
 }

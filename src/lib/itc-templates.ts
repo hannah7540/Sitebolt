@@ -219,7 +219,7 @@ export function deriveItcStatus(input: {
 }): ItcStatus {
   if (input.has_open_cr) return "issue";
   if (input.progress_percent >= 100 || input.submittedSteps >= DEFAULT_ITC_FORM_STEPS.length) {
-    return "complete";
+    return "completed";
   }
   if (input.submittedSteps > 0 || input.progress_percent > 0) return "ongoing";
   return "not_started";

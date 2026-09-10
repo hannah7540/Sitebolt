@@ -39,21 +39,30 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const result = await uploadWorkerItcChecklistPhotoAdmin(admin, {
-    projectId,
-    itcId,
-    itemKey,
-    file,
-    fileName: file.name || "photo.jpg",
-    contentType: file.type || "image/jpeg",
-  });
+  try {
+    const result = await uploadWorkerItcChecklistPhotoAdmin(admin, {
+      projectId,
+      itcId,
+      itemKey,
+      file,
+      fileName: file.name || "photo.jpg",
+      contentType: file.type || "image/jpeg",
+    });
 
-  if (result.error || !result.url) {
+    if (result.error || !result.url) {
+      return NextResponse.json(
+        { error: result.error ?? "Photo upload failed." },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ url: result.url });
+  } catch (error) {
     return NextResponse.json(
-      { error: result.error ?? "Photo upload failed." },
-      { status: 400 }
+      {
+        error: error instanceof Error ? error.message : "Failed to upload ITC photo.",
+      },
+      { status: 500 }
     );
   }
-
-  return NextResponse.json({ url: result.url });
 }

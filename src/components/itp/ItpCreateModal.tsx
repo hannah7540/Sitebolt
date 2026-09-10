@@ -53,33 +53,40 @@ export default function ItpCreateModal({
     setSaving(true);
     setError(null);
 
-    let result;
-    if (mode === "template" && selectedTemplate) {
-      result = await cloneItpFromTemplate(projectId, selectedTemplate, {
-        title,
-        trade_category: tradeCategory,
-        subcontractor_name: subcontractor || undefined,
-        location_area: location || undefined,
-        revision,
-      });
-    } else {
-      result = await createProjectItp({
-        project_id: projectId,
-        title,
-        trade_category: tradeCategory,
-        subcontractor_name: subcontractor || undefined,
-        location_area: location || undefined,
-        revision,
-      });
-    }
+    try {
+      let result;
+      if (mode === "template" && selectedTemplate) {
+        result = await cloneItpFromTemplate(projectId, selectedTemplate, {
+          title,
+          trade_category: tradeCategory,
+          subcontractor_name: subcontractor || undefined,
+          location_area: location || undefined,
+          revision,
+        });
+      } else {
+        result = await createProjectItp({
+          project_id: projectId,
+          title,
+          trade_category: tradeCategory,
+          subcontractor_name: subcontractor || undefined,
+          location_area: location || undefined,
+          revision,
+        });
+      }
 
-    setSaving(false);
-    if (result.error) {
-      setError(result.error);
-      return;
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      onCreated();
+      onClose();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Network error while saving. Please try again."
+      );
+    } finally {
+      setSaving(false);
     }
-    onCreated();
-    onClose();
   };
 
   return (

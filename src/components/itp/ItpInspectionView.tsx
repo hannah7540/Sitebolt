@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -25,6 +26,7 @@ import {
   updateItpStatus,
 } from "@/lib/itp-service";
 import { uploadItpPhoto } from "@/lib/itp-upload";
+import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import ItpSignOffModal from "./ItpSignOffModal";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -73,6 +75,7 @@ export default function ItpInspectionView({
   onBack,
   onUpdated,
 }: ItpInspectionViewProps) {
+  const router = useRouter();
   const [itp, setItp] = useState<ProjectItp | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -81,9 +84,14 @@ export default function ItpInspectionView({
 
   const loadItp = useCallback(async () => {
     setLoading(true);
-    const row = await fetchItpById(itpId);
-    setItp(row);
-    setLoading(false);
+    try {
+      const row = await fetchItpById(itpId);
+      setItp(row);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to load ITP.");
+    } finally {
+      setLoading(false);
+    }
   }, [itpId]);
 
   useEffect(() => {
@@ -96,33 +104,43 @@ export default function ItpInspectionView({
 
   const handleItemStatus = async (item: ProjectItpItem, status: ProjectItpItem["status"]) => {
     setActionId(item.id);
-    await markItpInProgress(itpId);
-    const { error } = await updateItpItemStatus(item.id, status);
-    setActionId(null);
-    if (error) {
-      setMessage(error);
-      return;
+    setMessage(null);
+    try {
+      await markItpInProgress(itpId);
+      const { error } = await updateItpItemStatus(item.id, status);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      await loadItp();
+      onUpdated();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to update ITP item.");
+    } finally {
+      setActionId(null);
     }
-    await loadItp();
-    onUpdated();
   };
 
   const handlePhotoUpload = async (item: ProjectItpItem, file: File) => {
     setActionId(item.id);
     setMessage(null);
-    const upload = await uploadItpPhoto(file, itpId, item.id);
-    if (!upload.url) {
+    try {
+      const upload = await uploadItpPhoto(file, itpId, item.id);
+      if (!upload.url) {
+        setMessage(upload.error ?? "Photo upload failed");
+        return;
+      }
+      const { error } = await appendItpItemPhoto(item.id, upload.url);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      await loadItp();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Failed to upload photo.");
+    } finally {
       setActionId(null);
-      setMessage(upload.error ?? "Photo upload failed");
-      return;
     }
-    const { error } = await appendItpItemPhoto(item.id, upload.url);
-    setActionId(null);
-    if (error) {
-      setMessage(error);
-      return;
-    }
-    await loadItp();
   };
 
   const handleSubmitItp = async () => {
@@ -138,6 +156,8 @@ export default function ItpInspectionView({
         setMessage(error);
         return;
       }
+      setMessage(ITP_ITC_COMPLETED_TOAST);
+      router.refresh();
       await loadItp();
       onUpdated();
     } catch (cause) {
@@ -160,6 +180,8 @@ export default function ItpInspectionView({
         setMessage(error);
         return;
       }
+      setMessage(ITP_ITC_COMPLETED_TOAST);
+      router.refresh();
       await loadItp();
       onUpdated();
     } catch (cause) {
@@ -208,6 +230,7 @@ export default function ItpInspectionView({
             className={cn(
               "rounded px-3 py-1 text-xs font-bold uppercase tracking-wide",
               itp.status === "approved" && "bg-emerald-100 text-emerald-800",
+              itp.status === "completed" && "bg-emerald-100 text-emerald-800",
               itp.status === "submitted" && "bg-blue-100 text-blue-800",
               itp.status === "in_progress" && "bg-amber-100 text-amber-800",
               itp.status === "draft" && "bg-slate-100 text-slate-700"

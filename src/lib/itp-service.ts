@@ -1,5 +1,4 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { sanitizeWritePayload } from "./form-payload-utils";
 import { resolveProjectId } from "./project-resolver";
 import { getItpTemplate, type ItpTemplate } from "./itp-templates";
 import type {
@@ -8,6 +7,13 @@ import type {
   ItpStatus,
   ItpTradeCategory,
 } from "./itp-templates";
+import {
+  PROJECT_ITP_COLUMNS,
+  PROJECT_ITP_ITEM_COLUMNS,
+  retryItpItcWrite,
+  retryItpItcWriteMany,
+  sanitizeItpItcWritePayload,
+} from "./itp-itc-payload";
 
 export interface ProjectItpItem {
   id: string;
@@ -92,10 +98,12 @@ async function mutateItpViaApi<T>(
   }
 }
 
-function stripItpPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeWritePayload(
-    Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
-  );
+function stripItpPayload(
+  payload: Record<string, unknown>,
+  columns: readonly string[] = PROJECT_ITP_COLUMNS,
+  complete = false
+): Record<string, unknown> {
+  return sanitizeItpItcWritePayload(payload, columns, { complete });
 }
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -282,10 +290,7 @@ export async function createProjectItp(
       }
     }
 
-    const { data: itpRow, error: itpError } = await supabase
-      .from("project_itps")
-      .insert(
-        stripItpPayload({
+    const headerPayload = stripItpPayload({
           project_id: resolvedProjectId ?? input.project_id,
           itp_number: itpNumber,
           title: input.title.trim(),
@@ -295,30 +300,57 @@ export async function createProjectItp(
           location_area: input.location_area?.trim() || null,
           status: "draft",
           template_key: input.template_key ?? null,
-        })
-      )
-      .select("*")
-      .single();
+          form_data: {},
+        });
 
-    if (itpError || !itpRow) return { error: itpError?.message ?? "Failed to create ITP" };
+    const insertResult = await retryItpItcWrite(
+      "project_itps.insert",
+      headerPayload,
+      async (payload) => {
+        const { data, error } = await supabase
+          .from("project_itps")
+          .insert(payload)
+          .select("*")
+          .single();
+        return { data, error };
+      }
+    );
+
+    if (insertResult.error || !insertResult.data) {
+      return { error: insertResult.error ?? "Failed to create ITP" };
+    }
+    const itpRow = insertResult.data as { id: string };
 
     if (items.length > 0) {
       const payload = items.map((item, index) =>
-        stripItpPayload({
-          itp_id: itpRow.id,
-          item_number: item.item_number,
-          description: item.description,
-          acceptance_criteria: item.acceptance_criteria ?? null,
-          point_type: item.point_type,
-          status: "pending",
-          sort_order: index,
-        })
+        stripItpPayload(
+          {
+            itp_id: itpRow.id,
+            item_number: item.item_number,
+            description: item.description,
+            acceptance_criteria: item.acceptance_criteria ?? null,
+            point_type: item.point_type,
+            status: "pending",
+            sort_order: index,
+            photo_urls: [],
+            checklist: [],
+            form_data: {},
+          },
+          PROJECT_ITP_ITEM_COLUMNS
+        )
       );
 
-      const { error: itemsError } = await supabase.from("project_itp_items").insert(payload);
-      if (itemsError) {
+      const itemsResult = await retryItpItcWriteMany(
+        "project_itp_items.insert",
+        payload,
+        async (rows) => {
+          const { error } = await supabase.from("project_itp_items").insert(rows);
+          return { error };
+        }
+      );
+      if (itemsResult.error) {
         await supabase.from("project_itps").delete().eq("id", itpRow.id);
-        return { error: itemsError.message };
+        return { error: itemsResult.error };
       }
     }
 
@@ -375,13 +407,23 @@ export async function updateItpStatus(
     return { error: apiResult.error };
   }
 
-  const { error } = await supabase
-    .from("project_itps")
-    .update(stripItpPayload({ status, updated_at: new Date().toISOString() }))
-    .eq("id", itpId);
+  const complete =
+    status === "submitted" || status === "approved" || status === "completed";
+  const payload = stripItpPayload(
+    {
+      status,
+      updated_at: new Date().toISOString(),
+      completed_at: complete ? new Date().toISOString() : undefined,
+    },
+    PROJECT_ITP_COLUMNS,
+    status === "completed"
+  );
 
-  if (error) return { error: error.message };
-  return { error: null };
+  const result = await retryItpItcWrite("project_itps.status", payload, async (next) => {
+    const { error } = await supabase.from("project_itps").update(next).eq("id", itpId);
+    return { error };
+  });
+  return { error: result.error };
 }
 
 export async function updateItpItemStatus(
@@ -399,13 +441,18 @@ export async function updateItpItemStatus(
     return { error: apiResult.error };
   }
 
-  const { error } = await supabase
-    .from("project_itp_items")
-    .update(stripItpPayload({ status, updated_at: new Date().toISOString() }))
-    .eq("id", itemId);
-
-  if (error) return { error: error.message };
-  return { error: null };
+  const result = await retryItpItcWrite(
+    "project_itp_items.status",
+    stripItpPayload(
+      { status, updated_at: new Date().toISOString() },
+      PROJECT_ITP_ITEM_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase.from("project_itp_items").update(next).eq("id", itemId);
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export async function signOffItpItem(input: {
@@ -430,13 +477,18 @@ export async function signOffItpItem(input: {
     return { error: apiResult.error };
   }
 
-  const { error } = await supabase
-    .from("project_itp_items")
-    .update(stripItpPayload({ ...patch, updated_at: new Date().toISOString() }))
-    .eq("id", input.itemId);
-
-  if (error) return { error: error.message };
-  return { error: null };
+  const result = await retryItpItcWrite(
+    "project_itp_items.signoff",
+    stripItpPayload(
+      { ...patch, updated_at: new Date().toISOString() },
+      PROJECT_ITP_ITEM_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase.from("project_itp_items").update(next).eq("id", input.itemId);
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export async function appendItpItemPhoto(
@@ -465,13 +517,18 @@ export async function appendItpItemPhoto(
     return { error: apiResult.error };
   }
 
-  const { error } = await supabase
-    .from("project_itp_items")
-    .update(stripItpPayload({ photo_urls: photos, updated_at: new Date().toISOString() }))
-    .eq("id", itemId);
-
-  if (error) return { error: error.message };
-  return { error: null };
+  const result = await retryItpItcWrite(
+    "project_itp_items.photos",
+    stripItpPayload(
+      { photo_urls: photos, photos, updated_at: new Date().toISOString() },
+      PROJECT_ITP_ITEM_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase.from("project_itp_items").update(next).eq("id", itemId);
+      return { error };
+    }
+  );
+  return { error: result.error };
 }
 
 export function hasBlockingHoldPoints(items: ProjectItpItem[]): boolean {
