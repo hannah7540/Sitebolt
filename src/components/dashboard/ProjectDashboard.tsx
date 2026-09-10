@@ -374,6 +374,13 @@ export default function ProjectDashboard({
             loading={plantPrestartsLoading || loading}
             onOpenList={() => setShowPlantPrestartsList(true)}
             onSelectPrestart={handlePlantPrestartSelect}
+            onDefectRemoved={(prestartId, patch) =>
+              setPlantPrestarts((current) =>
+                current.map((row) =>
+                  row.id === prestartId ? { ...row, ...patch } : row
+                )
+              )
+            }
           />
         );
       case "safety_walks":

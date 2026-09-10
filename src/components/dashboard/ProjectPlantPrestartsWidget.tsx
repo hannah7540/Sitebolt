@@ -8,11 +8,13 @@ import {
   filterPlantPrestartsForDate,
   formatPlantPrestartDisplayDateTime,
   getPlantPrestartStatusLabel,
+  isActiveDashboardDefect,
   sortPlantPrestartsNewestFirst,
 } from "@/lib/plant-prestart-utils";
 import { localIsoDate } from "@/lib/timesheet-utils";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import PlantPrestartDefectsWidget from "./PlantPrestartDefectsWidget";
 
 interface ProjectPlantPrestartsWidgetProps {
   prestarts: PlantPrestart[];
@@ -21,6 +23,7 @@ interface ProjectPlantPrestartsWidgetProps {
   loading?: boolean;
   onOpenList: () => void;
   onSelectPrestart: (prestart: PlantPrestart) => void;
+  onDefectRemoved?: (prestartId: string, patch?: Partial<PlantPrestart>) => void;
 }
 
 function resolveOperatorName(prestart: PlantPrestart, workers: Worker[]): string {
@@ -45,6 +48,7 @@ export default function ProjectPlantPrestartsWidget({
   loading = false,
   onOpenList,
   onSelectPrestart,
+  onDefectRemoved,
 }: ProjectPlantPrestartsWidgetProps) {
   const [filterDate, setFilterDate] = useState(() => localIsoDate());
 
@@ -60,6 +64,10 @@ export default function ProjectPlantPrestartsWidget({
   );
 
   const isToday = filterDate === localIsoDate();
+  const activeDefects = useMemo(
+    () => prestarts.filter((row) => isActiveDashboardDefect(row)),
+    [prestarts]
+  );
 
   return (
     <div className={cn(cardClass, "flex h-full flex-col p-6")}>
@@ -118,6 +126,19 @@ export default function ProjectPlantPrestartsWidget({
           className={cn(inputClass, "mt-1")}
         />
       </label>
+
+      {activeDefects.length > 0 ? (
+        <div className="mb-4">
+          <PlantPrestartDefectsWidget
+            prestarts={activeDefects}
+            plant={plant}
+            workers={workers}
+            loading={loading}
+            embedded
+            onRemoved={onDefectRemoved}
+          />
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex flex-1 items-center gap-2 py-8 text-sm text-slate-500">

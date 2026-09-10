@@ -90,6 +90,66 @@ export function filterPlantPrestartsForDate(
   return prestarts.filter((row) => isPrestartSubmittedOnDate(row, isoDate));
 }
 
+export function getPrestartDefectNotes(prestart: PlantPrestart): string {
+  return (
+    prestart.defect_notes?.trim() ||
+    prestart.defect_comments?.trim() ||
+    prestart.defect_summary?.trim() ||
+    ""
+  );
+}
+
+function isLikelyImageUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith("blob:")) return false;
+  const lower = trimmed.toLowerCase();
+  return (
+    lower.includes("prestart-uploads") ||
+    lower.includes("/storage/") ||
+    /\.(jpe?g|png|webp|gif|heic)(\?|$)/i.test(lower) ||
+    lower.includes("defect")
+  );
+}
+
+export function collectPrestartDefectPhotoUrls(prestart: PlantPrestart): string[] {
+  const urls = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value === "string" && isLikelyImageUrl(value)) {
+      urls.add(value.trim());
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) add(item);
+      return;
+    }
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      add(record.url ?? record.src ?? record.photo_url ?? record.defect_photo_url);
+    }
+  };
+
+  add(prestart.defect_photo_url);
+  const checkData = prestart.check_data ?? {};
+  for (const [key, value] of Object.entries(checkData)) {
+    if (key.startsWith("_") && !/photo|image|defect/i.test(key)) continue;
+    if (/photo|image|defect|attachment/i.test(key) || typeof value === "string") {
+      add(value);
+    }
+  }
+
+  return Array.from(urls);
+}
+
+export function isActiveDashboardDefect(prestart: PlantPrestart): boolean {
+  if (prestart.defect_reviewed === true) return false;
+  if (prestart.defect_ignored === true) return false;
+  if (prestart.defect_reviewed == null && prestart.is_read === true) return false;
+  if (prestart.defect_status === "Resolved" && !prestart.has_defect) return false;
+  if (prestart.cleared_at && !prestart.has_defect) return false;
+  if (prestart.has_defect) return true;
+  return getPrestartDefectNotes(prestart).length > 0;
+}
+
 export function getPrestartDefectLabel(prestart: PlantPrestart): string {
   const summary = prestart.defect_summary?.trim();
   if (summary) {
@@ -191,6 +251,7 @@ export function formatPrestartHours(value: number | null | undefined): string {
 /** Latest pre-start still has an open defect (not cleared). */
 export function hasOpenPrestartDefect(prestart: PlantPrestart | undefined): boolean {
   if (!prestart || prestart.cleared_at) return false;
+  if (prestart.defect_ignored) return false;
   if (prestart.defect_status === "Resolved") return false;
   if (prestart.has_defect) return true;
   if (prestart.defect_summary?.trim()) return true;
@@ -244,6 +305,7 @@ export function getPlantCalendarHeaderAlerts(
 
 /** Show defect on calendar grid (includes resolved historical defects). */
 export function isCalendarDefectPrestart(prestart: PlantPrestart): boolean {
+  if (prestart.defect_ignored) return false;
   if (prestart.has_defect) return true;
   if (prestart.defect_status === "Resolved") return true;
   if (

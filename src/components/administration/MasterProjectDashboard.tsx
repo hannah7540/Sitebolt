@@ -8,7 +8,6 @@ import {
   Check,
   ClipboardCheck,
   FileSignature,
-  HardHat,
   Loader2,
   MessageSquare,
   ShieldCheck,
@@ -45,6 +44,7 @@ import { useFormToast } from "@/hooks/useFormToast";
 import Toast from "@/components/ui/Toast";
 import AdminIncidentDetailModal from "@/components/administration/forms/AdminIncidentDetailModal";
 import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
+import PlantPrestartDefectsWidget from "@/components/dashboard/PlantPrestartDefectsWidget";
 import SiteFormDetailRouter from "@/components/dashboard/SiteFormDetailRouter";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
 import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
@@ -438,50 +438,12 @@ export default function MasterProjectDashboard() {
           </div>
 
           <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-[380px] xl:w-[420px]">
-            <section className={cn(cardClass, "flex flex-col p-5")}>
-              <div className="mb-4 flex items-start gap-3">
-                <HardHat className="h-9 w-9 shrink-0 text-amber-500" />
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-lg font-bold text-slate-900">Plant Pre-starts</h2>
-                  <p className="text-sm text-slate-500">
-                    {data.plantPrestarts.count} unread
-                  </p>
-                </div>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-bold text-slate-800">
-                  {data.plantPrestarts.count}
-                </span>
-              </div>
-
-              {data.plantPrestarts.count === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                  No unread plant pre-starts.
-                </div>
-              ) : (
-                <ul className="max-h-[calc(100vh-180px)] space-y-2 overflow-y-auto pr-2">
-                  {data.plantPrestarts.items.map((item) => {
-                    const record = filteredSnapshot.plantPrestarts.find(
-                      (row) => row.id === item.id
-                    );
-                    return (
-                      <li key={item.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (record) void openPrestart(record);
-                          }}
-                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-orange-300 hover:bg-orange-50"
-                        >
-                          <p className="truncate font-semibold text-slate-900">{item.title}</p>
-                          {item.subtitle ? (
-                            <p className="truncate text-xs text-slate-500">{item.subtitle}</p>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+            <PlantPrestartDefectsWidget
+              prestarts={filteredSnapshot.plantPrestarts}
+              plant={snapshot.plant}
+              workers={workers}
+              onRemoved={(prestartId) => removeRecord("plantPrestarts", prestartId)}
+            />
           </aside>
         </div>
       )}

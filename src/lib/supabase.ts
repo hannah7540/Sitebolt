@@ -1468,7 +1468,12 @@ export interface PlantPrestart {
   has_defect: boolean;
   defect_summary?: string | null;
   defect_comments: string | null;
+  defect_notes?: string | null;
   defect_photo_url: string | null;
+  defect_reviewed?: boolean | null;
+  defect_ignored?: boolean | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
   signature_url: string | null;
   repair_notes: string | null;
   mechanic_invoice_ref: string | null;

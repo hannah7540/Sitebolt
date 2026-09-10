@@ -23,10 +23,8 @@ import { isSiteFormViewed } from "./dashboard-form-utils";
 import { formatSiteFormDate, type SiteFormSubmission } from "./site-forms";
 import { getWorkerDisplayName } from "./worker-utils";
 import { getProjectDisplayName } from "./project-resolver";
-import {
-  isPlantPrestartRecent,
-  isPlantPrestartUnread,
-} from "./plant-prestart-mutations";
+import { isActiveDashboardDefect } from "./plant-prestart-utils";
+import { getPlantPrestartDisplayTitle } from "./plant-prestart-utils";
 import { fetchSwmsDocuments, type SwmsDocumentSummary } from "./swms";
 
 export interface MasterDashboardItem {
@@ -146,8 +144,7 @@ export function filterMasterDashboardSnapshot(
     ),
     plantPrestarts: snapshot.plantPrestarts.filter(
       (row) =>
-        isPlantPrestartUnread(row) &&
-        isPlantPrestartRecent(row) &&
+        isActiveDashboardDefect(row) &&
         matchesDashboardProject(row.project_id, projectId)
     ),
     leaveRequests: snapshot.leaveRequests.filter(
@@ -215,8 +212,13 @@ export function toMasterDashboardWidgetData(
       count: snapshot.plantPrestarts.length,
       items: snapshot.plantPrestarts.map((row) => ({
         id: row.id,
-        title: row.operator_name?.trim() || "Plant pre-start",
-        subtitle: (row.submitted_at ?? row.created_at)?.slice(0, 10) || "No date",
+        title: getPlantPrestartDisplayTitle(row, snapshot.plant),
+        subtitle: [
+          row.operator_name?.trim() || "Unknown operator",
+          (row.submitted_at ?? row.created_at)?.slice(0, 10) || "No date",
+        ]
+          .filter(Boolean)
+          .join(" · "),
       })),
     },
     leaveRequests: {
@@ -299,8 +301,8 @@ export async function fetchMasterProjectDashboardSnapshot(): Promise<MasterProje
   const toolboxTalks = (siteForms ?? []).filter(
     (form) => form?.form_type === "toolbox_talk" && !isSiteFormViewed(form)
   );
-  const plantPrestarts = (prestarts ?? []).filter(
-    (row) => isPlantPrestartUnread(row) && isPlantPrestartRecent(row)
+  const plantPrestarts = (prestarts ?? []).filter((row) =>
+    isActiveDashboardDefect(row)
   );
   const pendingLeave = (leaveRows ?? []).filter((row) =>
     isLeaveRequestPending(row?.status)
