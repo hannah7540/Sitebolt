@@ -175,7 +175,12 @@ export default function DocumentCapture({
       {label && (
         <span className={cn("block text-sm font-medium text-slate-700", labelClass)}>
           {label}
-          {required ? <span className="text-orange-500"> *</span> : null}
+          {required ? (
+            <>
+              {" "}
+              <span className="text-red-500">*</span>
+            </>
+          ) : null}
         </span>
       )}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
@@ -373,7 +378,8 @@ export default function DocumentCapture({
             "flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-orange-300",
             "bg-orange-50 px-3 py-3 text-sm font-semibold text-orange-600",
             "transition hover:border-orange-500 hover:bg-orange-100",
-            "disabled:cursor-not-allowed disabled:opacity-50"
+            "disabled:cursor-not-allowed disabled:opacity-50",
+            error && "border-red-500"
           )}
         >
           <Camera className="h-4 w-4 shrink-0" />
@@ -387,7 +393,8 @@ export default function DocumentCapture({
             "flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300",
             "bg-white px-3 py-3 text-sm font-semibold text-slate-700",
             "transition hover:border-orange-400 hover:bg-orange-50 hover:text-orange-600",
-            "disabled:cursor-not-allowed disabled:opacity-50"
+            "disabled:cursor-not-allowed disabled:opacity-50",
+            error && "border-red-500"
           )}
         >
           <FolderOpen className="h-4 w-4 shrink-0" />

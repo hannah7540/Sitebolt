@@ -39,6 +39,7 @@ import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
+  ADMIN_FULL_ONBOARDING_REQUIRED_TOAST,
   ONBOARDING_REQUIRED_TOAST,
   firstMissingOnboardingField,
   missingOnboardingFields,
@@ -122,10 +123,22 @@ function Field({
   fieldId?: string;
 }) {
   return (
-    <label className="block space-y-1" data-onboarding-field={fieldId}>
+    <label
+      className={cn(
+        "block space-y-1",
+        error &&
+          "[&_input]:border-red-500 [&_input]:focus:border-red-500 [&_input]:focus:ring-red-500"
+      )}
+      data-onboarding-field={fieldId}
+    >
       <span className={labelClass}>
         {label.replace(/ \*$/, "")}
-        {required ? <span className="text-orange-500"> *</span> : null}
+        {required ? (
+          <>
+            {" "}
+            <span className="text-red-500">*</span>
+          </>
+        ) : null}
       </span>
       {children}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
@@ -266,8 +279,12 @@ export default function WorkerOnboardingModal({
     setFieldErrors(errors);
     const first = firstMissingOnboardingField(checks);
     if (first) {
-      setError(ONBOARDING_REQUIRED_TOAST);
-      showError(ONBOARDING_REQUIRED_TOAST);
+      const toastMessage =
+        mode === "full"
+          ? ADMIN_FULL_ONBOARDING_REQUIRED_TOAST
+          : ONBOARDING_REQUIRED_TOAST;
+      setError(toastMessage);
+      showError(toastMessage);
       scrollToOnboardingField(first.field);
       return first;
     }
@@ -684,7 +701,7 @@ export default function WorkerOnboardingModal({
                 />
               </Field>
               <Field
-                label="Email"
+                label="Email Address"
                 required
                 fieldId="email"
                 error={fieldErrors.email}
@@ -761,6 +778,7 @@ export default function WorkerOnboardingModal({
                 value={(form.state as WorkerStateRegion | null) ?? null}
                 onChange={(value) => set("state", value)}
                 disabled={submitting}
+                required
                 fieldId="state"
                 error={fieldErrors.state}
               />

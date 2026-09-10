@@ -1,6 +1,9 @@
 export const ONBOARDING_REQUIRED_TOAST =
   "Please complete all mandatory fields before proceeding.";
 
+export const ADMIN_FULL_ONBOARDING_REQUIRED_TOAST =
+  "Please complete all required fields before confirming onboarding.";
+
 export const ONBOARDING_FIELD_REQUIRED = "This field is required";
 
 export type OnboardingFieldError = {

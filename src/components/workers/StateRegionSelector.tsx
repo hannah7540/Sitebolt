@@ -33,13 +33,13 @@ export default function StateRegionSelector({
 
   return (
     <fieldset
-      className={className}
+      className={cn(className, error && "rounded-lg ring-1 ring-red-500")}
       disabled={disabled}
       data-onboarding-field={fieldId}
     >
       <legend className={labelClass}>
-        State / Region
-        {required ? <span className="text-orange-500"> *</span> : null}
+        State / Region{" "}
+        {required ? <span className="text-red-500">*</span> : null}
       </legend>
       <div className="mt-2 flex flex-wrap gap-2">
         {WORKER_STATE_REGION_OPTIONS.map((option) => {
