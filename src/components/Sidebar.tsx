@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CompanyLogo from "@/components/ui/CompanyLogo";
@@ -58,6 +58,7 @@ import {
   isOrganisationNavActive,
 } from "@/lib/organisation-nav-routes";
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
+import { usePersistedSidebarSection } from "@/hooks/usePersistedSidebarSection";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 
@@ -303,14 +304,19 @@ function ProjectAccordion({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(defaultExpanded);
-  const isSelectedProject = project.id === selectedProjectId;
+  const isSelectedProject =
+    project.id === selectedProjectId ||
+    Boolean(project.id && extractProjectIdFromPathname(pathname) === project.id);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    `projects:${project.id ?? project.label}`,
+    defaultExpanded || isSelectedProject
+  );
 
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
           open || isSelectedProject
@@ -402,13 +408,16 @@ function NestedAccordion({
     (sub) =>
       !isNestedGroup(sub) && sub.view === activeView && isSelectedProject
   );
-  const [open, setOpen] = useState(hasActiveChild);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    `projects:${projectId ?? "none"}:${group.id ?? group.label}`,
+    hasActiveChild
+  );
 
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
           hasActiveChild
@@ -734,13 +743,17 @@ function ProjectsSection({
   selectedProjectId?: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    "projects",
+    Boolean(selectedProjectId) || Boolean(pathname?.startsWith("/projects"))
+  );
 
   return (
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
         aria-expanded={open}
       >
@@ -775,7 +788,10 @@ function SubcontractorsSection({
   activeView: ActiveView;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    "subcontractors",
+    activeView === "subcontractors"
+  );
   const items: SubItem[] = [
     { label: "View All Subcontractors", view: "subcontractors" },
     { label: "Add New Subcontractor", view: "subcontractors", openAdd: true },
@@ -785,7 +801,7 @@ function SubcontractorsSection({
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
       >
         <span className="flex items-center gap-2">
@@ -825,14 +841,18 @@ function AccountsSection({
   pathname: string | null;
 }) {
   const isAccountsRoute = pathname?.startsWith("/accounts") ?? false;
-  const [open, setOpen] = useState(menu.defaultExpanded || isAccountsRoute);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    "accounts",
+    isAccountsRoute,
+    menu.defaultExpanded
+  );
   const SectionIcon = menu.icon;
 
   return (
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => menu.isCollapsible && setOpen(!open)}
+        onClick={() => menu.isCollapsible && toggleOpen()}
         className={cn(
           "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
           isAccountsRoute ? "text-orange-700" : "text-orange-600"
@@ -914,14 +934,18 @@ function CommunicationSection({
 }) {
   const isCommunicationRoute =
     (pathname?.startsWith("/emails") || pathname?.startsWith("/sms")) ?? false;
-  const [open, setOpen] = useState(menu.defaultExpanded || isCommunicationRoute);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    "communication",
+    isCommunicationRoute,
+    menu.defaultExpanded
+  );
   const SectionIcon = menu.icon;
 
   return (
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => menu.isCollapsible && setOpen(!open)}
+        onClick={() => menu.isCollapsible && toggleOpen()}
         className={cn(
           "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
           isCommunicationRoute ? "text-orange-700" : "text-orange-600"
@@ -992,6 +1016,9 @@ function AdministrationSection({
   pathname: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
+  const isAdminRoute =
+    (pathname?.startsWith("/admin") ?? false) ||
+    activeView.startsWith("admin-");
   const isFormsRoute =
     (pathname?.startsWith("/admin/forms") ?? false) && !isInductionsPath(pathname);
   const isMasterDashboard =
@@ -999,8 +1026,11 @@ function AdministrationSection({
     pathname === "/admin/dashboard" ||
     activeView === "admin-master-dashboard";
   const incidentUnreadCount = useIncidentUnreadCount(true);
-  const [open, setOpen] = useState(isFormsRoute || isMasterDashboard);
-  const [formsOpen, setFormsOpen] = useState(isFormsRoute);
+  const [open, toggleOpen] = usePersistedSidebarSection("administration", isAdminRoute);
+  const [formsOpen, toggleFormsOpen] = usePersistedSidebarSection(
+    "administration-forms",
+    isFormsRoute
+  );
   const items: SubItem[] = [
     { label: "Full Plant Calendar", view: "admin-plant-calendar" },
     { label: "Full Worker Calendar", view: "admin-worker-calendar" },
@@ -1013,7 +1043,7 @@ function AdministrationSection({
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
       >
         <span className="flex items-center gap-2">
@@ -1032,7 +1062,7 @@ function AdministrationSection({
           <div>
             <button
               type="button"
-              onClick={() => setFormsOpen(!formsOpen)}
+              onClick={toggleFormsOpen}
               className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-orange-50 hover:text-orange-600"
             >
               <span className="flex items-center gap-2">
@@ -1119,13 +1149,16 @@ function OrganisationSection({
 }) {
   const isOrganisationRoute =
     (pathname?.startsWith("/organisation") ?? false) || isInductionsPath(pathname);
-  const [open, setOpen] = useState(isOrganisationRoute);
+  const [open, toggleOpen] = usePersistedSidebarSection(
+    "organisation",
+    isOrganisationRoute
+  );
 
   return (
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
       >
         <span className="flex items-center gap-2">
