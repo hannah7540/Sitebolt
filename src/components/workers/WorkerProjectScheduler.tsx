@@ -44,6 +44,12 @@ import {
   resolveWorkerName,
 } from "@/lib/leave-requests";
 import { subscribeLeaveRequestsUpdated } from "@/lib/leave-events";
+import {
+  companyCalendarDaysToWorkerEvents,
+  fetchCompanyCalendarDays,
+  mergeCompanyCalendarIntoEvents,
+  type CompanyCalendarDay,
+} from "@/lib/company-calendar-days";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
 import type { LeaveRequest } from "@/lib/supabase";
 import {
@@ -248,6 +254,9 @@ export default function WorkerProjectScheduler({
     WorkerCalendarEvent[]
   >([]);
   const [leaveRequestsInternal, setLeaveRequestsInternal] = useState<LeaveRequest[]>([]);
+  const [companyCalendarDays, setCompanyCalendarDays] = useState<CompanyCalendarDay[]>(
+    []
+  );
   const schedules = schedulesProp ?? schedulesInternal;
   const calendarEvents = calendarEventsProp ?? calendarEventsInternal;
   const leaveRequests = leaveRequestsProp ?? leaveRequestsInternal;
@@ -292,6 +301,20 @@ export default function WorkerProjectScheduler({
   const rangeStartIso = formatDateOnly(rangeStart);
   const rangeEndIso = formatDateOnly(rangeEnd);
   const focusedWeekStartIso = formatDateOnly(focusedWeekStart);
+
+  useEffect(() => {
+    if (!rangeStartIso || !rangeEndIso) return;
+    let cancelled = false;
+    void fetchCompanyCalendarDays({
+      startDate: rangeStartIso,
+      endDate: rangeEndIso,
+    }).then((rows) => {
+      if (!cancelled) setCompanyCalendarDays(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rangeStartIso, rangeEndIso]);
 
   useEffect(() => {
     setMoveStartDate(focusedWeekStartIso);
@@ -391,12 +414,15 @@ export default function WorkerProjectScheduler({
 
   const mergedCalendarEvents = useMemo(
     () =>
-      mergeLeaveRequestsIntoCalendarEvents(
-        calendarEvents,
-        leaveRequests,
-        workerNameById
+      mergeCompanyCalendarIntoEvents(
+        mergeLeaveRequestsIntoCalendarEvents(
+          calendarEvents,
+          leaveRequests,
+          workerNameById
+        ),
+        companyCalendarDaysToWorkerEvents(companyCalendarDays, workers)
       ),
-    [calendarEvents, leaveRequests, workerNameById]
+    [calendarEvents, companyCalendarDays, leaveRequests, workerNameById, workers]
   );
 
   const schedulesByWorker = useMemo(() => {

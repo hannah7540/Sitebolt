@@ -159,8 +159,10 @@ export default function LeaveRequestReviewModal({
             </dd>
           </div>
           <div>
-            <dt className={labelClass}>Total days</dt>
-            <dd className="font-medium text-slate-900">{leaveRequest.number_of_days}</dd>
+            <dt className={labelClass}>Chargeable days</dt>
+            <dd className="font-medium text-slate-900">
+              {leaveRequest.effective_days_deducted ?? leaveRequest.number_of_days}
+            </dd>
           </div>
           <div>
             <dt className={labelClass}>Reason</dt>

@@ -662,6 +662,8 @@ export interface LeaveRequest {
   first_date: string;
   last_date: string;
   number_of_days: number;
+  effective_days_deducted?: number | null;
+  calendar_breakdown?: Record<string, unknown> | null;
   reason: string;
   signature_url: string | null;
   status: LeaveRequestStatus;

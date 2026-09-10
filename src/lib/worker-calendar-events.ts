@@ -21,6 +21,7 @@ import {
   RDO_EVENT_STYLE,
 } from "./calendar-event-styles";
 import { normalizeLeaveTypeLabel, resolveLeaveCalendarPresentation } from "./leave-type-calendar";
+import type { ClassifiedLeaveDay } from "./leave-deduction-engine";
 
 export type WorkerCalendarEventType =
   | "RDO"
@@ -858,6 +859,90 @@ export async function syncRejectedLeaveCalendarEvent(
   }
 
   await removeLeaveCalendarEvents(leaveRequestId);
+}
+
+export async function syncApprovedLeaveDailyCalendarEvents(input: {
+  requestId: string;
+  workerId: string;
+  startDate: string;
+  endDate: string;
+  leaveType?: string | null;
+  classifiedDays?: ClassifiedLeaveDay[];
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  const days = (input.classifiedDays ?? []).filter(
+    (day) => day.classification !== "weekend"
+  );
+  if (days.length === 0) {
+    await upsertApprovedLeaveCalendarEventFallback(input);
+    return;
+  }
+
+  await primeWorkerCalendarEventsSchema();
+  await removeLeaveCalendarEvents(input.requestId);
+
+  for (const day of days) {
+    const leaveType =
+      day.classification === "public_holiday"
+        ? "Public Holiday"
+        : day.classification === "rdo"
+          ? "RDO"
+          : input.leaveType;
+    const presentation = resolveLeaveCalendarPresentation({
+      leaveType,
+      status: "approved",
+    });
+    const payloads = buildLeaveCalendarSyncPayloadVariants({
+      workerId: input.workerId,
+      workerName: "",
+      projectId: null,
+      projectName: null,
+      startDate: day.date,
+      endDate: day.date,
+      notes: day.title ?? presentation.display_code,
+      leaveRequestId: input.requestId,
+      leaveType,
+      presentation,
+    });
+    await persistLeaveCalendarSyncPayloads(payloads, {
+      operation: "syncApprovedLeaveDailyCalendarEvents.insert",
+    });
+  }
+}
+
+async function upsertApprovedLeaveCalendarEventFallback(input: {
+  requestId: string;
+  workerId: string;
+  startDate: string;
+  endDate: string;
+  leaveType?: string | null;
+}): Promise<void> {
+  const startDate = formatDateOnly(input.startDate);
+  const endDate = formatDateOnly(input.endDate);
+  const presentation = resolveLeaveCalendarPresentation({
+    leaveType: input.leaveType,
+    status: "approved",
+  });
+  const payloads = buildLeaveCalendarSyncPayloadVariants({
+    workerId: input.workerId,
+    workerName: "",
+    projectId: null,
+    projectName: null,
+    startDate,
+    endDate,
+    notes: "",
+    leaveRequestId: input.requestId,
+    leaveType: input.leaveType,
+    presentation,
+  });
+  const existingId = await findCalendarEventIdByLeaveRequest(input.requestId);
+  await persistLeaveCalendarSyncPayloads(payloads, {
+    existingId,
+    operation: existingId
+      ? "syncApprovedLeaveDailyCalendarEvents.update"
+      : "syncApprovedLeaveDailyCalendarEvents.insert",
+  });
 }
 
 export async function removeLeaveCalendarEvents(leaveRequestId: string): Promise<void> {

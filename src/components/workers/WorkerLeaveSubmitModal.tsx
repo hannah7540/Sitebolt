@@ -11,9 +11,14 @@ import {
 } from "@/lib/leave-requests";
 import { formatDateOnly } from "@/lib/scheduler-utils";
 import { uploadWorkerSignature } from "@/lib/worker-doc-upload";
-import { calculateLeaveDays } from "@/lib/leave-utils";
+import { resolveLeaveDeductionForWorker } from "@/lib/leave-balance-ledger";
+import {
+  serializeLeaveBreakdown,
+  type LeaveDeductionBreakdown,
+} from "@/lib/leave-deduction-engine";
 import { localIsoDate } from "@/lib/timesheet-utils";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import LeaveDeductionBreakdownCard from "@/components/leave/LeaveDeductionBreakdownCard";
 import {
   modalOverlayClass,
   modalShellClass,
@@ -61,19 +66,32 @@ export default function WorkerLeaveSubmitModal({
 }: WorkerLeaveSubmitModalProps) {
   const [firstDate, setFirstDate] = useState(localIsoDate());
   const [lastDate, setLastDate] = useState(localIsoDate());
-  const [numberOfDays, setNumberOfDays] = useState("1");
-  const [daysEdited, setDaysEdited] = useState(false);
   const [leaveType, setLeaveType] = useState<ModalLeaveType>("Annual Leave");
   const [reason, setReason] = useState("");
   const [signature, setSignature] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<LeaveDeductionBreakdown | null>(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
 
   useEffect(() => {
-    if (daysEdited) return;
-    const calculated = calculateLeaveDays(firstDate, lastDate);
-    setNumberOfDays(String(calculated));
-  }, [firstDate, lastDate, daysEdited]);
+    let cancelled = false;
+    setBreakdownLoading(true);
+    void resolveLeaveDeductionForWorker({
+      worker,
+      startDate: firstDate,
+      endDate: lastDate,
+      leaveType,
+    }).then((result) => {
+      if (!cancelled) {
+        setBreakdown(result);
+        setBreakdownLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [firstDate, lastDate, leaveType, worker]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,9 +114,9 @@ export default function WorkerLeaveSubmitModal({
       return;
     }
 
-    const days = Number.parseFloat(numberOfDays);
-    if (Number.isNaN(days) || days <= 0) {
-      setError("Enter a valid number of leave days.");
+    const days = breakdown?.effectiveDaysDeducted ?? 0;
+    if (!firstDate || !lastDate || lastDate < firstDate) {
+      setError("Last date must be on or after the first date.");
       return;
     }
 
@@ -127,6 +145,7 @@ export default function WorkerLeaveSubmitModal({
         reason: reason.trim(),
         signatureUrl,
         leaveType: sanitizedLeaveType,
+        calendarBreakdown: breakdown ? serializeLeaveBreakdown(breakdown) : null,
       });
 
       if (submitError) {
@@ -190,7 +209,6 @@ export default function WorkerLeaveSubmitModal({
                 value={firstDate}
                 onChange={(e) => {
                   setFirstDate(e.target.value);
-                  setDaysEdited(false);
                 }}
                 required
               />
@@ -203,27 +221,20 @@ export default function WorkerLeaveSubmitModal({
                 min={firstDate}
                 onChange={(e) => {
                   setLastDate(e.target.value);
-                  setDaysEdited(false);
                 }}
                 required
               />
             </Field>
           </div>
 
-          <Field label="Number of days">
-            <input
-              type="number"
-              min={0.5}
-              step={0.5}
-              className={inputClass}
-              value={numberOfDays}
-              onChange={(e) => {
-                setNumberOfDays(e.target.value);
-                setDaysEdited(true);
-              }}
-              required
-            />
-          </Field>
+          {breakdownLoading ? (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+              Calculating chargeable leave days…
+            </div>
+          ) : (
+            <LeaveDeductionBreakdownCard breakdown={breakdown} />
+          )}
 
           <Field label="Reason for leave">
             <textarea

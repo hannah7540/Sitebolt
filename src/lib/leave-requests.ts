@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured, type Worker } from "./supabase";
+import { fetchWorkerById, supabase, isSupabaseConfigured, type Worker } from "./supabase";
 import type { LeaveRequest, LeaveRequestStatus, LeaveType } from "./supabase";
 import { getProjectDisplayName, resolveProjectId } from "./project-resolver";
 import { formatDateOnly } from "./scheduler-utils";
@@ -10,7 +10,10 @@ import {
 } from "./supabase-errors";
 import { fetchWorkerProfileDisplayName } from "./worker-profile-lookup";
 import { nullIfBlank, sanitizeWritePayload } from "./form-payload-utils";
-import { syncPendingLeaveCalendarEvent } from "./worker-calendar-events";
+import {
+  syncApprovedLeaveDailyCalendarEvents,
+  syncPendingLeaveCalendarEvent,
+} from "./worker-calendar-events";
 import { broadcastLeaveRequestsUpdated } from "./leave-events";
 import type { WorkerCalendarEvent } from "./worker-calendar-events";
 import { WORKER_CALENDAR_EVENTS_TABLE } from "./supabase-schema-cache";
@@ -19,6 +22,11 @@ import {
   formatLeaveTimesheetApprovalToast,
   generateTimesheetsForApprovedLeave,
 } from "./leave-timesheet-generator";
+import {
+  deductApprovedLeaveBalance,
+  resolveLeaveDeductionForWorker,
+} from "./leave-balance-ledger";
+import { serializeLeaveBreakdown } from "./leave-deduction-engine";
 
 export const LEAVE_REQUESTS_TABLE = "leave_requests";
 
@@ -38,6 +46,7 @@ export interface SubmitLeaveRequestInput {
   leaveType?: LeaveType | string | null;
   workerName?: string;
   worker?: LeaveWorkerRef | null;
+  calendarBreakdown?: Record<string, unknown> | null;
 }
 
 export function resolveWorkerName(
@@ -173,7 +182,12 @@ export function normalizeLeaveRequestRow(
   );
   const reason = String(row.reason ?? row.notes ?? "").trim();
   const totalDays = Number(
-    row.number_of_days ?? row.total_days ?? row.days ?? row.duration_days ?? 0
+    row.effective_days_deducted ??
+      row.number_of_days ??
+      row.total_days ??
+      row.days ??
+      row.duration_days ??
+      0
   );
 
   return {
@@ -184,6 +198,14 @@ export function normalizeLeaveRequestRow(
     first_date: firstDate,
     last_date: lastDate,
     number_of_days: totalDays,
+    effective_days_deducted:
+      row.effective_days_deducted != null
+        ? Number(row.effective_days_deducted)
+        : totalDays,
+    calendar_breakdown:
+      row.calendar_breakdown && typeof row.calendar_breakdown === "object"
+        ? (row.calendar_breakdown as Record<string, unknown>)
+        : null,
     reason,
     signature_url: row.signature_url ? String(row.signature_url) : null,
     status: normalizeLeaveStatus(row.status),
@@ -245,6 +267,8 @@ function buildDualDateLeavePayload(
       end_date: endDateStr,
       last_date: endDateStr,
       ...buildDayCountFields(calculatedDays),
+      effective_days_deducted: calculatedDays,
+      calendar_breakdown: input.calendarBreakdown ?? null,
       reason: reasonText,
       notes: reasonText,
       signature_url: nullIfBlank(input.signatureUrl),
@@ -403,7 +427,10 @@ export async function submitLeaveRequest(
   if (!input.reason.trim()) {
     return { error: "Please provide a reason for leave.", data: null };
   }
-  if (input.numberOfDays <= 0) {
+  if (input.numberOfDays < 0) {
+    return { error: "Last date must be on or after the first date.", data: null };
+  }
+  if (!input.firstDate || !input.lastDate || input.lastDate < input.firstDate) {
     return { error: "Last date must be on or after the first date.", data: null };
   }
   if (!input.signatureUrl) {
@@ -853,21 +880,63 @@ export async function approveLeaveRequestAction(input: {
   }
 
   try {
-    const statusUpdate = await updateLeaveRequestStatusDirect(
+    const row = await fetchLeaveRequestById(input.requestId);
+    const worker = await fetchWorkerById(input.workerId);
+    const breakdown = worker
+      ? await resolveLeaveDeductionForWorker({
+          worker,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          leaveType: row?.leave_type,
+        })
+      : null;
+
+    const extraFields = breakdown
+      ? {
+          effective_days_deducted: breakdown.effectiveDaysDeducted,
+          number_of_days: breakdown.effectiveDaysDeducted,
+          total_days: breakdown.effectiveDaysDeducted,
+          calendar_breakdown: serializeLeaveBreakdown(breakdown),
+        }
+      : {};
+
+    const statusUpdate = await updateLeaveRequestStatusResilient(
       input.requestId,
-      APPROVED_STATUS_VALUES
+      APPROVED_STATUS_VALUES,
+      extraFields
     );
 
     if (statusUpdate.error) {
-      return statusUpdate;
+      const fallback = await updateLeaveRequestStatusDirect(
+        input.requestId,
+        APPROVED_STATUS_VALUES
+      );
+      if (fallback.error) return fallback;
     }
 
-    const row = await fetchLeaveRequestById(input.requestId);
-
-    await upsertApprovedLeaveCalendarEventDirect({
-      ...input,
+    await syncApprovedLeaveDailyCalendarEvents({
+      requestId: input.requestId,
+      workerId: input.workerId,
+      startDate: input.startDate,
+      endDate: input.endDate,
       leaveType: row?.leave_type,
+      classifiedDays: breakdown?.days,
     });
+
+    if (breakdown) {
+      const ledgerResult = await deductApprovedLeaveBalance({
+        workerId: input.workerId,
+        leaveRequestId: input.requestId,
+        leaveType: row?.leave_type,
+        breakdown,
+      });
+      if (ledgerResult.error) {
+        console.warn(
+          "[leave-requests] Leave balance deduction failed (non-blocking):",
+          ledgerResult.error
+        );
+      }
+    }
 
     const timesheetResult = await generateTimesheetsForApprovedLeave({
       leaveRequestId: input.requestId,
@@ -876,6 +945,7 @@ export async function approveLeaveRequestAction(input: {
       endDate: input.endDate,
       leaveType: row?.leave_type,
       projectId: row?.project_id,
+      classifiedDays: breakdown?.days,
     });
 
     if (timesheetResult.error) {

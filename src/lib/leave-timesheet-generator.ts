@@ -8,12 +8,14 @@ import { getProjectDisplayName } from "./project-resolver";
 import {
   formatDateOnly,
   getCalendarDaysInRange,
+  isWeekendIso,
 } from "./scheduler-utils";
 import { isSupabaseMissingColumnError } from "./supabase-errors";
 import {
   isZeroHourLeaveType,
   resolveLeaveTimesheetDaySpec,
 } from "./leave-timesheet-rules";
+import type { ClassifiedLeaveDay } from "./leave-deduction-engine";
 
 export interface GenerateLeaveTimesheetsInput {
   leaveRequestId: string;
@@ -22,6 +24,7 @@ export interface GenerateLeaveTimesheetsInput {
   endDate: string;
   leaveType?: string | null;
   projectId?: string | null;
+  classifiedDays?: ClassifiedLeaveDay[];
 }
 
 export function formatLeaveTimesheetApprovalToast(
@@ -96,12 +99,14 @@ export async function generateTimesheetsForApprovedLeave(
         templateName: payRuleMatch.templateName,
       })
     : "";
-  const notes = `${leaveType}${payRuleSuffix} - Auto-generated from approved leave request`;
   const projectId = input.projectId?.trim() || null;
   const projectName = projectId ? getProjectDisplayName(projectId) : null;
   const calendarDays = getCalendarDaysInRange(
     new Date(`${startDate}T12:00:00`),
     new Date(`${endDate}T12:00:00`)
+  );
+  const classifiedByDate = new Map(
+    (input.classifiedDays ?? []).map((day) => [day.date, day])
   );
 
   if (calendarDays.length === 0) {
@@ -130,7 +135,17 @@ export async function generateTimesheetsForApprovedLeave(
   for (const day of calendarDays) {
     if (existingDates.has(day.iso)) continue;
 
-    const daySpec = resolveLeaveTimesheetDaySpec(leaveType, day.iso);
+    const classified = classifiedByDate.get(day.iso);
+    if (classified?.classification === "weekend" || isWeekendIso(day.iso)) continue;
+
+    const dayLeaveType =
+      classified?.classification === "public_holiday"
+        ? "Public Holiday"
+        : classified?.classification === "rdo"
+          ? "RDO"
+          : leaveType;
+    const daySpec = resolveLeaveTimesheetDaySpec(dayLeaveType, day.iso);
+    const dayNotes = `${dayLeaveType}${payRuleSuffix} - Auto-generated from approved leave request`;
 
     const fullPayload = stripNullishFields({
       worker_id: input.workerId,
@@ -145,7 +160,7 @@ export async function generateTimesheetsForApprovedLeave(
       daily_total_hours: daySpec.totalHours,
       activities: daySpec.activities,
       breaks: [],
-      notes,
+      notes: dayNotes,
       status: "pending",
       is_draft: false,
       submitted_at: now,
@@ -163,7 +178,7 @@ export async function generateTimesheetsForApprovedLeave(
       finish_time: daySpec.finishTime,
       break_minutes: 0,
       total_hours: daySpec.totalHours,
-      notes,
+      notes: dayNotes,
       status: "pending",
       updated_at: now,
     });
