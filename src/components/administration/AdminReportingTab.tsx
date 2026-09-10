@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { FileSpreadsheet, FileText, Loader2, Plus, RefreshCw } from "lucide-react";
+import EmployeeArchiveExtractPanel from "@/components/administration/EmployeeArchiveExtractPanel";
 import ExportNewReportModal from "@/components/administration/ExportNewReportModal";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -146,6 +147,12 @@ export default function AdminReportingTab({
           </button>
         </div>
       </div>
+
+      <EmployeeArchiveExtractPanel
+        actionedByName={actionedByName}
+        onError={showError}
+        onSuccess={showSuccess}
+      />
 
       <div className={cn(cardClass, "overflow-hidden")}>
         {loading ? (

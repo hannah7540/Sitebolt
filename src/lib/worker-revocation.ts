@@ -15,6 +15,7 @@ export type WorkerAccessRow = {
   is_revoked?: boolean | null;
   status?: string | null;
   is_archived?: boolean | null;
+  deleted_at?: string | null;
 };
 
 export function isWorkerAccessRevoked(
@@ -26,6 +27,8 @@ export function isWorkerAccessRevoked(
     worker.is_revoked === true ||
     String(worker.is_revoked) === "true" ||
     status === "revoked" ||
+    status === "deleted" ||
+    Boolean(worker.deleted_at) ||
     worker.is_archived === true ||
     String(worker.is_archived) === "true"
   );
@@ -201,6 +204,84 @@ async function persistWorkerRevocationState(
   return "Failed to update worker revocation state.";
 }
 
+function buildDeletedWorkerPayload(now: string): Record<string, unknown> {
+  return {
+    ...buildRevokedWorkerPayload(now),
+    status: "deleted",
+    deleted_at: now,
+  };
+}
+
+async function persistWorkerDeletedState(
+  admin: SupabaseClient,
+  workerId: string
+): Promise<string | null> {
+  const now = new Date().toISOString();
+  let payload: Record<string, unknown> = buildDeletedWorkerPayload(now);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await admin.from("workers").update(payload).eq("id", workerId);
+    if (!error) return null;
+
+    if (isMissingColumnError(error.message, "deleted_at") && "deleted_at" in payload) {
+      const { deleted_at: _removed, ...withoutDeletedAt } = payload;
+      payload = withoutDeletedAt;
+      continue;
+    }
+
+    if (isMissingColumnError(error.message, "revoked_at") && "revoked_at" in payload) {
+      const { revoked_at: _removed, ...withoutRevokedAt } = payload;
+      payload = withoutRevokedAt;
+      continue;
+    }
+
+    return error.message;
+  }
+
+  return "Failed to update worker deleted state.";
+}
+
+export async function softDeleteWorker(
+  workerId: string
+): Promise<{ error: string | null }> {
+  const trimmedId = workerId.trim();
+  if (!trimmedId) {
+    return { error: "Worker id is required." };
+  }
+
+  if (!isSupabaseAdminConfigured()) {
+    return { error: "SUPABASE_SERVICE_ROLE_KEY is not configured." };
+  }
+
+  const admin = createSupabaseAdminClient();
+
+  const { data: worker, error: workerError } = await admin
+    .from("workers")
+    .select("id, email, auth_user_id")
+    .eq("id", trimmedId)
+    .maybeSingle();
+
+  if (workerError) {
+    return { error: workerError.message };
+  }
+  if (!worker) {
+    return { error: "Worker not found." };
+  }
+
+  const workerUpdateError = await persistWorkerDeletedState(admin, trimmedId);
+  if (workerUpdateError) {
+    return { error: workerUpdateError };
+  }
+
+  const authUser = await resolveAuthUserIdForWorker(admin, worker);
+  if (!authUser) {
+    return { error: null };
+  }
+
+  const authError = await lockAuthUser(admin, authUser);
+  return { error: authError };
+}
+
 export async function setWorkerRevokedAccess(
   workerId: string,
   revoked: boolean
@@ -252,7 +333,7 @@ export async function fetchWorkerAccessRevokedById(
 ): Promise<boolean> {
   const { data, error } = await supabase
     .from("workers")
-    .select("is_revoked, status, is_archived")
+    .select("is_revoked, status, is_archived, deleted_at")
     .eq("id", workerId)
     .maybeSingle();
 
@@ -274,7 +355,7 @@ export async function fetchWorkerAccessRevokedForAuthUser(
 
   const { data: workerByAuth } = await supabase
     .from("workers")
-    .select("is_revoked, status, is_archived")
+    .select("is_revoked, status, is_archived, deleted_at")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -287,7 +368,7 @@ export async function fetchWorkerAccessRevokedForAuthUser(
 
   const { data: workerByEmail } = await supabase
     .from("workers")
-    .select("is_revoked, status, is_archived")
+    .select("is_revoked, status, is_archived, deleted_at")
     .ilike("email", email)
     .maybeSingle();
 

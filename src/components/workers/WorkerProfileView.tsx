@@ -10,18 +10,21 @@ import {
   Mail,
   Phone,
   Save,
+  Trash2,
 } from "lucide-react";
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
   fetchWorkerVocs,
   getWorkerAssignedProjectIds,
+  isWorkerDeleted,
   isWorkerRevoked,
   updateWorker,
   updateWorkerSecurityRole,
   updateWorkerStatusFromVocs,
 } from "@/lib/supabase";
 import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
+import { requestWorkerSoftDelete } from "@/lib/worker-delete-client";
 import { setWorkerProjectAssignments } from "@/lib/project-assignments";
 import {
   hydrateCardsVocsFromWorker,
@@ -53,6 +56,7 @@ import WorkerApprenticeBadge from "@/components/workers/WorkerApprenticeBadge";
 import WorkerCompanyVehicleFields from "@/components/workers/WorkerCompanyVehicleFields";
 import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
 import { ResendInviteButton } from "@/components/workers/ResendInviteButton";
+import DeleteWorkerConfirmModal from "@/components/workers/DeleteWorkerConfirmModal";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
@@ -91,9 +95,18 @@ interface WorkerProfileViewProps {
   canManageWorkerRoles?: boolean;
   onBack: () => void;
   onWorkerUpdated: (worker: Worker) => void;
+  onWorkerDeleted?: () => void;
 }
 
 function WorkerProfileStatusBadge({ worker }: { worker: Worker }) {
+  if (isWorkerDeleted(worker)) {
+    return (
+      <span className="rounded bg-slate-800 px-2.5 py-1 text-xs font-bold text-white">
+        Deleted
+      </span>
+    );
+  }
+
   if (isWorkerRevoked(worker)) {
     return (
       <span className="rounded bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
@@ -143,12 +156,15 @@ export default function WorkerProfileView({
   canManageWorkerRoles = false,
   onBack,
   onWorkerUpdated,
+  onWorkerDeleted,
 }: WorkerProfileViewProps) {
   const canViewPayroll = canAssignPayRules && !hideFinancialFields;
   const [currentWorker, setCurrentWorker] = useState(worker);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [vocs, setVocs] = useState<WorkerVoc[]>(initialVocs);
   const [loadingVocs, setLoadingVocs] = useState(initialVocs.length === 0);
   const [cardEntries, setCardEntries] = useState<WorkerCardVocEntry[]>(() =>
@@ -208,6 +224,21 @@ export default function WorkerProfileView({
     onWorkerUpdated(updated);
   };
 
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    const { error, message } = await requestWorkerSoftDelete(currentWorker.id);
+    setDeleting(false);
+    if (error) {
+      showError(error);
+      return;
+    }
+    showSuccess(
+      message ?? "Worker deleted. Historical records remain available in Admin Reports."
+    );
+    setShowDeleteModal(false);
+    onWorkerDeleted?.();
+  };
+
   return (
     <div>
       <button
@@ -246,19 +277,31 @@ export default function WorkerProfileView({
             ) : null}
             <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
-            <ResendInviteButton
-              worker={currentWorker}
-              lastSignInAt={lastSignInAt}
-              label="Resend Invite Link"
-              variant="profile"
-              onSuccess={(message, inviteSentAt) => {
-                showSuccess(message);
-                if (inviteSentAt) {
-                  patchWorker({ ...currentWorker, invite_sent_at: inviteSentAt });
-                }
-              }}
-              onError={showError}
-            />
+            {!isWorkerDeleted(currentWorker) ? (
+              <ResendInviteButton
+                worker={currentWorker}
+                lastSignInAt={lastSignInAt}
+                label="Resend Invite Link"
+                variant="profile"
+                onSuccess={(message, inviteSentAt) => {
+                  showSuccess(message);
+                  if (inviteSentAt) {
+                    patchWorker({ ...currentWorker, invite_sent_at: inviteSentAt });
+                  }
+                }}
+                onError={showError}
+              />
+            ) : null}
+            {!isWorkerDeleted(currentWorker) ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Worker
+              </button>
+            ) : null}
           </div>
           <p className="mt-1 text-sm text-slate-600">
             {currentWorker.trade || "No trade set"}
@@ -336,6 +379,17 @@ export default function WorkerProfileView({
           }}
         />
       )}
+
+      {showDeleteModal ? (
+        <DeleteWorkerConfirmModal
+          workerName={currentWorker.full_name}
+          saving={deleting}
+          onClose={() => {
+            if (!deleting) setShowDeleteModal(false);
+          }}
+          onConfirm={() => void handleConfirmDelete()}
+        />
+      ) : null}
 
       {toast ? (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
@@ -486,6 +540,10 @@ function BasicInfoTab({
   );
 
   const handleSave = async () => {
+    if (isWorkerDeleted(worker)) {
+      setError("Deleted workers cannot be edited. Use Admin Reports to extract archived data.");
+      return;
+    }
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       setError("First name, last name, and email are required.");
       return;
@@ -765,22 +823,28 @@ function BasicInfoTab({
         </label>
         <label className="block space-y-1">
           <span className={labelClass}>Account status</span>
-          <select
-            className={inputClass}
-            value={accountStatus}
-            onChange={(e) => setAccountStatus(e.target.value as AccountStatusOption)}
-          >
-            <option value="active">Active</option>
-            <option value="pending_induction">Pending Induction</option>
-            <option value="Revoked">Revoked</option>
-          </select>
+          {isWorkerDeleted(worker) ? (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Deleted — archived for administrative reporting
+            </p>
+          ) : (
+            <select
+              className={inputClass}
+              value={accountStatus}
+              onChange={(e) => setAccountStatus(e.target.value as AccountStatusOption)}
+            >
+              <option value="active">Active</option>
+              <option value="pending_induction">Pending Induction</option>
+              <option value="Revoked">Revoked</option>
+            </select>
+          )}
         </label>
         {canManageWorkerRoles ? (
           <WorkerSecurityRoleSelect
             id={`profile-security-role-${worker.id}`}
             value={securityRole}
             onChange={setSecurityRole}
-            disabled={saving}
+            disabled={saving || isWorkerDeleted(worker)}
           />
         ) : null}
       </div>
@@ -791,7 +855,7 @@ function BasicInfoTab({
           projects={projects}
           selectedIds={projectIds}
           onChange={setProjectIds}
-          disabled={accountStatus === "Revoked"}
+          disabled={accountStatus === "Revoked" || isWorkerDeleted(worker)}
           saving={saving}
         />
       </div>
@@ -804,7 +868,7 @@ function BasicInfoTab({
 
       <button
         type="button"
-        disabled={saving}
+        disabled={saving || isWorkerDeleted(worker)}
         onClick={() => void handleSave()}
         className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
       >

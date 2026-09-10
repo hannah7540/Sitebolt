@@ -9,14 +9,18 @@ import {
   UserX,
   UserCheck,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
+  fetchAllWorkers,
   getWorkerAssignedProjectIds,
+  isWorkerDeleted,
   isWorkerRevoked,
 } from "@/lib/supabase";
 import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
+import { requestWorkerSoftDelete } from "@/lib/worker-delete-client";
 import {
   loadAssignmentMaps,
   resolveWorkerAssignedProjectName,
@@ -35,6 +39,7 @@ import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
 import WorkerEditModal from "./WorkerEditModal";
+import DeleteWorkerConfirmModal from "./DeleteWorkerConfirmModal";
 import { ResendInviteButton } from "./ResendInviteButton";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
@@ -50,7 +55,7 @@ import {
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/lib/ui-classes";
 
-type WorkerTabFilter = "Current" | "Revoked" | "All";
+type WorkerTabFilter = "Current" | "Revoked" | "Deleted" | "All";
 type WorkerProfileTab = "basic" | "cards" | "inductions" | "financial";
 
 interface WorkerDirectoryPanelProps {
@@ -87,6 +92,14 @@ function TicketBadge({
 }
 
 function WorkerStatusBadge({ worker }: { worker: Worker }) {
+  if (isWorkerDeleted(worker)) {
+    return (
+      <span className="rounded bg-slate-800 px-2 py-1 text-xs font-bold text-white">
+        Deleted
+      </span>
+    );
+  }
+
   if (isWorkerRevoked(worker)) {
     return (
       <span className="rounded bg-slate-200 px-2 py-1 text-xs font-bold text-slate-700">
@@ -127,6 +140,7 @@ function WorkerStatusBadge({ worker }: { worker: Worker }) {
 const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
   { id: "Current", label: "Current Workers" },
   { id: "Revoked", label: "Revoked Workers" },
+  { id: "Deleted", label: "Deleted Workers" },
   { id: "All", label: "All" },
 ];
 
@@ -188,6 +202,8 @@ export default function WorkerDirectoryPanel({
   const [profileInitialTab, setProfileInitialTab] = useState<WorkerProfileTab>("basic");
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [assignWorker, setAssignWorker] = useState<Worker | null>(null);
+  const [deleteWorker, setDeleteWorker] = useState<Worker | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [workerProjectMap, setWorkerProjectMap] = useState<Map<string, string[]>>(new Map());
   const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
   const [actionId, setActionId] = useState<string | null>(null);
@@ -199,6 +215,17 @@ export default function WorkerDirectoryPanel({
 
   useEffect(() => {
     setWorkerList(workers);
+  }, [workers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAllWorkers({ includeDeleted: true }).then(({ workers: rows, error }) => {
+      if (cancelled || error) return;
+      setWorkerList(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [workers]);
 
   useEffect(() => {
@@ -249,15 +276,12 @@ export default function WorkerDirectoryPanel({
     return workerList.filter((w) => {
       if (!isCompanyEmployeeWorker(w)) return false;
 
-      const isRevoked = Boolean(
-        w.is_revoked === true ||
-          String(w.is_revoked) === "true" ||
-          w.status === "Revoked" ||
-          w.is_archived === true
-      );
+      const deleted = isWorkerDeleted(w);
+      const revoked = !deleted && isWorkerRevoked(w);
 
-      if (workerTab === "Revoked") return isRevoked;
-      if (workerTab === "Current") return !isRevoked;
+      if (workerTab === "Deleted") return deleted;
+      if (workerTab === "Revoked") return revoked;
+      if (workerTab === "Current") return !deleted && !revoked;
       return true;
     });
   }, [workerList, workerTab]);
@@ -308,6 +332,7 @@ export default function WorkerDirectoryPanel({
   };
 
   const handleRevokeToggle = async (worker: Worker) => {
+    if (isWorkerDeleted(worker)) return;
     const revoked = !isWorkerRevoked(worker);
     const snapshot = worker;
 
@@ -360,6 +385,27 @@ export default function WorkerDirectoryPanel({
     });
   };
 
+  const handleConfirmDeleteWorker = async () => {
+    if (!deleteWorker) return;
+    setDeleting(true);
+    const { error, message } = await requestWorkerSoftDelete(deleteWorker.id);
+    setDeleting(false);
+
+    if (error) {
+      showError(error);
+      return;
+    }
+
+    showSuccess(
+      message ?? "Worker deleted. Historical records remain available in Admin Reports."
+    );
+    setDeleteWorker(null);
+    if (selectedWorker?.id === deleteWorker.id) {
+      closeWorkerProfile();
+    }
+    onRefresh();
+  };
+
   const openWorkerProfile = (worker: Worker, tab: WorkerProfileTab = "basic") => {
     setProfileInitialTab(tab);
     setSelectedWorker(worker);
@@ -409,7 +455,7 @@ export default function WorkerDirectoryPanel({
     return (
       <WorkerProfileView
         worker={selectedWorker}
-        workers={workers}
+        workers={workerList}
         initialVocs={vocsByWorker[selectedWorker.id] ?? []}
         projects={projects}
         initialTab={profileInitialTab}
@@ -421,6 +467,10 @@ export default function WorkerDirectoryPanel({
         onWorkerUpdated={(updated) => {
           patchWorker(updated);
           setSelectedWorker(updated);
+        }}
+        onWorkerDeleted={() => {
+          closeWorkerProfile();
+          onRefresh();
         }}
       />
     );
@@ -507,7 +557,8 @@ export default function WorkerDirectoryPanel({
               const vocs = vocsByWorker[w.id] ?? [];
               const warning = getExpiryWarningText(w, vocs);
               const nonCompliant = isNonCompliant(w, vocs);
-              const revoked = isWorkerRevoked(w);
+              const deleted = isWorkerDeleted(w);
+              const revoked = !deleted && isWorkerRevoked(w);
               const assignedProjectIds = [
                 ...new Set([
                   ...getWorkerAssignedProjectIds(w),
@@ -587,15 +638,17 @@ export default function WorkerDirectoryPanel({
                       className="flex flex-wrap gap-1.5"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setEditingWorker(w)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </button>
-                      {!revoked && (
+                      {!deleted ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingWorker(w)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                      ) : null}
+                      {!deleted && !revoked ? (
                         <button
                           type="button"
                           onClick={() => setAssignWorker(w)}
@@ -604,41 +657,55 @@ export default function WorkerDirectoryPanel({
                           <Link2 className="h-3.5 w-3.5" />
                           Assign
                         </button>
-                      )}
-                      <ResendInviteButton
-                        worker={w}
-                        lastSignInAt={lastSignInByWorkerId[w.id] ?? null}
-                        onSuccess={(message, inviteSentAt) => {
-                          showSuccess(message);
-                          if (inviteSentAt) {
-                            patchWorker({ ...w, invite_sent_at: inviteSentAt });
-                          }
-                        }}
-                        onError={showError}
-                      />
-                      <button
-                        type="button"
-                        disabled={actionId === w.id}
-                        onClick={() => void handleRevokeToggle(w)}
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50",
-                          revoked
-                            ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                            : "border-red-200 text-red-700 hover:bg-red-50"
-                        )}
-                      >
-                        {revoked ? (
-                          <>
-                            <UserCheck className="h-3.5 w-3.5" />
-                            Reactivate
-                          </>
-                        ) : (
-                          <>
-                            <UserX className="h-3.5 w-3.5" />
-                            Revoke
-                          </>
-                        )}
-                      </button>
+                      ) : null}
+                      {!deleted ? (
+                        <ResendInviteButton
+                          worker={w}
+                          lastSignInAt={lastSignInByWorkerId[w.id] ?? null}
+                          onSuccess={(message, inviteSentAt) => {
+                            showSuccess(message);
+                            if (inviteSentAt) {
+                              patchWorker({ ...w, invite_sent_at: inviteSentAt });
+                            }
+                          }}
+                          onError={showError}
+                        />
+                      ) : null}
+                      {!deleted ? (
+                        <button
+                          type="button"
+                          disabled={actionId === w.id}
+                          onClick={() => void handleRevokeToggle(w)}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50",
+                            revoked
+                              ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                              : "border-red-200 text-red-700 hover:bg-red-50"
+                          )}
+                        >
+                          {revoked ? (
+                            <>
+                              <UserCheck className="h-3.5 w-3.5" />
+                              Reactivate
+                            </>
+                          ) : (
+                            <>
+                              <UserX className="h-3.5 w-3.5" />
+                              Revoke
+                            </>
+                          )}
+                        </button>
+                      ) : null}
+                      {!deleted ? (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteWorker(w)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete Worker
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -666,7 +733,9 @@ export default function WorkerDirectoryPanel({
                     ? "No current workers. Add a worker or reactivate someone from Revoked Workers."
                     : workerTab === "Revoked"
                       ? "No revoked workers."
-                      : 'No workers yet. Click "Add Worker" to start onboarding.'}
+                      : workerTab === "Deleted"
+                        ? "No deleted workers. Deleted employees remain available in Admin Reports."
+                        : 'No workers yet. Click "Add Worker" to start onboarding.'}
                 </td>
               </tr>
             ) : null}
@@ -718,6 +787,17 @@ export default function WorkerDirectoryPanel({
           }}
         />
       )}
+
+      {deleteWorker ? (
+        <DeleteWorkerConfirmModal
+          workerName={deleteWorker.full_name}
+          saving={deleting}
+          onClose={() => {
+            if (!deleting) setDeleteWorker(null);
+          }}
+          onConfirm={() => void handleConfirmDeleteWorker()}
+        />
+      ) : null}
     </div>
   );
 }

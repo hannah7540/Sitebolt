@@ -13,8 +13,8 @@ import {
   isSupabaseZeroRowsError,
   toSupabaseRequestError,
 } from "./supabase-errors";
+import { isWorkerDeleted, type Worker } from "./supabase";
 import { getWorkerDisplayName } from "./worker-utils";
-import type { Worker } from "./supabase";
 
 const FLEET_TABLE = "organization_fleet";
 
@@ -409,9 +409,10 @@ export async function updateOrganizationFleetVehicle(
 }
 
 function isActiveWorkerForFleetAssignment(worker: Worker): boolean {
+  if (isWorkerDeleted(worker)) return false;
   if (worker.is_revoked || worker.is_archived) return false;
   const status = String(worker.status ?? "active").toLowerCase();
-  return status !== "revoked";
+  return status !== "revoked" && status !== "deleted";
 }
 
 /** Active workers for fleet assignment dropdowns. */

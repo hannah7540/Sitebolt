@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
-import { fetchWorkerSchedules } from "@/lib/supabase";
+import { fetchWorkerSchedules, isWorkerDeleted } from "@/lib/supabase";
 import { getProjectColor } from "@/lib/projects";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
@@ -767,7 +767,12 @@ export default function WorkerProjectScheduler({
 
   const visibleWorkers = useMemo(() => {
     let list = workers.filter(
-      (worker) => worker.status !== "Revoked" && !worker.is_revoked
+      (worker) =>
+        !isWorkerDeleted(worker) &&
+        worker.status !== "Revoked" &&
+        worker.status !== "deleted" &&
+        !worker.is_revoked &&
+        !worker.is_archived
     );
 
     if (tradeFilter) {

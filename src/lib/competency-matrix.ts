@@ -1,4 +1,4 @@
-import type { Worker, WorkerVoc } from "./supabase";
+import { isWorkerDeleted, type Worker, type WorkerVoc } from "./supabase";
 import {
   hydrateCardsVocsFromWorker,
   cardCategoryRequiresExpiry,
@@ -166,9 +166,10 @@ export function buildWorkerCompetencyRow(
 }
 
 export function isActiveMatrixWorker(worker: Worker): boolean {
+  if (isWorkerDeleted(worker)) return false;
   if (worker.is_revoked || worker.is_archived) return false;
   const status = String(worker.status ?? "").toLowerCase();
-  return status !== "revoked";
+  return status !== "revoked" && status !== "deleted";
 }
 
 export function buildCompetencyMatrix(

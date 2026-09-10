@@ -8,6 +8,7 @@ import {
   fetchPlantPrestarts,
   fetchSiteForms,
   fetchSwmsAssignmentRecords,
+  isWorkerDeleted,
   resolvePlantAssignedProjectId,
   resolveWorkerAssignedProjectName,
   type PlantAsset,
@@ -300,7 +301,7 @@ async function buildWorkersSection(input: ReportExportInput): Promise<string> {
   }
 
   const rows = workers
-    .filter((worker) => !worker.is_archived && !worker.is_revoked)
+    .filter((worker) => !isWorkerDeleted(worker) && !worker.is_archived && !worker.is_revoked)
     .filter((worker) => {
       const projectIds = [
         worker.assigned_project_id,

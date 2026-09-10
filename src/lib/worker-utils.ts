@@ -213,6 +213,7 @@ export function canResendWorkerInvite(
     onboarding_completed?: boolean | null;
     is_revoked?: boolean;
     is_archived?: boolean;
+    deleted_at?: string | null;
     induction_completed_at?: string | null;
   },
   lastSignInAt?: string | null
@@ -220,7 +221,9 @@ export function canResendWorkerInvite(
   const revoked = Boolean(
     worker.is_revoked === true ||
       worker.status === "Revoked" ||
-      worker.is_archived === true
+      worker.status === "deleted" ||
+      worker.is_archived === true ||
+      Boolean(worker.deleted_at)
   );
   if (revoked) return false;
   if (!worker.email?.trim()) return false;

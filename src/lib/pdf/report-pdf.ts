@@ -16,6 +16,8 @@ export interface ReportPdfInput {
   projectNames: string[];
   modules: ReportModuleId[];
   actionedByName: string;
+  reportTitle?: string;
+  fileName?: string;
 }
 
 interface ParsedReportSection {
@@ -71,7 +73,8 @@ function parseReportSections(csvContent: string): ParsedReportSection[] {
 
   for (const rawLine of csvContent.split(/\r?\n/)) {
     const line = rawLine.trimEnd();
-    if (!line || line.startsWith("#")) continue;
+    if (!line) continue;
+    if (line.startsWith("#") && !line.startsWith("### ")) continue;
 
     if (line.startsWith("### ")) {
       flush();
@@ -140,7 +143,7 @@ function drawCoverPage(doc: JsPdfInstance, input: ReportPdfInput): number {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text("Multi-Module Site Report", PAGE_MARGIN, y);
+  doc.text(input.reportTitle ?? "Multi-Module Site Report", PAGE_MARGIN, y);
   y += 12;
 
   doc.setFont("helvetica", "normal");
@@ -290,7 +293,7 @@ export async function generateReportPdfFromCsv(
   }
 
   return {
-    fileName: buildPdfFileName(input.startDate, input.endDate),
+    fileName: input.fileName ?? buildPdfFileName(input.startDate, input.endDate),
     blob: doc.output("blob"),
   };
 }

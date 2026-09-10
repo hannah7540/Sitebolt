@@ -148,6 +148,7 @@ export interface Worker {
   cards_vocs?: unknown;
   is_revoked: boolean;
   is_archived: boolean;
+  deleted_at?: string | null;
   is_subcontractor?: boolean;
   subcontractor_id?: string | null;
   state?: string | null;
@@ -219,6 +220,7 @@ const WORKER_SELECT_COLUMNS = [
   "cards_vocs",
   "is_revoked",
   "is_archived",
+  "deleted_at",
   "is_subcontractor",
   "subcontractor_id",
   "is_apprentice",
@@ -331,6 +333,13 @@ export function getWorkerAssignedProjectIds(
   );
 }
 
+export function isWorkerDeleted(
+  worker: Pick<Worker, "deleted_at" | "status"> | Pick<RawWorkerRow, "deleted_at" | "status">
+): boolean {
+  if (worker.deleted_at) return true;
+  return String(worker.status ?? "").trim().toLowerCase() === "deleted";
+}
+
 export function isWorkerRevokedRow(
   worker: Pick<
     RawWorkerRow,
@@ -440,6 +449,7 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     is_archived: Boolean(
       row.is_archived === true || String(row.is_archived) === "true"
     ),
+    deleted_at: row.deleted_at ? String(row.deleted_at) : null,
     is_subcontractor: row.is_subcontractor ?? false,
     subcontractor_id: row.subcontractor_id ?? null,
     is_apprentice: row.is_apprentice === true,
@@ -456,11 +466,13 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
 async function queryWorkerRows(options?: {
   id?: string;
   limit?: number;
+  includeDeleted?: boolean;
 }): Promise<Worker[]> {
   let columns =
     cachedWorkerSelectColumns ??
     loadCachedWorkerColumnsFromStorage() ??
     [...WORKER_SELECT_COLUMNS];
+  let skipDeletedFilter = Boolean(options?.id || options?.includeDeleted);
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const select = columns.join(", ");
@@ -482,6 +494,7 @@ async function queryWorkerRows(options?: {
           const missingColumn = parseMissingColumnFromError(error.message);
           if (missingColumn && columns.includes(missingColumn as (typeof WORKER_SELECT_COLUMNS)[number])) {
             columns = columns.filter((column) => column !== missingColumn);
+            if (missingColumn === "deleted_at") skipDeletedFilter = true;
             break;
           }
 
@@ -498,6 +511,9 @@ async function queryWorkerRows(options?: {
         }
 
         let query = supabase.from("workers").select(select);
+        if (!skipDeletedFilter && columns.includes("deleted_at")) {
+          query = query.is("deleted_at", null);
+        }
         if (orderColumn) {
           query = query.order(orderColumn, {
             ascending: true,
@@ -518,6 +534,7 @@ async function queryWorkerRows(options?: {
         const missingColumn = parseMissingColumnFromError(error.message);
         if (missingColumn && columns.includes(missingColumn as (typeof WORKER_SELECT_COLUMNS)[number])) {
           columns = columns.filter((column) => column !== missingColumn);
+          if (missingColumn === "deleted_at") skipDeletedFilter = true;
           break;
         }
 
@@ -1490,11 +1507,14 @@ export interface PlantPrestart {
 
 export async function fetchWorkers(): Promise<Worker[]> {
   if (!isSupabaseConfigured()) return [];
-  return fetchWorkerRows();
+  const rows = await fetchWorkerRows();
+  return rows.filter((worker) => !isWorkerDeleted(worker));
 }
 
-/** All workers for Security Settings — no status filters; surfaces fetch errors. */
-export async function fetchAllWorkers(): Promise<{
+/** All workers for Security Settings / reports — surfaces fetch errors. */
+export async function fetchAllWorkers(options?: {
+  includeDeleted?: boolean;
+}): Promise<{
   workers: Worker[];
   error: string | null;
 }> {
@@ -1506,9 +1526,14 @@ export async function fetchAllWorkers(): Promise<{
     };
   }
 
+  const includeDeleted = options?.includeDeleted === true;
+
   try {
     for (const orderColumn of WORKER_ORDER_COLUMNS) {
       let query = supabase.from("workers").select("*");
+      if (!includeDeleted) {
+        query = query.is("deleted_at", null);
+      }
       if (orderColumn) {
         query = query.order(orderColumn, { ascending: true, nullsFirst: false });
       }
@@ -1516,10 +1541,17 @@ export async function fetchAllWorkers(): Promise<{
       const { data, error } = await query;
 
       if (!error) {
-        return {
-          workers: ((data ?? []) as unknown as RawWorkerRow[]).map(normalizeWorkerRow),
-          error: null,
-        };
+        const workers = ((data ?? []) as unknown as RawWorkerRow[])
+          .map(normalizeWorkerRow)
+          .filter((worker) => includeDeleted || !isWorkerDeleted(worker));
+        return { workers, error: null };
+      }
+
+      const missingDeletedAt =
+        isMissingWorkerColumnError(error.message) &&
+        error.message.toLowerCase().includes("deleted_at");
+      if (missingDeletedAt) {
+        break;
       }
 
       if (!isMissingWorkerColumnError(error.message)) {
@@ -1530,8 +1562,11 @@ export async function fetchAllWorkers(): Promise<{
       }
     }
 
-    const workers = await queryWorkerRows();
-    return { workers, error: null };
+    const workers = await queryWorkerRows({ includeDeleted });
+    return {
+      workers: workers.filter((worker) => includeDeleted || !isWorkerDeleted(worker)),
+      error: null,
+    };
   } catch (err) {
     if (handleSupabaseNetworkFetchError(err, "fetch all workers")) {
       return { workers: [], error: null };

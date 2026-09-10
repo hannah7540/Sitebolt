@@ -7,7 +7,7 @@ import AccountsNav from "@/components/accounts/AccountsNav";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
-import { fetchAllWorkers, type Worker } from "@/lib/supabase";
+import { fetchAllWorkers, isWorkerDeleted, type Worker } from "@/lib/supabase";
 import {
   fetchTimesheetFormOptions,
   formatTimesheetProjectDisplayName,
@@ -39,6 +39,7 @@ import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 function isActiveWorker(worker: Worker): boolean {
+  if (isWorkerDeleted(worker)) return false;
   return worker.status !== "Revoked" && !worker.is_revoked && !worker.is_archived;
 }
 
