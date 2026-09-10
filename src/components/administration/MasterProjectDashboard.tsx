@@ -48,6 +48,10 @@ import Toast from "@/components/ui/Toast";
 import AdminIncidentDetailModal from "@/components/administration/forms/AdminIncidentDetailModal";
 import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
 import PlantPrestartDefectsWidget from "@/components/dashboard/PlantPrestartDefectsWidget";
+import PastSubmissionsModal, {
+  PastSubmissionsTrigger,
+} from "@/components/dashboard/PastSubmissionsModal";
+import type { PastSubmissionWidgetType } from "@/lib/past-submissions";
 import SiteFormDetailRouter from "@/components/dashboard/SiteFormDetailRouter";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
 import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
@@ -125,6 +129,7 @@ function WidgetCard({
   iconClassName,
   onSelect,
   onHeaderClick,
+  onPastSubmissions,
   renderActions,
 }: {
   title: string;
@@ -134,30 +139,36 @@ function WidgetCard({
   iconClassName: string;
   onSelect: (id: string) => void;
   onHeaderClick?: () => void;
+  onPastSubmissions?: () => void;
   renderActions?: (id: string) => ReactNode;
 }) {
   return (
     <section className={cn(cardClass, "flex h-full flex-col p-5")}>
-      <button
-        type="button"
-        onClick={() => {
-          if (onHeaderClick) {
-            onHeaderClick();
-            return;
-          }
-          if (data.items[0]) onSelect(data.items[0].id);
-        }}
-        className="mb-4 flex w-full items-start gap-3 text-left"
-      >
-        <Icon className={cn("h-9 w-9 shrink-0", iconClassName)} />
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-          <p className="text-sm text-slate-500">{data.count} recorded</p>
-        </div>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-bold text-slate-800">
-          {data.count}
-        </span>
-      </button>
+      <div className="mb-4 flex w-full items-start gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (onHeaderClick) {
+              onHeaderClick();
+              return;
+            }
+            if (data.items[0]) onSelect(data.items[0].id);
+          }}
+          className="flex min-w-0 flex-1 items-start gap-3 text-left"
+        >
+          <Icon className={cn("h-9 w-9 shrink-0", iconClassName)} />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+            <p className="text-sm text-slate-500">{data.count} recorded</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-bold text-slate-800">
+            {data.count}
+          </span>
+        </button>
+        {onPastSubmissions ? (
+          <PastSubmissionsTrigger onClick={onPastSubmissions} />
+        ) : null}
+      </div>
 
       {data.count === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
@@ -198,6 +209,8 @@ export default function MasterProjectDashboard() {
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<ExpandedView | null>(null);
+  const [pastSubmissionsType, setPastSubmissionsType] =
+    useState<PastSubmissionWidgetType | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [leaveActingId, setLeaveActingId] = useState<string | null>(null);
   const [sendingInductionId, setSendingInductionId] = useState<string | null>(null);
@@ -354,23 +367,30 @@ export default function MasterProjectDashboard() {
             Open items only. Changing the project filter scopes every widget instantly.
           </p>
         </div>
-        <label className="block w-full max-w-xs">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Project Filter
-          </span>
-          <select
-            className={inputClass}
-            value={projectFilter}
-            onChange={(event) => setProjectFilter(event.target.value)}
-          >
-            <option value="all">All Projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex w-full max-w-xs flex-col gap-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Project Filter
+            </span>
+            <select
+              className={inputClass}
+              value={projectFilter}
+              onChange={(event) => setProjectFilter(event.target.value)}
+            >
+              <option value="all">All Projects</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <PastSubmissionsTrigger
+            label="Past Site Daily Logs"
+            onClick={() => setPastSubmissionsType("daily_prestarts")}
+            className="self-end"
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -419,6 +439,13 @@ export default function MasterProjectDashboard() {
                     ? () => setExpanded({ type: "inductions" })
                     : undefined
                 }
+                onPastSubmissions={
+                  widget.key === "incompleteInductions"
+                    ? () => setPastSubmissionsType("inductions")
+                    : widget.key === "safetyWalks"
+                      ? () => setPastSubmissionsType("safety_walks")
+                      : undefined
+                }
                 renderActions={
                   widget.key === "leaveRequests"
                     ? (id) => {
@@ -462,6 +489,7 @@ export default function MasterProjectDashboard() {
               plant={snapshot.plant}
               workers={workers}
               onRemoved={(prestartId) => removeRecord("plantPrestarts", prestartId)}
+              onOpenPastSubmissions={() => setPastSubmissionsType("defects")}
             />
           </aside>
         </div>
@@ -557,6 +585,17 @@ export default function MasterProjectDashboard() {
           formatDueDate={formatInductionDueDate}
           onSendNotification={(assignment) => void handleSendInductionNotification(assignment)}
           onClose={() => setExpanded(null)}
+        />
+      ) : null}
+
+      {pastSubmissionsType ? (
+        <PastSubmissionsModal
+          widgetType={pastSubmissionsType}
+          projectId={selectedProjectId}
+          isOpen
+          onClose={() => setPastSubmissionsType(null)}
+          workers={workers}
+          plant={snapshot.plant}
         />
       ) : null}
 

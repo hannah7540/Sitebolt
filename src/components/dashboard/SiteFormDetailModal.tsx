@@ -31,6 +31,7 @@ interface SiteFormDetailModalProps {
   onClose: () => void;
   onMarkRead?: () => Promise<void> | void;
   markingRead?: boolean;
+  embedded?: boolean;
 }
 
 function collectPhotoUrls(form: SiteFormSubmission): string[] {
@@ -47,6 +48,7 @@ export default function SiteFormDetailModal({
   onClose,
   onMarkRead,
   markingRead = false,
+  embedded = false,
 }: SiteFormDetailModalProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const submitter = workers.find((worker) => worker.id === form.worker_id);
@@ -92,10 +94,10 @@ export default function SiteFormDetailModal({
   );
 
   return (
-    <div className={modalOverlayClass} onClick={onClose}>
+    <div className={embedded ? undefined : modalOverlayClass} onClick={embedded ? undefined : onClose}>
       <div
-        className={`${modalClass} max-w-3xl print:max-w-none print:border print:border-slate-400 print:shadow-none`}
-        onClick={(e) => e.stopPropagation()}
+        className={embedded ? "space-y-4" : `${modalClass} max-w-3xl print:max-w-none print:border print:border-slate-400 print:shadow-none`}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <FormBrandingHeader
@@ -106,14 +108,16 @@ export default function SiteFormDetailModal({
             }`}
             meta={`Submitted by ${submitterName}`}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {embedded ? null : (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -350,7 +354,7 @@ export default function SiteFormDetailModal({
           )}
         </div>
 
-        {onMarkRead ? (
+        {onMarkRead && !embedded ? (
           <div className="mt-5 flex justify-end">
             <button
               type="button"

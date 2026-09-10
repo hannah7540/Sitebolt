@@ -14,6 +14,7 @@ import {
 import { markSiteFormViewed } from "@/lib/site-form-mutations";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
+import { PastSubmissionsTrigger } from "./PastSubmissionsModal";
 
 interface ProjectSafetyWalksWidgetProps {
   forms: SiteFormSubmission[];
@@ -22,6 +23,7 @@ interface ProjectSafetyWalksWidgetProps {
   onOpenList: () => void;
   onSelectForm: (form: SiteFormSubmission) => void;
   onViewed: () => void;
+  onOpenPastSubmissions?: () => void;
 }
 
 export default function ProjectSafetyWalksWidget({
@@ -31,6 +33,7 @@ export default function ProjectSafetyWalksWidget({
   onOpenList,
   onSelectForm,
   onViewed,
+  onOpenPastSubmissions,
 }: ProjectSafetyWalksWidgetProps) {
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [locallyViewedIds, setLocallyViewedIds] = useState<Set<string>>(
@@ -90,6 +93,11 @@ export default function ProjectSafetyWalksWidget({
               <ChevronRight className="h-5 w-5" />
             </button>
           </div>
+          {onOpenPastSubmissions ? (
+            <div className="mt-1">
+              <PastSubmissionsTrigger onClick={onOpenPastSubmissions} />
+            </div>
+          ) : null}
           <p className="mt-0.5 text-sm text-slate-500">
             {loading
               ? "Loading safety walks…"

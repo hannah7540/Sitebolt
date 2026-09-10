@@ -27,6 +27,7 @@ interface SafetyWalkDetailModalProps {
   onClose: () => void;
   onMarkRead?: () => Promise<void> | void;
   markingRead?: boolean;
+  embedded?: boolean;
 }
 
 function SafetyWalkQuestionCard({
@@ -99,6 +100,7 @@ export default function SafetyWalkDetailModal({
   onClose,
   onMarkRead,
   markingRead = false,
+  embedded = false,
 }: SafetyWalkDetailModalProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const config = SITE_FORM_CONFIGS.safety_walk;
@@ -115,10 +117,13 @@ export default function SafetyWalkDetailModal({
   );
 
   return (
-    <div className={modalOverlayClass} onClick={onClose}>
+    <div className={embedded ? undefined : modalOverlayClass} onClick={embedded ? undefined : onClose}>
       <div
-        className={cn(modalClass, "max-w-2xl print:max-w-none print:border print:border-slate-400 print:shadow-none")}
-        onClick={(event) => event.stopPropagation()}
+        className={cn(
+          embedded ? "space-y-4" : modalClass,
+          embedded ? undefined : "max-w-2xl print:max-w-none print:border print:border-slate-400 print:shadow-none"
+        )}
+        onClick={embedded ? undefined : (event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <FormBrandingHeader
@@ -129,14 +134,16 @@ export default function SafetyWalkDetailModal({
             }`}
             meta={`Submitted by ${submitterName}`}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {embedded ? null : (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-5">
@@ -244,7 +251,7 @@ export default function SafetyWalkDetailModal({
           ) : null}
         </div>
 
-        {onMarkRead ? (
+        {onMarkRead && !embedded ? (
           <div className="mt-5 flex justify-end">
             <button
               type="button"
@@ -256,7 +263,7 @@ export default function SafetyWalkDetailModal({
               Mark as Read
             </button>
           </div>
-        ) : (
+        ) : embedded ? null : (
           <button
             type="button"
             onClick={onClose}

@@ -20,6 +20,7 @@ import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { PastSubmissionsTrigger } from "@/components/dashboard/PastSubmissionsModal";
 
 interface PlantPrestartDefectsWidgetProps {
   prestarts: PlantPrestart[];
@@ -29,6 +30,7 @@ interface PlantPrestartDefectsWidgetProps {
   onRemoved?: (prestartId: string, patch?: Partial<PlantPrestart>) => void;
   className?: string;
   embedded?: boolean;
+  onOpenPastSubmissions?: () => void;
 }
 
 function resolveOperatorName(prestart: PlantPrestart, workers: Worker[]): string {
@@ -48,6 +50,7 @@ export default function PlantPrestartDefectsWidget({
   onRemoved,
   className,
   embedded = false,
+  onOpenPastSubmissions,
 }: PlantPrestartDefectsWidgetProps) {
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
@@ -218,7 +221,12 @@ export default function PlantPrestartDefectsWidget({
           <div className="mb-4 flex items-start gap-3">
             <AlertTriangle className="h-9 w-9 shrink-0 text-red-500" />
             <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-bold text-slate-900">Plant Pre-start Defects</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Plant Pre-start Defects</h2>
+                {onOpenPastSubmissions ? (
+                  <PastSubmissionsTrigger onClick={onOpenPastSubmissions} />
+                ) : null}
+              </div>
               <p className="text-sm text-slate-500">
                 {loading ? "Loading…" : `${defects.length} open`}
               </p>

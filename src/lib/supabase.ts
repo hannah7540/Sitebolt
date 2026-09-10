@@ -3407,6 +3407,9 @@ export async function fetchSiteForms(options?: {
   formType?: import("./site-forms").SiteFormType;
   workerId?: string;
   limit?: number;
+  offset?: number;
+  startDate?: string;
+  endDate?: string;
 }): Promise<import("./site-forms").SiteFormSubmission[]> {
   if (!isSupabaseConfigured()) return [];
 
@@ -3414,12 +3417,34 @@ export async function fetchSiteForms(options?: {
     ? await resolveProjectScopeValues(options.projectId)
     : [];
 
+  const applySiteFormPagingAndDates = <T extends {
+    gte: (col: string, val: string) => T;
+    lte: (col: string, val: string) => T;
+    range: (from: number, to: number) => T;
+    limit: (count: number) => T;
+  }>(query: T): T => {
+    let next = query;
+    if (options?.startDate) {
+      next = next.gte("form_date", options.startDate);
+    }
+    if (options?.endDate) {
+      next = next.lte("form_date", options.endDate);
+    }
+    if (options?.limit) {
+      const offset = Math.max(0, options.offset ?? 0);
+      next = next.range(offset, offset + options.limit - 1);
+    }
+    return next;
+  };
+
   for (const orderColumn of SITE_FORM_ORDER_COLUMNS) {
     try {
-      let query = supabase
-        .from("site_forms")
-        .select("*")
-        .order(orderColumn, { ascending: false });
+      let query = applySiteFormPagingAndDates(
+        supabase
+          .from("site_forms")
+          .select("*")
+          .order(orderColumn, { ascending: false })
+      );
 
       if (scopeValues.length > 0) {
         const scopeFilter = buildProjectScopeOrFilter(scopeValues, [
@@ -3436,9 +3461,6 @@ export async function fetchSiteForms(options?: {
       if (options?.workerId) {
         query = query.eq("worker_id", options.workerId);
       }
-      if (options?.limit) {
-        query = query.limit(options.limit);
-      }
 
       let { data, error } = await query;
       if (
@@ -3446,10 +3468,12 @@ export async function fetchSiteForms(options?: {
         scopeValues.length > 0 &&
         isMissingScopeColumnError(error.message, "site_id")
       ) {
-        let fallbackQuery = supabase
-          .from("site_forms")
-          .select("*")
-          .order(orderColumn, { ascending: false });
+        let fallbackQuery = applySiteFormPagingAndDates(
+          supabase
+            .from("site_forms")
+            .select("*")
+            .order(orderColumn, { ascending: false })
+        );
         const projectOnlyFilter = buildProjectScopeOrFilter(scopeValues, [
           "project_id",
         ]);
@@ -3461,9 +3485,6 @@ export async function fetchSiteForms(options?: {
         }
         if (options?.workerId) {
           fallbackQuery = fallbackQuery.eq("worker_id", options.workerId);
-        }
-        if (options?.limit) {
-          fallbackQuery = fallbackQuery.limit(options.limit);
         }
         ({ data, error } = await fallbackQuery);
       }
@@ -3492,6 +3513,7 @@ export async function fetchPlantPrestarts(options?: {
   plantIds?: string[];
   workerId?: string;
   limit?: number;
+  offset?: number;
   startDate?: string;
   endDate?: string;
 }): Promise<PlantPrestart[]> {
@@ -3500,7 +3522,9 @@ export async function fetchPlantPrestarts(options?: {
   const scopeValues = options?.projectId
     ? await resolveProjectScopeValues(options.projectId)
     : [];
+  const offset = Math.max(0, options?.offset ?? 0);
   const limit = options?.limit ?? 100;
+  const queryLimit = offset + limit;
   const results: PlantPrestart[] = [];
 
   const applyDateFilters = <T extends { gte: (col: string, val: string) => T; lte: (col: string, val: string) => T }>(
@@ -3528,7 +3552,7 @@ export async function fetchPlantPrestarts(options?: {
           .select("*")
           .or(scopeFilter)
           .order("created_at", { ascending: false })
-          .limit(limit)
+          .limit(queryLimit)
       );
 
       let { data, error } = await query;
@@ -3543,7 +3567,7 @@ export async function fetchPlantPrestarts(options?: {
               .select("*")
               .or(projectOnlyFilter)
               .order("created_at", { ascending: false })
-              .limit(limit)
+              .limit(queryLimit)
           ));
         }
       }
@@ -3563,7 +3587,7 @@ export async function fetchPlantPrestarts(options?: {
         .select("*")
         .in("plant_id", options.plantIds)
         .order("created_at", { ascending: false })
-        .limit(limit)
+        .limit(queryLimit)
     );
 
     if (!error) {
@@ -3579,7 +3603,7 @@ export async function fetchPlantPrestarts(options?: {
         .from("plant_prestarts")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(limit)
+        .limit(queryLimit)
     );
 
     if (!error) {
@@ -3602,7 +3626,7 @@ export async function fetchPlantPrestarts(options?: {
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
-    .slice(0, limit);
+    .slice(offset, offset + limit);
 }
 
 type RawSiteFormRow = {

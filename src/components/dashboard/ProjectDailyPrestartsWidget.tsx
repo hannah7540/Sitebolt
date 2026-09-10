@@ -15,6 +15,7 @@ import { markSiteFormViewed } from "@/lib/site-form-mutations";
 import { localIsoDate } from "@/lib/timesheet-utils";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
+import { PastSubmissionsTrigger } from "./PastSubmissionsModal";
 
 interface ProjectDailyPrestartsWidgetProps {
   forms: SiteFormSubmission[];
@@ -23,6 +24,7 @@ interface ProjectDailyPrestartsWidgetProps {
   onOpenList: () => void;
   onSelectForm: (form: SiteFormSubmission) => void;
   onViewed: () => void;
+  onOpenPastSubmissions?: () => void;
 }
 
 export default function ProjectDailyPrestartsWidget({
@@ -32,6 +34,7 @@ export default function ProjectDailyPrestartsWidget({
   onOpenList,
   onSelectForm,
   onViewed,
+  onOpenPastSubmissions,
 }: ProjectDailyPrestartsWidgetProps) {
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [locallyViewedIds, setLocallyViewedIds] = useState<Set<string>>(
@@ -103,6 +106,14 @@ export default function ProjectDailyPrestartsWidget({
               <ChevronRight className="h-5 w-5" />
             </button>
           </div>
+          {onOpenPastSubmissions ? (
+            <div className="mt-1">
+              <PastSubmissionsTrigger
+                label="Past Submissions"
+                onClick={onOpenPastSubmissions}
+              />
+            </div>
+          ) : null}
           <p className="mt-0.5 text-sm text-slate-500">
             {loading
               ? "Loading daily pre-starts…"

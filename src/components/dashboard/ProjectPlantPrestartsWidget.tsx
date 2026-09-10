@@ -15,6 +15,7 @@ import { localIsoDate } from "@/lib/timesheet-utils";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import PlantPrestartDefectsWidget from "./PlantPrestartDefectsWidget";
+import { PastSubmissionsTrigger } from "./PastSubmissionsModal";
 
 interface ProjectPlantPrestartsWidgetProps {
   prestarts: PlantPrestart[];
@@ -24,6 +25,7 @@ interface ProjectPlantPrestartsWidgetProps {
   onOpenList: () => void;
   onSelectPrestart: (prestart: PlantPrestart) => void;
   onDefectRemoved?: (prestartId: string, patch?: Partial<PlantPrestart>) => void;
+  onOpenPastSubmissions?: () => void;
 }
 
 function resolveOperatorName(prestart: PlantPrestart, workers: Worker[]): string {
@@ -49,6 +51,7 @@ export default function ProjectPlantPrestartsWidget({
   onOpenList,
   onSelectPrestart,
   onDefectRemoved,
+  onOpenPastSubmissions,
 }: ProjectPlantPrestartsWidgetProps) {
   const [filterDate, setFilterDate] = useState(() => localIsoDate());
 
@@ -93,6 +96,11 @@ export default function ProjectPlantPrestartsWidget({
               <ChevronRight className="h-5 w-5" />
             </button>
           </div>
+          {onOpenPastSubmissions ? (
+            <div className="mt-1">
+              <PastSubmissionsTrigger onClick={onOpenPastSubmissions} />
+            </div>
+          ) : null}
           <p className="mt-0.5 text-sm text-slate-500">
             {loading
               ? "Loading plant pre-starts…"

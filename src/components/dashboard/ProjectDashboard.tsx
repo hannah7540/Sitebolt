@@ -42,6 +42,8 @@ import ProjectPlantAssetsModal from "./ProjectPlantAssetsModal";
 import SiteFormsListModal from "./SiteFormsListModal";
 import SiteFormDetailRouter from "./SiteFormDetailRouter";
 import PlantPrestartDetailModal from "./PlantPrestartDetailModal";
+import PastSubmissionsModal from "./PastSubmissionsModal";
+import type { PastSubmissionWidgetType } from "@/lib/past-submissions";
 import DashboardCustomizeToolbar, {
   DashboardWidgetFrame,
 } from "./DashboardCustomizeToolbar";
@@ -105,6 +107,8 @@ export default function ProjectDashboard({
   );
   const [showPlantPrestartsList, setShowPlantPrestartsList] = useState(false);
   const [showLeaveRequestsModal, setShowLeaveRequestsModal] = useState(false);
+  const [pastSubmissionsType, setPastSubmissionsType] =
+    useState<PastSubmissionWidgetType | null>(null);
   const [showSafetyWalksModal, setShowSafetyWalksModal] = useState(false);
   const [showActiveWorkersModal, setShowActiveWorkersModal] = useState(false);
   const [showPlantAssetsModal, setShowPlantAssetsModal] = useState(false);
@@ -352,6 +356,7 @@ export default function ProjectDashboard({
             onOpenList={() => setShowDailyPrestartsModal(true)}
             onSelectForm={handleSiteFormSelect}
             onViewed={() => void loadSiteForms()}
+            onOpenPastSubmissions={() => setPastSubmissionsType("daily_prestarts")}
           />
         );
       case "toolbox_talks":
@@ -381,6 +386,7 @@ export default function ProjectDashboard({
                 )
               )
             }
+            onOpenPastSubmissions={() => setPastSubmissionsType("plant_prestarts")}
           />
         );
       case "safety_walks":
@@ -392,6 +398,7 @@ export default function ProjectDashboard({
             onOpenList={() => setShowSafetyWalksModal(true)}
             onSelectForm={handleSiteFormSelect}
             onViewed={() => void loadSiteForms()}
+            onOpenPastSubmissions={() => setPastSubmissionsType("safety_walks")}
           />
         );
       default:
@@ -564,6 +571,17 @@ export default function ProjectDashboard({
             if (saved) onProjectUpdated?.(saved);
             onRefresh();
           }}
+        />
+      ) : null}
+
+      {pastSubmissionsType ? (
+        <PastSubmissionsModal
+          widgetType={pastSubmissionsType}
+          projectId={projectId}
+          isOpen
+          onClose={() => setPastSubmissionsType(null)}
+          workers={workers}
+          plant={plant}
         />
       ) : null}
 

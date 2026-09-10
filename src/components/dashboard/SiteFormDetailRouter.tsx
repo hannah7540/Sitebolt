@@ -11,6 +11,7 @@ interface SiteFormDetailRouterProps {
   onClose: () => void;
   onMarkRead?: () => Promise<void> | void;
   markingRead?: boolean;
+  embedded?: boolean;
 }
 
 export default function SiteFormDetailRouter({
@@ -19,6 +20,7 @@ export default function SiteFormDetailRouter({
   onClose,
   onMarkRead,
   markingRead,
+  embedded = false,
 }: SiteFormDetailRouterProps) {
   if (form.form_type === "safety_walk") {
     return (
@@ -28,6 +30,7 @@ export default function SiteFormDetailRouter({
         onClose={onClose}
         onMarkRead={onMarkRead}
         markingRead={markingRead}
+        embedded={embedded}
       />
     );
   }
@@ -39,6 +42,7 @@ export default function SiteFormDetailRouter({
       onClose={onClose}
       onMarkRead={onMarkRead}
       markingRead={markingRead}
+      embedded={embedded}
     />
   );
 }

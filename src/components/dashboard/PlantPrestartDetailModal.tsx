@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import { Loader2, X } from "lucide-react";
 import type { PlantAsset, PlantPrestart } from "@/lib/supabase";
@@ -8,6 +8,7 @@ import {
   getPlantPrestartDisplayTitle,
   formatPrestartHours,
   getPrestartDefectLabel,
+  collectPrestartDefectPhotoUrls,
 } from "@/lib/plant-prestart-utils";
 import {
   PRESTART_TEMPLATES,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/prestart-templates";
 import { getProjectName } from "@/lib/projects";
 import FormBrandingHeader from "@/components/ui/FormBrandingHeader";
+import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import { modalOverlayClass, modalClass, sectionClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +27,7 @@ interface PlantPrestartDetailModalProps {
   onMarkRead?: () => Promise<void> | void;
   onIgnoreDefect?: () => Promise<void> | void;
   markingRead?: boolean;
+  embedded?: boolean;
 }
 
 function formatTimestamp(iso: string) {
@@ -41,6 +44,7 @@ export default function PlantPrestartDetailModal({
   onMarkRead,
   onIgnoreDefect,
   markingRead = false,
+  embedded = false,
 }: PlantPrestartDetailModalProps) {
   const plantAsset = plant.find((asset) => asset.id === prestart.plant_id) ?? null;
   const unitLabel = getPlantPrestartDisplayTitle(prestart, plant);
@@ -65,12 +69,14 @@ export default function PlantPrestartDetailModal({
     return listed;
   }, [checkData, fields]);
 
-  return (
-    <div className={modalOverlayClass} onClick={onClose}>
-      <div
-        className={`${modalClass} max-w-3xl`}
-        onClick={(e) => e.stopPropagation()}
-      >
+  const photoUrls = useMemo(
+    () => collectPrestartDefectPhotoUrls(prestart),
+    [prestart]
+  );
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const body = (
+        <>
         <div className="mb-4 flex items-start justify-between gap-3">
           <FormBrandingHeader
             className="mb-0 flex-1 border-0 pb-0"
@@ -78,14 +84,16 @@ export default function PlantPrestartDetailModal({
             subtitle={unitLabel}
             meta={`${prestart.operator_name} · ${formatTimestamp(prestart.created_at)}`}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {embedded ? null : (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -173,17 +181,26 @@ export default function PlantPrestartDetailModal({
             </ul>
           </div>
 
-          {prestart.defect_photo_url ? (
+          {photoUrls.length > 0 ? (
             <div className={sectionClass}>
-              <p className={labelClass}>Defect photo</p>
-              <div className="relative mt-2 h-48 w-full overflow-hidden rounded-lg border border-slate-200">
-                <Image
-                  src={prestart.defect_photo_url}
-                  alt="Defect photo"
-                  fill
-                  className="object-cover"
-                  unoptimized
-                />
+              <p className={labelClass}>Defect photos</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {photoUrls.map((url, index) => (
+                  <button
+                    key={`${url}-${index}`}
+                    type="button"
+                    onClick={() => setLightboxIndex(index)}
+                    className="relative h-28 w-28 overflow-hidden rounded-lg border border-slate-200"
+                  >
+                    <Image
+                      src={url}
+                      alt={`Defect photo ${index + 1}`}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
@@ -202,41 +219,122 @@ export default function PlantPrestartDetailModal({
               </div>
             </div>
           ) : null}
+
+          {prestart.acknowledged_at ||
+          prestart.read_at ||
+          prestart.defect_ignored ||
+          prestart.repair_notes ||
+          prestart.cleared_at ? (
+            <div className={sectionClass}>
+              <p className={labelClass}>Resolution / follow-up</p>
+              <dl className="mt-2 space-y-1 text-sm text-slate-800">
+                {prestart.defect_ignored ? (
+                  <div>
+                    <dt className="text-xs text-slate-500">Status</dt>
+                    <dd>Ignored</dd>
+                  </div>
+                ) : null}
+                {prestart.acknowledged_at ? (
+                  <div>
+                    <dt className="text-xs text-slate-500">Marked as read</dt>
+                    <dd>{formatTimestamp(prestart.acknowledged_at)}</dd>
+                  </div>
+                ) : prestart.read_at ? (
+                  <div>
+                    <dt className="text-xs text-slate-500">Marked as read</dt>
+                    <dd>{formatTimestamp(prestart.read_at)}</dd>
+                  </div>
+                ) : null}
+                {prestart.cleared_at ? (
+                  <div>
+                    <dt className="text-xs text-slate-500">Cleared</dt>
+                    <dd>{formatTimestamp(prestart.cleared_at)}</dd>
+                  </div>
+                ) : null}
+                {prestart.repair_notes ? (
+                  <div>
+                    <dt className="text-xs text-slate-500">Repair notes</dt>
+                    <dd className="whitespace-pre-wrap">{prestart.repair_notes}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            disabled={markingRead}
-            onClick={onClose}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            Close
-          </button>
-          {onMarkRead ? (
+        {embedded ? null : (
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
             <button
               type="button"
               disabled={markingRead}
-              onClick={() => void onMarkRead()}
+              onClick={onClose}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >
-              {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Mark as read
+              Close
             </button>
-          ) : null}
-          {onIgnoreDefect ? (
-            <button
-              type="button"
-              disabled={markingRead}
-              onClick={() => void onIgnoreDefect()}
-              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
-            >
-              {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Ignore defect & mark as read
-            </button>
-          ) : null}
-        </div>
+            {onMarkRead ? (
+              <button
+                type="button"
+                disabled={markingRead}
+                onClick={() => void onMarkRead()}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Mark as read
+              </button>
+            ) : null}
+            {onIgnoreDefect ? (
+              <button
+                type="button"
+                disabled={markingRead}
+                onClick={() => void onIgnoreDefect()}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+              >
+                {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Ignore defect & mark as read
+              </button>
+            ) : null}
+          </div>
+        )}
+        </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="space-y-4">
+        {body}
+        {lightboxIndex != null && photoUrls.length > 0 ? (
+          <ImageLightboxGallery
+            images={photoUrls.map((url, index) => ({
+              url,
+              alt: `Defect photo ${index + 1}`,
+            }))}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        ) : null}
       </div>
+    );
+  }
+
+  return (
+    <div className={modalOverlayClass} onClick={onClose}>
+      <div
+        className={`${modalClass} max-w-3xl`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {body}
+      </div>
+      {lightboxIndex != null && photoUrls.length > 0 ? (
+        <ImageLightboxGallery
+          images={photoUrls.map((url, index) => ({
+            url,
+            alt: `Defect photo ${index + 1}`,
+          }))}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      ) : null}
     </div>
   );
 }

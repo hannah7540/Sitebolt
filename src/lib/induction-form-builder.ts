@@ -524,6 +524,91 @@ export async function fetchIncompleteInductionAssignments(): Promise<
   return result.assignments ?? [];
 }
 
+/** Completed induction history, fetched on demand for dashboard past-submissions. */
+export async function fetchCompletedInductionAssignments(options?: {
+  projectId?: string | null;
+  offset?: number;
+  limit?: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{
+  assignments: FormWorkerAssignment[];
+  hasMore: boolean;
+  error: string | null;
+}> {
+  if (!isSupabaseConfigured()) {
+    return { assignments: [], hasMore: false, error: null };
+  }
+
+  const pageSize = Math.max(1, options?.limit ?? 50);
+  const offset = Math.max(0, options?.offset ?? 0);
+  const fetchCount = pageSize + 1;
+  const projectId = options?.projectId?.trim() || null;
+
+  const applyCompletedFilters = <T extends {
+    in: (col: string, values: string[]) => T;
+    eq: (col: string, val: string) => T;
+    gte: (col: string, val: string) => T;
+    lte: (col: string, val: string) => T;
+    range: (from: number, to: number) => T;
+  }>(query: T): T => {
+    let next = query.in("status", [
+      "completed",
+      COMPLETED_FORM_WORKER_ASSIGNMENT_STATUS,
+    ]);
+    if (projectId) {
+      next = next.eq("project_id", projectId);
+    }
+    if (options?.startDate) {
+      next = next.gte("completed_at", `${options.startDate}T00:00:00`);
+    }
+    if (options?.endDate) {
+      next = next.lte("completed_at", `${options.endDate}T23:59:59.999`);
+    }
+    return next.range(offset, offset + fetchCount - 1);
+  };
+
+  const selectWithJoin = `*, ${INDUCTION_FORM_TEMPLATES_TABLE}(title, blocks, schema_fields, logic_rules)`;
+
+  const buildQuery = (
+    selectClause: string,
+    orderColumn: "completed_at" | "assigned_at"
+  ) =>
+    applyCompletedFilters(
+      supabase
+        .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+        .select(selectClause)
+        .order(orderColumn, { ascending: false, nullsFirst: false })
+    );
+
+  let { data, error } = await buildQuery(selectWithJoin, "completed_at");
+
+  if (error) {
+    ({ data, error } = await buildQuery("*", "completed_at"));
+  }
+  if (error) {
+    ({ data, error } = await buildQuery("*", "assigned_at"));
+  }
+
+  if (error) {
+    if (!isMissingTableError(error.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
+      console.warn("fetchCompletedInductionAssignments failed:", error.message);
+    }
+    return {
+      assignments: [],
+      hasMore: false,
+      error: formatAssignmentQueryError("load completed inductions from", error),
+    };
+  }
+
+  const mapped = mapAssignmentQueryRows(data as unknown[] | null);
+  return {
+    assignments: mapped.slice(0, pageSize),
+    hasMore: mapped.length > pageSize,
+    error: null,
+  };
+}
+
 /** Fetch all outstanding rows — select('*') only, no FK join or worker/project filters. */
 async function fetchAllPendingFormWorkerAssignmentRows(): Promise<{
   assignments: FormWorkerAssignment[];
