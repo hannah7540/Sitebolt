@@ -34,7 +34,10 @@ import {
   getLeaveStartDate,
   rejectLeaveRequestAction,
 } from "@/lib/leave-requests";
-import { markPlantPrestartRead } from "@/lib/plant-prestart-mutations";
+import {
+  ignorePlantPrestartDefect,
+  markPlantPrestartRead,
+} from "@/lib/plant-prestart-mutations";
 import { markSiteFormViewed } from "@/lib/site-form-mutations";
 import { sendInductionReminderNotification } from "@/lib/induction-reminder-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -263,12 +266,28 @@ export default function MasterProjectDashboard() {
       return;
     }
     removeRecord("plantPrestarts", prestart.id);
-    showSuccess("Plant pre-start marked as read");
+    showSuccess("Defect marked as read");
+    if (expanded?.type === "prestart" && expanded.record.id === prestart.id) {
+      setExpanded(null);
+    }
   };
 
-  const openPrestart = async (prestart: PlantPrestart) => {
-    setExpanded({ type: "prestart", record: prestart });
-    await handleMarkPrestartRead(prestart);
+  const handleIgnorePrestartDefect = async (prestart: PlantPrestart) => {
+    setMarkingId(prestart.id);
+    const result = await ignorePlantPrestartDefect({
+      plantId: prestart.plant_id,
+      prestartId: prestart.id,
+    });
+    setMarkingId(null);
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+    removeRecord("plantPrestarts", prestart.id);
+    showSuccess("Defect ignored and cleared from plant calendar");
+    if (expanded?.type === "prestart" && expanded.record.id === prestart.id) {
+      setExpanded(null);
+    }
   };
 
   const handleLeaveAction = async (
@@ -476,6 +495,7 @@ export default function MasterProjectDashboard() {
           onClose={() => setExpanded(null)}
           markingRead={markingId === expanded.record.id}
           onMarkRead={() => handleMarkPrestartRead(expanded.record)}
+          onIgnoreDefect={() => handleIgnorePrestartDefect(expanded.record)}
         />
       ) : null}
 

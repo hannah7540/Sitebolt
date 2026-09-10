@@ -23,6 +23,7 @@ interface PlantPrestartDetailModalProps {
   plant: PlantAsset[];
   onClose: () => void;
   onMarkRead?: () => Promise<void> | void;
+  onIgnoreDefect?: () => Promise<void> | void;
   markingRead?: boolean;
 }
 
@@ -38,6 +39,7 @@ export default function PlantPrestartDetailModal({
   plant,
   onClose,
   onMarkRead,
+  onIgnoreDefect,
   markingRead = false,
 }: PlantPrestartDetailModalProps) {
   const plantAsset = plant.find((asset) => asset.id === prestart.plant_id) ?? null;
@@ -202,19 +204,38 @@ export default function PlantPrestartDetailModal({
           ) : null}
         </div>
 
-        {onMarkRead ? (
-          <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            disabled={markingRead}
+            onClick={onClose}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Close
+          </button>
+          {onMarkRead ? (
             <button
               type="button"
               disabled={markingRead}
               onClick={() => void onMarkRead()}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Mark as read
+            </button>
+          ) : null}
+          {onIgnoreDefect ? (
+            <button
+              type="button"
+              disabled={markingRead}
+              onClick={() => void onIgnoreDefect()}
               className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
             >
               {markingRead ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Mark as Read
+              Ignore defect & mark as read
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
     </div>
   );
