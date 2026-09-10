@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { resolveProjectId } from "./project-resolver";
 import { isWithinProximityMeters } from "./itc-geo-utils";
+import { PROJECT_ITCS_TABLE } from "./itp-itc-payload";
 
 export interface ItcCompactionTest {
   id: string;
@@ -153,8 +154,9 @@ async function autoLinkCompactionTest(
 ): Promise<void> {
   if (gpsLat == null || gpsLng == null || !isSupabaseConfigured()) return;
 
+  try {
   const { data: itcs } = await supabase
-    .from("project_itcs")
+    .from(PROJECT_ITCS_TABLE)
     .select("id, gps_lat, gps_lng")
     .eq("project_id", projectId);
 
@@ -177,6 +179,9 @@ async function autoLinkCompactionTest(
   await supabase
     .from("itc_compaction_test_links")
     .upsert(links, { onConflict: "test_id,itc_id", ignoreDuplicates: true });
+  } catch (error) {
+    console.warn("autoLinkCompactionTest threw:", error);
+  }
 }
 
 export async function linkItcToNearbyCompactionTests(

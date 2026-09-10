@@ -22,6 +22,7 @@ import {
   type PlantDocumentRecord,
 } from "./plant-documents";
 import type { Worker } from "./supabase";
+import { PROJECT_ITPS_TABLE } from "./itp-itc-payload";
 
 export type DocumentPackSection = "itps" | "swms" | "plant";
 
@@ -118,11 +119,12 @@ async function fetchCompletedItpsForPack(
 ): Promise<ProjectItp[]> {
   if (!isSupabaseConfigured()) return [];
 
+  try {
   const { data, error } = await supabase
-    .from("project_itps")
+    .from(PROJECT_ITPS_TABLE)
     .select("*")
     .eq("project_id", projectId)
-    .in("status", ["approved", "submitted"])
+    .in("status", ["approved", "submitted", "completed"])
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -150,6 +152,10 @@ async function fetchCompletedItpsForPack(
   }
 
   return results;
+  } catch (error) {
+    console.warn("fetchCompletedItpsForPack threw:", error);
+    return [];
+  }
 }
 
 async function fetchLastServiceDates(

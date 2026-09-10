@@ -10,6 +10,10 @@ import type {
 import {
   PROJECT_ITP_COLUMNS,
   PROJECT_ITP_ITEM_COLUMNS,
+  PROJECT_ITP_ITEMS_TABLE,
+  PROJECT_ITPS_TABLE,
+  asUnknownArray,
+  hydrateItpItcRow,
   retryItpItcWrite,
   retryItpItcWriteMany,
   sanitizeItpItcWritePayload,
@@ -117,37 +121,46 @@ function isMissingTableError(message: string, table: string): boolean {
 }
 
 function normalizeItem(row: Record<string, unknown>): ProjectItpItem {
+  const hydrated = hydrateItpItcRow(row);
+  const photos = Array.isArray(hydrated.photo_urls)
+    ? (hydrated.photo_urls as string[])
+    : Array.isArray(hydrated.photos)
+      ? (hydrated.photos as string[])
+      : [];
   return {
-    id: String(row.id ?? ""),
-    itp_id: String(row.itp_id ?? ""),
-    item_number: Number(row.item_number ?? 0),
-    description: String(row.description ?? ""),
-    acceptance_criteria: (row.acceptance_criteria as string | null) ?? null,
-    point_type: (row.point_type as ItpPointType) ?? "S",
-    status: (row.status as ItpItemStatus) ?? "pending",
-    photo_urls: Array.isArray(row.photo_urls) ? (row.photo_urls as string[]) : [],
-    evidence_urls: Array.isArray(row.evidence_urls) ? (row.evidence_urls as string[]) : [],
-    inspector_name: (row.inspector_name as string | null) ?? null,
-    signed_off_at: (row.signed_off_at as string | null) ?? null,
-    signature_url: (row.signature_url as string | null) ?? null,
-    sort_order: Number(row.sort_order ?? 0),
+    id: String(hydrated.id ?? ""),
+    itp_id: String(hydrated.itp_id ?? ""),
+    item_number: Number(hydrated.item_number ?? 0),
+    description: String(hydrated.description ?? ""),
+    acceptance_criteria: (hydrated.acceptance_criteria as string | null) ?? null,
+    point_type: (hydrated.point_type as ItpPointType) ?? "S",
+    status: (hydrated.status as ItpItemStatus) ?? "pending",
+    photo_urls: photos,
+    evidence_urls: Array.isArray(hydrated.evidence_urls)
+      ? (hydrated.evidence_urls as string[])
+      : [],
+    inspector_name: (hydrated.inspector_name as string | null) ?? null,
+    signed_off_at: (hydrated.signed_off_at as string | null) ?? null,
+    signature_url: (hydrated.signature_url as string | null) ?? null,
+    sort_order: Number(hydrated.sort_order ?? 0),
   };
 }
 
 function normalizeItp(row: Record<string, unknown>, items: ProjectItpItem[] = []): ProjectItp {
+  const hydrated = hydrateItpItcRow(row);
   return {
-    id: String(row.id ?? ""),
-    project_id: String(row.project_id ?? ""),
-    itp_number: String(row.itp_number ?? ""),
-    title: String(row.title ?? ""),
-    revision: String(row.revision ?? "A"),
-    trade_category: String(row.trade_category ?? ""),
-    subcontractor_name: (row.subcontractor_name as string | null) ?? null,
-    location_area: (row.location_area as string | null) ?? null,
-    status: (row.status as ItpStatus) ?? "draft",
-    template_key: (row.template_key as string | null) ?? null,
-    created_at: row.created_at as string | undefined,
-    updated_at: row.updated_at as string | undefined,
+    id: String(hydrated.id ?? ""),
+    project_id: String(hydrated.project_id ?? ""),
+    itp_number: String(hydrated.itp_number ?? ""),
+    title: String(hydrated.title ?? ""),
+    revision: String(hydrated.revision ?? "A"),
+    trade_category: String(hydrated.trade_category ?? ""),
+    subcontractor_name: (hydrated.subcontractor_name as string | null) ?? null,
+    location_area: (hydrated.location_area as string | null) ?? null,
+    status: (hydrated.status as ItpStatus) ?? "draft",
+    template_key: (hydrated.template_key as string | null) ?? null,
+    created_at: hydrated.created_at as string | undefined,
+    updated_at: hydrated.updated_at as string | undefined,
     items,
   };
 }
@@ -160,7 +173,7 @@ async function resolveProject(projectId: string): Promise<string | null> {
 async function nextItpNumber(projectId: string): Promise<string> {
   const resolved = await resolveProject(projectId);
   const { data } = await supabase
-    .from("project_itps")
+    .from(PROJECT_ITPS_TABLE)
     .select("itp_number")
     .eq("project_id", resolved ?? projectId)
     .order("created_at", { ascending: false })
@@ -183,7 +196,7 @@ export async function fetchProjectItps(projectId: string): Promise<ProjectItp[]>
   try {
     const resolved = await resolveProject(projectId);
     const { data, error } = await supabase
-      .from("project_itps")
+      .from(PROJECT_ITPS_TABLE)
       .select("*")
       .eq("project_id", resolved ?? projectId)
       .order("created_at", { ascending: false });
@@ -207,54 +220,70 @@ export async function fetchItpById(itpId: string): Promise<ProjectItp | null> {
 
   try {
     const { data: itpRow, error } = await supabase
-      .from("project_itps")
+      .from(PROJECT_ITPS_TABLE)
       .select("*")
       .eq("id", itpId)
       .maybeSingle();
 
     if (error || !itpRow) return null;
 
+    const hydrated = hydrateItpItcRow(itpRow as Record<string, unknown>);
     const { data: itemRows } = await supabase
-      .from("project_itp_items")
+      .from(PROJECT_ITP_ITEMS_TABLE)
       .select("*")
       .eq("itp_id", itpId)
       .order("sort_order")
       .order("item_number");
 
-    const items = (itemRows ?? []).map((row) =>
+    const storedItems = (itemRows ?? []).map((row) =>
       normalizeItem(row as Record<string, unknown>)
     );
+    const fallbackItems = asUnknownArray(hydrated.items ?? hydrated.checklist).map((item, index) =>
+      normalizeItem({
+        ...(typeof item === "object" && item ? (item as Record<string, unknown>) : {}),
+        itp_id: itpId,
+        sort_order: index,
+      })
+    );
+    const items = storedItems.length > 0 ? storedItems : fallbackItems.filter((item) => item.description);
 
-    return normalizeItp(itpRow as Record<string, unknown>, items);
+    return normalizeItp(hydrated, items);
   } catch {
     return null;
   }
 }
 
 export async function fetchItpDashboardStats(projectId: string): Promise<ItpDashboardStats> {
-  const itps = await fetchProjectItps(projectId);
-  if (itps.length === 0) {
+  try {
+    const itps = await fetchProjectItps(projectId);
+    if (itps.length === 0) {
+      return { totalItps: 0, openHoldPoints: 0, completedItps: 0, nonConformances: 0 };
+    }
+
+    const itpIds = itps.map((itp) => itp.id);
+    const { data: itemRows } = await supabase
+      .from(PROJECT_ITP_ITEMS_TABLE)
+      .select("point_type, status")
+      .in("itp_id", itpIds);
+
+    const items = (itemRows ?? []) as Array<{ point_type: ItpPointType; status: ItpItemStatus }>;
+
+    return {
+      totalItps: itps.length,
+      openHoldPoints: items.filter(
+        (item) =>
+          item.point_type === "H" &&
+          (item.status === "pending" || item.status === "non_conforming")
+      ).length,
+      completedItps: itps.filter(
+        (itp) => itp.status === "approved" || itp.status === "completed"
+      ).length,
+      nonConformances: items.filter((item) => item.status === "non_conforming").length,
+    };
+  } catch (error) {
+    console.warn("fetchItpDashboardStats threw:", error);
     return { totalItps: 0, openHoldPoints: 0, completedItps: 0, nonConformances: 0 };
   }
-
-  const itpIds = itps.map((itp) => itp.id);
-  const { data: itemRows } = await supabase
-    .from("project_itp_items")
-    .select("point_type, status")
-    .in("itp_id", itpIds);
-
-  const items = (itemRows ?? []) as Array<{ point_type: ItpPointType; status: ItpItemStatus }>;
-
-  return {
-    totalItps: itps.length,
-    openHoldPoints: items.filter(
-      (item) =>
-        item.point_type === "H" &&
-        (item.status === "pending" || item.status === "non_conforming")
-    ).length,
-    completedItps: itps.filter((itp) => itp.status === "approved").length,
-    nonConformances: items.filter((item) => item.status === "non_conforming").length,
-  };
 }
 
 export async function createProjectItp(
@@ -300,7 +329,7 @@ export async function createProjectItp(
           location_area: input.location_area?.trim() || null,
           status: "draft",
           template_key: input.template_key ?? null,
-          form_data: {},
+          form_data: { items, checklist: items },
         });
 
     const insertResult = await retryItpItcWrite(
@@ -308,7 +337,7 @@ export async function createProjectItp(
       headerPayload,
       async (payload) => {
         const { data, error } = await supabase
-          .from("project_itps")
+          .from(PROJECT_ITPS_TABLE)
           .insert(payload)
           .select("*")
           .single();
@@ -344,12 +373,12 @@ export async function createProjectItp(
         "project_itp_items.insert",
         payload,
         async (rows) => {
-          const { error } = await supabase.from("project_itp_items").insert(rows);
+          const { error } = await supabase.from(PROJECT_ITP_ITEMS_TABLE).insert(rows);
           return { error };
         }
       );
       if (itemsResult.error) {
-        await supabase.from("project_itps").delete().eq("id", itpRow.id);
+        await supabase.from(PROJECT_ITPS_TABLE).delete().eq("id", itpRow.id);
         return { error: itemsResult.error };
       }
     }
@@ -420,7 +449,7 @@ export async function updateItpStatus(
   );
 
   const result = await retryItpItcWrite("project_itps.status", payload, async (next) => {
-    const { error } = await supabase.from("project_itps").update(next).eq("id", itpId);
+    const { error } = await supabase.from(PROJECT_ITPS_TABLE).update(next).eq("id", itpId);
     return { error };
   });
   return { error: result.error };
@@ -448,7 +477,7 @@ export async function updateItpItemStatus(
       PROJECT_ITP_ITEM_COLUMNS
     ),
     async (next) => {
-      const { error } = await supabase.from("project_itp_items").update(next).eq("id", itemId);
+      const { error } = await supabase.from(PROJECT_ITP_ITEMS_TABLE).update(next).eq("id", itemId);
       return { error };
     }
   );
@@ -484,7 +513,7 @@ export async function signOffItpItem(input: {
       PROJECT_ITP_ITEM_COLUMNS
     ),
     async (next) => {
-      const { error } = await supabase.from("project_itp_items").update(next).eq("id", input.itemId);
+      const { error } = await supabase.from(PROJECT_ITP_ITEMS_TABLE).update(next).eq("id", input.itemId);
       return { error };
     }
   );
@@ -498,7 +527,7 @@ export async function appendItpItemPhoto(
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const { data, error: readError } = await supabase
-    .from("project_itp_items")
+    .from(PROJECT_ITP_ITEMS_TABLE)
     .select("photo_urls")
     .eq("id", itemId)
     .maybeSingle();
@@ -524,7 +553,7 @@ export async function appendItpItemPhoto(
       PROJECT_ITP_ITEM_COLUMNS
     ),
     async (next) => {
-      const { error } = await supabase.from("project_itp_items").update(next).eq("id", itemId);
+      const { error } = await supabase.from(PROJECT_ITP_ITEMS_TABLE).update(next).eq("id", itemId);
       return { error };
     }
   );

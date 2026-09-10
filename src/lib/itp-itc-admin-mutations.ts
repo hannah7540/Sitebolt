@@ -7,9 +7,13 @@ import {
 } from "./itc-templates";
 import {
   ITC_SIGNOFF_COLUMNS,
+  ITC_SIGNOFFS_TABLE,
   PROJECT_ITC_COLUMNS,
+  PROJECT_ITCS_TABLE,
   PROJECT_ITP_COLUMNS,
   PROJECT_ITP_ITEM_COLUMNS,
+  PROJECT_ITP_ITEMS_TABLE,
+  PROJECT_ITPS_TABLE,
   retryItpItcWrite,
   retryItpItcWriteMany,
   sanitizeItpItcWritePayload,
@@ -51,7 +55,7 @@ async function nextItpNumber(
   projectId: string
 ): Promise<string> {
   const { data } = await admin
-    .from("project_itps")
+    .from(PROJECT_ITPS_TABLE)
     .select("itp_number")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
@@ -99,7 +103,7 @@ export async function createProjectItpAdmin(
       location_area: input.location_area?.trim() || null,
       status: "draft",
       template_key: input.template_key ?? null,
-      form_data: {},
+      form_data: { items, checklist: items },
       updated_at: new Date().toISOString(),
     }, PROJECT_ITP_COLUMNS);
 
@@ -108,7 +112,7 @@ export async function createProjectItpAdmin(
       headerPayload,
       async (payload) => {
         const { data, error } = await admin
-          .from("project_itps")
+          .from(PROJECT_ITPS_TABLE)
           .insert(payload)
           .select("id")
           .single();
@@ -143,12 +147,12 @@ export async function createProjectItpAdmin(
         "admin.project_itp_items.insert",
         itemPayload,
         async (rows) => {
-          const { error } = await admin.from("project_itp_items").insert(rows);
+          const { error } = await admin.from(PROJECT_ITP_ITEMS_TABLE).insert(rows);
           return { error };
         }
       );
       if (itemsResult.error) {
-        await admin.from("project_itps").delete().eq("id", itpId);
+        await admin.from(PROJECT_ITPS_TABLE).delete().eq("id", itpId);
         return { error: itemsResult.error };
       }
     }
@@ -180,7 +184,7 @@ export async function updateItpStatusAdmin(
       status === "completed"
     ),
     async (payload) => {
-      const { error } = await admin.from("project_itps").update(payload).eq("id", itpId);
+      const { error } = await admin.from(PROJECT_ITPS_TABLE).update(payload).eq("id", itpId);
       return { error };
     }
   );
@@ -202,7 +206,7 @@ export async function updateItpItemAdmin(
       PROJECT_ITP_ITEM_COLUMNS
     ),
     async (payload) => {
-      const { error } = await admin.from("project_itp_items").update(payload).eq("id", itemId);
+      const { error } = await admin.from(PROJECT_ITP_ITEMS_TABLE).update(payload).eq("id", itemId);
       return { error };
     }
   );
@@ -221,7 +225,7 @@ export async function submitItcSignoffAdmin(
   }
 ): Promise<{ error: string | null }> {
   const { data: signoffRow, error: fetchError } = await admin
-    .from("itc_signoffs")
+    .from(ITC_SIGNOFFS_TABLE)
     .select("*")
     .eq("id", input.signoffId)
     .maybeSingle();
@@ -259,7 +263,7 @@ export async function submitItcSignoffAdmin(
     }, ITC_SIGNOFF_COLUMNS),
     async (payload) => {
       const { error } = await admin
-        .from("itc_signoffs")
+        .from(ITC_SIGNOFFS_TABLE)
         .update(payload)
         .eq("id", input.signoffId)
         .eq("status", "draft");
@@ -270,7 +274,7 @@ export async function submitItcSignoffAdmin(
   if (submitResult.error) return { error: submitResult.error };
 
   const { data: signoffs, error: signoffsError } = await admin
-    .from("itc_signoffs")
+    .from(ITC_SIGNOFFS_TABLE)
     .select("step_index, status")
     .eq("itc_id", input.itcId)
     .eq("status", "submitted");
@@ -302,7 +306,7 @@ export async function submitItcSignoffAdmin(
       status === "completed" || status === "complete"
     ),
     async (payload) => {
-      const { error } = await admin.from("project_itcs").update(payload).eq("id", input.itcId);
+      const { error } = await admin.from(PROJECT_ITCS_TABLE).update(payload).eq("id", input.itcId);
       return { error };
     }
   );

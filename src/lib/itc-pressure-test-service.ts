@@ -372,9 +372,8 @@ export async function savePressureTest(
       projectId: input.projectId,
       raisedBy: input.submittedBy ?? null,
     });
-    const { retryItpItcWrite, sanitizeItpItcWritePayload, PROJECT_ITC_COLUMNS } = await import(
-      "./itp-itc-payload"
-    );
+    const { retryItpItcWrite, sanitizeItpItcWritePayload, PROJECT_ITC_COLUMNS, PROJECT_ITCS_TABLE } =
+      await import("./itp-itc-payload");
     await retryItpItcWrite(
       "project_itcs.pressure_issue",
       sanitizeItpItcWritePayload(
@@ -382,7 +381,7 @@ export async function savePressureTest(
         PROJECT_ITC_COLUMNS
       ),
       async (next) => {
-        const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+        const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", input.itcId);
         return { error };
       }
     );
@@ -406,9 +405,8 @@ export async function savePressureTest(
       return { error: stepResult.error, test: null };
     }
     if (calc.passed === false) {
-      const { retryItpItcWrite, sanitizeItpItcWritePayload, PROJECT_ITC_COLUMNS } = await import(
-        "./itp-itc-payload"
-      );
+      const { retryItpItcWrite, sanitizeItpItcWritePayload, PROJECT_ITC_COLUMNS, PROJECT_ITCS_TABLE } =
+        await import("./itp-itc-payload");
       await retryItpItcWrite(
         "project_itcs.pressure_fail",
         sanitizeItpItcWritePayload(
@@ -416,7 +414,7 @@ export async function savePressureTest(
           PROJECT_ITC_COLUMNS
         ),
         async (next) => {
-          const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+          const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", input.itcId);
           return { error };
         }
       );

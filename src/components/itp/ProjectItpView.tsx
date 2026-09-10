@@ -131,13 +131,19 @@ export default function ProjectItpView({
       return;
     }
     setLoading(true);
-    const [rows, statRows] = await Promise.all([
-      fetchProjectItps(projectId),
-      fetchItpDashboardStats(projectId),
-    ]);
-    setItps(rows);
-    setStats(statRows);
-    setLoading(false);
+    try {
+      const [rows, statRows] = await Promise.all([
+        fetchProjectItps(projectId),
+        fetchItpDashboardStats(projectId),
+      ]);
+      setItps(rows);
+      setStats(statRows);
+    } catch (error) {
+      console.warn("ProjectItpView load failed:", error);
+      setItps([]);
+    } finally {
+      setLoading(false);
+    }
   }, [projectId]);
 
   useEffect(() => {

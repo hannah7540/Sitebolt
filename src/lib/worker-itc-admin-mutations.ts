@@ -2,7 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSchemaCacheColumnError } from "./form-payload-utils";
 import {
   ITC_CHECKLIST_ENTRY_COLUMNS,
+  ITC_CHECKLIST_ENTRIES_TABLE,
   PROJECT_ITC_COLUMNS,
+  PROJECT_ITCS_TABLE,
+  asUnknownArray,
+  hydrateItpItcRow,
   retryItpItcWrite,
   sanitizeItpItcWritePayload,
 } from "./itp-itc-payload";
@@ -222,7 +226,7 @@ export async function fetchWorkerItcRegisterAdmin(
 ): Promise<{ itcs: WorkerItcRegisterRow[]; error: string | null }> {
   try {
     const { data, error } = await admin
-      .from("project_itcs")
+      .from(PROJECT_ITCS_TABLE)
       .select("*")
       .eq("project_id", projectId)
       .order("itc_number", { ascending: true });
@@ -235,7 +239,7 @@ export async function fetchWorkerItcRegisterAdmin(
     }
 
     const itcs = (data ?? []).map((row) => {
-    const record = row as Record<string, unknown>;
+    const record = hydrateItpItcRow(row as Record<string, unknown>);
     const start = record.start_location ? String(record.start_location) : "";
     const end = record.end_location ? String(record.end_location) : "";
     const scope =
@@ -289,7 +293,7 @@ export async function fetchWorkerItcDetailAdmin(
 }> {
   try {
     const { data: itcRow, error: itcError } = await admin
-      .from("project_itcs")
+      .from(PROJECT_ITCS_TABLE)
       .select("*")
       .eq("id", itcId)
       .maybeSingle();
@@ -303,7 +307,7 @@ export async function fetchWorkerItcDetailAdmin(
     if (!itcRow) return { itc: null, entries: [], error: "ITC not found." };
 
     const { data: entryRows, error: entryError } = await admin
-      .from("itc_checklist_entries")
+      .from(ITC_CHECKLIST_ENTRIES_TABLE)
       .select("*")
       .eq("itc_id", itcId)
       .order("sort_order");
@@ -319,7 +323,7 @@ export async function fetchWorkerItcDetailAdmin(
       }
     }
 
-    const record = itcRow as Record<string, unknown>;
+    const record = hydrateItpItcRow(itcRow as Record<string, unknown>);
   const start = record.start_location ? String(record.start_location) : "";
   const end = record.end_location ? String(record.end_location) : "";
   const scope = start && end ? `${start} → ${end}` : start || end || null;
@@ -349,6 +353,15 @@ export async function fetchWorkerItcDetailAdmin(
     completed_by: record.completed_by ? String(record.completed_by) : null,
     completed_at: record.completed_at ? String(record.completed_at) : null,
   };
+
+  if (stored.size === 0) {
+    for (const item of asUnknownArray(record.checklist ?? record.items)) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as Record<string, unknown>;
+      const key = String(entry.item_key ?? "");
+      if (key) stored.set(key, entry);
+    }
+  }
 
   const entries: WorkerItcChecklistEntryRow[] = WORKER_ITC_CHECKLIST_TEMPLATE.map(
     (template) => {
@@ -441,7 +454,7 @@ export async function saveWorkerItcChecklistAdmin(
 
       const { error } = await upsertWithMissingColumnFallback(
         admin,
-        "itc_checklist_entries",
+        ITC_CHECKLIST_ENTRIES_TABLE,
         payload,
         "itc_id,item_key",
         ITC_CHECKLIST_ENTRY_COLUMNS
@@ -455,12 +468,29 @@ export async function saveWorkerItcChecklistAdmin(
       }
     }
 
+    const checklist = input.items.map((item) => ({
+      item_key: item.item_key,
+      item_label: item.item_label,
+      is_mandatory: item.is_mandatory ?? true,
+      is_checked: item.is_checked ?? false,
+      notes: item.notes ?? null,
+      photo_url: item.photo_url ?? null,
+      sort_order: item.sort_order ?? 0,
+    }));
+    const photos = checklist
+      .map((item) => item.photo_url)
+      .filter((url): url is string => Boolean(url));
+
     const statusUpdate = await updateWithMissingColumnFallback(
       admin,
-      "project_itcs",
+      PROJECT_ITCS_TABLE,
       {
         status: "in_progress",
         updated_at: now,
+        checklist,
+        items: checklist,
+        photos,
+        form_data: { checklist, items: checklist, photos },
       },
       "id",
       input.itcId,
@@ -498,15 +528,37 @@ export async function completeWorkerItcAdmin(
     }
 
     const now = new Date().toISOString();
+    const checklist = entries.map((entry) => ({
+      item_key: entry.item_key,
+      item_label: entry.item_label,
+      is_mandatory: entry.is_mandatory,
+      is_checked: entry.is_checked,
+      notes: entry.notes,
+      photo_url: entry.photo_url,
+      sort_order: entry.sort_order,
+    }));
+    const photos = checklist
+      .map((item) => item.photo_url)
+      .filter((url): url is string => Boolean(url));
+
     return await updateWithMissingColumnFallback(
       admin,
-      "project_itcs",
+      PROJECT_ITCS_TABLE,
       {
         status: "completed",
         progress_percent: 100,
         completed_by: input.workerId,
         completed_at: now,
         updated_at: now,
+        checklist,
+        items: checklist,
+        photos,
+        form_data: {
+          checklist,
+          items: checklist,
+          photos,
+          completed_by: input.workerId,
+        },
       },
       "id",
       input.itcId,

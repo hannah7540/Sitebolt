@@ -28,6 +28,8 @@ import {
   ITC_SIGNOFF_COLUMNS,
   ITC_STEP_PHOTO_COLUMNS,
   PROJECT_ITC_COLUMNS,
+  PROJECT_ITCS_TABLE,
+  hydrateItpItcRow,
   retryItpItcWrite,
   retryItpItcWriteMany,
   sanitizeItpItcWritePayload,
@@ -248,6 +250,7 @@ function normalizeZone(row: Record<string, unknown>): ItcZone {
 }
 
 function normalizeItc(row: Record<string, unknown>): ProjectItc {
+  row = hydrateItpItcRow(row);
   const conduits = Array.isArray(row.conduits)
     ? (row.conduits as ItcConduitConfig[])
     : [];
@@ -484,7 +487,7 @@ export async function fetchProjectItcs(
 
   try {
     const resolved = await resolveProject(projectId);
-    let query = supabase.from("project_itcs").select("*").eq("project_id", resolved);
+    let query = supabase.from(PROJECT_ITCS_TABLE).select("*").eq("project_id", resolved);
     if (zoneCode && zoneCode !== "ALL") {
       query = query.eq("zone_code", zoneCode);
     }
@@ -508,8 +511,9 @@ export async function fetchProjectItcs(
 export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | null> {
   if (!isSupabaseConfigured()) return null;
 
+  try {
   const { data: itcRow, error } = await supabase
-    .from("project_itcs")
+    .from(PROJECT_ITCS_TABLE)
     .select("*")
     .eq("id", itcId)
     .maybeSingle();
@@ -561,6 +565,10 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
       )
     ),
   };
+  } catch (error) {
+    console.warn("fetchItcDetail threw:", error);
+    return null;
+  }
 }
 
 export async function bulkCreateItcs(
@@ -635,7 +643,7 @@ export async function bulkCreateItcs(
       "project_itcs.bulk_insert",
       sanitized,
       async (nextRows) => {
-        const { error } = await supabase.from("project_itcs").insert(nextRows);
+        const { error } = await supabase.from(PROJECT_ITCS_TABLE).insert(nextRows);
         return { error };
       }
     );
@@ -869,7 +877,7 @@ export async function submitItcSignoff(input: {
       status === "completed" || status === "complete"
     ),
     async (next) => {
-      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", input.itcId);
       return { error };
     }
   );
@@ -943,7 +951,7 @@ export async function createItcChangeRequest(input: {
     }),
     async (next) => {
       const { error: updateError } = await supabase
-        .from("project_itcs")
+        .from(PROJECT_ITCS_TABLE)
         .update(next)
         .eq("id", input.itcId);
       return { error: updateError };
@@ -987,7 +995,7 @@ export async function fetchVerificationQueue(projectId: string): Promise<ItcSign
   try {
     const resolved = await resolveProject(projectId);
     const { data: itcs } = await supabase
-      .from("project_itcs")
+      .from(PROJECT_ITCS_TABLE)
       .select("id")
       .eq("project_id", resolved);
 
@@ -1021,7 +1029,7 @@ export async function fetchPendingChangeRequests(
   try {
     const resolved = await resolveProject(projectId);
     const { data: itcs } = await supabase
-      .from("project_itcs")
+      .from(PROJECT_ITCS_TABLE)
       .select("id")
       .eq("project_id", resolved);
     const itcIds = (itcs ?? []).map((row) => String(row.id));
@@ -1071,7 +1079,7 @@ export async function reviewItcChangeRequest(input: {
       stripItcPayload({ has_open_cr: false, updated_at: reviewedAt }),
       async (next) => {
         const { error: updateError } = await supabase
-          .from("project_itcs")
+          .from(PROJECT_ITCS_TABLE)
           .update(next)
           .eq("id", input.itcId);
         return { error: updateError };
@@ -1227,8 +1235,9 @@ export async function getNextItcSequence(
   if (!isSupabaseConfigured()) return 1;
 
   const prefix = itcAutoNamePrefix(siteNumber, serviceType);
+  try {
   const { data } = await supabase
-    .from("project_itcs")
+    .from(PROJECT_ITCS_TABLE)
     .select("itc_number")
     .eq("project_id", projectId)
     .ilike("itc_number", `${prefix}%`);
@@ -1239,6 +1248,10 @@ export async function getNextItcSequence(
     if (seq != null) maxSeq = Math.max(maxSeq, seq);
   }
   return maxSeq + 1;
+  } catch (error) {
+    console.warn("getNextItcSequence threw:", error);
+    return 1;
+  }
 }
 
 export async function createItcDraft(input: {
@@ -1275,7 +1288,7 @@ export async function createItcDraft(input: {
     }),
     async (payload) => {
       const { data, error } = await supabase
-        .from("project_itcs")
+        .from(PROJECT_ITCS_TABLE)
         .insert(payload)
         .select("*")
         .single();
@@ -1305,7 +1318,7 @@ export async function updateItcTradeForm(input: {
     });
 
     const result = await retryItpItcWrite("project_itcs.trade_form", updatePayload, async (next) => {
-      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", input.itcId);
       return { error };
     });
     return { error: result.error };
@@ -1335,7 +1348,7 @@ export async function updateItcGpsLocation(input: {
       updated_at: new Date().toISOString(),
     }),
     async (next) => {
-      const { error } = await supabase.from("project_itcs").update(next).eq("id", input.itcId);
+      const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", input.itcId);
       return { error };
     }
   );

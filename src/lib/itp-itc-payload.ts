@@ -28,6 +28,57 @@ const PHOTO_KEYS = new Set(["photos", "photo_urls", "attachments", "evidence_url
 const CHECKLIST_KEYS = new Set(["checklist", "items"]);
 const SIGNATURE_KEYS = new Set(["signatures", "signoffs"]);
 
+export const PROJECT_ITPS_TABLE = "project_itps";
+export const PROJECT_ITCS_TABLE = "project_itcs";
+export const PROJECT_ITP_ITEMS_TABLE = "project_itp_items";
+export const ITC_SIGNOFFS_TABLE = "itc_signoffs";
+export const ITC_CHECKLIST_ENTRIES_TABLE = "itc_checklist_entries";
+
+export function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
+}
+
+export function asUnknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** Merge catch-all JSON onto a fetched row and drop transient UI keys. */
+export function hydrateItpItcRow(row: Record<string, unknown>): Record<string, unknown> {
+  const formData = asRecord(row.form_data);
+  const next: Record<string, unknown> = { ...row };
+
+  for (const key of UI_ONLY_KEYS) {
+    delete next[key];
+  }
+
+  for (const [key, value] of Object.entries(formData)) {
+    if (UI_ONLY_KEYS.has(key)) continue;
+    if (next[key] == null) next[key] = value;
+  }
+
+  next.form_data = formData;
+  if (!Array.isArray(next.checklist) && Array.isArray(formData.checklist)) {
+    next.checklist = formData.checklist;
+  }
+  if (!Array.isArray(next.items) && Array.isArray(formData.items)) {
+    next.items = formData.items;
+  }
+  if (!Array.isArray(next.photos) && (Array.isArray(formData.photos) || Array.isArray(formData.photo_urls))) {
+    next.photos = formData.photos ?? formData.photo_urls;
+  }
+  if (!Array.isArray(next.signatures) && Array.isArray(formData.signatures)) {
+    next.signatures = formData.signatures;
+  }
+  if (!Array.isArray(next.signoffs) && Array.isArray(formData.signoffs)) {
+    next.signoffs = formData.signoffs;
+  }
+
+  return next;
+}
+
 export const PROJECT_ITP_COLUMNS = [
   "id",
   "project_id",
