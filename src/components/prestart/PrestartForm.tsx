@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, AlertTriangle, Camera } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, Camera, BadgeCheck } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
 import {
   submitPlantPrestart,
@@ -14,6 +14,7 @@ import {
   type PrestartTemplate,
   type PrestartField,
 } from "@/lib/prestart-templates";
+import { resolvePrestartOperatorIdentity } from "@/lib/prestart-operator";
 import SignatureCanvas from "./SignatureCanvas";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
@@ -104,6 +105,10 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
   const fields = PRESTART_TEMPLATES[template];
 
   const [operatorName, setOperatorName] = useState("");
+  const [operatorLoading, setOperatorLoading] = useState(true);
+  const [operatorLocked, setOperatorLocked] = useState(false);
+  const [operatorWorkerId, setOperatorWorkerId] = useState<string | null>(null);
+  const [operatorUserId, setOperatorUserId] = useState<string | null>(null);
   const [checkData, setCheckData] = useState<Record<string, string>>({});
   const [defectComments, setDefectComments] = useState("");
   const [hasDefectManual, setHasDefectManual] = useState(false);
@@ -133,6 +138,28 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
     setCheckData(initial);
   }, [plant, template]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOperator() {
+      const identity = await resolvePrestartOperatorIdentity();
+      if (cancelled) return;
+
+      setOperatorLocked(identity.hasSession && Boolean(identity.operatorName));
+      setOperatorWorkerId(identity.workerId);
+      setOperatorUserId(identity.userId);
+      if (identity.operatorName) {
+        setOperatorName(identity.operatorName);
+      }
+      setOperatorLoading(false);
+    }
+
+    void loadOperator();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const autoDefect = detectDefectsInCheckData(checkData);
   const hasDefect = hasDefectManual || autoDefect || defectComments.length > 0;
 
@@ -144,6 +171,10 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
     e.preventDefault();
     if (!signatureDataUrl) {
       setError("Please sign off before submitting.");
+      return;
+    }
+    if (!operatorName.trim()) {
+      setError("Operator name is required.");
       return;
     }
 
@@ -170,7 +201,10 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
 
       const { error: submitErr } = await submitPlantPrestart({
         plantId: plant.id,
-        operatorName,
+        operatorName: operatorName.trim(),
+        operatorWorkerId,
+        operatorId: operatorWorkerId,
+        userId: operatorUserId,
         projectId: plant.assigned_project_id,
         checkData,
         template,
@@ -242,17 +276,40 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
       )}
 
       <label className="block space-y-1.5">
-        <span className="text-sm text-slate-600">
-          Operator Name <span className="text-orange-500">*</span>
+        <span className="flex items-center justify-between gap-2 text-sm text-slate-600">
+          <span>
+            Operator Name <span className="text-orange-500">*</span>
+          </span>
+          {operatorLocked ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              <BadgeCheck className="h-3.5 w-3.5" />
+              Verified
+            </span>
+          ) : null}
         </span>
-        <input
-          type="text"
-          value={operatorName}
-          onChange={(e) => setOperatorName(e.target.value)}
-          required
-          placeholder="Your full name"
-          className={inputClass}
-        />
+        {operatorLoading ? (
+          <div
+            className="h-10 animate-pulse rounded-lg border border-slate-200 bg-slate-100"
+            aria-hidden
+          />
+        ) : (
+          <input
+            type="text"
+            value={operatorName}
+            onChange={
+              operatorLocked ? undefined : (e) => setOperatorName(e.target.value)
+            }
+            required
+            readOnly={operatorLocked}
+            disabled={operatorLocked}
+            placeholder="Your full name"
+            className={cn(
+              inputClass,
+              operatorLocked &&
+                "cursor-not-allowed bg-slate-100 text-slate-800 focus:border-slate-300 focus:ring-0"
+            )}
+          />
+        )}
       </label>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -321,7 +378,7 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
 
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || operatorLoading}
         className={cn(
           "flex w-full items-center justify-center gap-2 rounded-xl py-4 text-lg font-bold transition",
           hasDefect

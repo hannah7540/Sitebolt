@@ -2536,6 +2536,9 @@ export async function uploadPrestartFile(
 export async function submitPlantPrestart(input: {
   plantId: string;
   operatorName: string;
+  operatorWorkerId?: string | null;
+  operatorId?: string | null;
+  userId?: string | null;
   projectId?: string | null;
   siteId?: string | null;
   template: PrestartTemplate;
@@ -2568,6 +2571,9 @@ export async function submitPlantPrestart(input: {
     {
       plant_id: input.plantId,
       operator_name: input.operatorName,
+      operator_worker_id: input.operatorWorkerId ?? input.operatorId ?? null,
+      operator_id: input.operatorId ?? input.operatorWorkerId ?? null,
+      user_id: input.userId ?? null,
       project_id: resolvedProjectId,
       site_id: resolvedProjectId,
       current_reading: currentReading,

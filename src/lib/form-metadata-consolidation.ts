@@ -58,6 +58,8 @@ export const TABLE_KNOWN_COLUMNS: Record<string, ReadonlySet<string>> = {
     "plant_id",
     "operator_name",
     "operator_worker_id",
+    "operator_id",
+    "user_id",
     "project_id",
     "site_id",
     "current_reading",
