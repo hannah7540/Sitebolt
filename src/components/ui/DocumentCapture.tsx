@@ -25,6 +25,9 @@ export interface DocumentCaptureProps {
   uploadPathBack?: string;
   disabled?: boolean;
   className?: string;
+  required?: boolean;
+  error?: string | null;
+  fieldId?: string;
 }
 
 function isPdf(file: File): boolean {
@@ -68,6 +71,9 @@ export default function DocumentCapture({
   uploadPathBack,
   disabled = false,
   className,
+  required = false,
+  error = null,
+  fieldId,
 }: DocumentCaptureProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -165,12 +171,14 @@ export default function DocumentCapture({
   ];
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-2", className)} data-onboarding-field={fieldId}>
       {label && (
         <span className={cn("block text-sm font-medium text-slate-700", labelClass)}>
           {label}
+          {required ? <span className="text-orange-500"> *</span> : null}
         </span>
       )}
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
 
       <input
         ref={cameraInputRef}

@@ -22,6 +22,8 @@ interface WorkerCompanyVehicleFieldsProps {
   onAssignedVehicleChange: (vehicleId: string | null) => void;
   disabled?: boolean;
   idPrefix?: string;
+  error?: string;
+  fieldId?: string;
 }
 
 export default function WorkerCompanyVehicleFields({
@@ -31,6 +33,8 @@ export default function WorkerCompanyVehicleFields({
   onAssignedVehicleChange,
   disabled = false,
   idPrefix = "worker-company-vehicle",
+  error,
+  fieldId,
 }: WorkerCompanyVehicleFieldsProps) {
   const [fleet, setFleet] = useState<OrganizationFleetVehicle[]>([]);
   const [loadingFleet, setLoadingFleet] = useState(true);
@@ -83,8 +87,10 @@ export default function WorkerCompanyVehicleFields({
       </label>
 
       {hasCompanyVehicle ? (
-        <label className="block space-y-1">
-          <span className={labelClass}>Company vehicle *</span>
+        <label className="block space-y-1" data-onboarding-field={fieldId}>
+          <span className={labelClass}>
+            Company vehicle <span className="text-orange-500">*</span>
+          </span>
           <select
             id={`${idPrefix}-select`}
             className={inputClass}
@@ -105,6 +111,7 @@ export default function WorkerCompanyVehicleFields({
               </option>
             ))}
           </select>
+          {error ? <p className="text-xs text-red-600">{error}</p> : null}
           {!loadingFleet && vehicleOptions.length === 0 ? (
             <p className="text-xs text-amber-700">
               No active fleet vehicles found. Add vehicles under Organisation → Fleet.

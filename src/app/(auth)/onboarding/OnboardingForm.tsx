@@ -17,7 +17,14 @@ import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors"
 import { vocFromRecord, type VocDraft } from "@/lib/voc-utils";
 import { cn } from "@/lib/utils";
 import WorkerOnboardingProfilePhoto from "@/components/workers/WorkerOnboardingProfilePhoto";
-import { PROFILE_PHOTO_REQUIRED_MESSAGE } from "@/lib/worker-profile-photo-validation";
+import Toast from "@/components/ui/Toast";
+import { useFormToast } from "@/hooks/useFormToast";
+import {
+  ONBOARDING_REQUIRED_TOAST,
+  firstMissingOnboardingField,
+  missingOnboardingFields,
+  scrollToOnboardingField,
+} from "@/lib/onboarding-required-fields";
 
 const STEPS = [
   { key: 1, shortLabel: "Personal", title: "Personal & Emergency Contact" },
@@ -71,47 +78,71 @@ function Field({
   children,
   className,
   required = false,
+  error,
+  fieldId,
 }: {
   label: string;
   children: React.ReactNode;
   className?: string;
   required?: boolean;
+  error?: string;
+  fieldId?: string;
 }) {
   return (
-    <label className={cn("block space-y-1", className)}>
+    <label className={cn("block space-y-1", className)} data-onboarding-field={fieldId}>
       <span className={labelClass}>
         {label}
-        {required ? " *" : ""}
+        {required ? <span className="text-orange-500"> *</span> : null}
       </span>
       {children}
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </label>
   );
 }
 
-function validateStep1(form: OnboardingFormState): string | null {
-  if (!form.fullName.trim()) return "Full name is required.";
-  if (!form.phone.trim()) return "Phone number is required.";
-  if (!form.state) return "State / Region is required.";
-  if (!form.emergencyContactName.trim()) return "Emergency contact name is required.";
-  if (!form.emergencyContactRelationship.trim()) {
-    return "Emergency contact relationship is required.";
-  }
-  if (!form.emergencyContactPhone.trim()) return "Emergency contact phone is required.";
-  if (!form.photoUrl.trim()) return PROFILE_PHOTO_REQUIRED_MESSAGE;
-  return null;
+function step1Checks(form: OnboardingFormState) {
+  return [
+    { field: "fullName", value: form.fullName },
+    { field: "email", value: form.email },
+    { field: "phone", value: form.phone },
+    { field: "addressLine1", value: form.addressLine1 },
+    { field: "suburb", value: form.suburb },
+    { field: "postcode", value: form.postcode },
+    { field: "state", value: form.state },
+    { field: "emergencyContactName", value: form.emergencyContactName },
+    { field: "emergencyContactRelationship", value: form.emergencyContactRelationship },
+    { field: "emergencyContactPhone", value: form.emergencyContactPhone },
+    { field: "photoUrl", value: form.photoUrl },
+  ];
 }
 
-function validateStep2(form: OnboardingFormState): string | null {
-  if (!form.bankName.trim()) return "Bank name is required.";
-  if (!form.bankBsb.trim()) return "Bank BSB is required.";
-  if (!form.bankAccountNumber.trim()) return "Bank account number is required.";
-  if (!form.superFund.trim()) return "Superannuation fund name is required.";
-  if (!form.superMemberNumber.trim()) return "Super member number is required.";
-  if (!form.tfn.trim()) return "Tax File Number is required.";
-  return null;
+function step2Checks(form: OnboardingFormState) {
+  return [
+    { field: "bankName", value: form.bankName },
+    { field: "bankBsb", value: form.bankBsb },
+    { field: "bankAccountNumber", value: form.bankAccountNumber },
+    { field: "superFund", value: form.superFund },
+    { field: "superMemberNumber", value: form.superMemberNumber },
+    { field: "tfn", value: form.tfn },
+  ];
 }
 
-function validateStep3(form: OnboardingFormState): string | null {
+function step3Checks(form: OnboardingFormState) {
+  return [
+    { field: "whiteCardNumber", value: form.whiteCardNumber },
+    { field: "whiteCardState", value: form.whiteCardState },
+    { field: "silicaCertNumber", value: form.silicaCertNumber },
+    { field: "silicaCertIssueDate", value: form.silicaCertIssueDate },
+  ];
+}
+
+function checksForStep(step: StepKey, form: OnboardingFormState) {
+  if (step === 1) return step1Checks(form);
+  if (step === 2) return step2Checks(form);
+  return step3Checks(form);
+}
+
+function vocValidationError(form: OnboardingFormState): string | null {
   for (const voc of form.vocs) {
     const hasContent =
       voc.voc_type.trim() ||
@@ -227,9 +258,11 @@ function StepIndicator({ currentStep }: { currentStep: StepKey }) {
 
 export default function OnboardingForm() {
   const router = useRouter();
+  const { toast, showError, dismissToast } = useFormToast();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [step, setStep] = useState<StepKey>(1);
   const [form, setForm] = useState<OnboardingFormState>(() => ({
@@ -339,19 +372,38 @@ export default function OnboardingForm() {
     };
   }, [router]);
 
-  const validateCurrentStep = (): string | null => {
-    if (step === 1) return validateStep1(form);
-    if (step === 2) return validateStep2(form);
-    return validateStep3(form);
+  const applyStepValidation = (targetStep: StepKey): boolean => {
+    const checks = checksForStep(targetStep, form);
+    const errors = missingOnboardingFields(checks);
+    const first = firstMissingOnboardingField(checks);
+    const vocError = targetStep === 3 ? vocValidationError(form) : null;
+
+    setFieldErrors(errors);
+    if (first) {
+      setError(ONBOARDING_REQUIRED_TOAST);
+      showError(ONBOARDING_REQUIRED_TOAST);
+      scrollToOnboardingField(first.field);
+      return true;
+    }
+    if (vocError) {
+      setError(vocError);
+      showError(vocError);
+      return true;
+    }
+    setError(null);
+    return false;
+  };
+
+  const firstInvalidStep = (): StepKey | null => {
+    for (const target of [1, 2, 3] as const) {
+      if (firstMissingOnboardingField(checksForStep(target, form))) return target;
+      if (target === 3 && vocValidationError(form)) return target;
+    }
+    return null;
   };
 
   const handleNext = () => {
-    setError(null);
-    const validationError = validateCurrentStep();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    if (applyStepValidation(step)) return;
     if (step < 3) {
       setStep((prev) => (prev + 1) as StepKey);
     }
@@ -359,19 +411,17 @@ export default function OnboardingForm() {
 
   const handleBack = () => {
     setError(null);
+    setFieldErrors({});
     if (step > 1) {
       setStep((prev) => (prev - 1) as StepKey);
     }
   };
 
   const handleSubmit = async () => {
-    setError(null);
-    const step1Error = validateStep1(form);
-    const step2Error = validateStep2(form);
-    const step3Error = validateStep3(form);
-    const validationError = step1Error ?? step2Error ?? step3Error;
-    if (validationError) {
-      setError(validationError);
+    const invalidStep = firstInvalidStep();
+    if (invalidStep) {
+      setStep(invalidStep);
+      window.setTimeout(() => applyStepValidation(invalidStep), 0);
       return;
     }
 
@@ -458,6 +508,7 @@ export default function OnboardingForm() {
   }
 
   return (
+    <>
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className={cardClass + " w-full max-w-3xl p-8"}>
         <div className="mb-6 flex items-center gap-3">
@@ -488,13 +539,16 @@ export default function OnboardingForm() {
                   photoUrl={form.photoUrl || null}
                   onPhotoUrlChange={(url) => setField("photoUrl", url)}
                   disabled={submitting}
-                  showValidationError={
-                    !form.photoUrl.trim() &&
-                    error === PROFILE_PHOTO_REQUIRED_MESSAGE
-                  }
+                  showValidationError={Boolean(fieldErrors.photoUrl)}
                 />
               ) : null}
-              <Field label="Full Name" className="sm:col-span-2" required>
+              <Field
+                label="Full Name"
+                className="sm:col-span-2"
+                required
+                fieldId="fullName"
+                error={fieldErrors.fullName}
+              >
                 <input
                   type="text"
                   className={inputClass}
@@ -503,7 +557,13 @@ export default function OnboardingForm() {
                   autoComplete="name"
                 />
               </Field>
-              <Field label="Email" className="sm:col-span-2">
+              <Field
+                label="Email"
+                className="sm:col-span-2"
+                required
+                fieldId="email"
+                error={fieldErrors.email}
+              >
                 <input
                   type="email"
                   className={cn(inputClass, "bg-slate-50 text-slate-600")}
@@ -512,7 +572,12 @@ export default function OnboardingForm() {
                   aria-readonly="true"
                 />
               </Field>
-              <Field label="Phone Number" required>
+              <Field
+                label="Phone Number"
+                required
+                fieldId="phone"
+                error={fieldErrors.phone}
+              >
                 <input
                   type="tel"
                   className={inputClass}
@@ -521,7 +586,13 @@ export default function OnboardingForm() {
                   autoComplete="tel"
                 />
               </Field>
-              <Field label="Address Line 1" className="sm:col-span-2">
+              <Field
+                label="Address Line 1"
+                className="sm:col-span-2"
+                required
+                fieldId="addressLine1"
+                error={fieldErrors.addressLine1}
+              >
                 <input
                   type="text"
                   className={inputClass}
@@ -539,7 +610,12 @@ export default function OnboardingForm() {
                   autoComplete="address-line2"
                 />
               </Field>
-              <Field label="Suburb / City">
+              <Field
+                label="Suburb / City"
+                required
+                fieldId="suburb"
+                error={fieldErrors.suburb}
+              >
                 <input
                   type="text"
                   className={inputClass}
@@ -548,7 +624,12 @@ export default function OnboardingForm() {
                   autoComplete="address-level2"
                 />
               </Field>
-              <Field label="Postal / Zip Code">
+              <Field
+                label="Postal / Zip Code"
+                required
+                fieldId="postcode"
+                error={fieldErrors.postcode}
+              >
                 <input
                   type="text"
                   className={inputClass}
@@ -563,12 +644,19 @@ export default function OnboardingForm() {
                   value={form.state}
                   onChange={(value) => setField("state", value)}
                   disabled={submitting}
+                  fieldId="state"
+                  error={fieldErrors.state}
                 />
               </div>
               <div className={cn(sectionClass, "sm:col-span-2")}>
                 <h4 className="text-sm font-semibold text-orange-600">Emergency Contact</h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  <Field label="Contact Name" required>
+                  <Field
+                    label="Contact Name"
+                    required
+                    fieldId="emergencyContactName"
+                    error={fieldErrors.emergencyContactName}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -579,7 +667,12 @@ export default function OnboardingForm() {
                       autoComplete="name"
                     />
                   </Field>
-                  <Field label="Relationship" required>
+                  <Field
+                    label="Relationship"
+                    required
+                    fieldId="emergencyContactRelationship"
+                    error={fieldErrors.emergencyContactRelationship}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -590,7 +683,13 @@ export default function OnboardingForm() {
                       }
                     />
                   </Field>
-                  <Field label="Phone Number" className="sm:col-span-2" required>
+                  <Field
+                    label="Phone Number"
+                    className="sm:col-span-2"
+                    required
+                    fieldId="emergencyContactPhone"
+                    error={fieldErrors.emergencyContactPhone}
+                  >
                     <input
                       type="tel"
                       className={inputClass}
@@ -611,7 +710,12 @@ export default function OnboardingForm() {
               <div className={cn(sectionClass, "sm:col-span-2")}>
                 <h4 className="text-sm font-semibold text-orange-600">Bank Details</h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  <Field label="Bank Name" required>
+                  <Field
+                    label="Bank Name"
+                    required
+                    fieldId="bankName"
+                    error={fieldErrors.bankName}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -619,7 +723,12 @@ export default function OnboardingForm() {
                       onChange={(event) => setField("bankName", event.target.value)}
                     />
                   </Field>
-                  <Field label="BSB" required>
+                  <Field
+                    label="BSB"
+                    required
+                    fieldId="bankBsb"
+                    error={fieldErrors.bankBsb}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -628,7 +737,13 @@ export default function OnboardingForm() {
                       onChange={(event) => setField("bankBsb", event.target.value)}
                     />
                   </Field>
-                  <Field label="Account Number" className="sm:col-span-2" required>
+                  <Field
+                    label="Account Number"
+                    className="sm:col-span-2"
+                    required
+                    fieldId="bankAccountNumber"
+                    error={fieldErrors.bankAccountNumber}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -644,7 +759,12 @@ export default function OnboardingForm() {
               <div className={cn(sectionClass, "sm:col-span-2")}>
                 <h4 className="text-sm font-semibold text-orange-600">Superannuation</h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  <Field label="Fund Name" required>
+                  <Field
+                    label="Fund Name"
+                    required
+                    fieldId="superFund"
+                    error={fieldErrors.superFund}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -652,7 +772,12 @@ export default function OnboardingForm() {
                       onChange={(event) => setField("superFund", event.target.value)}
                     />
                   </Field>
-                  <Field label="Member Number" required>
+                  <Field
+                    label="Member Number"
+                    required
+                    fieldId="superMemberNumber"
+                    error={fieldErrors.superMemberNumber}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -668,7 +793,12 @@ export default function OnboardingForm() {
               <div className={cn(sectionClass, "sm:col-span-2")}>
                 <h4 className="text-sm font-semibold text-orange-600">Tax File Number</h4>
                 <div className="mt-3">
-                  <Field label="TFN" required>
+                  <Field
+                    label="TFN"
+                    required
+                    fieldId="tfn"
+                    error={fieldErrors.tfn}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -713,7 +843,12 @@ export default function OnboardingForm() {
               <div className={sectionClass}>
                 <h4 className="text-sm font-semibold text-orange-600">White Card</h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  <Field label="Card Number">
+                  <Field
+                    label="Card Number"
+                    required
+                    fieldId="whiteCardNumber"
+                    error={fieldErrors.whiteCardNumber}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -725,8 +860,10 @@ export default function OnboardingForm() {
                     id="onboarding-white-card-state"
                     value={form.whiteCardState}
                     onChange={(value) => setField("whiteCardState", value)}
-                    required={false}
+                    required
                     disabled={submitting}
+                    fieldId="whiteCardState"
+                    error={fieldErrors.whiteCardState}
                   />
                 </div>
               </div>
@@ -736,7 +873,12 @@ export default function OnboardingForm() {
                   Silica Awareness / Course
                 </h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  <Field label="Certificate / Course Number">
+                  <Field
+                    label="Certificate / Course Number"
+                    required
+                    fieldId="silicaCertNumber"
+                    error={fieldErrors.silicaCertNumber}
+                  >
                     <input
                       type="text"
                       className={inputClass}
@@ -746,7 +888,12 @@ export default function OnboardingForm() {
                       }
                     />
                   </Field>
-                  <Field label="Issue / Completion Date">
+                  <Field
+                    label="Issue / Completion Date"
+                    required
+                    fieldId="silicaCertIssueDate"
+                    error={fieldErrors.silicaCertIssueDate}
+                  >
                     <input
                       type="date"
                       className={inputClass}
@@ -875,5 +1022,13 @@ export default function OnboardingForm() {
         </p>
       </div>
     </div>
+    {toast ? (
+      <Toast
+        message={toast.message}
+        variant={toast.variant}
+        onDismiss={dismissToast}
+      />
+    ) : null}
+    </>
   );
 }

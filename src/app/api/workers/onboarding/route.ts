@@ -97,7 +97,11 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
 
 function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string | null {
   if (!payload.fullName) return "Full name is required.";
+  if (!payload.email) return "Email address is required.";
   if (!payload.phone) return "Phone number is required.";
+  if (!payload.addressLine1) return "Address line 1 is required.";
+  if (!payload.suburb) return "Suburb / city is required.";
+  if (!payload.postcode) return "Postal / zip code is required.";
   if (!normalizeWorkerStateRegion(payload.state)) {
     return "State / Region is required.";
   }
@@ -112,6 +116,14 @@ function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string
   if (!payload.superFund) return "Superannuation fund name is required.";
   if (!payload.superMemberNumber) return "Super member number is required.";
   if (!payload.tfn) return "Tax File Number is required.";
+  if (!payload.whiteCardNumber) return "White card number is required.";
+  if (!normalizeWorkerStateRegion(payload.whiteCardState)) {
+    return "White card state / region is required.";
+  }
+  if (!payload.silicaCertNumber) return "Silica awareness certificate number is required.";
+  if (!payload.silicaCertIssueDate) {
+    return "Silica awareness issue date is required.";
+  }
   if (!isValidProfilePhotoUrl(payload.photoUrl)) {
     return PROFILE_PHOTO_API_REQUIRED_MESSAGE;
   }

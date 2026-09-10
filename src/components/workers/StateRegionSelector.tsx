@@ -15,6 +15,8 @@ interface StateRegionSelectorProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  error?: string;
+  fieldId?: string;
 }
 
 export default function StateRegionSelector({
@@ -24,13 +26,20 @@ export default function StateRegionSelector({
   required = true,
   disabled = false,
   className,
+  error,
+  fieldId,
 }: StateRegionSelectorProps) {
   const assignedPayRule = resolvePayRuleTemplateNameForWorker(value);
 
   return (
-    <fieldset className={className} disabled={disabled}>
+    <fieldset
+      className={className}
+      disabled={disabled}
+      data-onboarding-field={fieldId}
+    >
       <legend className={labelClass}>
-        State / Region{required ? " *" : ""}
+        State / Region
+        {required ? <span className="text-orange-500"> *</span> : null}
       </legend>
       <div className="mt-2 flex flex-wrap gap-2">
         {WORKER_STATE_REGION_OPTIONS.map((option) => {
@@ -63,6 +72,7 @@ export default function StateRegionSelector({
           );
         })}
       </div>
+      {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
       <p className="mt-2 text-xs text-slate-500">
         {assignedPayRule
           ? `Pay rule assigned automatically: ${assignedPayRule}`

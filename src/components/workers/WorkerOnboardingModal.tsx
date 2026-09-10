@@ -38,6 +38,12 @@ import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
 import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
+import {
+  ONBOARDING_REQUIRED_TOAST,
+  firstMissingOnboardingField,
+  missingOnboardingFields,
+  scrollToOnboardingField,
+} from "@/lib/onboarding-required-fields";
 
 type OnboardingMode = "quick" | "full";
 
@@ -105,14 +111,24 @@ interface WorkerOnboardingModalProps {
 function Field({
   label,
   children,
+  required = false,
+  error,
+  fieldId,
 }: {
   label: string;
   children: React.ReactNode;
+  required?: boolean;
+  error?: string;
+  fieldId?: string;
 }) {
   return (
-    <label className="block space-y-1">
-      <span className={labelClass}>{label}</span>
+    <label className="block space-y-1" data-onboarding-field={fieldId}>
+      <span className={labelClass}>
+        {label.replace(/ \*$/, "")}
+        {required ? <span className="text-orange-500"> *</span> : null}
+      </span>
       {children}
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </label>
   );
 }
@@ -162,6 +178,7 @@ export default function WorkerOnboardingModal({
   const [vocs, setVocs] = useState<VocDraft[]>([createEmptyVoc()]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const set = (key: keyof WorkerOnboardingInput, value: string | null) => {
     setForm((prev) => ({
@@ -181,40 +198,103 @@ export default function WorkerOnboardingModal({
     setMode(next);
     setStep(0);
     setError(null);
+    setFieldErrors({});
   };
 
-  const validateCurrentStep = (): string | null => {
-    if (mode === "quick") {
-      if (!form.first_name?.trim() || !form.last_name?.trim() || !form.email?.trim()) {
-        return "First name, last name, and email are required.";
-      }
-      if (!form.state) return "State / Region is required.";
-      if (form.has_company_vehicle && !form.assigned_vehicle_asset_id) {
-        return "Please select a company vehicle.";
-      }
-      return null;
+  const personalChecks = () => [
+    { field: "first_name", value: form.first_name },
+    { field: "last_name", value: form.last_name },
+    { field: "email", value: form.email },
+    { field: "phone", value: form.phone },
+    { field: "address_line_1", value: form.address_line_1 },
+    { field: "suburb", value: form.suburb },
+    { field: "postcode", value: form.postcode },
+    { field: "state", value: form.state },
+    { field: "dob", value: form.dob },
+    { field: "emergency_contact_name", value: form.emergency_contact_name },
+    { field: "emergency_contact_relationship", value: form.emergency_contact_relationship },
+    { field: "emergency_contact_phone", value: form.emergency_contact_phone },
+  ];
+
+  const ticketChecks = () => [
+    { field: "white_card_number", value: form.white_card_number },
+    { field: "white_card_issue_date", value: form.white_card_issue_date },
+    { field: "white_card_attachment", value: docs.white_card ?? docUrls.white_card },
+    { field: "silica_cert_number", value: form.silica_cert_number },
+    { field: "silica_cert_issue_date", value: form.silica_cert_issue_date },
+    { field: "silica_cert_attachment", value: docs.silica_cert ?? docUrls.silica_cert },
+  ];
+
+  const financialChecks = () => [
+    { field: "tfn", value: form.tfn },
+    { field: "bank_name", value: form.bank_name },
+    { field: "bank_bsb", value: form.bank_bsb },
+    { field: "bank_account_number", value: form.bank_account_number },
+    { field: "super_fund", value: form.super_fund },
+    { field: "super_member_number", value: form.super_member_number },
+  ];
+
+  const quickChecks = () => [
+    { field: "first_name", value: form.first_name },
+    { field: "last_name", value: form.last_name },
+    { field: "email", value: form.email },
+    { field: "phone", value: form.phone },
+    { field: "state", value: form.state },
+  ];
+
+  const checksForStep = (targetStep: number) => {
+    if (mode === "quick") return quickChecks();
+    if (targetStep === 0) return personalChecks();
+    if (targetStep === 1) return ticketChecks();
+    if (targetStep === 2 && !hideFinancialFields) return financialChecks();
+    return [];
+  };
+
+  const applyFieldValidation = (
+    targetStep: number
+  ): { field: string; message: string } | null => {
+    const checks = [...checksForStep(targetStep)];
+    if (
+      (mode === "quick" || targetStep === 0) &&
+      form.has_company_vehicle &&
+      !form.assigned_vehicle_asset_id
+    ) {
+      checks.push({ field: "assigned_vehicle_asset_id", value: "" });
     }
 
-    if (step === 0) {
-      if (!form.first_name?.trim() || !form.last_name?.trim() || !form.email?.trim()) {
-        return "First name, last name, and email are required.";
-      }
-      if (!form.state) return "State / Region is required.";
-      if (form.has_company_vehicle && !form.assigned_vehicle_asset_id) {
-        return "Please select a company vehicle.";
+    const errors = missingOnboardingFields(checks);
+    setFieldErrors(errors);
+    const first = firstMissingOnboardingField(checks);
+    if (first) {
+      setError(ONBOARDING_REQUIRED_TOAST);
+      showError(ONBOARDING_REQUIRED_TOAST);
+      scrollToOnboardingField(first.field);
+      return first;
+    }
+    setError(null);
+    return null;
+  };
+
+  const validateAllFullSteps = (): number | null => {
+    const stepsToCheck = hideFinancialFields ? [0, 1] : [0, 1, 2];
+    for (const targetStep of stepsToCheck) {
+      const first = firstMissingOnboardingField(checksForStep(targetStep));
+      if (first) {
+        setStep(targetStep);
+        window.setTimeout(() => applyFieldValidation(targetStep), 0);
+        return targetStep;
       }
     }
-
+    if (form.has_company_vehicle && !form.assigned_vehicle_asset_id) {
+      setStep(0);
+      window.setTimeout(() => applyFieldValidation(0), 0);
+      return 0;
+    }
     return null;
   };
 
   const handleNextStep = () => {
-    const stepError = validateCurrentStep();
-    if (stepError) {
-      setError(stepError);
-      return;
-    }
-    setError(null);
+    if (applyFieldValidation(step)) return;
     setStep((s) => s + 1);
   };
 
@@ -223,9 +303,9 @@ export default function WorkerOnboardingModal({
   };
 
   const handleSubmit = async () => {
-    const stepError = validateCurrentStep();
-    if (stepError) {
-      setError(stepError);
+    if (mode === "quick") {
+      if (applyFieldValidation(0)) return;
+    } else if (validateAllFullSteps() !== null) {
       return;
     }
 
@@ -475,32 +555,49 @@ export default function WorkerOnboardingModal({
           {/* Quick Invite */}
           {mode === "quick" && (
             <>
-              <Field label="First Name *">
+              <Field
+                label="First Name"
+                required
+                fieldId="first_name"
+                error={fieldErrors.first_name}
+              >
                 <input
                   className={inputClass}
                   value={form.first_name ?? ""}
                   onChange={(e) => set("first_name", e.target.value)}
-                  required
                 />
               </Field>
-              <Field label="Last Name *">
+              <Field
+                label="Last Name"
+                required
+                fieldId="last_name"
+                error={fieldErrors.last_name}
+              >
                 <input
                   className={inputClass}
                   value={form.last_name ?? ""}
                   onChange={(e) => set("last_name", e.target.value)}
-                  required
                 />
               </Field>
-              <Field label="Email *">
+              <Field
+                label="Email"
+                required
+                fieldId="email"
+                error={fieldErrors.email}
+              >
                 <input
                   type="email"
                   className={inputClass}
                   value={form.email ?? ""}
                   onChange={(e) => set("email", e.target.value)}
-                  required
                 />
               </Field>
-              <Field label="Phone Number">
+              <Field
+                label="Phone Number"
+                required
+                fieldId="phone"
+                error={fieldErrors.phone}
+              >
                 <input
                   type="tel"
                   className={inputClass}
@@ -513,6 +610,8 @@ export default function WorkerOnboardingModal({
                 value={(form.state as WorkerStateRegion | null) ?? null}
                 onChange={(value) => set("state", value)}
                 disabled={submitting}
+                fieldId="state"
+                error={fieldErrors.state}
               />
               <label className="flex items-center gap-2">
                 <input
@@ -546,6 +645,8 @@ export default function WorkerOnboardingModal({
                   }))
                 }
                 disabled={submitting}
+                fieldId="assigned_vehicle_asset_id"
+                error={fieldErrors.assigned_vehicle_asset_id}
               />
               <ProjectSelect
                 label="Project Allocation (optional)"
@@ -558,23 +659,36 @@ export default function WorkerOnboardingModal({
           {/* Full — Step 1: Personal & Emergency */}
           {mode === "full" && step === 0 && (
             <>
-              <Field label="First Name *">
+              <Field
+                label="First Name"
+                required
+                fieldId="first_name"
+                error={fieldErrors.first_name}
+              >
                 <input
                   className={inputClass}
                   value={form.first_name ?? ""}
                   onChange={(e) => set("first_name", e.target.value)}
-                  required
                 />
               </Field>
-              <Field label="Last Name *">
+              <Field
+                label="Last Name"
+                required
+                fieldId="last_name"
+                error={fieldErrors.last_name}
+              >
                 <input
                   className={inputClass}
                   value={form.last_name ?? ""}
                   onChange={(e) => set("last_name", e.target.value)}
-                  required
                 />
               </Field>
-              <Field label="Email *">
+              <Field
+                label="Email"
+                required
+                fieldId="email"
+                error={fieldErrors.email}
+              >
                 <input
                   type="email"
                   className={inputClass}
@@ -582,7 +696,12 @@ export default function WorkerOnboardingModal({
                   onChange={(e) => set("email", e.target.value)}
                 />
               </Field>
-              <Field label="Phone Number">
+              <Field
+                label="Phone Number"
+                required
+                fieldId="phone"
+                error={fieldErrors.phone}
+              >
                 <input
                   type="tel"
                   className={inputClass}
@@ -590,7 +709,12 @@ export default function WorkerOnboardingModal({
                   onChange={(e) => set("phone", e.target.value)}
                 />
               </Field>
-              <Field label="Address Line 1">
+              <Field
+                label="Address Line 1"
+                required
+                fieldId="address_line_1"
+                error={fieldErrors.address_line_1}
+              >
                 <input
                   className={inputClass}
                   value={form.address_line_1 ?? ""}
@@ -606,7 +730,12 @@ export default function WorkerOnboardingModal({
                   autoComplete="address-line2"
                 />
               </Field>
-              <Field label="Suburb / City">
+              <Field
+                label="Suburb / City"
+                required
+                fieldId="suburb"
+                error={fieldErrors.suburb}
+              >
                 <input
                   className={inputClass}
                   value={form.suburb ?? ""}
@@ -614,7 +743,12 @@ export default function WorkerOnboardingModal({
                   autoComplete="address-level2"
                 />
               </Field>
-              <Field label="Postal / Zip Code">
+              <Field
+                label="Postal / Zip Code"
+                required
+                fieldId="postcode"
+                error={fieldErrors.postcode}
+              >
                 <input
                   className={inputClass}
                   value={form.postcode ?? ""}
@@ -627,6 +761,8 @@ export default function WorkerOnboardingModal({
                 value={(form.state as WorkerStateRegion | null) ?? null}
                 onChange={(value) => set("state", value)}
                 disabled={submitting}
+                fieldId="state"
+                error={fieldErrors.state}
               />
               <label className="flex items-center gap-2">
                 <input
@@ -660,8 +796,15 @@ export default function WorkerOnboardingModal({
                   }))
                 }
                 disabled={submitting}
+                fieldId="assigned_vehicle_asset_id"
+                error={fieldErrors.assigned_vehicle_asset_id}
               />
-              <Field label="Date of Birth">
+              <Field
+                label="Date of Birth"
+                required
+                fieldId="dob"
+                error={fieldErrors.dob}
+              >
                 <input
                   type="date"
                   className={inputClass}
@@ -673,14 +816,24 @@ export default function WorkerOnboardingModal({
                 <h4 className="text-sm font-semibold text-orange-600">
                   Emergency Contact
                 </h4>
-                <Field label="Contact Name">
+                <Field
+                  label="Contact Name"
+                  required
+                  fieldId="emergency_contact_name"
+                  error={fieldErrors.emergency_contact_name}
+                >
                   <input
                     className={inputClass}
                     value={form.emergency_contact_name ?? ""}
                     onChange={(e) => set("emergency_contact_name", e.target.value)}
                   />
                 </Field>
-                <Field label="Phone Number">
+                <Field
+                  label="Phone Number"
+                  required
+                  fieldId="emergency_contact_phone"
+                  error={fieldErrors.emergency_contact_phone}
+                >
                   <input
                     type="tel"
                     className={inputClass}
@@ -688,7 +841,12 @@ export default function WorkerOnboardingModal({
                     onChange={(e) => set("emergency_contact_phone", e.target.value)}
                   />
                 </Field>
-                <Field label="Relationship">
+                <Field
+                  label="Relationship"
+                  required
+                  fieldId="emergency_contact_relationship"
+                  error={fieldErrors.emergency_contact_relationship}
+                >
                   <input
                     className={inputClass}
                     placeholder="e.g. Spouse, Parent"
@@ -706,14 +864,24 @@ export default function WorkerOnboardingModal({
           {mode === "full" && step === 1 && (
             <div className="space-y-4">
               <DocSection title="White Card">
-                <Field label="Card Number">
+                <Field
+                  label="Card Number"
+                  required
+                  fieldId="white_card_number"
+                  error={fieldErrors.white_card_number}
+                >
                   <input
                     className={inputClass}
                     value={form.white_card_number ?? ""}
                     onChange={(e) => set("white_card_number", e.target.value)}
                   />
                 </Field>
-                <Field label="Issue Date">
+                <Field
+                  label="Issue Date"
+                  required
+                  fieldId="white_card_issue_date"
+                  error={fieldErrors.white_card_issue_date}
+                >
                   <input
                     type="date"
                     className={inputClass}
@@ -730,18 +898,31 @@ export default function WorkerOnboardingModal({
                   onUploaded={(url) =>
                     setDocUrls((prev) => ({ ...prev, white_card: url }))
                   }
+                  required
+                  fieldId="white_card_attachment"
+                  error={fieldErrors.white_card_attachment}
                 />
               </DocSection>
 
               <DocSection title="Silica Certificate">
-                <Field label="Certificate Number">
+                <Field
+                  label="Certificate Number"
+                  required
+                  fieldId="silica_cert_number"
+                  error={fieldErrors.silica_cert_number}
+                >
                   <input
                     className={inputClass}
                     value={form.silica_cert_number ?? ""}
                     onChange={(e) => set("silica_cert_number", e.target.value)}
                   />
                 </Field>
-                <Field label="Issue Date">
+                <Field
+                  label="Issue Date"
+                  required
+                  fieldId="silica_cert_issue_date"
+                  error={fieldErrors.silica_cert_issue_date}
+                >
                   <input
                     type="date"
                     className={inputClass}
@@ -758,6 +939,9 @@ export default function WorkerOnboardingModal({
                   onUploaded={(url) =>
                     setDocUrls((prev) => ({ ...prev, silica_cert: url }))
                   }
+                  required
+                  fieldId="silica_cert_attachment"
+                  error={fieldErrors.silica_cert_attachment}
                 />
               </DocSection>
 
@@ -812,14 +996,24 @@ export default function WorkerOnboardingModal({
           {mode === "full" && !hideFinancialFields && step === 2 && (
             <div className="space-y-4">
               <DocSection title="Tax & Banking">
-                <Field label="TFN">
+                <Field
+                  label="TFN"
+                  required
+                  fieldId="tfn"
+                  error={fieldErrors.tfn}
+                >
                   <input
                     className={inputClass}
                     value={form.tfn ?? ""}
                     onChange={(e) => set("tfn", e.target.value)}
                   />
                 </Field>
-                <Field label="Bank BSB">
+                <Field
+                  label="Bank BSB"
+                  required
+                  fieldId="bank_bsb"
+                  error={fieldErrors.bank_bsb}
+                >
                   <input
                     className={inputClass}
                     placeholder="000-000"
@@ -827,14 +1021,24 @@ export default function WorkerOnboardingModal({
                     onChange={(e) => set("bank_bsb", e.target.value)}
                   />
                 </Field>
-                <Field label="Account Number">
+                <Field
+                  label="Account Number"
+                  required
+                  fieldId="bank_account_number"
+                  error={fieldErrors.bank_account_number}
+                >
                   <input
                     className={inputClass}
                     value={form.bank_account_number ?? ""}
                     onChange={(e) => set("bank_account_number", e.target.value)}
                   />
                 </Field>
-                <Field label="Bank Name">
+                <Field
+                  label="Bank Name"
+                  required
+                  fieldId="bank_name"
+                  error={fieldErrors.bank_name}
+                >
                   <input
                     className={inputClass}
                     value={form.bank_name ?? ""}
@@ -844,14 +1048,24 @@ export default function WorkerOnboardingModal({
               </DocSection>
 
               <DocSection title="Superannuation">
-                <Field label="Fund Name">
+                <Field
+                  label="Fund Name"
+                  required
+                  fieldId="super_fund"
+                  error={fieldErrors.super_fund}
+                >
                   <input
                     className={inputClass}
                     value={form.super_fund ?? ""}
                     onChange={(e) => set("super_fund", e.target.value)}
                   />
                 </Field>
-                <Field label="Member Number">
+                <Field
+                  label="Member Number"
+                  required
+                  fieldId="super_member_number"
+                  error={fieldErrors.super_member_number}
+                >
                   <input
                     className={inputClass}
                     value={form.super_member_number ?? ""}

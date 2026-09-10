@@ -104,7 +104,7 @@ export default function WorkerOnboardingProfilePhoto({
   const missingPhoto = showValidationError && !photoUrl?.trim();
 
   return (
-    <div className="sm:col-span-2">
+    <div className="sm:col-span-2" data-onboarding-field="photoUrl">
       <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
         <p className={labelClass}>
           Profile Photo (Required) <span className="text-red-600">*</span>
