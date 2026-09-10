@@ -343,20 +343,22 @@ export function isWorkerDeleted(
 export function isWorkerRevokedRow(
   worker: Pick<
     RawWorkerRow,
-    "is_revoked" | "status" | "is_archived"
+    "is_revoked" | "status" | "is_archived" | "deleted_at"
   >
 ): boolean {
+  if (isWorkerDeleted(worker)) return false;
+  const status = String(worker.status ?? "").trim().toLowerCase();
   return Boolean(
     worker.is_revoked === true ||
       String(worker.is_revoked) === "true" ||
-      worker.status === "Revoked" ||
+      status === "revoked" ||
       worker.is_archived === true ||
       String(worker.is_archived) === "true"
   );
 }
 
 export function isWorkerRevoked(
-  worker: Pick<Worker, "is_revoked" | "status" | "is_archived">
+  worker: Pick<Worker, "is_revoked" | "status" | "is_archived" | "deleted_at">
 ): boolean {
   return isWorkerRevokedRow(worker);
 }
@@ -467,12 +469,16 @@ async function queryWorkerRows(options?: {
   id?: string;
   limit?: number;
   includeDeleted?: boolean;
+  onlyDeleted?: boolean;
 }): Promise<Worker[]> {
   let columns =
     cachedWorkerSelectColumns ??
     loadCachedWorkerColumnsFromStorage() ??
     [...WORKER_SELECT_COLUMNS];
-  let skipDeletedFilter = Boolean(options?.id || options?.includeDeleted);
+  let skipDeletedFilter = Boolean(
+    options?.id || options?.includeDeleted || options?.onlyDeleted
+  );
+  const onlyDeleted = options?.onlyDeleted === true;
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const select = columns.join(", ");
@@ -511,8 +517,12 @@ async function queryWorkerRows(options?: {
         }
 
         let query = supabase.from("workers").select(select);
-        if (!skipDeletedFilter && columns.includes("deleted_at")) {
-          query = query.is("deleted_at", null);
+        if (onlyDeleted && columns.includes("deleted_at")) {
+          query = query.or("deleted_at.not.is.null,status.eq.deleted");
+        } else if (onlyDeleted) {
+          query = query.eq("status", "deleted");
+        } else if (!skipDeletedFilter && columns.includes("deleted_at")) {
+          query = query.is("deleted_at", null).neq("status", "deleted");
         }
         if (orderColumn) {
           query = query.order(orderColumn, {
@@ -528,7 +538,12 @@ async function queryWorkerRows(options?: {
 
         if (!error) {
           saveCachedWorkerColumnsToStorage(columns);
-          return ((data ?? []) as unknown as RawWorkerRow[]).map(normalizeWorkerRow);
+          const workers = ((data ?? []) as unknown as RawWorkerRow[]).map(
+            normalizeWorkerRow
+          );
+          if (onlyDeleted) return workers.filter(isWorkerDeleted);
+          if (!skipDeletedFilter) return workers.filter((worker) => !isWorkerDeleted(worker));
+          return workers;
         }
 
         const missingColumn = parseMissingColumnFromError(error.message);
@@ -1514,6 +1529,7 @@ export async function fetchWorkers(): Promise<Worker[]> {
 /** All workers for Security Settings / reports — surfaces fetch errors. */
 export async function fetchAllWorkers(options?: {
   includeDeleted?: boolean;
+  onlyDeleted?: boolean;
 }): Promise<{
   workers: Worker[];
   error: string | null;
@@ -1526,13 +1542,16 @@ export async function fetchAllWorkers(options?: {
     };
   }
 
-  const includeDeleted = options?.includeDeleted === true;
+  const onlyDeleted = options?.onlyDeleted === true;
+  const includeDeleted = onlyDeleted || options?.includeDeleted === true;
 
   try {
     for (const orderColumn of WORKER_ORDER_COLUMNS) {
       let query = supabase.from("workers").select("*");
-      if (!includeDeleted) {
-        query = query.is("deleted_at", null);
+      if (onlyDeleted) {
+        query = query.or("deleted_at.not.is.null,status.eq.deleted");
+      } else if (!includeDeleted) {
+        query = query.is("deleted_at", null).neq("status", "deleted");
       }
       if (orderColumn) {
         query = query.order(orderColumn, { ascending: true, nullsFirst: false });
@@ -1543,7 +1562,11 @@ export async function fetchAllWorkers(options?: {
       if (!error) {
         const workers = ((data ?? []) as unknown as RawWorkerRow[])
           .map(normalizeWorkerRow)
-          .filter((worker) => includeDeleted || !isWorkerDeleted(worker));
+          .filter((worker) =>
+            onlyDeleted
+              ? isWorkerDeleted(worker)
+              : includeDeleted || !isWorkerDeleted(worker)
+          );
         return { workers, error: null };
       }
 
@@ -1562,9 +1585,13 @@ export async function fetchAllWorkers(options?: {
       }
     }
 
-    const workers = await queryWorkerRows({ includeDeleted });
+    const workers = await queryWorkerRows({ includeDeleted, onlyDeleted });
     return {
-      workers: workers.filter((worker) => includeDeleted || !isWorkerDeleted(worker)),
+      workers: workers.filter((worker) =>
+        onlyDeleted
+          ? isWorkerDeleted(worker)
+          : includeDeleted || !isWorkerDeleted(worker)
+      ),
       error: null,
     };
   } catch (err) {
@@ -1580,6 +1607,21 @@ export async function fetchAllWorkers(options?: {
           : "Failed to load workers. Please try again.",
     };
   }
+}
+
+/** Soft-deleted / past employees for archive reports. */
+export async function fetchPastEmployees(): Promise<{
+  workers: Worker[];
+  error: string | null;
+}> {
+  const result = await fetchAllWorkers({ onlyDeleted: true });
+  if (result.workers.length > 0 || result.error) return result;
+
+  const fallback = await fetchAllWorkers({ includeDeleted: true });
+  return {
+    workers: fallback.workers.filter(isWorkerDeleted),
+    error: fallback.error,
+  };
 }
 
 export async function fetchPlantList(): Promise<PlantAsset[]> {

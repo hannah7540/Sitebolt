@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import {
   fetchAllWorkers,
+  fetchPastEmployees,
   isWorkerDeleted,
   type Worker,
 } from "@/lib/supabase";
@@ -19,12 +20,31 @@ interface EmployeeArchiveExtractPanelProps {
   onSuccess: (message: string) => void;
 }
 
+function formatArchiveTimestamp(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function employeeOptionLabel(worker: Worker): string {
+  const name = getWorkerDisplayName(worker);
+  if (!isWorkerDeleted(worker)) return name;
+  const stamp = formatArchiveTimestamp(worker.deleted_at);
+  return stamp ? `${name} (Archived · ${stamp})` : `${name} (Archived)`;
+}
+
 export default function EmployeeArchiveExtractPanel({
   actionedByName,
   onError,
   onSuccess,
 }: EmployeeArchiveExtractPanelProps) {
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [currentWorkers, setCurrentWorkers] = useState<Worker[]>([]);
+  const [pastWorkers, setPastWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
   const [includeCurrent, setIncludeCurrent] = useState(true);
   const [includePast, setIncludePast] = useState(false);
@@ -35,11 +55,16 @@ export default function EmployeeArchiveExtractPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void fetchAllWorkers({ includeDeleted: true }).then(({ workers: rows, error }) => {
+    void Promise.all([
+      fetchAllWorkers(),
+      fetchPastEmployees(),
+    ]).then(([currentResult, pastResult]) => {
       if (cancelled) return;
-      setWorkers(rows);
+      setCurrentWorkers(currentResult.workers.filter((worker) => !isWorkerDeleted(worker)));
+      setPastWorkers(pastResult.workers.filter(isWorkerDeleted));
       setLoading(false);
-      if (error) onError(error);
+      if (currentResult.error) onError(currentResult.error);
+      else if (pastResult.error) onError(pastResult.error);
     });
     return () => {
       cancelled = true;
@@ -47,20 +72,15 @@ export default function EmployeeArchiveExtractPanel({
   }, [onError]);
 
   const selectableWorkers = useMemo(() => {
-    return workers
-      .filter((worker) => {
-        const deleted = isWorkerDeleted(worker);
-        if (includePast && !includeCurrent) return deleted;
-        if (includeCurrent && !includePast) return !deleted;
-        if (includeCurrent && includePast) return true;
-        return false;
+    const rows: Worker[] = [];
+    if (includeCurrent) rows.push(...currentWorkers);
+    if (includePast) rows.push(...pastWorkers);
+    return rows.sort((left, right) =>
+      getWorkerDisplayName(left).localeCompare(getWorkerDisplayName(right), undefined, {
+        sensitivity: "base",
       })
-      .sort((left, right) =>
-        getWorkerDisplayName(left).localeCompare(getWorkerDisplayName(right), undefined, {
-          sensitivity: "base",
-        })
-      );
-  }, [workers, includeCurrent, includePast]);
+    );
+  }, [currentWorkers, pastWorkers, includeCurrent, includePast]);
 
   useEffect(() => {
     if (!selectedWorkerId) return;
@@ -68,6 +88,8 @@ export default function EmployeeArchiveExtractPanel({
       setSelectedWorkerId("");
     }
   }, [selectableWorkers, selectedWorkerId]);
+
+  const selectedWorker = selectableWorkers.find((worker) => worker.id === selectedWorkerId);
 
   const handleExtract = async () => {
     if (!selectedWorkerId) {
@@ -150,11 +172,18 @@ export default function EmployeeArchiveExtractPanel({
             </option>
             {selectableWorkers.map((worker) => (
               <option key={worker.id} value={worker.id}>
-                {getWorkerDisplayName(worker)}
-                {isWorkerDeleted(worker) ? " (Past)" : ""}
+                {employeeOptionLabel(worker)}
               </option>
             ))}
           </select>
+          {selectedWorker && isWorkerDeleted(selectedWorker) ? (
+            <span className="mt-1 inline-flex items-center gap-2 text-xs text-slate-600">
+              <span className="rounded bg-slate-800 px-2 py-0.5 font-bold uppercase tracking-wide text-white">
+                Archived
+              </span>
+              {formatArchiveTimestamp(selectedWorker.deleted_at) || "Past employee"}
+            </span>
+          ) : null}
         </label>
 
         <div className="flex flex-wrap items-center gap-2">

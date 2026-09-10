@@ -102,7 +102,7 @@ function WorkerProfileStatusBadge({ worker }: { worker: Worker }) {
   if (isWorkerDeleted(worker)) {
     return (
       <span className="rounded bg-slate-800 px-2.5 py-1 text-xs font-bold text-white">
-        Deleted
+        Archived
       </span>
     );
   }
@@ -299,7 +299,7 @@ export default function WorkerProfileView({
                 className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete Worker
+                {isWorkerRevoked(currentWorker) ? "Move to Archive" : "Delete Worker"}
               </button>
             ) : null}
           </div>
@@ -384,6 +384,7 @@ export default function WorkerProfileView({
         <DeleteWorkerConfirmModal
           workerName={currentWorker.full_name}
           saving={deleting}
+          archiveFromRevoked={isWorkerRevoked(currentWorker)}
           onClose={() => {
             if (!deleting) setShowDeleteModal(false);
           }}

@@ -206,9 +206,16 @@ async function persistWorkerRevocationState(
 
 function buildDeletedWorkerPayload(now: string): Record<string, unknown> {
   return {
-    ...buildRevokedWorkerPayload(now),
     status: "deleted",
     deleted_at: now,
+    is_revoked: false,
+    is_archived: false,
+    revoked_at: null,
+    assigned_project_id: null,
+    assigned_project_name: "Unassigned",
+    project_id: null,
+    project_name: "Unassigned",
+    assigned_project_ids: [],
   };
 }
 
@@ -297,17 +304,39 @@ export async function setWorkerRevokedAccess(
 
   const admin = createSupabaseAdminClient();
 
-  const { data: worker, error: workerError } = await admin
+  let { data: worker, error: workerError } = await admin
     .from("workers")
-    .select("id, email, auth_user_id")
+    .select("id, email, auth_user_id, deleted_at, status")
     .eq("id", trimmedId)
     .maybeSingle();
+
+  if (
+    workerError &&
+    isMissingColumnError(workerError.message, "deleted_at")
+  ) {
+    ({ data: worker, error: workerError } = await admin
+      .from("workers")
+      .select("id, email, auth_user_id, status")
+      .eq("id", trimmedId)
+      .maybeSingle());
+  }
 
   if (workerError) {
     return { error: workerError.message };
   }
   if (!worker) {
     return { error: "Worker not found." };
+  }
+
+  const deleted =
+    Boolean((worker as { deleted_at?: string | null }).deleted_at) ||
+    String((worker as { status?: string | null }).status ?? "")
+      .trim()
+      .toLowerCase() === "deleted";
+  if (deleted) {
+    return {
+      error: "This worker is deleted. Use Admin Reports to view archived records.",
+    };
   }
 
   const workerUpdateError = await persistWorkerRevocationState(admin, trimmedId, revoked);

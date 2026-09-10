@@ -95,7 +95,7 @@ function WorkerStatusBadge({ worker }: { worker: Worker }) {
   if (isWorkerDeleted(worker)) {
     return (
       <span className="rounded bg-slate-800 px-2 py-1 text-xs font-bold text-white">
-        Deleted
+        Archived
       </span>
     );
   }
@@ -138,7 +138,7 @@ function WorkerStatusBadge({ worker }: { worker: Worker }) {
 }
 
 const TAB_FILTERS: Array<{ id: WorkerTabFilter; label: string }> = [
-  { id: "Current", label: "Current Workers" },
+  { id: "Current", label: "Active Workers" },
   { id: "Revoked", label: "Revoked Workers" },
   { id: "Deleted", label: "Deleted Workers" },
   { id: "All", label: "All" },
@@ -703,7 +703,7 @@ export default function WorkerDirectoryPanel({
                           className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          Delete Worker
+                          {revoked ? "Move to Archive" : "Delete Worker"}
                         </button>
                       ) : null}
                     </div>
@@ -730,9 +730,9 @@ export default function WorkerDirectoryPanel({
               <tr>
                 <td colSpan={9} className="p-8 text-center text-slate-500">
                   {workerTab === "Current"
-                    ? "No current workers. Add a worker or reactivate someone from Revoked Workers."
+                    ? "No active workers. Add a worker or reactivate someone from Revoked Workers."
                     : workerTab === "Revoked"
-                      ? "No revoked workers."
+                      ? "No revoked workers. Use Move to Archive to permanently delete a revoked employee."
                       : workerTab === "Deleted"
                         ? "No deleted workers. Deleted employees remain available in Admin Reports."
                         : 'No workers yet. Click "Add Worker" to start onboarding.'}
@@ -792,6 +792,7 @@ export default function WorkerDirectoryPanel({
         <DeleteWorkerConfirmModal
           workerName={deleteWorker.full_name}
           saving={deleting}
+          archiveFromRevoked={isWorkerRevoked(deleteWorker)}
           onClose={() => {
             if (!deleting) setDeleteWorker(null);
           }}
