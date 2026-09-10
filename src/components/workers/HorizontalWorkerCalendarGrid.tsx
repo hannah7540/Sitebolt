@@ -14,6 +14,8 @@ import {
   CALENDAR_DAY_COLUMN_WIDTH,
   CALENDAR_WEEK_EXTEND,
   CALENDAR_WORKER_COLUMN_WIDTH,
+  formatCalendarHeaderMonthYear,
+  formatCalendarHeaderWeekdayDate,
   formatCalendarScrollRange,
   formatWeekRange,
   getWeekDaysContaining,
@@ -234,38 +236,31 @@ export default function HorizontalWorkerCalendarGrid({
 
             {calendarDays.map((day, index) => {
               const isWeekStart = index % 7 === 0;
-              const showMonthLabel =
-                isWeekStart &&
-                (index === 0 ||
-                  day.date.getMonth() !== calendarDays[index - 1].date.getMonth());
 
               return (
                 <div
                   key={day.iso}
                   className={cn(
-                    "shrink-0 border-r border-slate-200 px-1 py-2 text-center last:border-r-0",
+                    "shrink-0 border-r border-slate-200 px-1 py-1 text-center last:border-r-0",
                     isWeekStart && "border-l-2 border-l-orange-200",
                     day.isToday &&
                       "bg-orange-500/10 ring-1 ring-inset ring-orange-400/50"
                   )}
                   style={{ width: CALENDAR_DAY_COLUMN_WIDTH }}
                 >
-                  {showMonthLabel ? (
-                    <p className="text-[9px] font-semibold uppercase tracking-wide text-orange-500">
-                      {day.date.toLocaleDateString("en-AU", { month: "short" })}
-                    </p>
-                  ) : (
-                    <p className="text-[9px] text-transparent select-none">—</p>
-                  )}
-                  <p className="text-xs font-semibold text-slate-500">{day.dayName}</p>
-                  <p
-                    className={cn(
-                      "text-base font-bold leading-tight",
-                      day.isToday ? "text-orange-600" : "text-slate-900"
-                    )}
-                  >
-                    {day.label}
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                      {formatCalendarHeaderMonthYear(day.date)}
+                    </span>
+                    <span
+                      className={cn(
+                        "whitespace-nowrap text-sm font-semibold leading-tight",
+                        day.isToday ? "text-orange-600" : "text-slate-900"
+                      )}
+                    >
+                      {formatCalendarHeaderWeekdayDate(day.date)}
+                    </span>
+                  </div>
                 </div>
               );
             })}

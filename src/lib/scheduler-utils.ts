@@ -60,6 +60,20 @@ export function formatWeekRange(weekStart: Date): string {
   return `${weekStart.toLocaleDateString("en-AU", opts)} – ${end.toLocaleDateString("en-AU", { ...opts, year: "numeric" })}`;
 }
 
+export function formatCalendarHeaderMonthYear(date: Date): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    month: "short",
+    year: "2-digit",
+  }).format(date);
+}
+
+export function formatCalendarHeaderWeekdayDate(date: Date): string {
+  const weekday = new Intl.DateTimeFormat("en-AU", { weekday: "short" }).format(
+    date
+  );
+  return `${weekday} ${date.getDate()}`;
+}
+
 /** Inclusive list of ISO dates from start through end. */
 export function enumerateDateRange(startDate: string, endDate: string): string[] {
   const start = new Date(`${startDate.slice(0, 10)}T12:00:00`);
