@@ -96,10 +96,15 @@ export default function OutstandingInductionsWidget({
             </div>
             <button
               type="button"
-              onClick={() => onComplete(assignment)}
-              className="shrink-0 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                console.log("Tapped complete for induction:", assignment);
+                onComplete(assignment);
+              }}
+              className="relative z-10 min-h-11 shrink-0 touch-manipulation rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500"
             >
-              Complete Induction
+              Complete
             </button>
           </li>
         ))}

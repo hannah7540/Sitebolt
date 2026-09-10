@@ -60,11 +60,7 @@ export default function WorkerInductionAssignmentsModal({
                 const projectLabel = resolveAssignmentProjectLabel(assignment);
                 return (
                   <li key={assignment.id}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectAssignment(assignment)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-orange-300 hover:bg-orange-50"
-                    >
+                    <div className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-left">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
                         <ClipboardCheck className="h-5 w-5" />
                       </div>
@@ -79,11 +75,20 @@ export default function WorkerInductionAssignmentsModal({
                           Assigned {assignmentDueLabel(assignment.assigned_at)} · Pending
                         </p>
                       </div>
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          console.log("Tapped complete for induction:", assignment);
+                          onSelectAssignment(assignment);
+                        }}
+                        className="relative z-10 inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-1 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500"
+                      >
                         Complete
                         <ChevronRight className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
+                      </button>
+                    </div>
                   </li>
                 );
               })}

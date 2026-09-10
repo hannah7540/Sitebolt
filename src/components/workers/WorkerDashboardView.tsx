@@ -66,13 +66,15 @@ import DashboardCustomizeToolbar, {
 import { useDashboardLayout } from "@/hooks/useDashboardLayout";
 import WorkerItcsWidget from "./itc/WorkerItcsWidget";
 import WorkerInductionAssignmentsModal from "./WorkerInductionAssignmentsModal";
+import OutstandingInductionsWidget from "./OutstandingInductionsWidget";
 import WorkerFormsSubDashboard, {
   FormsHubPreviewBadges,
 } from "./WorkerFormsSubDashboard";
 import FormViewer from "./FormViewer";
 import {
   fetchOutstandingWorkerFormAssignments,
-  resolveAssignmentProjectLabel,
+  resolveAssignmentActionIds,
+  withResolvedAssignmentIds,
   FORM_WORKER_ASSIGNMENTS_TABLE,
   type FormWorkerAssignment,
 } from "@/lib/induction-form-builder";
@@ -695,7 +697,14 @@ export default function WorkerDashboardView({
         break;
       case "induction":
         if (target.assignmentId) {
-          const match = pendingInductions.find((row) => row.id === target.assignmentId);
+          const match = pendingInductions.find((row) => {
+            const ids = resolveAssignmentActionIds(row);
+            return (
+              row.id === target.assignmentId ||
+              ids.assignmentId === target.assignmentId ||
+              ids.formId === target.assignmentId
+            );
+          });
           if (match) {
             setActiveInductionAssignment(match);
           } else {
@@ -733,9 +742,22 @@ export default function WorkerDashboardView({
     setActiveSiteForm(formType);
   };
 
+  const openInductionAssignment = (assignment: FormWorkerAssignment) => {
+    console.log("Tapped complete for induction:", assignment);
+    const resolved = withResolvedAssignmentIds(assignment);
+    if (!resolved.id && !resolved.form_id) {
+      console.warn("Induction complete tapped with no assignment or template id", assignment);
+      return;
+    }
+    setActiveInductionAssignment(resolved);
+    if (showInductionsModal) {
+      window.setTimeout(() => setShowInductionsModal(false), 0);
+    }
+  };
+
   const openInductions = () => {
     if (pendingInductions.length === 1) {
-      setActiveInductionAssignment(pendingInductions[0]);
+      openInductionAssignment(pendingInductions[0]);
       return;
     }
     setShowInductionsModal(true);
@@ -904,72 +926,29 @@ export default function WorkerDashboardView({
     }
 
     if (widgetId === "inductions") {
-      const pendingCount = pendingInductions.length;
-      const firstAssignment = pendingInductions[0];
-      const firstTitle = firstAssignment?.form_title ?? "Site induction";
-      const firstProjectLabel = firstAssignment
-        ? resolveAssignmentProjectLabel(firstAssignment)
-        : null;
+      if (pendingInductions.length > 0) {
+        return (
+          <OutstandingInductionsWidget
+            assignments={pendingInductions}
+            onComplete={openInductionAssignment}
+          />
+        );
+      }
 
       return (
-        <button
-          type="button"
-          onClick={openInductions}
-          className={cn(
-            cardClass,
-            "flex w-full flex-col gap-4 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99]",
-            pendingCount > 0 && "border-orange-200 bg-orange-50/40"
-          )}
-        >
+        <div className={cn(cardClass, "flex w-full flex-col gap-4 p-4")}>
           <div className="flex items-start gap-3">
-            <div
-              className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
-                pendingCount > 0
-                  ? "border-orange-200 bg-orange-50 text-orange-600"
-                  : "border-slate-200 bg-slate-50 text-slate-600"
-              )}
-            >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600">
               <ClipboardCheck className="h-6 w-6" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold text-slate-900">Outstanding Inductions</p>
-                {pendingCount > 0 ? (
-                  <span className="rounded-full bg-orange-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
-                    {pendingCount} pending
-                  </span>
-                ) : null}
-              </div>
-              {pendingCount > 0 ? (
-                <div className="mt-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="line-clamp-2 text-sm font-medium text-orange-900">
-                      {firstTitle}
-                    </p>
-                    {firstProjectLabel ? (
-                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-                        {firstProjectLabel}
-                      </span>
-                    ) : null}
-                  </div>
-                  {pendingCount > 1 ? (
-                    <p className="text-sm font-normal text-orange-700">
-                      +{pendingCount - 1} more
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-500">Tap to complete your induction</p>
-                  )}
-                </div>
-              ) : (
-                <p className="mt-0.5 text-xs text-slate-500">
-                  No pending inductions — assigned forms will appear here
-                </p>
-              )}
+              <p className="font-semibold text-slate-900">Outstanding Inductions</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                No pending inductions — assigned forms will appear here
+              </p>
             </div>
-            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
           </div>
-        </button>
+        </div>
       );
     }
 
@@ -1028,7 +1007,10 @@ export default function WorkerDashboardView({
     const byId = new Map(filtered.map((widget) => [widget.id, widget]));
     return prioritizedIds
       .map((id) => byId.get(id))
-      .filter((widget): widget is (typeof filtered)[number] => Boolean(widget));
+      .filter((widget): widget is (typeof filtered)[number] => Boolean(widget))
+      .filter((widget) =>
+        pendingInductions.length > 0 ? widget.id !== "inductions" : true
+      );
   }, [
     layout.editMode,
     layout.orderedWidgets,
@@ -1234,6 +1216,13 @@ export default function WorkerDashboardView({
           />
         ) : (
           <>
+            {pendingInductions.length > 0 ? (
+              <OutstandingInductionsWidget
+                assignments={pendingInductions}
+                onComplete={openInductionAssignment}
+              />
+            ) : null}
+
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-700">Your dashboard</h2>
               {canCustomize ? (
@@ -1359,10 +1348,7 @@ export default function WorkerDashboardView({
         <WorkerInductionAssignmentsModal
           assignments={pendingInductions}
           onClose={() => setShowInductionsModal(false)}
-          onSelectAssignment={(assignment) => {
-            setShowInductionsModal(false);
-            setActiveInductionAssignment(assignment);
-          }}
+          onSelectAssignment={openInductionAssignment}
         />
       ) : null}
 

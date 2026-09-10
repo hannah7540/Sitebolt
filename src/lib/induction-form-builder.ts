@@ -448,9 +448,44 @@ export function resolveAssignmentFormTemplateId(
   assignment: Pick<FormWorkerAssignment, "form_id"> | Record<string, unknown>
 ): string {
   const record = assignment as Record<string, unknown>;
+  const joined = record[INDUCTION_FORM_TEMPLATES_TABLE];
+  const joinedId =
+    joined && typeof joined === "object"
+      ? String((joined as Record<string, unknown>).id ?? "").trim()
+      : "";
   return String(
-    record.form_id ?? record.form_template_id ?? record.template_id ?? ""
+    record.form_id ??
+      record.form_template_id ??
+      record.template_id ??
+      record.induction_id ??
+      joinedId ??
+      ""
   ).trim();
+}
+
+export function resolveAssignmentActionIds(
+  assignment: FormWorkerAssignment | Record<string, unknown>
+): { assignmentId: string; formId: string } {
+  const record = assignment as Record<string, unknown>;
+  const formId = resolveAssignmentFormTemplateId(record);
+  const assignmentId = String(
+    record.id ??
+      record.assignment_id ??
+      record.form_worker_assignment_id ??
+      formId
+  ).trim();
+  return { assignmentId, formId };
+}
+
+export function withResolvedAssignmentIds(
+  assignment: FormWorkerAssignment
+): FormWorkerAssignment {
+  const { assignmentId, formId } = resolveAssignmentActionIds(assignment);
+  return {
+    ...assignment,
+    id: assignmentId || assignment.id,
+    form_id: formId || assignment.form_id,
+  };
 }
 
 export function resolveFetchOutstandingIdentityNames(
@@ -770,8 +805,15 @@ function mapFormWorkerAssignmentRow(record: Record<string, unknown>): FormWorker
   const template = joined ? normalizeForm(joined) : null;
 
   return {
-    id: String(record.id),
-    form_id: String(record.form_id ?? record.form_template_id ?? record.template_id ?? ""),
+    id: String(record.id ?? record.assignment_id ?? "").trim(),
+    form_id: String(
+      record.form_id ??
+        record.form_template_id ??
+        record.template_id ??
+        record.induction_id ??
+        template?.id ??
+        ""
+    ).trim(),
     worker_id: String(record.worker_id),
     project_id: record.project_id ? String(record.project_id) : null,
     status: normalizeAssignmentStatus(record.status),
