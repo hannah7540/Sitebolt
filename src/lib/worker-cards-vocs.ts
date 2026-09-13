@@ -1,6 +1,6 @@
 import type { Worker, WorkerVoc } from "./supabase";
 import { splitWorkerFullName } from "./worker-utils";
-import { getVocDisplayTitle } from "./voc-utils";
+import { getVocStoredType } from "./voc-utils";
 
 export type WorkerCardCategory =
   | "white_card"
@@ -199,7 +199,7 @@ export function hydrateCardsVocsFromWorker(
   }
 
   for (const voc of vocs) {
-    const vocType = getVocDisplayTitle(voc);
+    const vocType = getVocStoredType(voc);
     entries.push({
       id: voc.id,
       category: "plant_voc",

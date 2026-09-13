@@ -8,6 +8,7 @@ import {
   type Worker,
   type WorkerVoc,
 } from "./supabase";
+import { getVocDisplayTitle, getVocStoredType } from "./voc-utils";
 import { fetchAllInductionAssignments } from "./admin-reporting";
 import { isCompletedAssignmentStatus } from "./induction-form-builder";
 import { fetchLeaveRequestsNormalized, getLeaveEndDate, getLeaveStartDate } from "./leave-requests";
@@ -177,8 +178,9 @@ export async function buildWorkerArchiveCsv(workerId: string): Promise<{
   ];
 
   const vocRows = vocs.map((voc) => [
-    voc.title,
-    voc.voc_type ?? "",
+    getVocDisplayTitle(voc) || voc.title,
+    getVocDisplayTitle({ title: voc.voc_type, voc_type: voc.voc_type }) ||
+      getVocStoredType(voc),
     voc.issuing_org ?? "",
     voc.issue_date ?? "",
     voc.expiry_date ?? "",

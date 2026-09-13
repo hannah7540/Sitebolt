@@ -1,8 +1,8 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
+import VocTypeSelect from "@/components/workers/VocTypeSelect";
 import {
-  VOC_TYPE_OPTIONS,
   createEmptyVoc,
   getVocDisplayTitle,
   type VocDraft,
@@ -82,24 +82,12 @@ export default function VocListEditor({
               )}
             </div>
 
-            <Field label="VOC Type" required>
-              <select
-                className={inputClass}
-                value={voc.voc_type}
-                required
-                onChange={(e) => {
-                  const vocType = e.target.value;
-                  updateVoc(voc.clientId, { voc_type: vocType, title: vocType });
-                }}
-              >
-                <option value="">Select VOC type…</option>
-                {VOC_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <VocTypeSelect
+              value={voc.voc_type}
+              onChange={(vocType) =>
+                updateVoc(voc.clientId, { voc_type: vocType, title: vocType })
+              }
+            />
 
             <Field label="Issuing Organisation">
               <input

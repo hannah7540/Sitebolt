@@ -14,7 +14,13 @@ import type { WorkerOnboardingRecord } from "@/lib/worker-onboarding";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { workerDashboardUrl } from "@/lib/user-session";
 import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
-import { vocFromRecord, type VocDraft } from "@/lib/voc-utils";
+import {
+  getVocStoredType,
+  isVocTypeComplete,
+  validateVocDrafts,
+  vocFromRecord,
+  type VocDraft,
+} from "@/lib/voc-utils";
 import { cn } from "@/lib/utils";
 import WorkerOnboardingProfilePhoto from "@/components/workers/WorkerOnboardingProfilePhoto";
 import Toast from "@/components/ui/Toast";
@@ -143,18 +149,7 @@ function checksForStep(step: StepKey, form: OnboardingFormState) {
 }
 
 function vocValidationError(form: OnboardingFormState): string | null {
-  for (const voc of form.vocs) {
-    const hasContent =
-      voc.voc_type.trim() ||
-      voc.issuing_org.trim() ||
-      voc.issue_date.trim() ||
-      voc.expiry_date.trim() ||
-      voc.document_url;
-    if (hasContent && !voc.voc_type.trim()) {
-      return "Each VOC row must include a licence or competency type.";
-    }
-  }
-  return null;
+  return validateVocDrafts(form.vocs);
 }
 
 function populateFormFromWorker(worker: WorkerOnboardingRecord): OnboardingFormState {
@@ -460,15 +455,18 @@ export default function OnboardingForm() {
           driversLicenceExpiry: form.driversLicenceExpiry,
           photoUrl: form.photoUrl,
           vocs: form.vocs
-            .filter((voc) => voc.voc_type.trim())
-            .map((voc) => ({
-              voc_type: voc.voc_type,
-              title: voc.voc_type,
-              issuing_org: voc.issuing_org,
-              issue_date: voc.issue_date,
-              expiry_date: voc.expiry_date,
-              document_url: voc.document_url,
-            })),
+            .filter((voc) => isVocTypeComplete(getVocStoredType(voc)))
+            .map((voc) => {
+              const storedType = getVocStoredType(voc);
+              return {
+                voc_type: storedType,
+                title: storedType,
+                issuing_org: voc.issuing_org,
+                issue_date: voc.issue_date,
+                expiry_date: voc.expiry_date,
+                document_url: voc.document_url,
+              };
+            }),
         }),
       });
 

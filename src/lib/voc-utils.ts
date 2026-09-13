@@ -46,12 +46,114 @@ export const VOC_TYPE_OPTIONS = [
 
 export type VocTypeOption = (typeof VOC_TYPE_OPTIONS)[number];
 
+export const VOC_OTHER_OPTION = { id: "other", label: "Other" } as const;
+export const VOC_OTHER_LABEL = VOC_OTHER_OPTION.label;
+export const VOC_OTHER_UNSPECIFIED_ERROR = "Please specify the VOC type";
+export const VOC_SELECT_OPTIONS = [...VOC_TYPE_OPTIONS, VOC_OTHER_LABEL] as const;
+
+export function getVocStoredType(input: {
+  title?: string | null;
+  voc_type?: string | null;
+  name?: string | null;
+  ticket_name?: string | null;
+}): string {
+  return String(
+    input.voc_type ?? input.title ?? input.name ?? input.ticket_name ?? ""
+  ).trim();
+}
+
+export function isVocOtherType(value: string | null | undefined): boolean {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return false;
+  return (
+    trimmed.toLowerCase() === VOC_OTHER_LABEL.toLowerCase() ||
+    trimmed.toLowerCase().startsWith("other:")
+  );
+}
+
+export function parseVocOtherCustomName(value: string | null | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  const match = trimmed.match(/^other\s*:\s*(.*)$/i);
+  return match ? match[1].trim() : "";
+}
+
+export function formatVocOtherStoredValue(customName: string): string {
+  const name = customName.trim();
+  return name ? `${VOC_OTHER_LABEL}: ${name}` : VOC_OTHER_LABEL;
+}
+
+export function getVocSelectValue(stored: string | null | undefined): string {
+  const trimmed = String(stored ?? "").trim();
+  if (!trimmed) return "";
+  if (isVocOtherType(trimmed)) return VOC_OTHER_LABEL;
+  return trimmed;
+}
+
+export function formatVocDisplayLabel(stored: string | null | undefined): string {
+  const trimmed = String(stored ?? "").trim();
+  if (!trimmed) return "";
+  const custom = parseVocOtherCustomName(trimmed);
+  if (custom) return `${VOC_OTHER_LABEL} (${custom})`;
+  return trimmed;
+}
+
+export function isVocTypeComplete(value: string | null | undefined): boolean {
+  const stored = String(value ?? "").trim();
+  if (!stored) return false;
+  if (isVocOtherType(stored) && !parseVocOtherCustomName(stored)) return false;
+  return true;
+}
+
 export function getVocDisplayTitle(input: {
   title?: string | null;
   voc_type?: string | null;
   name?: string | null;
+  ticket_name?: string | null;
 }): string {
-  return String(input.voc_type ?? input.title ?? input.name ?? "").trim();
+  return formatVocDisplayLabel(getVocStoredType(input));
+}
+
+export function vocDraftHasContent(voc: {
+  voc_type?: string;
+  title?: string;
+  issuing_org?: string;
+  issue_date?: string;
+  expiry_date?: string;
+  document_url?: string | null;
+  file?: File | null;
+}): boolean {
+  return Boolean(
+    voc.voc_type?.trim() ||
+      voc.title?.trim() ||
+      voc.issuing_org?.trim() ||
+      voc.issue_date?.trim() ||
+      voc.expiry_date?.trim() ||
+      voc.document_url ||
+      voc.file
+  );
+}
+
+export function validateVocDrafts(
+  vocs: Array<{
+    voc_type?: string;
+    title?: string;
+    issuing_org?: string;
+    issue_date?: string;
+    expiry_date?: string;
+    document_url?: string | null;
+    file?: File | null;
+  }>
+): string | null {
+  for (const voc of vocs) {
+    if (!vocDraftHasContent(voc)) continue;
+    const stored = getVocStoredType(voc);
+    if (!isVocTypeComplete(stored)) {
+      return isVocOtherType(stored)
+        ? VOC_OTHER_UNSPECIFIED_ERROR
+        : "Each VOC row must include a licence or competency type.";
+    }
+  }
+  return null;
 }
 
 export interface VocDraft {
@@ -80,7 +182,7 @@ export function createEmptyVoc(): VocDraft {
 }
 
 export function vocFromRecord(v: WorkerVoc): VocDraft {
-  const vocType = getVocDisplayTitle(v);
+  const vocType = getVocStoredType(v);
   return {
     clientId: v.id,
     id: v.id,

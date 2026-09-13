@@ -18,7 +18,12 @@ import {
 import { getTicketStatus, buildWorkerFullName, nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import { splitWorkerName } from "@/lib/worker-cards-vocs";
 import type { VocDraft } from "@/lib/voc-utils";
-import { getVocDisplayTitle } from "@/lib/voc-utils";
+import {
+  getVocDisplayTitle,
+  getVocStoredType,
+  isVocTypeComplete,
+  validateVocDrafts,
+} from "@/lib/voc-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import EditVocModal from "@/components/workers/EditVocModal";
@@ -303,20 +308,20 @@ export default function WorkerMyDetailsPanel({
         return;
       }
 
-      const vocItems = newVocs.filter((v) => getVocDisplayTitle(v).trim());
+      const vocError = validateVocDrafts(newVocs);
+      if (vocError) {
+        setError(vocError);
+        setSaving(false);
+        return;
+      }
+
+      const vocItems = newVocs.filter((v) => isVocTypeComplete(getVocStoredType(v)));
       let allVocs = existingVocs;
 
       if (vocItems.length > 0) {
-        const missingType = vocItems.find((voc) => !voc.voc_type.trim());
-        if (missingType) {
-          setError("Please select a VOC type for each new VOC.");
-          setSaving(false);
-          return;
-        }
-
         const prepared = await Promise.all(
           vocItems.map(async (voc, i) => {
-            const vocType = getVocDisplayTitle(voc);
+            const vocType = getVocStoredType(voc);
             let documentUrl = voc.document_url ?? null;
             if (!documentUrl && voc.file) {
               documentUrl = await uploadWorkerDocumentSafe(

@@ -27,7 +27,13 @@ import DocumentCapture from "@/components/ui/DocumentCapture";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import VocListEditor from "@/components/workers/VocListEditor";
 import StateRegionSelector from "@/components/workers/StateRegionSelector";
-import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
+import {
+  createEmptyVoc,
+  getVocStoredType,
+  isVocTypeComplete,
+  validateVocDrafts,
+  type VocDraft,
+} from "@/lib/voc-utils";
 import {
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
@@ -182,6 +188,8 @@ export default function WorkerInductionPortalPage() {
           return "Please capture or upload your Driver's Licence.";
         return null;
       }
+      case 3:
+        return validateVocDrafts(vocs);
       case 4:
         if (!signature) return "Please sign to complete your induction.";
         return null;
@@ -228,10 +236,13 @@ export default function WorkerInductionPortalPage() {
             : Promise.resolve(null),
         ]);
 
-      const vocItems = vocs.filter((v) => v.title.trim());
+      const vocItems = vocs.filter((v) => isVocTypeComplete(getVocStoredType(v)));
       const preparedVocs = await Promise.all(
-        vocItems.map(async (voc, i) => ({
-          title: voc.title.trim(),
+        vocItems.map(async (voc, i) => {
+          const storedType = getVocStoredType(voc);
+          return {
+          title: storedType,
+          voc_type: storedType,
           issuing_org: voc.issuing_org || null,
           issue_date: nullIfBlankWorkerDate(voc.issue_date),
           expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
@@ -240,10 +251,11 @@ export default function WorkerInductionPortalPage() {
             (voc.file
               ? await uploadWorkerDocumentSafe(
                   voc.file,
-                  `${uploadPrefix}/vocs/${i}-${voc.title.replace(/[^a-z0-9]/gi, "_")}`
+                  `${uploadPrefix}/vocs/${i}-${storedType.replace(/[^a-z0-9]/gi, "_")}`
                 )
               : null),
-        }))
+        };
+        })
       );
 
       const status = computeWorkerStatusFromExpiries([

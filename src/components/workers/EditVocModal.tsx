@@ -5,7 +5,12 @@ import { Loader2, X } from "lucide-react";
 import type { WorkerVoc } from "@/lib/supabase";
 import { updateWorkerVoc } from "@/lib/supabase";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
-import { VOC_TYPE_OPTIONS, getVocDisplayTitle } from "@/lib/voc-utils";
+import VocTypeSelect from "@/components/workers/VocTypeSelect";
+import {
+  VOC_OTHER_UNSPECIFIED_ERROR,
+  getVocStoredType,
+  isVocTypeComplete,
+} from "@/lib/voc-utils";
 import { nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
 import {
@@ -36,7 +41,7 @@ export default function EditVocModal({
     `workers/${workerId}/vocs/${voc.id}/${Date.now()}`
   ).current;
 
-  const initialType = getVocDisplayTitle(voc);
+  const initialType = getVocStoredType(voc);
   const [vocType, setVocType] = useState(initialType);
   const [issuingOrg, setIssuingOrg] = useState(voc.issuing_org ?? "");
   const [issueDate, setIssueDate] = useState(voc.issue_date ?? "");
@@ -55,6 +60,10 @@ export default function EditVocModal({
     const trimmedType = vocType.trim();
     if (!trimmedType) {
       setError("Please select a VOC type.");
+      return;
+    }
+    if (!isVocTypeComplete(trimmedType)) {
+      setError(VOC_OTHER_UNSPECIFIED_ERROR);
       return;
     }
 
@@ -129,29 +138,16 @@ export default function EditVocModal({
         ) : null}
 
         <div className="mt-4 space-y-3">
-          <label className="block space-y-1">
-            <span className={labelClass}>VOC Type *</span>
-            <select
-              className={inputClass}
-              value={vocType}
-              disabled={!canEdit}
-              required
-              onChange={(event) => setVocType(event.target.value)}
-            >
-              <option value="">Select VOC type…</option>
-              {VOC_TYPE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-              {vocType &&
-              !VOC_TYPE_OPTIONS.includes(
-                vocType as (typeof VOC_TYPE_OPTIONS)[number]
-              ) ? (
-                <option value={vocType}>{vocType}</option>
-              ) : null}
-            </select>
-          </label>
+          <VocTypeSelect
+            value={vocType}
+            disabled={!canEdit}
+            onChange={setVocType}
+            error={
+              vocType && !isVocTypeComplete(vocType)
+                ? VOC_OTHER_UNSPECIFIED_ERROR
+                : null
+            }
+          />
 
           <label className="block space-y-1">
             <span className={labelClass}>Issuing Organisation</span>

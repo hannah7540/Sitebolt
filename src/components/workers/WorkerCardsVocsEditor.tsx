@@ -10,7 +10,8 @@ import {
   type WorkerCardCategory,
   type WorkerCardVocEntry,
 } from "@/lib/worker-cards-vocs";
-import { VOC_TYPE_OPTIONS, getVocDisplayTitle } from "@/lib/voc-utils";
+import VocTypeSelect from "@/components/workers/VocTypeSelect";
+import { getVocDisplayTitle } from "@/lib/voc-utils";
 import { getTicketStatus } from "@/lib/worker-utils";
 import { getTicketBadgeLabel } from "@/lib/worker-compliance";
 import DocumentCapture from "@/components/ui/DocumentCapture";
@@ -50,29 +51,16 @@ function EntryForm({
   return (
     <div className={cn(sectionClass, "space-y-3")}>
       {entry.category === "plant_voc" ? (
-        <label className="block space-y-1">
-          <span className={labelClass}>VOC Type *</span>
-          <select
-            className={inputClass}
-            value={entry.voc_type ?? ""}
-            required
-            onChange={(e) => {
-              const vocType = e.target.value;
-              onChange({
-                ...entry,
-                voc_type: vocType || null,
-                ticket_name: vocType,
-              });
-            }}
-          >
-            <option value="">Select VOC type…</option>
-            {VOC_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
+        <VocTypeSelect
+          value={entry.voc_type ?? ""}
+          onChange={(vocType) =>
+            onChange({
+              ...entry,
+              voc_type: vocType || null,
+              ticket_name: vocType,
+            })
+          }
+        />
       ) : (
         <label className="block space-y-1">
           <span className={labelClass}>Ticket name</span>

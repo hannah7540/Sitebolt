@@ -33,7 +33,11 @@ import {
   splitWorkerName,
   type WorkerCardVocEntry,
 } from "@/lib/worker-cards-vocs";
-import { getVocDisplayTitle } from "@/lib/voc-utils";
+import {
+  VOC_OTHER_UNSPECIFIED_ERROR,
+  getVocStoredType,
+  isVocTypeComplete,
+} from "@/lib/voc-utils";
 import {
   buildWorkerFullName,
   formatWorkerBsb,
@@ -901,14 +905,25 @@ function CardsVocsTab({
     setError(null);
 
     try {
-      const missingPlantVocType = entries.find(
-        (entry) => entry.category === "plant_voc" && !getVocDisplayTitle({
-          voc_type: entry.voc_type,
-          title: entry.ticket_name,
-        })
-      );
-      if (missingPlantVocType) {
-        setError("Please select a VOC type for each Plant Operations VOC entry.");
+      const incompletePlantVoc = entries.find((entry) => {
+        if (entry.category !== "plant_voc") return false;
+        return !isVocTypeComplete(
+          getVocStoredType({
+            voc_type: entry.voc_type,
+            title: entry.ticket_name,
+          })
+        );
+      });
+      if (incompletePlantVoc) {
+        const stored = getVocStoredType({
+          voc_type: incompletePlantVoc.voc_type,
+          title: incompletePlantVoc.ticket_name,
+        });
+        setError(
+          stored
+            ? VOC_OTHER_UNSPECIFIED_ERROR
+            : "Please select a VOC type for each Plant Operations VOC entry."
+        );
         return;
       }
 

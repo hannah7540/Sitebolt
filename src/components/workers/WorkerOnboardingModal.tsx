@@ -34,7 +34,13 @@ import DocumentCapture from "@/components/ui/DocumentCapture";
 import VocListEditor from "./VocListEditor";
 import StateRegionSelector from "./StateRegionSelector";
 import WorkerCompanyVehicleFields from "./WorkerCompanyVehicleFields";
-import { createEmptyVoc, type VocDraft } from "@/lib/voc-utils";
+import {
+  createEmptyVoc,
+  getVocStoredType,
+  isVocTypeComplete,
+  validateVocDrafts,
+  type VocDraft,
+} from "@/lib/voc-utils";
 import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -277,6 +283,14 @@ export default function WorkerOnboardingModal({
 
     const errors = missingOnboardingFields(checks);
     setFieldErrors(errors);
+    if (mode === "full" && targetStep === 1) {
+      const vocError = validateVocDrafts(vocs);
+      if (vocError) {
+        setError(vocError);
+        showError(vocError);
+        return { field: "vocs", message: vocError };
+      }
+    }
     const first = firstMissingOnboardingField(checks);
     if (first) {
       const toastMessage =
@@ -324,6 +338,15 @@ export default function WorkerOnboardingModal({
       if (applyFieldValidation(0)) return;
     } else if (validateAllFullSteps() !== null) {
       return;
+    }
+
+    if (mode === "full") {
+      const vocError = validateVocDrafts(vocs);
+      if (vocError) {
+        setError(vocError);
+        showError(vocError);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -415,7 +438,9 @@ export default function WorkerOnboardingModal({
 
       const vocExpiries =
         mode === "full"
-          ? vocs.filter((v) => v.title.trim()).map((v) => nullIfBlankWorkerDate(v.expiry_date))
+          ? vocs
+              .filter((v) => isVocTypeComplete(getVocStoredType(v)))
+              .map((v) => nullIfBlankWorkerDate(v.expiry_date))
           : [];
 
       const { error: insertError, workerId } = await addWorker(payload, vocExpiries);
@@ -427,11 +452,14 @@ export default function WorkerOnboardingModal({
       }
 
       if (mode === "full" && workerId) {
-        const vocItems = vocs.filter((v) => v.title.trim());
+        const vocItems = vocs.filter((v) => isVocTypeComplete(getVocStoredType(v)));
         if (vocItems.length > 0) {
           const preparedVocs = await Promise.all(
-            vocItems.map(async (voc, i) => ({
-              title: voc.title.trim(),
+            vocItems.map(async (voc, i) => {
+              const storedType = getVocStoredType(voc);
+              return {
+              title: storedType,
+              voc_type: storedType,
               issuing_org: voc.issuing_org || null,
               issue_date: nullIfBlankWorkerDate(voc.issue_date),
               expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
@@ -439,10 +467,11 @@ export default function WorkerOnboardingModal({
                 ?? (voc.file
                   ? await uploadWorkerDocumentSafe(
                       voc.file,
-                      `${uploadPrefix}/vocs/${i}-${voc.title.replace(/[^a-z0-9]/gi, "_")}`
+                      `${uploadPrefix}/vocs/${i}-${storedType.replace(/[^a-z0-9]/gi, "_")}`
                     )
                   : null),
-            }))
+            };
+            })
           );
 
           const { error: vocError } = await insertWorkerVocs(workerId, preparedVocs);
