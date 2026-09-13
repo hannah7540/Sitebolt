@@ -4,12 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus,
   AlertTriangle,
-  Link2,
-  Pencil,
-  UserX,
-  UserCheck,
   Search,
-  Trash2,
   X,
 } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
@@ -40,7 +35,7 @@ import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
 import WorkerEditModal from "./WorkerEditModal";
 import DeleteWorkerConfirmModal from "./DeleteWorkerConfirmModal";
-import { ResendInviteButton } from "./ResendInviteButton";
+import { WorkerRowActions } from "./WorkerRowActions";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import WorkerStateRegionBadge from "./WorkerStateRegionBadge";
 import WorkerApprenticeBadge from "./WorkerApprenticeBadge";
@@ -634,79 +629,24 @@ export default function WorkerDirectoryPanel({
                       : resolveWorkerAssignedProjectName(w)}
                   </td>
                   <td className="p-4">
-                    <div
-                      className="flex flex-wrap gap-1.5"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {!deleted ? (
-                        <button
-                          type="button"
-                          onClick={() => setEditingWorker(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </button>
-                      ) : null}
-                      {!deleted && !revoked ? (
-                        <button
-                          type="button"
-                          onClick={() => setAssignWorker(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                          Assign
-                        </button>
-                      ) : null}
-                      {!deleted ? (
-                        <ResendInviteButton
-                          worker={w}
-                          lastSignInAt={lastSignInByWorkerId[w.id] ?? null}
-                          onSuccess={(message, inviteSentAt) => {
-                            showSuccess(message);
-                            if (inviteSentAt) {
-                              patchWorker({ ...w, invite_sent_at: inviteSentAt });
-                            }
-                          }}
-                          onError={showError}
-                        />
-                      ) : null}
-                      {!deleted ? (
-                        <button
-                          type="button"
-                          disabled={actionId === w.id}
-                          onClick={() => void handleRevokeToggle(w)}
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50",
-                            revoked
-                              ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                              : "border-red-200 text-red-700 hover:bg-red-50"
-                          )}
-                        >
-                          {revoked ? (
-                            <>
-                              <UserCheck className="h-3.5 w-3.5" />
-                              Reactivate
-                            </>
-                          ) : (
-                            <>
-                              <UserX className="h-3.5 w-3.5" />
-                              Revoke
-                            </>
-                          )}
-                        </button>
-                      ) : null}
-                      {!deleted ? (
-                        <button
-                          type="button"
-                          onClick={() => setDeleteWorker(w)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          {revoked ? "Move to Archive" : "Delete Worker"}
-                        </button>
-                      ) : null}
-                    </div>
+                    <WorkerRowActions
+                      worker={w}
+                      lastSignInAt={lastSignInByWorkerId[w.id] ?? null}
+                      deleted={deleted}
+                      revoked={revoked}
+                      actionId={actionId}
+                      onEdit={() => setEditingWorker(w)}
+                      onAssign={() => setAssignWorker(w)}
+                      onRevoke={() => void handleRevokeToggle(w)}
+                      onDelete={() => setDeleteWorker(w)}
+                      onInviteSuccess={(message, inviteSentAt) => {
+                        showSuccess(message);
+                        if (inviteSentAt) {
+                          patchWorker({ ...w, invite_sent_at: inviteSentAt });
+                        }
+                      }}
+                      onInviteError={showError}
+                    />
                   </td>
                 </tr>
               );

@@ -202,21 +202,30 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   "auth_user_id",
 ] as const;
 
-const PENDING_INVITE_STATUSES = new Set(["pending", "invited"]);
+const PENDING_INVITE_STATUSES = new Set([
+  "pending",
+  "invited",
+  "pending_induction",
+]);
 
-/** Whether a worker can still receive an onboarding invite email. */
+/**
+ * Admins may resend a password-setup invite for any non-revoked worker with an email.
+ * Do not hide this behind onboarding_completed, lastSignInAt, or "already active" checks —
+ * workers forget links and new rows often land as active/pending without auth_user_id.
+ */
 export function canResendWorkerInvite(
   worker: {
     email?: string | null;
     status?: string | null;
     invite_status?: string | null;
+    auth_user_id?: string | null;
     onboarding_completed?: boolean | null;
     is_revoked?: boolean;
     is_archived?: boolean;
     deleted_at?: string | null;
     induction_completed_at?: string | null;
   },
-  lastSignInAt?: string | null
+  _lastSignInAt?: string | null
 ): boolean {
   const revoked = Boolean(
     worker.is_revoked === true ||
@@ -228,22 +237,19 @@ export function canResendWorkerInvite(
   if (revoked) return false;
   if (!worker.email?.trim()) return false;
 
-  const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
   const status = (worker.status ?? "").trim().toLowerCase();
+  const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
 
-  // Hide for workers who already finished onboarding or are fully active.
-  if (worker.onboarding_completed === true) return false;
-  if (status === "active") return false;
-  if (inviteStatus === "accepted" && lastSignInAt) return false;
-
-  const isPending =
+  return (
     status === "invited" ||
     status === "pending" ||
     status === "pending_induction" ||
-    PENDING_INVITE_STATUSES.has(inviteStatus) ||
-    worker.onboarding_completed === false;
-
-  return isPending;
+    status === "active" ||
+    status === "expired_ticket" ||
+    !worker.auth_user_id ||
+    worker.onboarding_completed !== true ||
+    PENDING_INVITE_STATUSES.has(inviteStatus)
+  );
 }
 
 export const WORKER_FIELD_NOT_PROVIDED = "Not provided";

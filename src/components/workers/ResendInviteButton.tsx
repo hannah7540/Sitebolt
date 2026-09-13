@@ -7,6 +7,7 @@ import { requestWorkerInviteResend } from "@/lib/worker-invite-client";
 import { canResendWorkerInvite } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
 
+// CRITICAL: Resend Invite action must remain in row menu and worker profile modal
 export function ResendInviteButton({
   worker,
   lastSignInAt,
@@ -33,8 +34,7 @@ export function ResendInviteButton({
     try {
       const result = await requestWorkerInviteResend(worker.id, worker.email);
       const email = worker.email?.trim() || "the worker";
-      const message =
-        result.message ?? `Invitation email resent successfully to ${email}`;
+      const message = `Invite link sent to ${email}`;
       onSuccess?.(message, result.inviteSentAt ?? null);
     } catch (error) {
       onError?.(

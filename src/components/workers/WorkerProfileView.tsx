@@ -282,10 +282,11 @@ export default function WorkerProfileView({
             <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
             {!isWorkerDeleted(currentWorker) ? (
+              // CRITICAL: Resend Invite action must remain in row menu and worker profile modal
               <ResendInviteButton
                 worker={currentWorker}
                 lastSignInAt={lastSignInAt}
-                label="Resend Invite Link"
+                label="Resend Invite"
                 variant="profile"
                 onSuccess={(message, inviteSentAt) => {
                   showSuccess(message);
