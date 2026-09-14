@@ -1,7 +1,6 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +13,6 @@ const VALID_OTP_TYPES = new Set<EmailOtpType>([
   "email",
   "email_change",
 ]);
-
-function copyCookies(from: NextResponse, to: NextResponse): void {
-  from.cookies.getAll().forEach((cookie) => {
-    to.cookies.set(cookie);
-  });
-}
 
 function resolvePasswordSetupPath(next: string | null): string {
   if (
@@ -36,65 +29,70 @@ function resolvePasswordSetupPath(next: string | null): string {
   return "/setyourpassword";
 }
 
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
-  const tokenHash = requestUrl.searchParams.get("token_hash");
-  const type = requestUrl.searchParams.get("type");
-  const next = requestUrl.searchParams.get("next");
-  const origin = requestUrl.origin;
+function applyAuthCookies(
+  response: NextResponse,
+  request: NextRequest,
+  name: string,
+  value: string,
+  options: CookieOptions
+): void {
+  request.cookies.set({ name, value, ...options });
+  response.cookies.set({
+    name,
+    value,
+    ...options,
+    path: options.path ?? "/",
+  });
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams, origin } = new URL(request.url);
+  const token_hash = searchParams.get("token_hash");
+  const type = searchParams.get("type") as EmailOtpType | null;
+  const next = searchParams.get("next") || "/setyourpassword";
+  const code = searchParams.get("code");
+
   const destination = resolvePasswordSetupPath(next);
-
-  if (!code && !tokenHash) {
-    return NextResponse.redirect(new URL(destination, origin), 303);
-  }
-
-  const cookieStore = await cookies();
-  const response = NextResponse.redirect(new URL(destination, origin), 303);
+  const redirectUrl = `${origin}${destination.startsWith("/") ? destination : `/${destination}`}`;
+  const response = NextResponse.redirect(redirectUrl);
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        return cookieStore.getAll();
+        return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         cookiesToSet.forEach(({ name, value, options }) => {
-          try {
-            cookieStore.set(name, value, options);
-          } catch {
-            // Cookies must be written onto the returned redirect response.
-          }
-          response.cookies.set(name, value, options);
+          applyAuthCookies(response, request, name, value, options);
+        });
+        Object.entries(headers).forEach(([key, value]) => {
+          response.headers.set(key, value);
         });
       },
     },
   });
 
+  if (token_hash && type && VALID_OTP_TYPES.has(type)) {
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash,
+    });
+
+    if (!error) {
+      return response;
+    }
+  }
+
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      const errorUrl = new URL(destination, origin);
-      errorUrl.searchParams.set("error", error.message);
-      const errorResponse = NextResponse.redirect(errorUrl, 303);
-      copyCookies(response, errorResponse);
-      return errorResponse;
+    if (!error) {
+      return response;
     }
+  }
+
+  if (!token_hash && !code) {
     return response;
   }
 
-  if (tokenHash && type && VALID_OTP_TYPES.has(type as EmailOtpType)) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: type as EmailOtpType,
-    });
-    if (error) {
-      const errorUrl = new URL(destination, origin);
-      errorUrl.searchParams.set("error", error.message);
-      const errorResponse = NextResponse.redirect(errorUrl, 303);
-      copyCookies(response, errorResponse);
-      return errorResponse;
-    }
-  }
-
-  return response;
+  return NextResponse.redirect(`${origin}/login?error=Invalid+or+expired+token`);
 }

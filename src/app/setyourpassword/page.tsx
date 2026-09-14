@@ -61,24 +61,62 @@ function SetYourPasswordForm() {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let mounted = true;
-    let subscription: { unsubscribe: () => void } | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
 
     function markReady(session?: Session | null) {
+      if (!mounted || !session?.user) return;
+      settled = true;
       isReadyRef.current = true;
       setIsReady(true);
       setErrorMsg(null);
       setLoading(false);
-      const sessionEmail = session?.user?.email?.trim();
+      const sessionEmail = session.user.email?.trim();
       if (sessionEmail) {
         setResendEmail((current) => current || sessionEmail);
       }
     }
 
+    function markUnresolved(message: string) {
+      if (!mounted || settled || isReadyRef.current) return;
+      setIsReady(false);
+      setErrorMsg(message);
+      setLoading(false);
+    }
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (event: AuthChangeEvent, nextSession: Session | null) => {
+        if (!mounted) return;
+        if (
+          nextSession &&
+          (event === "PASSWORD_RECOVERY" ||
+            event === "SIGNED_IN" ||
+            event === "INITIAL_SESSION" ||
+            event === "TOKEN_REFRESHED" ||
+            event === "USER_UPDATED")
+        ) {
+          markReady(nextSession);
+        }
+      }
+    );
+
     async function initAuth() {
       const pageParams = new URLSearchParams(window.location.search);
       const tokenHash = pageParams.get("token_hash")?.trim() || "";
+      const code = pageParams.get("code")?.trim() || "";
       const otpType = resolveOtpType(pageParams.get("type"));
+      const hash = window.location.hash;
+
+      if (
+        hash.includes("error=") ||
+        hash.includes("error_code=") ||
+        pageParams.get("error") === "expired" ||
+        hash.includes("otp_expired")
+      ) {
+        markUnresolved(EXPIRED_LINK_MESSAGE);
+        return;
+      }
 
       if (tokenHash) {
         const { data, error } = await supabase.auth.verifyOtp({
@@ -93,8 +131,15 @@ function SetYourPasswordForm() {
         }
         if (error) {
           console.error("[SET_PASSWORD] verifyOtp failed:", error.message);
-          setErrorMsg(error.message);
-          setLoading(false);
+        }
+      }
+
+      if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!mounted) return;
+        if (!error && data.session) {
+          markReady(data.session);
+          window.history.replaceState({}, document.title, window.location.pathname);
           return;
         }
       }
@@ -108,61 +153,28 @@ function SetYourPasswordForm() {
         return;
       }
 
-      const hash = window.location.hash;
-      const params = pageParams;
-      if (
-        hash.includes("error=") ||
-        hash.includes("error_code=") ||
-        params.get("error") === "expired" ||
-        hash.includes("otp_expired")
-      ) {
-        setErrorMsg(EXPIRED_LINK_MESSAGE);
-        setLoading(false);
-        return;
-      }
-
       const {
-        data: { subscription: authSub },
-      } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, nextSession: Session | null) => {
-        if (!mounted) return;
-        if (
-          event === "PASSWORD_RECOVERY" ||
-          (event === "SIGNED_IN" && nextSession)
-        ) {
-          markReady(nextSession);
-        }
-      });
-
-      if (!mounted) {
-        authSub.unsubscribe();
-        return;
-      }
-      subscription = authSub;
-
-      timer = setTimeout(async () => {
-        if (!mounted) return;
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!mounted) return;
+      if (user) {
         const {
-          data: { session: finalCheck },
+          data: { session: userSession },
         } = await supabase.auth.getSession();
-        if (finalCheck) {
-          markReady(finalCheck);
+        if (userSession) {
+          markReady(userSession);
           return;
         }
-        if (!isReadyRef.current) {
-          setErrorMsg(NO_SESSION_MESSAGE);
-          setLoading(false);
-        }
-      }, 2500);
+      }
+
+      markUnresolved(NO_SESSION_MESSAGE);
     }
 
     void initAuth();
 
     return () => {
       mounted = false;
-      subscription?.unsubscribe();
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -300,6 +312,17 @@ function SetYourPasswordForm() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div className={cardClass + " flex w-full max-w-md flex-col items-center p-8"}>
+          <Loader2 className="mb-4 h-8 w-8 animate-spin text-orange-500" />
+          <p className="text-sm text-slate-500">Verifying your password setup session…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className={cardClass + " w-full max-w-md p-8"}>
@@ -318,13 +341,6 @@ function SetYourPasswordForm() {
         <p className="mb-6 text-sm text-slate-600">
           Create a password for your Site-Bolt account.
         </p>
-
-        {loading && !errorMsg ? (
-          <p className="mb-4 flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-            Verifying link...
-          </p>
-        ) : null}
 
         {isReady ? (
           <p className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">

@@ -1,6 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
@@ -113,22 +112,33 @@ async function exchangeTokenHash(input: {
   next: string;
 }): Promise<NextResponse> {
   const origin = resolveOrigin(input.request);
-  const cookieStore = await cookies();
-  let sessionResponse = NextResponse.next();
+  const incomingCookies = input.request.headers.get("cookie") ?? "";
+  const cookieMap = new Map<string, string>();
+  incomingCookies.split(";").forEach((part) => {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (!rawName) return;
+    cookieMap.set(rawName, rest.join("="));
+  });
+
+  const successResponse = NextResponse.redirect(new URL(input.next, origin));
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        return cookieStore.getAll();
+        return Array.from(cookieMap.entries()).map(([name, value]) => ({ name, value }));
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         cookiesToSet.forEach(({ name, value, options }) => {
-          try {
-            cookieStore.set(name, value, options);
-          } catch {
-            // Cookies must be written onto the returned redirect response.
-          }
-          sessionResponse.cookies.set(name, value, options);
+          cookieMap.set(name, value);
+          successResponse.cookies.set({
+            name,
+            value,
+            ...options,
+            path: options.path ?? "/",
+          });
+        });
+        Object.entries(headers).forEach(([key, value]) => {
+          successResponse.headers.set(key, value);
         });
       },
     },
@@ -142,12 +152,10 @@ async function exchangeTokenHash(input: {
   if (error) {
     console.error("Server verifyOtp error:", error.message);
     const errorResponse = NextResponse.redirect(new URL(EXPIRED_REDIRECT, origin));
-    copyCookies(sessionResponse, errorResponse);
+    copyCookies(successResponse, errorResponse);
     return errorResponse;
   }
 
-  const successResponse = NextResponse.redirect(new URL(input.next, origin));
-  copyCookies(sessionResponse, successResponse);
   return successResponse;
 }
 
