@@ -1,11 +1,11 @@
 import { Resend } from "resend";
 import type { User } from "@supabase/supabase-js";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
-import {
-  appendTeamEmailFooter,
-  appendTeamEmailFooterText,
-} from "@/lib/email-team-footer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  assertActionUrl,
+  buildWorkerInviteEmailContent,
+} from "@/lib/worker-invite-email-template";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
   PASSWORD_SETUP_PATH,
@@ -176,8 +176,7 @@ export async function sendWorkerInviteEmailViaResend(
   const { inviteLink, authUserId, error: linkError } =
     await generateWorkerInviteSetupLink(trimmedEmail);
 
-  const actionUrl = inviteLink?.trim() || "";
-  if (!actionUrl) {
+  if (!inviteLink?.trim()) {
     return {
       success: false,
       error: linkError ?? "Unable to generate auth link.",
@@ -188,41 +187,19 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const inviteHtml = appendTeamEmailFooter(`
-        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to SiteBolt</h1>
-          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            You have been added to SiteBolt. Tap the button below to set your account password and access your profile:
-          </p>
-          <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 28px auto;">
-            <tr>
-              <td align="center" bgcolor="#f97316" style="border-radius: 6px; background-color: #f97316;">
-                <a href="${actionUrl}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; border: 14px solid #f97316; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; color: #ffffff !important; text-decoration: none; border-radius: 6px; display: inline-block; text-align: center; -webkit-text-size-adjust: none;">
-                  Set Your Password
-                </a>
-              </td>
-            </tr>
-          </table>
-          <p style="margin: 24px 0 8px 0; font-size: 13px; color: #64748b; text-align: center;">
-            Or copy and paste this link into your browser:
-          </p>
-          <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
-            <a href="${actionUrl}" target="_blank" rel="noopener noreferrer" style="color: #f97316; text-decoration: underline;">
-              ${actionUrl}
-            </a>
-          </p>
-        </div>
-      `.trim());
-  const inviteText = appendTeamEmailFooterText(
-    `Welcome to SiteBolt.\n\nPlease click the link below to set your password and access your account:\n${actionUrl}`
-  );
+  const actionUrl = assertActionUrl(inviteLink);
+  const { subject, html, text } = buildWorkerInviteEmailContent(actionUrl);
+
+  if (!html.includes("<a href=") || !html.includes(actionUrl.split("?")[0] ?? actionUrl)) {
+    throw new Error("Invite HTML is missing a clickable actionUrl anchor; refusing to send.");
+  }
 
   const resendResult = await resend.emails.send({
     from: DEFAULT_SYSTEM_FROM_EMAIL,
     to: [trimmedEmail],
-    subject: "Welcome to SiteBolt - Set Your Password",
-    html: inviteHtml,
-    text: inviteText,
+    subject,
+    html,
+    text,
   });
 
   if (resendResult.error) {
