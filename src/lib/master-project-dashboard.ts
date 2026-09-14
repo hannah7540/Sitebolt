@@ -115,15 +115,17 @@ export function isPendingSwmsAssignment(row: SwmsAssignmentRecord): boolean {
 
 export function matchesDashboardProject(
   recordProjectId: string | null | undefined,
-  filterProjectId: string | null
+  filterProjectIds: readonly string[] | null | undefined
 ): boolean {
-  if (!filterProjectId) return true;
-  return (recordProjectId ?? "").trim() === filterProjectId;
+  if (!filterProjectIds || filterProjectIds.length === 0) return true;
+  const recordId = (recordProjectId ?? "").trim();
+  if (!recordId) return false;
+  return filterProjectIds.includes(recordId);
 }
 
 export function filterMasterDashboardSnapshot(
   snapshot: MasterProjectDashboardSnapshot,
-  projectId: string | null
+  projectIds: readonly string[] | null | undefined
 ): MasterProjectDashboardSnapshot {
   const swmsProjectById = new Map(
     snapshot.swmsDocuments.map((doc) => [doc.id, doc.project_id ?? null])
@@ -132,34 +134,34 @@ export function filterMasterDashboardSnapshot(
   return {
     ...snapshot,
     incidents: snapshot.incidents.filter(
-      (row) => isOpenIncident(row) && matchesDashboardProject(row.project_id, projectId)
+      (row) => isOpenIncident(row) && matchesDashboardProject(row.project_id, projectIds)
     ),
     safetyWalks: snapshot.safetyWalks.filter(
       (row) =>
-        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectId)
+        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectIds)
     ),
     toolboxTalks: snapshot.toolboxTalks.filter(
       (row) =>
-        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectId)
+        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectIds)
     ),
     plantPrestarts: snapshot.plantPrestarts.filter(
       (row) =>
         isActiveDashboardDefect(row) &&
-        matchesDashboardProject(row.project_id, projectId)
+        matchesDashboardProject(row.project_id, projectIds)
     ),
     leaveRequests: snapshot.leaveRequests.filter(
       (row) =>
         isLeaveRequestPending(row.status) &&
-        matchesDashboardProject(row.project_id, projectId)
+        matchesDashboardProject(row.project_id, projectIds)
     ),
     incompleteInductions: snapshot.incompleteInductions.filter(
       (row) =>
         row.status !== "completed" &&
-        matchesDashboardProject(row.project_id, projectId)
+        matchesDashboardProject(row.project_id, projectIds)
     ),
     swmsWaitingSignOff: snapshot.swmsWaitingSignOff.filter((row) => {
       if (!isPendingSwmsAssignment(row)) return false;
-      return matchesDashboardProject(swmsProjectById.get(row.swms_id) ?? null, projectId);
+      return matchesDashboardProject(swmsProjectById.get(row.swms_id) ?? null, projectIds);
     }),
   };
 }

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Ban,
   CalendarOff,
   Check,
+  ChevronDown,
   ClipboardCheck,
   FileSignature,
   Loader2,
@@ -45,6 +46,7 @@ import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import { useFormToast } from "@/hooks/useFormToast";
 import Toast from "@/components/ui/Toast";
+import DropdownPanel from "@/components/ui/DropdownPanel";
 import AdminIncidentDetailModal from "@/components/administration/forms/AdminIncidentDetailModal";
 import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
 import PlantPrestartDefectsWidget from "@/components/dashboard/PlantPrestartDefectsWidget";
@@ -206,7 +208,9 @@ export default function MasterProjectDashboard() {
   );
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
-  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false);
+  const projectFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<ExpandedView | null>(null);
   const [pastSubmissionsType, setPastSubmissionsType] =
@@ -236,15 +240,50 @@ export default function MasterProjectDashboard() {
     void load();
   }, [load]);
 
-  const selectedProjectId = projectFilter === "all" ? null : projectFilter;
+  const effectiveProjectIds = useMemo(() => {
+    if (selectedProjectIds.length === 0) return [];
+    if (projects.length > 0 && selectedProjectIds.length === projects.length) {
+      return [];
+    }
+    return selectedProjectIds;
+  }, [projects.length, selectedProjectIds]);
+  const allProjectsSelected = effectiveProjectIds.length === 0;
   const filteredSnapshot = useMemo(
-    () => filterMasterDashboardSnapshot(snapshot, selectedProjectId),
-    [snapshot, selectedProjectId]
+    () => filterMasterDashboardSnapshot(snapshot, effectiveProjectIds),
+    [snapshot, effectiveProjectIds]
   );
   const data = useMemo(
     () => toMasterDashboardWidgetData(filteredSnapshot, workers),
     [filteredSnapshot, workers]
   );
+
+  const projectFilterLabel = useMemo(() => {
+    if (allProjectsSelected) return "All Projects";
+    if (effectiveProjectIds.length === 1) {
+      return (
+        projects.find((project) => project.id === effectiveProjectIds[0])?.name ??
+        "1 project selected"
+      );
+    }
+    return `${effectiveProjectIds.length} projects selected`;
+  }, [allProjectsSelected, effectiveProjectIds, projects]);
+
+  const toggleProjectFilter = (projectId: string) => {
+    if (allProjectsSelected) {
+      setSelectedProjectIds([projectId]);
+      return;
+    }
+    if (selectedProjectIds.includes(projectId)) {
+      setSelectedProjectIds(selectedProjectIds.filter((id) => id !== projectId));
+      return;
+    }
+    const next = [...selectedProjectIds, projectId];
+    if (projects.length > 0 && next.length === projects.length) {
+      setSelectedProjectIds([]);
+      return;
+    }
+    setSelectedProjectIds(next);
+  };
 
   const removeRecord = useCallback(
     (key: keyof MasterProjectDashboardSnapshot, id: string) => {
@@ -368,23 +407,70 @@ export default function MasterProjectDashboard() {
           </p>
         </div>
         <div className="flex w-full max-w-xs flex-col gap-2">
-          <label className="block">
+          <div className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Project Filter
             </span>
-            <select
-              className={inputClass}
-              value={projectFilter}
-              onChange={(event) => setProjectFilter(event.target.value)}
+            <button
+              ref={projectFilterTriggerRef}
+              type="button"
+              onClick={() => setProjectFilterOpen((open) => !open)}
+              aria-expanded={projectFilterOpen}
+              aria-haspopup="listbox"
+              className={cn(
+                inputClass,
+                "flex items-center justify-between gap-2 text-left"
+              )}
             >
-              <option value="all">All Projects</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="min-w-0 truncate">{projectFilterLabel}</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-slate-400 transition",
+                  projectFilterOpen && "rotate-180"
+                )}
+              />
+            </button>
+            <DropdownPanel
+              open={projectFilterOpen}
+              triggerRef={projectFilterTriggerRef}
+              maxHeight={320}
+              onClose={() => setProjectFilterOpen(false)}
+              className="p-2"
+            >
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-900">
+                <input
+                  type="checkbox"
+                  checked={allProjectsSelected}
+                  onChange={() => setSelectedProjectIds([])}
+                  className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                />
+                All Projects
+              </label>
+              <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto" role="listbox">
+                {projects.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-slate-500">No active projects.</p>
+                ) : (
+                  projects.map((project) => (
+                    <label
+                      key={project.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={
+                          !allProjectsSelected &&
+                          selectedProjectIds.includes(project.id)
+                        }
+                        onChange={() => toggleProjectFilter(project.id)}
+                        className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      <span className="truncate">{project.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </DropdownPanel>
+          </div>
           <PastSubmissionsTrigger
             label="Past Site Daily Logs"
             onClick={() => setPastSubmissionsType("daily_prestarts")}
@@ -591,7 +677,9 @@ export default function MasterProjectDashboard() {
       {pastSubmissionsType ? (
         <PastSubmissionsModal
           widgetType={pastSubmissionsType}
-          projectId={selectedProjectId}
+          projectId={
+            effectiveProjectIds.length === 1 ? effectiveProjectIds[0] : null
+          }
           isOpen
           onClose={() => setPastSubmissionsType(null)}
           workers={workers}
