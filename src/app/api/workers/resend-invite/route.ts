@@ -94,6 +94,7 @@ export async function POST(req: Request) {
 
     // LOCKED: Critical worker invite functionality - do not delete or replace
     const sent = await sendWorkerInviteEmailViaResend(email, {
+      workerId: prepared.workerId,
       userAlreadyExists: Boolean(authUser),
     });
     console.log("[Generated Action Link]:", sent.actionLink);

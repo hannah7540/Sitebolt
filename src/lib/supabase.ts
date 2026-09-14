@@ -128,6 +128,7 @@ export interface Worker {
   onboarding_completed?: boolean;
   invite_status?: string | null;
   invite_sent_at?: string | null;
+  invite_token?: string | null;
   security_role: SecurityRole;
   accounts_access_role: AccountsAccessRole;
   can_access_accounts: boolean;

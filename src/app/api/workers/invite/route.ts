@@ -40,7 +40,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const sent = await sendWorkerInviteEmailViaResend(email);
+    const sent = await sendWorkerInviteEmailViaResend(email, {
+      workerId: preInviteWorker.workerId,
+    });
 
     if (!sent.success) {
       return NextResponse.json(

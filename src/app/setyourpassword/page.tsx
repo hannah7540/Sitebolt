@@ -1,116 +1,29 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { AuthChangeEvent, EmailOtpType, Session } from "@supabase/supabase-js";
 import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
-import {
-  resolvePostPasswordSetupHref,
-  type WorkerPostPasswordStatus,
-} from "@/lib/post-password-redirect";
-import { isNativeMobileApp } from "@/lib/native-app";
-import { resolveNativeWorkerDashboardPath } from "@/lib/native-app-paths";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-const OTP_TYPES = new Set<EmailOtpType>([
-  "signup",
-  "invite",
-  "magiclink",
-  "recovery",
-  "email",
-  "email_change",
-]);
-
-function resolveOtpType(value: string | null): EmailOtpType {
-  const type = (value || "recovery").toLowerCase() as EmailOtpType;
-  return OTP_TYPES.has(type) ? type : "recovery";
-}
 
 function SetPasswordForm() {
   const searchParams = useSearchParams();
+  const token = searchParams.get("token")?.trim() || "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [sessionValid, setSessionValid] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-
-  useEffect(() => {
-    const supabase = createSupabaseBrowserClient();
-    let isMounted = true;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let unsubscribe: (() => void) | undefined;
-
-    async function initAuth() {
-      const token_hash = searchParams.get("token_hash")?.trim() || "";
-      const type = resolveOtpType(searchParams.get("type"));
-      const code = searchParams.get("code")?.trim() || "";
-
-      if (token_hash) {
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash,
-          type,
-        });
-        if (!error && (data.session || data.user) && isMounted) {
-          setSessionValid(true);
-          setLoading(false);
-          return;
-        }
-        if (error) {
-          console.warn("[setyourpassword] verifyOtp:", error.message);
-        }
-      }
-
-      if (code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (!error && data.session && isMounted) {
-          setSessionValid(true);
-          setLoading(false);
-          return;
-        }
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session && isMounted) {
-        setSessionValid(true);
-        setLoading(false);
-        return;
-      }
-
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(
-        (_event: AuthChangeEvent, nextSession: Session | null) => {
-        if (nextSession && isMounted) {
-          setSessionValid(true);
-          setLoading(false);
-        }
-      });
-      unsubscribe = () => subscription.unsubscribe();
-
-      timeoutId = setTimeout(() => {
-        if (isMounted) setLoading(false);
-      }, 1500);
-    }
-
-    void initAuth();
-
-    return () => {
-      isMounted = false;
-      unsubscribe?.();
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    };
-  }, [searchParams]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setErrorMessage("");
+
+    if (!token) {
+      setErrorMessage("Missing setup token. Please check your invitation link.");
+      return;
+    }
 
     const passwordError = validatePassword(password);
     if (passwordError) {
@@ -124,96 +37,38 @@ function SetPasswordForm() {
     }
 
     setSubmitting(true);
-    const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.updateUser({ password });
-
-    if (error) {
-      setErrorMessage(error.message);
-      setSubmitting(false);
-      return;
-    }
-
-    setSuccessMessage("Password successfully updated! Redirecting...");
-
-    if (isNativeMobileApp()) {
-      window.location.href = resolveNativeWorkerDashboardPath(null);
-      return;
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (session?.access_token) {
-      const statusRes = await fetch("/api/workers/check-status", {
+    try {
+      const response = await fetch("/api/auth/set-worker-password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
       });
-      if (statusRes.ok) {
-        const payload = (await statusRes.json()) as {
-          worker?: WorkerPostPasswordStatus | null;
-          redirectTo?: string;
-        };
-        window.location.href =
-          payload.redirectTo ?? resolvePostPasswordSetupHref(payload.worker);
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+      };
+
+      if (!response.ok || !payload.success) {
+        setErrorMessage(payload.error || "Unable to set password.");
+        setSubmitting(false);
         return;
       }
-    }
 
-    let worker: WorkerPostPasswordStatus | null = null;
-    if (user?.email) {
-      const { data: clientWorker } = await supabase
-        .from("workers")
-        .select("id, onboarding_completed, status, invite_status")
-        .eq("email", user.email)
-        .maybeSingle();
-      if (clientWorker?.id) {
-        worker = {
-          id: clientWorker.id,
-          onboarding_completed:
-            typeof clientWorker.onboarding_completed === "boolean"
-              ? clientWorker.onboarding_completed
-              : null,
-          status:
-            typeof clientWorker.status === "string" ? clientWorker.status : null,
-          invite_status:
-            typeof clientWorker.invite_status === "string"
-              ? clientWorker.invite_status
-              : null,
-        };
-      }
+      setSuccessMessage("Password successfully updated! Redirecting...");
+      window.location.href = "/login";
+    } catch {
+      setErrorMessage("Unable to set password.");
+      setSubmitting(false);
     }
-
-    window.location.href = resolvePostPasswordSetupHref(worker);
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
-          <p className="mt-4 text-sm font-medium text-slate-600">
-            Verifying your secure link...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!sessionValid) {
+  if (!token) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
         <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">Link Expired or Invalid</h2>
+          <h2 className="text-lg font-bold text-slate-900">Missing setup token</h2>
           <p className="mt-2 text-sm text-slate-600">
-            This setup link is no longer valid. Please ask an administrator to
-            resend your invite link.
+            Missing setup token. Please check your invitation link.
           </p>
           <a
             href="/login"

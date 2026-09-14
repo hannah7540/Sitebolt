@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { Resend } from "resend";
 import type { User } from "@supabase/supabase-js";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
@@ -7,15 +8,7 @@ import {
   buildWorkerInviteEmailContent,
 } from "@/lib/worker-invite-email-template";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
-import {
-  PASSWORD_SETUP_PATH,
-  buildAuthCallbackUrl,
-  getWorkerInviteRedirectTo,
-  resolveCleanSiteUrl,
-  type AuthLinkType,
-} from "@/lib/worker-invite-link";
-
-type GenerateLinkType = "invite" | "recovery" | "magiclink";
+import { resolveCleanSiteUrl } from "@/lib/worker-invite-link";
 
 export const PASSWORD_SETUP_LINK_SENT_MESSAGE =
   "Password setup link sent successfully";
@@ -37,8 +30,11 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
-function getInviteOrigin(): string {
-  return resolveCleanSiteUrl(getSiteUrl());
+export function buildPersistentInviteActionUrl(token: string): string {
+  const origin = resolveCleanSiteUrl(getSiteUrl());
+  return assertActionUrl(
+    `${origin}/setyourpassword?token=${encodeURIComponent(token)}`
+  );
 }
 
 export async function findAuthUserByEmail(
@@ -69,100 +65,78 @@ export async function findAuthUserByEmail(
   return null;
 }
 
-export async function generateWorkerInviteSetupLink(
-  email: string,
-  origin = getInviteOrigin()
-): Promise<{
-  inviteLink: string | null;
-  authUserId: string | null;
-  error: string | null;
-}> {
-  if (!isSupabaseAdminConfigured()) {
-    return {
-      inviteLink: null,
-      authUserId: null,
-      error: "Supabase service role is not configured.",
-    };
+export async function findWorkerIdForInvite(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  options: { workerId?: string | null; email: string }
+): Promise<string | null> {
+  const workerId = options.workerId?.trim();
+  if (workerId) {
+    const { data } = await admin
+      .from("workers")
+      .select("id")
+      .eq("id", workerId)
+      .maybeSingle();
+    if (data?.id) return String(data.id);
   }
 
-  const admin = createSupabaseAdminClient();
-  const cleanOrigin = resolveCleanSiteUrl(origin);
-  const redirectTo = getWorkerInviteRedirectTo(cleanOrigin);
-  const attempts: GenerateLinkType[] = ["invite", "recovery", "magiclink"];
-  let lastError: string | null = null;
-  let authUserId: string | null = null;
-
-  for (const type of attempts) {
-    const { data, error } = await admin.auth.admin.generateLink({
-      type,
-      email: email.trim(),
-      options: { redirectTo },
-    });
-
-    if (error) {
-      lastError = error.message;
-      console.warn(`[worker-invite] generateLink(${type}) failed:`, error.message);
-      continue;
-    }
-
-    authUserId = data.user?.id ?? authUserId;
-    const actionLink = data.properties?.action_link?.trim() || null;
-    if (actionLink) {
-      try {
-        return {
-          inviteLink: assertActionUrl(actionLink),
-          authUserId,
-          error: null,
-        };
-      } catch (invalid) {
-        lastError =
-          invalid instanceof Error ? invalid.message : "Generated action_link is invalid.";
-        console.warn(`[worker-invite] generateLink(${type}) action_link invalid:`, lastError);
-      }
-    }
-
-    const hashedToken = data.properties?.hashed_token ?? null;
-    const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
-    if (hashedToken) {
-      try {
-        return {
-          inviteLink: assertActionUrl(
-            buildAuthCallbackUrl(
-              hashedToken,
-              verificationType,
-              PASSWORD_SETUP_PATH,
-              cleanOrigin
-            )
-          ),
-          authUserId,
-          error: null,
-        };
-      } catch (invalid) {
-        lastError =
-          invalid instanceof Error ? invalid.message : "Generated callback URL is invalid.";
-      }
-    }
-  }
-
-  return {
-    inviteLink: null,
-    authUserId,
-    error: lastError ?? "Failed to generate link",
-  };
+  const email = options.email.trim().toLowerCase();
+  if (!email) return null;
+  const { data } = await admin
+    .from("workers")
+    .select("id")
+    .ilike("email", email)
+    .maybeSingle();
+  return data?.id ? String(data.id) : null;
 }
 
-/** @deprecated Use generateWorkerInviteSetupLink */
-export async function generateWorkerAuthActionLink(
-  email: string
-): Promise<{ actionLink: string | null; error: string | null }> {
-  const result = await generateWorkerInviteSetupLink(email);
-  return { actionLink: result.inviteLink, error: result.error };
+export async function issuePersistentInviteToken(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  workerId: string
+): Promise<{ token: string | null; error: string | null }> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const token = randomBytes(32).toString("hex");
+    const { error } = await admin
+      .from("workers")
+      .update({
+        invite_token: token,
+        invite_status: "pending",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", workerId);
+
+    if (!error) return { token, error: null };
+
+    const message = error.message.toLowerCase();
+    if (message.includes("invite_token") && message.includes("schema")) {
+      return {
+        token: null,
+        error:
+          "invite_token column is missing. Apply supabase/migrations/156_workers_invite_token.sql.",
+      };
+    }
+    if (message.includes("invite_status")) {
+      const retry = await admin
+        .from("workers")
+        .update({
+          invite_token: token,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", workerId);
+      if (!retry.error) return { token, error: null };
+    }
+    if (message.includes("unique") || message.includes("duplicate")) {
+      continue;
+    }
+    return { token: null, error: error.message };
+  }
+
+  return { token: null, error: "Failed to issue a unique invite token." };
 }
 
 // LOCKED: Critical worker invite functionality - do not delete or replace
 export async function sendWorkerInviteEmailViaResend(
   email: string,
-  _options?: { userAlreadyExists?: boolean }
+  options?: { userAlreadyExists?: boolean; workerId?: string | null }
 ): Promise<WorkerInviteEmailResult> {
   const trimmedEmail = email.trim();
   if (!trimmedEmail) {
@@ -188,40 +162,48 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const { inviteLink, authUserId, error: linkError } =
-    await generateWorkerInviteSetupLink(trimmedEmail);
-
-  if (!inviteLink?.trim()) {
+  if (!isSupabaseAdminConfigured()) {
     return {
       success: false,
-      error: linkError ?? "Failed to generate link",
+      error: "Supabase service role is not configured.",
       message: null,
       messageId: null,
       actionLink: null,
-      authUserId,
+      authUserId: null,
     };
   }
 
-  let actionUrl: string;
-  try {
-    actionUrl = assertActionUrl(inviteLink);
-  } catch (invalid) {
+  const admin = createSupabaseAdminClient();
+  const workerId = await findWorkerIdForInvite(admin, {
+    workerId: options?.workerId,
+    email: trimmedEmail,
+  });
+
+  if (!workerId) {
     return {
       success: false,
-      error:
-        invalid instanceof Error ? invalid.message : "Failed to generate link",
+      error: "Worker record not found for this email.",
       message: null,
       messageId: null,
       actionLink: null,
-      authUserId,
+      authUserId: null,
     };
   }
 
+  const issued = await issuePersistentInviteToken(admin, workerId);
+  if (!issued.token) {
+    return {
+      success: false,
+      error: issued.error ?? "Failed to generate invite token.",
+      message: null,
+      messageId: null,
+      actionLink: null,
+      authUserId: null,
+    };
+  }
+
+  const actionUrl = buildPersistentInviteActionUrl(issued.token);
   const { subject, html, text } = buildWorkerInviteEmailContent(actionUrl);
-
-  if (!html.includes("<a href=") || !html.includes(actionUrl.split("?")[0] ?? actionUrl)) {
-    throw new Error("Invite HTML is missing a clickable actionUrl anchor; refusing to send.");
-  }
 
   const resendResult = await resend.emails.send({
     from: DEFAULT_SYSTEM_FROM_EMAIL,
@@ -239,7 +221,7 @@ export async function sendWorkerInviteEmailViaResend(
       message: null,
       messageId: null,
       actionLink: actionUrl,
-      authUserId,
+      authUserId: null,
     };
   }
 
@@ -249,6 +231,6 @@ export async function sendWorkerInviteEmailViaResend(
     message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
     messageId: resendResult.data?.id ?? null,
     actionLink: actionUrl,
-    authUserId,
+    authUserId: null,
   };
 }

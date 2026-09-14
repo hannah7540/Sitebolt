@@ -207,7 +207,9 @@ export async function ensureWorkerAuthUserAndInvite(
       DEFAULT_WORKER_SECURITY_ROLE;
     const fullName = options?.fullName ?? workerContext?.fullName ?? trimmedEmail;
 
-    const inviteResult = await sendWorkerInviteEmailViaResend(trimmedEmail);
+    const inviteResult = await sendWorkerInviteEmailViaResend(trimmedEmail, {
+      workerId,
+    });
     if (!inviteResult.success) {
       return {
         error: inviteResult.error ?? "Failed to send worker invite.",
