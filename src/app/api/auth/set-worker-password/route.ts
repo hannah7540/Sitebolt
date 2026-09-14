@@ -1,3 +1,8 @@
+// ============================================================================
+// LOCKED: CRITICAL WORKER INVITE & PASSWORD SETUP FLOW
+// DO NOT MODIFY OR REFACTOR WITHOUT EXPLICIT CONFIRMATION.
+// Relies on persistent DB tokens via Resend.
+// ============================================================================
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

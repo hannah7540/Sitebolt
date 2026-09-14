@@ -1,3 +1,8 @@
+// ============================================================================
+// LOCKED: CRITICAL WORKER INVITE & PASSWORD SETUP FLOW
+// DO NOT MODIFY OR REFACTOR WITHOUT EXPLICIT CONFIRMATION.
+// Relies on persistent DB tokens via Resend.
+// ============================================================================
 "use client";
 
 import { Suspense, useState } from "react";

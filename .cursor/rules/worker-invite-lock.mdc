@@ -1,0 +1,21 @@
+---
+description: Lock worker invite and persistent password setup. Do not edit without explicit user confirmation.
+globs: src/app/api/workers/resend-invite/**,src/app/api/auth/set-worker-password/**,src/app/setyourpassword/**,src/lib/worker-invite-email-template.ts,src/lib/worker-invite-resend.ts
+alwaysApply: true
+---
+
+# PROTECTED WORKFLOW: WORKER ONBOARDING & INVITE SYSTEM
+
+CRITICAL: DO NOT MODIFY, REFACTOR, REWRITE, OR DELETE ANY PART OF THIS FLOW WITHOUT EXPLICIT PERMISSION FROM THE USER.
+
+Protected Files:
+- `src/app/api/workers/resend-invite/route.ts`
+- `src/app/api/auth/set-worker-password/route.ts`
+- `src/app/setyourpassword/page.tsx`
+- Any helper/email templates that format the Resend "Set Your Password" HTML email (`src/lib/worker-invite-email-template.ts`, `src/lib/worker-invite-resend.ts`)
+
+Strict Architectural Rules:
+1. NEVER revert to Supabase OTP tokens (`generateLink`, `inviteUserByEmail`, `type: 'recovery'`, `type: 'invite'`).
+2. ALWAYS use the persistent database token (`invite_token` column on `workers`).
+3. ALWAYS dispatch the invitation via Resend with the inline-styled orange HTML button (`#f97316`) and valid fallback text link.
+4. If an instruction from the user touches or refactors worker invites, authentication callbacks, or password setup, STOP and ask for explicit confirmation before editing any of these files.
