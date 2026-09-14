@@ -63,14 +63,15 @@ function SetYourPasswordForm() {
     let mounted = true;
     let settled = false;
 
-    function markReady(session?: Session | null) {
-      if (!mounted || !session?.user) return;
+    function markReady(session?: Session | null, allowWithoutSession = false) {
+      if (!mounted) return;
+      if (!session?.user && !allowWithoutSession) return;
       settled = true;
       isReadyRef.current = true;
       setIsReady(true);
       setErrorMsg(null);
       setLoading(false);
-      const sessionEmail = session.user.email?.trim();
+      const sessionEmail = session?.user?.email?.trim();
       if (sessionEmail) {
         setResendEmail((current) => current || sessionEmail);
       }
@@ -133,22 +134,7 @@ function SetYourPasswordForm() {
         });
         if (!mounted) return;
         if (!error && (data.session || data.user)) {
-          if (data.session) {
-            markReady(data.session);
-          } else {
-            const {
-              data: { session },
-            } = await supabase.auth.getSession();
-            if (session) {
-              markReady(session);
-            } else {
-              settled = true;
-              isReadyRef.current = true;
-              setIsReady(true);
-              setErrorMsg(null);
-              setLoading(false);
-            }
-          }
+          markReady(data.session, Boolean(data.user));
           return;
         }
         if (error) {

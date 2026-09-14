@@ -176,7 +176,8 @@ export async function sendWorkerInviteEmailViaResend(
   const { inviteLink, authUserId, error: linkError } =
     await generateWorkerInviteSetupLink(trimmedEmail);
 
-  if (!inviteLink) {
+  const actionUrl = inviteLink?.trim() || "";
+  if (!actionUrl) {
     return {
       success: false,
       error: linkError ?? "Unable to generate auth link.",
@@ -187,24 +188,33 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const actionLink = inviteLink;
   const inviteHtml = appendTeamEmailFooter(`
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
           <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to SiteBolt</h1>
           <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
             You have been added to SiteBolt. Tap the button below to set your account password and access your profile:
           </p>
-          <p style="margin: 0 0 32px;">
-            <a href="${actionLink}" style="background-color: #f97316; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Set Your Password</a>
+          <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 28px auto;">
+            <tr>
+              <td align="center" bgcolor="#f97316" style="border-radius: 6px; background-color: #f97316;">
+                <a href="${actionUrl}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; border: 14px solid #f97316; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; color: #ffffff !important; text-decoration: none; border-radius: 6px; display: inline-block; text-align: center; -webkit-text-size-adjust: none;">
+                  Set Your Password
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin: 24px 0 8px 0; font-size: 13px; color: #64748b; text-align: center;">
+            Or copy and paste this link into your browser:
           </p>
-          <p style="font-size: 14px; color: #64748b; margin: 0;">
-            If the button above does not work, copy and paste this link into your browser:<br />
-            <a href="${actionLink}">${actionLink}</a>
+          <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
+            <a href="${actionUrl}" target="_blank" rel="noopener noreferrer" style="color: #f97316; text-decoration: underline;">
+              ${actionUrl}
+            </a>
           </p>
         </div>
       `.trim());
   const inviteText = appendTeamEmailFooterText(
-    `Welcome to SiteBolt.\n\nPlease click the link below to set your password and access your account:\n${actionLink}`
+    `Welcome to SiteBolt.\n\nPlease click the link below to set your password and access your account:\n${actionUrl}`
   );
 
   const resendResult = await resend.emails.send({
@@ -222,7 +232,7 @@ export async function sendWorkerInviteEmailViaResend(
       error: resendResult.error.message,
       message: null,
       messageId: null,
-      actionLink,
+      actionLink: actionUrl,
       authUserId,
     };
   }
@@ -232,7 +242,7 @@ export async function sendWorkerInviteEmailViaResend(
     error: null,
     message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
     messageId: resendResult.data?.id ?? null,
-    actionLink,
+    actionLink: actionUrl,
     authUserId,
   };
 }

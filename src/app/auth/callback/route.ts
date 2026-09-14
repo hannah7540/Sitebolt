@@ -43,16 +43,16 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next") || "/setyourpassword";
   const code = searchParams.get("code");
 
-  const destination = resolvePasswordSetupPath(next);
-  const targetUrl = new URL(
-    destination.startsWith("/") ? destination : `/${destination}`,
+  const nextPath = resolvePasswordSetupPath(next);
+  const destination = new URL(
+    nextPath.startsWith("/") ? nextPath : `/${nextPath}`,
     origin
   );
-  if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
-  if (type) targetUrl.searchParams.set("type", type);
-  if (code) targetUrl.searchParams.set("code", code);
+  if (token_hash) destination.searchParams.set("token_hash", token_hash);
+  if (type) destination.searchParams.set("type", type);
+  if (code) destination.searchParams.set("code", code);
 
-  const response = NextResponse.redirect(targetUrl);
+  const response = NextResponse.redirect(destination);
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -70,14 +70,20 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Do not consume token_hash here. Forward it so /setyourpassword can
-  // verifyOtp on the client if cookies are dropped. Cookie writes still
-  // run for PKCE `code` exchanges below.
+  if (token_hash && type) {
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash,
+    });
+    if (!error) {
+      return response;
+    }
+  }
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      console.warn("[auth/callback] exchangeCodeForSession failed:", error.message);
+    if (!error) {
+      return response;
     }
   }
 
