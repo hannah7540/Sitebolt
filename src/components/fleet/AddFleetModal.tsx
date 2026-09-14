@@ -42,6 +42,7 @@ export default function AddFleetModal({
   const [make, setMake] = useState(vehicle?.make ?? "");
   const [model, setModel] = useState(vehicle?.model ?? "");
   const [registration, setRegistration] = useState(vehicle?.registration ?? "");
+  const [serialNumber, setSerialNumber] = useState(vehicle?.serial_number ?? "");
   const [currentHours, setCurrentHours] = useState(
     vehicle?.current_hours != null ? String(vehicle.current_hours) : ""
   );
@@ -114,6 +115,7 @@ export default function AddFleetModal({
     setMake(vehicle.make ?? "");
     setModel(vehicle.model ?? "");
     setRegistration(vehicle.registration ?? "");
+    setSerialNumber(vehicle.serial_number ?? "");
     setCurrentHours(
       vehicle.current_hours != null ? String(vehicle.current_hours) : ""
     );
@@ -150,6 +152,7 @@ export default function AddFleetModal({
         model,
         rego,
         registration: rego,
+        serial_number: serialNumber.trim() || null,
         currentHours: Number(currentHours) || 0,
         status,
         regoExpiryDate: regoExpiryDate || null,
@@ -326,6 +329,16 @@ export default function AddFleetModal({
               {regoError ? (
                 <p className="mt-1 text-xs text-red-600">{regoError}</p>
               ) : null}
+            </label>
+            <label className="block">
+              <span className={labelClass}>Serial Number</span>
+              <input
+                type="text"
+                className={inputClass}
+                value={serialNumber ?? ""}
+                onChange={(e) => setSerialNumber(e.target.value)}
+                placeholder="SN-000123"
+              />
             </label>
             <label className="block">
               <span className={labelClass}>Current Hours Reading</span>

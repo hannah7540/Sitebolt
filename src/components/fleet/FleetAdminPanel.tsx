@@ -326,6 +326,11 @@ export default function FleetAdminPanel() {
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         {vehicle.registration ?? "—"}
+                        {vehicle.serial_number ? (
+                          <p className="text-xs text-slate-500">
+                            Serial Number: {vehicle.serial_number}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <div className={regoStatus.cellClass}>

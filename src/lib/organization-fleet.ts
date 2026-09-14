@@ -22,6 +22,7 @@ const OPTIONAL_FLEET_COLUMNS = [
   "make",
   "model",
   "registration",
+  "serial_number",
   "rego",
   "rego_expiry_date",
   "rego_document_url",
@@ -56,6 +57,7 @@ export interface OrganizationFleetVehicle {
   make: string | null;
   model: string | null;
   registration: string | null;
+  serial_number?: string | null;
   rego_expiry_date: string | null;
   rego_document_url: string | null;
   insurance_expiry_date: string | null;
@@ -81,6 +83,7 @@ export interface FleetVehicleInput {
   registration_number?: string | null;
   rego_number?: string | null;
   plate?: string | null;
+  serial_number?: string | null;
   regoExpiryDate?: string | null;
   regoDocumentUrl?: string | null;
   insuranceExpiryDate?: string | null;
@@ -106,6 +109,7 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
       row.rego_number,
       row.plate
     ),
+    serial_number: firstNonEmptyText(row.serial_number),
     rego_expiry_date: row.rego_expiry_date ? String(row.rego_expiry_date) : null,
     rego_document_url: row.rego_document_url ? String(row.rego_document_url) : null,
     insurance_expiry_date: row.insurance_expiry_date
@@ -244,6 +248,7 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     model: input.model?.trim() || null,
     rego,
     registration: rego || null,
+    serial_number: input.serial_number?.trim() || null,
     rego_expiry_date: nullIfBlankDate(input.regoExpiryDate),
     rego_document_url: input.regoDocumentUrl ?? null,
     insurance_expiry_date: nullIfBlankDate(input.insuranceExpiryDate),

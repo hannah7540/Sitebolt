@@ -93,6 +93,7 @@ export default function FleetDocumentsModal({
             <h2 className="text-xl font-bold text-slate-900">Fleet Documents</h2>
             <p className="mt-1 text-sm text-slate-500">
               {vehicle.unit_number} · {vehicle.make} {vehicle.model}
+              {vehicle.serial_number ? ` · Serial Number ${vehicle.serial_number}` : ""}
             </p>
           </div>
           <button
