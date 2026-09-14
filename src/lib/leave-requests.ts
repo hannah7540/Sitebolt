@@ -9,7 +9,12 @@ import {
   type SupabaseRequestError,
 } from "./supabase-errors";
 import { fetchWorkerProfileDisplayName } from "./worker-profile-lookup";
-import { nullIfBlank, sanitizeWritePayload } from "./form-payload-utils";
+import {
+  nullIfBlank,
+  parseMissingColumnFromError,
+  sanitizeWritePayload,
+  stripMissingColumn,
+} from "./form-payload-utils";
 import {
   syncApprovedLeaveDailyCalendarEvents,
   syncPendingLeaveCalendarEvent,
@@ -37,7 +42,7 @@ export type LeaveWorkerRef = Pick<
 
 export interface SubmitLeaveRequestInput {
   workerId: string;
-  projectId: string;
+  projectId?: string | null;
   firstDate: string;
   lastDate: string;
   numberOfDays: number;
@@ -163,6 +168,87 @@ function omitFields(
   return next;
 }
 
+const LEAVE_REQUEST_WRITE_COLUMNS = new Set([
+  "worker_id",
+  "worker_name",
+  "project_id",
+  "project_name",
+  "leave_type",
+  "start_date",
+  "first_date",
+  "end_date",
+  "last_date",
+  "total_days",
+  "number_of_days",
+  "days",
+  "duration_days",
+  "effective_days_deducted",
+  "calendar_breakdown",
+  "reason",
+  "notes",
+  "signature_url",
+  "status",
+]);
+
+const ASSIGNED_PROJECT_PAYLOAD_KEYS = new Set([
+  "assigned_project",
+  "assignedproject",
+  "assigned_project_id",
+  "assigned_project_ids",
+  "assigned_project_name",
+]);
+
+function normalizeLeavePayloadKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+/** Leave requests must never send worker/plant assigned-project fields. */
+function stripAssignedProjectFields(
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (ASSIGNED_PROJECT_PAYLOAD_KEYS.has(normalizeLeavePayloadKey(key))) {
+      continue;
+    }
+    next[key] = value;
+  }
+  return next;
+}
+
+function pickLeaveRequestWriteColumns(
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(stripAssignedProjectFields(row))) {
+    if (LEAVE_REQUEST_WRITE_COLUMNS.has(key)) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+function parseLeaveMissingColumn(message: string): string | null {
+  const parsed = parseMissingColumnFromError(message);
+  if (parsed) return normalizeLeavePayloadKey(parsed);
+
+  const spaced = message.match(
+    /column\s+([A-Za-z][A-Za-z0-9_ ]*?)\s+does not exist/i
+  );
+  if (spaced?.[1]) {
+    return normalizeLeavePayloadKey(spaced[1]);
+  }
+
+  const humanized = message.match(
+    /could not find the ['"]?([A-Za-z][A-Za-z0-9_ ]*?)['"]? column/i
+  );
+  if (humanized?.[1]) {
+    return normalizeLeavePayloadKey(humanized[1]);
+  }
+
+  return null;
+}
+
 function normalizeLeaveStatus(value: unknown): LeaveRequestStatus {
   const status = String(value ?? "pending").trim().toLowerCase();
   if (status === "approved") return "approved";
@@ -244,7 +330,7 @@ export function getLeaveReason(
 }
 
 function buildDualDateLeavePayload(
-  input: SubmitLeaveRequestInput & { projectId: string; workerName: string }
+  input: SubmitLeaveRequestInput & { projectId?: string | null; workerName: string }
 ) {
   const startDateStr = formatDateOnly(input.firstDate);
   const endDateStr = formatDateOnly(input.lastDate);
@@ -253,40 +339,55 @@ function buildDualDateLeavePayload(
   const leaveType = sanitizeLeaveType(input.leaveType);
 
   const projectId = sanitizeOptionalText(input.projectId);
-  const projectName = sanitizeOptionalText(getProjectDisplayName(input.projectId));
+  const projectName = projectId
+    ? sanitizeOptionalText(getProjectDisplayName(projectId))
+    : null;
 
-  return sanitizeWritePayload(
-    stripNullishFields({
-      worker_id: input.workerId,
-      worker_name: input.workerName,
-      project_id: projectId,
-      project_name: projectName,
-      leave_type: leaveType,
-      start_date: startDateStr,
-      first_date: startDateStr,
-      end_date: endDateStr,
-      last_date: endDateStr,
-      ...buildDayCountFields(calculatedDays),
-      effective_days_deducted: calculatedDays,
-      calendar_breakdown: input.calendarBreakdown ?? null,
-      reason: reasonText,
-      notes: reasonText,
-      signature_url: nullIfBlank(input.signatureUrl),
-      status: "pending",
-    }),
-    { requiredTextKeys: ["worker_id", "worker_name"] }
+  return pickLeaveRequestWriteColumns(
+    sanitizeWritePayload(
+      stripNullishFields({
+        worker_id: input.workerId,
+        worker_name: input.workerName,
+        project_id: projectId,
+        project_name: projectName,
+        leave_type: leaveType,
+        start_date: startDateStr,
+        first_date: startDateStr,
+        end_date: endDateStr,
+        last_date: endDateStr,
+        ...buildDayCountFields(calculatedDays),
+        effective_days_deducted: calculatedDays,
+        calendar_breakdown: input.calendarBreakdown ?? null,
+        reason: reasonText,
+        notes: reasonText,
+        signature_url: nullIfBlank(input.signatureUrl),
+        status: "pending",
+      }),
+      {
+        omitKeys: [
+          "assigned_project",
+          "Assigned project",
+          "assigned_project_id",
+          "assigned_project_ids",
+          "assigned_project_name",
+        ],
+        requiredTextKeys: ["worker_id", "worker_name"],
+      }
+    )
   );
 }
 
 function buildMinimalSafeLeavePayload(payload: Record<string, unknown>) {
-  return stripNullishFields({
-    worker_id: payload.worker_id,
-    worker_name: payload.worker_name || "Worker",
-    start_date: payload.start_date,
-    end_date: payload.end_date,
-    leave_type: sanitizeLeaveType(payload.leave_type as string | null | undefined),
-    status: "pending",
-  });
+  return pickLeaveRequestWriteColumns(
+    stripNullishFields({
+      worker_id: payload.worker_id,
+      worker_name: payload.worker_name || "Worker",
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      leave_type: sanitizeLeaveType(payload.leave_type as string | null | undefined),
+      status: "pending",
+    })
+  );
 }
 
 async function insertLeaveRequestRow(
@@ -325,13 +426,13 @@ async function insertLeaveRequestRow(
  * Resilient insert — full alias payload, strip optional project fields, then minimal safe fallback.
  */
 export async function insertLeaveRequestResilient(
-  input: SubmitLeaveRequestInput & { projectId: string; workerName: string }
+  input: SubmitLeaveRequestInput & { projectId?: string | null; workerName: string }
 ): Promise<{ error: string | null; data: LeaveRequest | null }> {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured.", data: null };
   }
 
-  const fullPayload = buildDualDateLeavePayload(input);
+  const fullPayload = pickLeaveRequestWriteColumns(buildDualDateLeavePayload(input));
   const withoutProjectPayload = omitFields(fullPayload, ["project_id", "project_name"]);
   const minimalPayload = buildMinimalSafeLeavePayload(fullPayload);
 
@@ -343,20 +444,48 @@ export async function insertLeaveRequestResilient(
 
   let lastError: SupabaseRequestError | null = null;
 
-  for (const payload of attempts) {
-    const result = await insertLeaveRequestRow(payload);
-    if (result.data) {
-      return { error: null, data: result.data };
-    }
+  for (const attempt of attempts) {
+    let currentPayload = stripAssignedProjectFields(attempt);
 
-    lastError = result.error;
-    console.error(
-      "Error saving leave request:",
-      JSON.stringify(result.error, null, 2),
-      result.error
-    );
+    for (let retry = 0; retry <= LEAVE_REQUEST_WRITE_COLUMNS.size + 1; retry += 1) {
+      const result = await insertLeaveRequestRow(currentPayload);
+      if (result.data) {
+        return { error: null, data: result.data };
+      }
 
-    if (!isSupabaseSchemaOrConstraintError(result.error)) {
+      lastError = result.error;
+      console.error(
+        "Error saving leave request:",
+        JSON.stringify(result.error, null, 2),
+        result.error
+      );
+
+      const missingColumn = parseLeaveMissingColumn(result.error?.message ?? "");
+      if (missingColumn && missingColumn in currentPayload) {
+        currentPayload = stripAssignedProjectFields(
+          stripMissingColumn(currentPayload, missingColumn)
+        );
+        continue;
+      }
+
+      const assignedProjectError =
+        missingColumn != null &&
+        ASSIGNED_PROJECT_PAYLOAD_KEYS.has(missingColumn);
+      if (assignedProjectError) {
+        const stripped = stripAssignedProjectFields(currentPayload);
+        if (Object.keys(stripped).length !== Object.keys(currentPayload).length) {
+          currentPayload = stripped;
+          continue;
+        }
+      }
+
+      if (!isSupabaseSchemaOrConstraintError(result.error)) {
+        return {
+          error: lastError?.message ?? "Failed to save leave request.",
+          data: null,
+        };
+      }
+
       break;
     }
   }
@@ -437,13 +566,10 @@ export async function submitLeaveRequest(
     return { error: "Please sign your leave request.", data: null };
   }
 
-  let projectId = input.projectId;
-  if (!isProjectUuid(projectId)) {
-    const { id, error: projectError } = await resolveProjectId(projectId);
-    if (projectError || !id) {
-      return { error: projectError ?? "Invalid project.", data: null };
-    }
-    projectId = id;
+  let projectId = sanitizeOptionalText(input.projectId) ?? "";
+  if (projectId && !isProjectUuid(projectId)) {
+    const { id } = await resolveProjectId(projectId);
+    projectId = id ?? "";
   }
 
   const workerName = await resolveWorkerNameForSubmit(input);

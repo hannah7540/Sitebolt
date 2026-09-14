@@ -100,14 +100,8 @@ export default function WorkerLeaveSubmitModal({
     const resolvedProjectId =
       projectId ??
       allowedProjectIds?.[0] ??
-      worker.assigned_project_id;
-
-    if (!resolvedProjectId) {
-      setError(
-        "No project assigned to your profile. Ask your supervisor to grant project access in Security Settings."
-      );
-      return;
-    }
+      worker.assigned_project_id ??
+      "";
 
     if (!signature) {
       setError("Please sign your leave request.");
@@ -138,7 +132,7 @@ export default function WorkerLeaveSubmitModal({
         workerId: worker.id,
         worker,
         workerName: resolveWorkerName(worker),
-        projectId: resolvedProjectId,
+        projectId: resolvedProjectId || null,
         firstDate: formatDateOnly(firstDate),
         lastDate: formatDateOnly(lastDate),
         numberOfDays: days,
