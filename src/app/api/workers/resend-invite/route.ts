@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/ensure-worker-profile";
 import {
   PASSWORD_SETUP_LINK_SENT_MESSAGE,
+  buildPersistentInviteActionUrl,
   findAuthUserByEmail,
   sendWorkerInviteEmailViaResend,
 } from "@/lib/worker-invite-resend";
@@ -92,10 +94,26 @@ export async function POST(req: Request) {
       );
     }
 
+    const persistentToken = randomBytes(32).toString("hex");
+    const { error: tokenError } = await admin
+      .from("workers")
+      .update({ invite_token: persistentToken })
+      .eq("id", prepared.workerId);
+
+    if (tokenError) {
+      return NextResponse.json(
+        { error: `Failed to save invite token: ${tokenError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const actionUrl = buildPersistentInviteActionUrl(persistentToken);
+
     // LOCKED: Critical worker invite functionality - do not delete or replace
     const sent = await sendWorkerInviteEmailViaResend(email, {
       workerId: prepared.workerId,
       userAlreadyExists: Boolean(authUser),
+      actionUrl,
     });
     console.log("[Generated Action Link]:", sent.actionLink);
     if (!sent.success) {

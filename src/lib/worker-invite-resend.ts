@@ -7,8 +7,7 @@ import {
   assertActionUrl,
   buildWorkerInviteEmailContent,
 } from "@/lib/worker-invite-email-template";
-import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
-import { resolveCleanSiteUrl } from "@/lib/worker-invite-link";
+import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
 export const PASSWORD_SETUP_LINK_SENT_MESSAGE =
   "Password setup link sent successfully";
@@ -30,10 +29,11 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
+export const PERSISTENT_INVITE_ORIGIN = "https://www.site-bolt.com.au";
+
 export function buildPersistentInviteActionUrl(token: string): string {
-  const origin = resolveCleanSiteUrl(getSiteUrl());
   return assertActionUrl(
-    `${origin}/setyourpassword?token=${encodeURIComponent(token)}`
+    `${PERSISTENT_INVITE_ORIGIN}/setyourpassword?token=${token}`
   );
 }
 
@@ -94,36 +94,15 @@ export async function issuePersistentInviteToken(
   workerId: string
 ): Promise<{ token: string | null; error: string | null }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const token = randomBytes(32).toString("hex");
+    const persistentToken = randomBytes(32).toString("hex");
     const { error } = await admin
       .from("workers")
-      .update({
-        invite_token: token,
-        invite_status: "pending",
-        updated_at: new Date().toISOString(),
-      })
+      .update({ invite_token: persistentToken })
       .eq("id", workerId);
 
-    if (!error) return { token, error: null };
+    if (!error) return { token: persistentToken, error: null };
 
     const message = error.message.toLowerCase();
-    if (message.includes("invite_token") && message.includes("schema")) {
-      return {
-        token: null,
-        error:
-          "invite_token column is missing. Apply supabase/migrations/156_workers_invite_token.sql.",
-      };
-    }
-    if (message.includes("invite_status")) {
-      const retry = await admin
-        .from("workers")
-        .update({
-          invite_token: token,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", workerId);
-      if (!retry.error) return { token, error: null };
-    }
     if (message.includes("unique") || message.includes("duplicate")) {
       continue;
     }
@@ -136,7 +115,11 @@ export async function issuePersistentInviteToken(
 // LOCKED: Critical worker invite functionality - do not delete or replace
 export async function sendWorkerInviteEmailViaResend(
   email: string,
-  options?: { userAlreadyExists?: boolean; workerId?: string | null }
+  options?: {
+    userAlreadyExists?: boolean;
+    workerId?: string | null;
+    actionUrl?: string | null;
+  }
 ): Promise<WorkerInviteEmailResult> {
   const trimmedEmail = email.trim();
   if (!trimmedEmail) {
@@ -174,35 +157,39 @@ export async function sendWorkerInviteEmailViaResend(
   }
 
   const admin = createSupabaseAdminClient();
-  const workerId = await findWorkerIdForInvite(admin, {
-    workerId: options?.workerId,
-    email: trimmedEmail,
-  });
+  let actionUrl = options?.actionUrl?.trim() || "";
 
-  if (!workerId) {
-    return {
-      success: false,
-      error: "Worker record not found for this email.",
-      message: null,
-      messageId: null,
-      actionLink: null,
-      authUserId: null,
-    };
+  if (!actionUrl) {
+    const workerId = await findWorkerIdForInvite(admin, {
+      workerId: options?.workerId,
+      email: trimmedEmail,
+    });
+
+    if (!workerId) {
+      return {
+        success: false,
+        error: "Worker record not found for this email.",
+        message: null,
+        messageId: null,
+        actionLink: null,
+        authUserId: null,
+      };
+    }
+
+    const issued = await issuePersistentInviteToken(admin, workerId);
+    if (!issued.token) {
+      return {
+        success: false,
+        error: issued.error ?? "Failed to generate invite token.",
+        message: null,
+        messageId: null,
+        actionLink: null,
+        authUserId: null,
+      };
+    }
+
+    actionUrl = buildPersistentInviteActionUrl(issued.token);
   }
-
-  const issued = await issuePersistentInviteToken(admin, workerId);
-  if (!issued.token) {
-    return {
-      success: false,
-      error: issued.error ?? "Failed to generate invite token.",
-      message: null,
-      messageId: null,
-      actionLink: null,
-      authUserId: null,
-    };
-  }
-
-  const actionUrl = buildPersistentInviteActionUrl(issued.token);
   const { subject, html, text } = buildWorkerInviteEmailContent(actionUrl);
 
   const resendResult = await resend.emails.send({
