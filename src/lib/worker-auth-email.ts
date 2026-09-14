@@ -5,14 +5,7 @@ import {
   isSupabaseAdminConfigured,
 } from "@/lib/supabase/env";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
-import { sendEmail } from "@/lib/email-service";
-import { buildEmailCtaButtonHtml } from "@/lib/email-cta-button";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
-import {
-  buildAuthConfirmLink,
-  getAuthPasswordSetupRedirectTo,
-  isValidGeneratedAuthLink,
-} from "@/lib/worker-invite-link";
 
 export function getAuthCallbackUrl(nextPath: string): string {
   const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
@@ -20,11 +13,11 @@ export function getAuthCallbackUrl(nextPath: string): string {
 }
 
 export function getConfirmInviteRedirectUrl(): string {
-  return getAuthPasswordSetupRedirectTo();
+  return getAuthCallbackUrl("/setyourpassword");
 }
 
 export function getResetPasswordRedirectUrl(): string {
-  return getAuthPasswordSetupRedirectTo();
+  return getAuthCallbackUrl("/setyourpassword");
 }
 
 export interface WorkerAuthInviteResult {
@@ -34,98 +27,19 @@ export interface WorkerAuthInviteResult {
   linkedWorkerId: string | null;
 }
 
-async function sendWorkerOnboardingLinkViaResend(
-  email: string,
-  actionLink: string,
-  fullName: string
-): Promise<{ error: string | null }> {
-  const safeName = fullName.trim() || email;
-
-  const result = await sendEmail({
-    to: [email],
-    subject: "Set up your Site Bolt account",
-    html: `
-      <p style="font-family: Arial, Helvetica, sans-serif; color: #334155;">Hi ${safeName},</p>
-      <p style="font-family: Arial, Helvetica, sans-serif; color: #334155;">You have been invited to join Site Bolt. Use the button below to set up your account:</p>
-      ${buildEmailCtaButtonHtml(actionLink, "Set your password")}
-      <p style="font-family: Arial, Helvetica, sans-serif; color: #64748B; font-size: 14px;">If you did not expect this email, you can ignore it.</p>
-    `,
-    text: `Hi ${safeName},\n\nYou have been invited to join Site Bolt. Please use the "Set your password" button in this email to set up your account.`,
-  });
-
-  if (!result.sent) {
-    return { error: result.error ?? "Failed to send invite email via Resend." };
-  }
-
-  return { error: null };
-}
-
 export async function sendExistingUserOnboardingEmail(
   admin: SupabaseClient,
   email: string,
-  fullName: string
+  _fullName?: string
 ): Promise<{ authUserId: string | null; error: string | null }> {
-  const trimmedEmail = email.trim();
-  const linkAttempts: Array<{
-    type: "recovery";
-    redirectTo: string;
-  }> = [{ type: "recovery", redirectTo: getResetPasswordRedirectUrl() }];
-
-  for (const attempt of linkAttempts) {
-    const { data, error } = await admin.auth.admin.generateLink({
-      type: attempt.type,
-      email: trimmedEmail,
-      options: { redirectTo: attempt.redirectTo },
-    });
-
-    if (error) {
-      console.warn(
-        `[worker-auth-email] generateLink (${attempt.type}) failed for ${trimmedEmail}:`,
-        error.message
-      );
-      continue;
-    }
-
-    const properties = data?.properties as
-      | {
-          hashed_token?: string | null;
-          token_hash?: string | null;
-          verification_type?: string | null;
-        }
-      | null
-      | undefined;
-    const tokenHash =
-      properties?.hashed_token?.trim() || properties?.token_hash?.trim() || "";
-    const actionLink = buildAuthConfirmLink({
-      tokenHash,
-      type: properties?.verification_type || "recovery",
-      next: "/setyourpassword",
-    });
-    if (!actionLink || !isValidGeneratedAuthLink(actionLink)) continue;
-
-    const sendResult = await sendWorkerOnboardingLinkViaResend(
-      trimmedEmail,
-      actionLink,
-      fullName
-    );
-
-    if (!sendResult.error) {
-      return { authUserId: data.user?.id ?? null, error: null };
-    }
-
-    console.warn(
-      `[worker-auth-email] Resend failed for ${trimmedEmail}:`,
-      sendResult.error
-    );
-  }
-
-  const resetResult = await sendWorkerInviteEmailViaResend(trimmedEmail);
+  // LOCKED: Critical worker invite functionality - do not delete or replace
+  const resetResult = await sendWorkerInviteEmailViaResend(email.trim());
   if (resetResult.error) {
     return { authUserId: null, error: resetResult.error };
   }
 
-  const authUser = await findAuthUserByEmail(admin, trimmedEmail);
-  return { authUserId: authUser?.id ?? null, error: null };
+  const authUser = await findAuthUserByEmail(admin, email.trim());
+  return { authUserId: resetResult.authUserId ?? authUser?.id ?? null, error: null };
 }
 
 async function findAuthUserByEmail(

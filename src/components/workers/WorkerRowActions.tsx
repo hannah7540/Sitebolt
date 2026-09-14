@@ -5,7 +5,7 @@ import type { Worker } from "@/lib/supabase";
 import { ResendInviteButton } from "@/components/workers/ResendInviteButton";
 import { cn } from "@/lib/utils";
 
-// CRITICAL: Resend Invite action must remain in row menu and worker profile modal
+// LOCKED: Critical worker invite functionality - do not delete or replace
 export function WorkerRowActions({
   worker,
   lastSignInAt,

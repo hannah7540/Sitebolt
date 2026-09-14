@@ -202,17 +202,8 @@ export const WORKER_WRITE_OMIT_FIELD_KEYS = [
   "auth_user_id",
 ] as const;
 
-const PENDING_INVITE_STATUSES = new Set([
-  "pending",
-  "invited",
-  "pending_induction",
-]);
-
-/**
- * Admins may resend a password-setup invite for any non-revoked worker with an email.
- * Do not hide this behind onboarding_completed, lastSignInAt, or "already active" checks —
- * workers forget links and new rows often land as active/pending without auth_user_id.
- */
+// LOCKED: Critical worker invite functionality - do not delete or replace
+/** Admins may resend an invite for any worker with an email. Do not add status gates. */
 export function canResendWorkerInvite(
   worker: {
     email?: string | null;
@@ -227,29 +218,8 @@ export function canResendWorkerInvite(
   },
   _lastSignInAt?: string | null
 ): boolean {
-  const revoked = Boolean(
-    worker.is_revoked === true ||
-      worker.status === "Revoked" ||
-      worker.status === "deleted" ||
-      worker.is_archived === true ||
-      Boolean(worker.deleted_at)
-  );
-  if (revoked) return false;
-  if (!worker.email?.trim()) return false;
-
-  const status = (worker.status ?? "").trim().toLowerCase();
-  const inviteStatus = (worker.invite_status ?? "").trim().toLowerCase();
-
-  return (
-    status === "invited" ||
-    status === "pending" ||
-    status === "pending_induction" ||
-    status === "active" ||
-    status === "expired_ticket" ||
-    !worker.auth_user_id ||
-    worker.onboarding_completed !== true ||
-    PENDING_INVITE_STATUSES.has(inviteStatus)
-  );
+  if (worker.status === "deleted" || Boolean(worker.deleted_at)) return false;
+  return Boolean(worker.email?.trim());
 }
 
 export const WORKER_FIELD_NOT_PROVIDED = "Not provided";

@@ -1,10 +1,4 @@
-import { Resend } from "resend";
 import type { User } from "@supabase/supabase-js";
-import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
-import {
-  appendTeamEmailFooter,
-  appendTeamEmailFooterText,
-} from "@/lib/email-team-footer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
@@ -28,20 +22,17 @@ export interface WorkerInviteEmailResult {
   authUserId?: string | null;
 }
 
-function getResendClient(): Resend | null {
-  const apiKey =
-    process.env.RESEND_API_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_RESEND_API_KEY?.trim();
-  if (!apiKey) return null;
-  return new Resend(apiKey);
-}
-
 function getInviteOrigin(): string {
   return resolveInviteSiteOrigin(getSiteUrl());
 }
 
 function getPasswordSetupRedirectTo(origin: string): string {
   return `${origin.replace(/\/$/, "")}${PASSWORD_SETUP_PATH}`;
+}
+
+// LOCKED: Critical worker invite functionality - do not delete or replace
+export function getWorkerInviteRedirectTo(origin = getInviteOrigin()): string {
+  return `${origin.replace(/\/$/, "")}/auth/callback?next=/setyourpassword`;
 }
 
 export async function findAuthUserByEmail(
@@ -145,6 +136,9 @@ export async function generateWorkerAuthActionLink(
   return { actionLink: result.inviteLink, error: result.error };
 }
 
+// LOCKED: Critical worker invite functionality - do not delete or replace
+// Sends via Supabase Auth SMTP / dashboard templates (invite, then recovery).
+// Do not intercept this with a custom Resend html/text payload.
 export async function sendWorkerInviteEmailViaResend(
   email: string,
   _options?: { userAlreadyExists?: boolean }
@@ -161,11 +155,10 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const resend = getResendClient();
-  if (!resend) {
+  if (!isSupabaseAdminConfigured()) {
     return {
       success: false,
-      error: "RESEND_API_KEY is not configured.",
+      error: "Supabase service role is not configured.",
       message: null,
       messageId: null,
       actionLink: null,
@@ -173,67 +166,51 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const { inviteLink, authUserId, error: linkError } =
-    await generateWorkerInviteSetupLink(trimmedEmail);
+  const admin = createSupabaseAdminClient();
+  const redirectTo = getWorkerInviteRedirectTo();
 
-  if (!inviteLink) {
+  const inviteResult = await admin.auth.admin.inviteUserByEmail(trimmedEmail, {
+    redirectTo,
+  });
+
+  if (!inviteResult.error) {
+    return {
+      success: true,
+      error: null,
+      message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
+      messageId: null,
+      actionLink: null,
+      authUserId: inviteResult.data.user?.id ?? null,
+    };
+  }
+
+  console.warn(
+    `[worker-invite] inviteUserByEmail failed for ${trimmedEmail}, using recovery fallback:`,
+    inviteResult.error.message
+  );
+
+  const { error: resetError } = await admin.auth.resetPasswordForEmail(trimmedEmail, {
+    redirectTo,
+  });
+
+  if (resetError) {
     return {
       success: false,
-      error: linkError ?? "Unable to generate auth link.",
+      error: resetError.message || inviteResult.error.message,
       message: null,
       messageId: null,
       actionLink: null,
-      authUserId,
+      authUserId: null,
     };
   }
 
-  const inviteHtml = appendTeamEmailFooter(`
-        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to Site-Bolt</h1>
-          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
-            You've been added to Site-Bolt. Please click the link below to set your password and access your account.
-          </p>
-          <p style="margin: 0 0 32px;">
-            <a href="${inviteLink}" style="display: inline-block; background-color: #ea580c; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
-              Set Your Password
-            </a>
-          </p>
-          <p style="font-size: 14px; color: #64748b; margin: 0;">
-            If the button doesn't work, copy and paste this link into your browser:<br />
-            <a href="${inviteLink}" style="color: #ea580c; word-break: break-all;">${inviteLink}</a>
-          </p>
-        </div>
-      `.trim());
-  const inviteText = appendTeamEmailFooterText(
-    `You've been added to Site-Bolt. Please click the link below to set your password and access your account.\n\n${inviteLink}`
-  );
-
-  const resendResult = await resend.emails.send({
-    from: DEFAULT_SYSTEM_FROM_EMAIL,
-    to: [trimmedEmail],
-    subject: "You have been added to Site-Bolt",
-    html: inviteHtml,
-    text: inviteText,
-  });
-
-  if (resendResult.error) {
-    console.error("[worker-invite] Resend error:", resendResult.error);
-    return {
-      success: false,
-      error: resendResult.error.message,
-      message: null,
-      messageId: null,
-      actionLink: inviteLink,
-      authUserId,
-    };
-  }
-
+  const existing = await findAuthUserByEmail(admin, trimmedEmail);
   return {
     success: true,
     error: null,
     message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
-    messageId: resendResult.data?.id ?? null,
-    actionLink: inviteLink,
-    authUserId,
+    messageId: null,
+    actionLink: null,
+    authUserId: existing?.id ?? null,
   };
 }

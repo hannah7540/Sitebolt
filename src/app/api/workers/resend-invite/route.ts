@@ -92,6 +92,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // LOCKED: Critical worker invite functionality - do not delete or replace
     const sent = await sendWorkerInviteEmailViaResend(email, {
       userAlreadyExists: Boolean(authUser),
     });

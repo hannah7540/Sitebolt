@@ -7,7 +7,7 @@ import { requestWorkerInviteResend } from "@/lib/worker-invite-client";
 import { canResendWorkerInvite } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
 
-// CRITICAL: Resend Invite action must remain in row menu and worker profile modal
+// LOCKED: Critical worker invite functionality - do not delete or replace
 export function ResendInviteButton({
   worker,
   lastSignInAt,

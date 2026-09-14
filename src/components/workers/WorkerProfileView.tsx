@@ -282,7 +282,7 @@ export default function WorkerProfileView({
             <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
             {!isWorkerDeleted(currentWorker) ? (
-              // CRITICAL: Resend Invite action must remain in row menu and worker profile modal
+              // LOCKED: Critical worker invite functionality - do not delete or replace
               <ResendInviteButton
                 worker={currentWorker}
                 lastSignInAt={lastSignInAt}
