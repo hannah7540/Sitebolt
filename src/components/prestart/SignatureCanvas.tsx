@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import IsolatedSignaturePad from "./IsolatedSignaturePad";
 
 interface SignatureCanvasProps {
@@ -11,7 +11,23 @@ interface SignatureCanvasProps {
 }
 
 function SignatureCanvas({ onChange, value = null }: SignatureCanvasProps) {
-  return <IsolatedSignaturePad defaultValue={value} onCommit={onChange} />;
+  const onChangeRef = useRef(onChange);
+  const initialValueRef = useRef(value);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const handleCommit = useCallback((dataUrl: string | null) => {
+    onChangeRef.current(dataUrl);
+  }, []);
+
+  return (
+    <IsolatedSignaturePad
+      defaultValue={initialValueRef.current}
+      onCommit={handleCommit}
+    />
+  );
 }
 
 export default memo(SignatureCanvas);

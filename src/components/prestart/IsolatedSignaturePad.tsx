@@ -12,9 +12,21 @@ export interface IsolatedSignaturePadProps {
 
 const DISPLAY_HEIGHT_PX = 160;
 const MIN_DISPLAY_WIDTH_PX = 280;
+const RESIZE_IGNORE_PX = 2;
 
 function getDevicePixelRatio(): number {
   return typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+}
+
+function copyCanvasPixels(source: HTMLCanvasElement): HTMLCanvasElement | null {
+  if (source.width <= 0 || source.height <= 0) return null;
+  const copy = document.createElement("canvas");
+  copy.width = source.width;
+  copy.height = source.height;
+  const ctx = copy.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0);
+  return copy;
 }
 
 function IsolatedSignaturePad({
@@ -25,9 +37,13 @@ function IsolatedSignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const onCommitRef = useRef(onCommit);
-  const committedDataUrlRef = useRef<string | null>(null);
+  const committedDataUrlRef = useRef<string | null>(defaultValue);
   const restoringRef = useRef(false);
   const lastLayoutWidthRef = useRef(0);
+  const pendingResizeWidthRef = useRef<number | null>(null);
+  const initialValueRef = useRef(defaultValue);
+  const didInitRef = useRef(false);
+  const restoreGenRef = useRef(0);
 
   useEffect(() => {
     onCommitRef.current = onCommit;
@@ -40,12 +56,25 @@ function IsolatedSignaturePad({
     ctx.lineJoin = "round";
   }, []);
 
+  const snapshotCanvas = useCallback((): string | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+      return committedDataUrlRef.current;
+    }
+    try {
+      return canvas.toDataURL("image/png");
+    } catch {
+      return committedDataUrlRef.current;
+    }
+  }, []);
+
   const restoreFromDataUrl = useCallback(
     (dataUrl: string) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       restoringRef.current = true;
+      const restoreGen = ++restoreGenRef.current;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         restoringRef.current = false;
@@ -53,17 +82,26 @@ function IsolatedSignaturePad({
       }
 
       const img = new Image();
-      img.onload = () => {
+      const paint = () => {
+        if (restoreGen !== restoreGenRef.current || canvasRef.current !== canvas) {
+          return;
+        }
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         applyStrokeStyle(ctx);
         restoringRef.current = false;
       };
+      img.onload = paint;
       img.onerror = () => {
-        restoringRef.current = false;
+        if (restoreGen === restoreGenRef.current) {
+          restoringRef.current = false;
+        }
       };
       img.src = dataUrl;
+      if (img.complete && img.naturalWidth > 0) {
+        paint();
+      }
     },
     [applyStrokeStyle]
   );
@@ -71,63 +109,90 @@ function IsolatedSignaturePad({
   const resizeCanvas = useCallback(
     (displayWidth: number, preserveContent = true) => {
       const canvas = canvasRef.current;
-      if (!canvas) return false;
+      if (!canvas || drawingRef.current) return false;
 
       const width = Math.max(displayWidth, MIN_DISPLAY_WIDTH_PX);
       const height = DISPLAY_HEIGHT_PX;
       const dpr = getDevicePixelRatio();
-      const previousDataUrl = preserveContent ? committedDataUrlRef.current : null;
+      const nextWidth = Math.floor(width * dpr);
+      const nextHeight = Math.floor(height * dpr);
 
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
+
+      if (canvas.width === nextWidth && canvas.height === nextHeight) {
+        return true;
+      }
+
+      const previousDataUrl = preserveContent ? snapshotCanvas() : null;
+      if (previousDataUrl) {
+        committedDataUrlRef.current = previousDataUrl;
+      }
+      const pixelCopy = preserveContent ? copyCanvasPixels(canvas) : null;
+
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return false;
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      applyStrokeStyle(ctx);
-
-      if (previousDataUrl) {
+      if (pixelCopy) {
+        ctx.drawImage(pixelCopy, 0, 0, nextWidth, nextHeight);
+        applyStrokeStyle(ctx);
+      } else if (previousDataUrl) {
+        applyStrokeStyle(ctx);
         restoreFromDataUrl(previousDataUrl);
+      } else {
+        applyStrokeStyle(ctx);
       }
 
       return true;
     },
-    [applyStrokeStyle, restoreFromDataUrl]
+    [applyStrokeStyle, restoreFromDataUrl, snapshotCanvas]
   );
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const tryInitialResize = () => {
-      const width = container.clientWidth;
+    const applyWidth = (width: number, preserveContent: boolean) => {
       if (width <= 0) return;
-      lastLayoutWidthRef.current = Math.floor(width);
-      resizeCanvas(width, false);
-      if (defaultValue) {
-        restoreFromDataUrl(defaultValue);
-        committedDataUrlRef.current = defaultValue;
+      const rounded = Math.floor(width);
+      if (
+        preserveContent &&
+        Math.abs(rounded - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX
+      ) {
+        return;
       }
+      lastLayoutWidthRef.current = rounded;
+      resizeCanvas(width, preserveContent);
     };
 
-    tryInitialResize();
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      applyWidth(container.clientWidth, false);
+      const initial = initialValueRef.current;
+      if (initial) {
+        committedDataUrlRef.current = initial;
+        restoreFromDataUrl(initial);
+      }
+    }
 
     const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? container.clientWidth;
-      if (width <= 0) return;
+      if (drawingRef.current || restoringRef.current) {
+        const width = entries[0]?.contentRect.width ?? container.clientWidth;
+        pendingResizeWidthRef.current = width;
+        return;
+      }
 
-      const rounded = Math.floor(width);
-      if (rounded === lastLayoutWidthRef.current) return;
-      lastLayoutWidthRef.current = rounded;
-      resizeCanvas(width, true);
+      const width = entries[0]?.contentRect.width ?? container.clientWidth;
+      applyWidth(width, true);
     });
 
     observer.observe(container);
     return () => observer.disconnect();
-  }, [defaultValue, resizeCanvas, restoreFromDataUrl]);
+  }, [resizeCanvas, restoreFromDataUrl]);
 
   const getCanvasPoint = useCallback(
     (clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -168,10 +233,21 @@ function IsolatedSignaturePad({
     onCommitRef.current(dataUrl);
   }, []);
 
+  const flushPendingResize = useCallback(() => {
+    const pendingWidth = pendingResizeWidthRef.current;
+    pendingResizeWidthRef.current = null;
+    if (pendingWidth == null) return;
+    const rounded = Math.floor(pendingWidth);
+    if (Math.abs(rounded - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX) return;
+    lastLayoutWidthRef.current = rounded;
+    resizeCanvas(pendingWidth, true);
+  }, [resizeCanvas]);
+
   const handlePointerStart = useCallback(
     (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
       if (restoringRef.current) return;
       event.preventDefault();
+      event.stopPropagation();
 
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
@@ -179,6 +255,8 @@ function IsolatedSignaturePad({
       if (!ctx || !point) return;
 
       drawingRef.current = true;
+      restoreGenRef.current += 1;
+      restoringRef.current = false;
       ctx.beginPath();
       ctx.moveTo(point.x, point.y);
     },
@@ -189,6 +267,7 @@ function IsolatedSignaturePad({
     (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
       if (!drawingRef.current || restoringRef.current) return;
       event.preventDefault();
+      event.stopPropagation();
 
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
@@ -204,25 +283,33 @@ function IsolatedSignaturePad({
   const handlePointerEnd = useCallback(
     (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
       event.preventDefault();
+      event.stopPropagation();
       if (!drawingRef.current) return;
       drawingRef.current = false;
       commitStroke();
+      flushPendingResize();
     },
-    [commitStroke]
+    [commitStroke, flushPendingResize]
   );
 
-  const handleClear = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const handleClear = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    applyStrokeStyle(ctx);
-    committedDataUrlRef.current = null;
-    onCommitRef.current(null);
-  }, [applyStrokeStyle]);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      applyStrokeStyle(ctx);
+      committedDataUrlRef.current = null;
+      onCommitRef.current(null);
+    },
+    [applyStrokeStyle]
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -257,6 +344,10 @@ function IsolatedSignaturePad({
         ref={containerRef}
         className="relative touch-none overflow-hidden rounded-lg border border-slate-300 bg-white"
         style={{ touchAction: "none" }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         <canvas
           ref={canvasRef}
