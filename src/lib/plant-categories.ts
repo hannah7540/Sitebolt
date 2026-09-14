@@ -66,3 +66,10 @@ export function togglePlantCategory(
   }
   return PLANT_EQUIPMENT_CATEGORIES.filter((item) => selected.has(item));
 }
+
+/** True when Hydrovac is among the plant's selected/stored categories. */
+export function plantHasHydrovacCategory(
+  value: string | string[] | null | undefined
+): boolean {
+  return parsePlantCategories(value).includes("Hydrovac");
+}

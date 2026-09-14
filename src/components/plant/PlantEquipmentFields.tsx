@@ -42,6 +42,8 @@ export interface PlantFormValues {
   serialNumber: string;
   currentHours: string;
   nextServiceDueHours: string;
+  attachmentHours: string;
+  attachmentNextDueHours: string;
   serviceContactCompany: string;
   serviceContactName: string;
   serviceContactEmail: string;
@@ -84,6 +86,8 @@ export function createEmptyPlantFormValues(
     serialNumber: "",
     currentHours: "",
     nextServiceDueHours: "",
+    attachmentHours: "",
+    attachmentNextDueHours: "",
     serviceContactCompany: "",
     serviceContactName: "",
     serviceContactEmail: "",
@@ -108,6 +112,8 @@ export function plantFormValuesFromAsset(
     | "serial_number"
     | "current_hours"
     | "next_service_hours"
+    | "attachment_hours"
+    | "attachment_next_due_hours"
     | "service_contact_company"
     | "service_contact_name"
     | "service_contact_email"
@@ -142,6 +148,15 @@ export function plantFormValuesFromAsset(
       plant.current_hours != null ? String(plant.current_hours) : "",
     nextServiceDueHours:
       plant.next_service_hours != null ? String(plant.next_service_hours) : "",
+    attachmentHours:
+      plant.attachment_hours != null && plant.attachment_hours !== ""
+        ? String(plant.attachment_hours)
+        : "",
+    attachmentNextDueHours:
+      plant.attachment_next_due_hours != null &&
+      plant.attachment_next_due_hours !== ""
+        ? String(plant.attachment_next_due_hours)
+        : "",
     serviceContactCompany: plant.service_contact_company ?? "",
     serviceContactName: plant.service_contact_name ?? "",
     serviceContactEmail: plant.service_contact_email ?? "",
@@ -403,6 +418,40 @@ export default function PlantEquipmentFields({
           disabled={disabled}
         />
       </label>
+      {selectedCategories.includes("Hydrovac") ? (
+        <>
+          <label className="block">
+            <span className={labelClass}>Attachment Hours</span>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              className={inputClass}
+              value={values.attachmentHours ?? ""}
+              onChange={(event) =>
+                onChange("attachmentHours", event.target.value)
+              }
+              placeholder="0"
+              disabled={disabled}
+            />
+          </label>
+          <label className="block">
+            <span className={labelClass}>Attachment Next Due Hours</span>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              className={inputClass}
+              value={values.attachmentNextDueHours ?? ""}
+              onChange={(event) =>
+                onChange("attachmentNextDueHours", event.target.value)
+              }
+              placeholder="500"
+              disabled={disabled}
+            />
+          </label>
+        </>
+      ) : null}
       <label className="block sm:col-span-2">
         <span className={labelClass}>Service contact company</span>
         <input

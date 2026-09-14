@@ -734,6 +734,8 @@ export interface PlantAsset {
   current_kms: number | null;
   next_service_hours: number | null;
   next_service_kms: number | null;
+  attachment_hours?: number | string | null;
+  attachment_next_due_hours?: number | string | null;
   service_contact_name: string | null;
   service_contact_phone: string | null;
   service_contact_company?: string | null;
@@ -916,6 +918,8 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
     current_kms: record.current_kms ?? null,
     next_service_hours: record.next_service_hours ?? null,
     next_service_kms: record.next_service_kms ?? null,
+    attachment_hours: record.attachment_hours ?? null,
+    attachment_next_due_hours: record.attachment_next_due_hours ?? null,
     service_contact_name: record.service_contact_name ?? null,
     service_contact_phone: record.service_contact_phone ?? null,
     service_contact_company: record.service_contact_company ?? null,
@@ -1014,6 +1018,8 @@ const PLANT_EQUIPMENT_OPTIONAL_COLUMNS = [
   "plant_documents",
   "equipment_category",
   "unit_reference",
+  "attachment_hours",
+  "attachment_next_due_hours",
 ] as const;
 
 const WORKER_PROJECT_OPTIONAL_COLUMNS = [
@@ -1078,6 +1084,8 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "current_hours",
   "next_service_hours",
   "next_service_due_hours",
+  "attachment_hours",
+  "attachment_next_due_hours",
   "prestart_template",
   "pre_start_template",
   "make",
@@ -2272,6 +2280,8 @@ export async function addPlant(
     assigned_project_id?: string | null;
     current_project_id?: string | null;
     prestart_template?: string | null;
+    attachment_hours?: number | string | null;
+    attachment_next_due_hours?: number | string | null;
   }
 ): Promise<{ error: string | null; data: PlantAsset | null }> {
   const projectId = resolvePlantProjectId(asset.project_id);
@@ -2317,6 +2327,15 @@ export async function addPlant(
     registration_document_url: nullIfBlank(asset.registration_document_url),
     status: "available",
   };
+
+  if (asset.attachment_hours !== undefined) {
+    payload.attachment_hours = numberOrNull(asset.attachment_hours);
+  }
+  if (asset.attachment_next_due_hours !== undefined) {
+    payload.attachment_next_due_hours = numberOrNull(
+      asset.attachment_next_due_hours
+    );
+  }
 
   let currentPayload = { ...payload };
 
@@ -2399,6 +2418,8 @@ export async function updatePlant(
     prestart_template?: PrestartTemplate | string | null;
     current_hours?: number | null;
     next_service_hours?: number | null;
+    attachment_hours?: number | string | null;
+    attachment_next_due_hours?: number | string | null;
     service_contact_name?: string | null;
     service_contact_phone?: string | null;
     service_contact_company?: string | null;
@@ -2462,6 +2483,14 @@ export async function updatePlant(
   }
   if (updates.current_hours !== undefined) {
     payload.current_hours = numberOrZero(updates.current_hours);
+  }
+  if (updates.attachment_hours !== undefined) {
+    payload.attachment_hours = numberOrNull(updates.attachment_hours);
+  }
+  if (updates.attachment_next_due_hours !== undefined) {
+    payload.attachment_next_due_hours = numberOrNull(
+      updates.attachment_next_due_hours
+    );
   }
   if (
     updates.next_service_hours !== undefined ||
@@ -2585,6 +2614,14 @@ export async function updatePlant(
   }
   if (updates.next_service_hours !== undefined) {
     equipmentPayload.next_service_hours = updates.next_service_hours;
+  }
+  if (updates.attachment_hours !== undefined) {
+    equipmentPayload.attachment_hours = numberOrNull(updates.attachment_hours);
+  }
+  if (updates.attachment_next_due_hours !== undefined) {
+    equipmentPayload.attachment_next_due_hours = numberOrNull(
+      updates.attachment_next_due_hours
+    );
   }
   if (updates.plant_documents !== undefined) {
     equipmentPayload.plant_documents = updates.plant_documents;

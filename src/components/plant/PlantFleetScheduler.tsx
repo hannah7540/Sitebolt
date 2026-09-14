@@ -16,6 +16,7 @@ import {
   type PlantServiceSchedule,
 } from "@/lib/plant-services";
 import { getServiceWarning } from "@/lib/plant-utils";
+import { plantHasHydrovacCategory } from "@/lib/plant-categories";
 import { SERVICE_TYPES } from "@/lib/projects";
 import {
   fetchProjects,
@@ -513,11 +514,33 @@ export default function PlantFleetScheduler({
         width: 112,
         renderCell: (asset: PlantAsset) => {
           const latest = latestPrestartByPlant.get(asset.id);
+          const machineHours =
+            latest?.current_reading ?? asset.current_hours ?? null;
+          const attachmentHours =
+            asset.attachment_hours == null || asset.attachment_hours === ""
+              ? null
+              : Number(asset.attachment_hours);
+          const showAttachmentHours =
+            plantHasHydrovacCategory(asset.category) &&
+            attachmentHours != null &&
+            Number.isFinite(attachmentHours);
+
+          if (showAttachmentHours) {
+            return (
+              <div className="flex flex-col gap-0.5 leading-tight">
+                <span className="font-semibold text-slate-900">
+                  Machine: {formatPrestartHours(machineHours)}
+                </span>
+                <span className="font-semibold text-slate-900">
+                  Attachment: {formatPrestartHours(attachmentHours)}
+                </span>
+              </div>
+            );
+          }
+
           return (
             <span className="font-semibold text-slate-900">
-              {formatPrestartHours(
-                latest?.current_reading ?? asset.current_hours ?? null
-              )}
+              {formatPrestartHours(machineHours)}
             </span>
           );
         },

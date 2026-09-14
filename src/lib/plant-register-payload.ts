@@ -16,6 +16,8 @@ export interface RegisterPlantFormInput {
   serialNumber: string;
   currentHours: string;
   nextServiceDueHours: string;
+  attachmentHours?: string;
+  attachmentNextDueHours?: string;
   serviceContactCompany: string;
   serviceContactName: string;
   serviceContactEmail: string;
@@ -133,6 +135,12 @@ export function buildRegisterPlantAssetPayload(values: RegisterPlantFormInput) {
     current_hours: numberOrZero(values.currentHours),
     next_service_due_hours: nextServiceDueHours,
     next_service_hours: nextServiceDueHours,
+    ...(categories.includes("Hydrovac")
+      ? {
+          attachment_hours: numberOrNull(values.attachmentHours),
+          attachment_next_due_hours: numberOrNull(values.attachmentNextDueHours),
+        }
+      : {}),
     service_contact_company: nullIfBlank(values.serviceContactCompany),
     service_contact_name: nullIfBlank(values.serviceContactName),
     service_contact_phone: nullIfBlank(values.serviceContactPhone),

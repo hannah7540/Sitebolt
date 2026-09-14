@@ -421,6 +421,11 @@ function BasicInfoTab({
       serial_number: mapped.serial_number,
       current_hours: mapped.current_hours,
       next_service_hours: mapped.next_service_hours,
+      attachment_hours: mapped.attachment_hours ?? plant.attachment_hours ?? null,
+      attachment_next_due_hours:
+        mapped.attachment_next_due_hours ??
+        plant.attachment_next_due_hours ??
+        null,
       service_contact_company: mapped.service_contact_company,
       service_contact_name: mapped.service_contact_name,
       service_contact_phone: mapped.service_contact_phone,
