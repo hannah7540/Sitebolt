@@ -6,16 +6,42 @@ export const PASSWORD_RESET_NEXT_PATH = "/update-password";
 export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
 
-export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
-  const configured =
+/** Absolute https origin for invite redirectTo and email links. Never localhost. */
+export function resolveCleanSiteUrl(requestOrigin?: string | null): string {
+  const vercelHost = process.env.VERCEL_URL?.trim().replace(/^https?:\/\//, "");
+  const raw =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    requestOrigin?.trim() ||
+    (vercelHost ? `https://${vercelHost}` : "") ||
+    PRODUCTION_SITE_URL;
 
-  const origin = requestOrigin?.trim();
-  if (origin && !origin.includes("localhost")) return origin.replace(/\/$/, "");
+  let value = raw.replace(/\/+$/, "").replace(/^\[(https?:\/\/[^\]]+)\]\([^)]+\)$/i, "$1");
+  if (!/^https?:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
 
-  return PRODUCTION_SITE_URL;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return PRODUCTION_SITE_URL;
+    }
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      return PRODUCTION_SITE_URL;
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return PRODUCTION_SITE_URL;
+  }
+}
+
+export function resolveInviteSiteOrigin(requestOrigin?: string | null): string {
+  return resolveCleanSiteUrl(requestOrigin);
+}
+
+export function getWorkerInviteRedirectTo(origin?: string | null): string {
+  const cleanSiteUrl = resolveCleanSiteUrl(origin);
+  return `${cleanSiteUrl}${AUTH_CALLBACK_PATH}?next=${PASSWORD_SETUP_PATH}`;
 }
 
 export function buildPasswordSetupPath(email?: string | null): string {

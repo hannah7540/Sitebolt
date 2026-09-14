@@ -67,30 +67,17 @@ export function buildWorkerInviteEmailContent(actionUrl: string): {
           <p style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#475569;">
             You have been added to SiteBolt. Tap the button below to set your account password and access your profile:
           </p>
-          <!--[if mso]>
-          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:220px;" arcsize="13%" strokecolor="#f97316" fillcolor="#f97316">
-            <w:anchorlock/>
-            <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">Set Your Password</center>
-          </v:roundrect>
-          <![endif]-->
-          <!--[if !mso]><!-->
           <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 28px auto;">
             <tr>
               <td align="center" style="border-radius: 6px; background-color: #f97316;">
-                <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; color: #ffffff !important; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; line-height: 48px; text-align: center; text-decoration: none; width: 220px; -webkit-text-size-adjust: none; mso-hide: all; border-radius: 6px;">
+                <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; color: #ffffff !important; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; line-height: 48px; text-align: center; text-decoration: none; width: 220px; border-radius: 6px;">
                   Set Your Password
                 </a>
               </td>
             </tr>
           </table>
-          <!--<![endif]-->
-          <p style="margin: 24px 0 8px 0; font-size: 13px; color: #64748b; text-align: center;">
-            Or copy and paste this link into your browser:
-          </p>
-          <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
-            <a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #f97316; text-decoration: underline;">
-              ${href}
-            </a>
+          <p style="text-align: center; font-size: 12px; margin-top: 16px;">
+            <a href="${href}" style="color: #f97316; text-decoration: underline;">${href}</a>
           </p>
         </td>
       </tr>

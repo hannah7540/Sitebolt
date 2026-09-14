@@ -10,7 +10,8 @@ import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
   PASSWORD_SETUP_PATH,
   buildAuthCallbackUrl,
-  resolveInviteSiteOrigin,
+  getWorkerInviteRedirectTo,
+  resolveCleanSiteUrl,
   type AuthLinkType,
 } from "@/lib/worker-invite-link";
 
@@ -37,11 +38,7 @@ function getResendClient(): Resend | null {
 }
 
 function getInviteOrigin(): string {
-  return resolveInviteSiteOrigin(getSiteUrl());
-}
-
-function getPasswordSetupRedirectTo(origin: string): string {
-  return `${origin.replace(/\/$/, "")}${PASSWORD_SETUP_PATH}`;
+  return resolveCleanSiteUrl(getSiteUrl());
 }
 
 export async function findAuthUserByEmail(
@@ -89,7 +86,8 @@ export async function generateWorkerInviteSetupLink(
   }
 
   const admin = createSupabaseAdminClient();
-  const redirectTo = getPasswordSetupRedirectTo(origin);
+  const cleanOrigin = resolveCleanSiteUrl(origin);
+  const redirectTo = getWorkerInviteRedirectTo(cleanOrigin);
   const attempts: GenerateLinkType[] = ["invite", "recovery", "magiclink"];
   let lastError: string | null = null;
   let authUserId: string | null = null;
@@ -108,31 +106,48 @@ export async function generateWorkerInviteSetupLink(
     }
 
     authUserId = data.user?.id ?? authUserId;
+    const actionLink = data.properties?.action_link?.trim() || null;
+    if (actionLink) {
+      try {
+        return {
+          inviteLink: assertActionUrl(actionLink),
+          authUserId,
+          error: null,
+        };
+      } catch (invalid) {
+        lastError =
+          invalid instanceof Error ? invalid.message : "Generated action_link is invalid.";
+        console.warn(`[worker-invite] generateLink(${type}) action_link invalid:`, lastError);
+      }
+    }
+
     const hashedToken = data.properties?.hashed_token ?? null;
     const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
     if (hashedToken) {
-      return {
-        inviteLink: buildAuthCallbackUrl(
-          hashedToken,
-          verificationType,
-          PASSWORD_SETUP_PATH,
-          origin
-        ),
-        authUserId,
-        error: null,
-      };
-    }
-
-    const actionLink = data.properties?.action_link ?? null;
-    if (actionLink) {
-      return { inviteLink: actionLink, authUserId, error: null };
+      try {
+        return {
+          inviteLink: assertActionUrl(
+            buildAuthCallbackUrl(
+              hashedToken,
+              verificationType,
+              PASSWORD_SETUP_PATH,
+              cleanOrigin
+            )
+          ),
+          authUserId,
+          error: null,
+        };
+      } catch (invalid) {
+        lastError =
+          invalid instanceof Error ? invalid.message : "Generated callback URL is invalid.";
+      }
     }
   }
 
   return {
     inviteLink: null,
     authUserId,
-    error: lastError ?? "Unable to generate a secure password setup link.",
+    error: lastError ?? "Failed to generate link",
   };
 }
 
@@ -179,7 +194,7 @@ export async function sendWorkerInviteEmailViaResend(
   if (!inviteLink?.trim()) {
     return {
       success: false,
-      error: linkError ?? "Unable to generate auth link.",
+      error: linkError ?? "Failed to generate link",
       message: null,
       messageId: null,
       actionLink: null,
@@ -187,7 +202,21 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const actionUrl = assertActionUrl(inviteLink);
+  let actionUrl: string;
+  try {
+    actionUrl = assertActionUrl(inviteLink);
+  } catch (invalid) {
+    return {
+      success: false,
+      error:
+        invalid instanceof Error ? invalid.message : "Failed to generate link",
+      message: null,
+      messageId: null,
+      actionLink: null,
+      authUserId,
+    };
+  }
+
   const { subject, html, text } = buildWorkerInviteEmailContent(actionUrl);
 
   if (!html.includes("<a href=") || !html.includes(actionUrl.split("?")[0] ?? actionUrl)) {
