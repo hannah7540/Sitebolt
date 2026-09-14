@@ -2,11 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type {
-  AuthChangeEvent,
-  EmailOtpType,
-  Session,
-} from "@supabase/supabase-js";
+import type { AuthChangeEvent, EmailOtpType, Session } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import {
   passwordRequirementsLabel,
@@ -16,6 +12,8 @@ import {
   resolvePostPasswordSetupHref,
   type WorkerPostPasswordStatus,
 } from "@/lib/post-password-redirect";
+import { isNativeMobileApp } from "@/lib/native-app";
+import { resolveNativeWorkerDashboardPath } from "@/lib/native-app-paths";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
@@ -44,12 +42,13 @@ function SetYourPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isReady, setIsReady] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
-  const isReadyRef = useRef(false);
+  const hasSessionRef = useRef(false);
 
   useEffect(() => {
     const emailFromQuery = searchParams.get("email")?.trim() ?? "";
@@ -61,14 +60,12 @@ function SetYourPasswordForm() {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let mounted = true;
-    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    function markReady(session?: Session | null, allowWithoutSession = false) {
+    function markSession(session?: Session | null) {
       if (!mounted) return;
-      if (!session?.user && !allowWithoutSession) return;
-      settled = true;
-      isReadyRef.current = true;
-      setIsReady(true);
+      hasSessionRef.current = true;
+      setHasSession(true);
       setErrorMsg(null);
       setLoading(false);
       const sessionEmail = session?.user?.email?.trim();
@@ -77,44 +74,35 @@ function SetYourPasswordForm() {
       }
     }
 
-    function markUnresolved(message: string) {
-      if (!mounted || settled || isReadyRef.current) return;
-      setIsReady(false);
-      setErrorMsg(message);
-      setLoading(false);
-    }
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      (event: AuthChangeEvent, nextSession: Session | null) => {
+      (event: AuthChangeEvent, session: Session | null) => {
         if (!mounted) return;
         if (
-          nextSession &&
-          (event === "PASSWORD_RECOVERY" ||
-            event === "SIGNED_IN" ||
-            event === "INITIAL_SESSION" ||
-            event === "TOKEN_REFRESHED" ||
-            event === "USER_UPDATED")
+          session ||
+          event === "PASSWORD_RECOVERY" ||
+          event === "SIGNED_IN" ||
+          (event === "INITIAL_SESSION" && session)
         ) {
-          markReady(nextSession);
+          if (session || event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+            markSession(session);
+          }
         }
       }
     );
 
     async function initAuth() {
+      const pageParams = new URLSearchParams(window.location.search);
       const tokenHash =
         searchParams.get("token_hash")?.trim() ||
-        new URLSearchParams(window.location.search).get("token_hash")?.trim() ||
+        pageParams.get("token_hash")?.trim() ||
         "";
-      const rawType =
-        searchParams.get("type") ||
-        new URLSearchParams(window.location.search).get("type");
-      const otpType = resolveOtpType(rawType);
       const code =
-        searchParams.get("code")?.trim() ||
-        new URLSearchParams(window.location.search).get("code")?.trim() ||
-        "";
+        searchParams.get("code")?.trim() || pageParams.get("code")?.trim() || "";
+      const otpType = resolveOtpType(
+        searchParams.get("type") || pageParams.get("type")
+      );
       const hash = window.location.hash;
 
       if (
@@ -123,7 +111,9 @@ function SetYourPasswordForm() {
         searchParams.get("error") === "expired" ||
         hash.includes("otp_expired")
       ) {
-        markUnresolved(EXPIRED_LINK_MESSAGE);
+        if (!mounted || hasSessionRef.current) return;
+        setErrorMsg(EXPIRED_LINK_MESSAGE);
+        setLoading(false);
         return;
       }
 
@@ -134,11 +124,11 @@ function SetYourPasswordForm() {
         });
         if (!mounted) return;
         if (!error && (data.session || data.user)) {
-          markReady(data.session, Boolean(data.user));
+          markSession(data.session);
           return;
         }
         if (error) {
-          console.warn("[SET_PASSWORD] verifyOtp failed, checking session:", error.message);
+          console.warn("[SET_PASSWORD] verifyOtp failed, waiting for session:", error.message);
         }
       }
 
@@ -146,7 +136,7 @@ function SetYourPasswordForm() {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!mounted) return;
         if (!error && data.session) {
-          markReady(data.session);
+          markSession(data.session);
           return;
         }
       }
@@ -156,7 +146,7 @@ function SetYourPasswordForm() {
       } = await supabase.auth.getSession();
       if (!mounted) return;
       if (session) {
-        markReady(session);
+        markSession(session);
         return;
       }
 
@@ -168,20 +158,24 @@ function SetYourPasswordForm() {
         const {
           data: { session: userSession },
         } = await supabase.auth.getSession();
-        if (userSession) {
-          markReady(userSession);
-          return;
-        }
+        markSession(userSession);
+        return;
       }
-
-      markUnresolved(NO_SESSION_MESSAGE);
     }
 
     void initAuth();
 
+    timer = setTimeout(() => {
+      if (!mounted || hasSessionRef.current) return;
+      setHasSession(false);
+      setErrorMsg(NO_SESSION_MESSAGE);
+      setLoading(false);
+    }, 3000);
+
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [searchParams]);
 
@@ -252,12 +246,17 @@ function SetYourPasswordForm() {
       }
 
       if (!session) {
-        setErrorMsg(
-          "Auth session not found. Please request a new password link."
-        );
-        setIsReady(false);
-        isReadyRef.current = false;
-        return;
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setErrorMsg(
+            "Auth session not found. Please request a new password link."
+          );
+          setHasSession(false);
+          hasSessionRef.current = false;
+          return;
+        }
       }
 
       const { error } = await supabase.auth.updateUser({
@@ -269,29 +268,38 @@ function SetYourPasswordForm() {
         return;
       }
 
+      setSuccessMsg("Password saved. Continuing…");
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
+      if (isNativeMobileApp()) {
+        window.location.href = resolveNativeWorkerDashboardPath(null);
+        return;
+      }
+
       const accessToken =
         (await supabase.auth.getSession()).data.session?.access_token ??
-        session.access_token;
-      const statusRes = await fetch("/api/workers/check-status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+        session?.access_token;
+      if (accessToken) {
+        const statusRes = await fetch("/api/workers/check-status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
 
-      if (statusRes.ok) {
-        const payload = (await statusRes.json()) as {
-          worker?: WorkerPostPasswordStatus | null;
-          redirectTo?: string;
-        };
-        window.location.href =
-          payload.redirectTo ?? resolvePostPasswordSetupHref(payload.worker);
-        return;
+        if (statusRes.ok) {
+          const payload = (await statusRes.json()) as {
+            worker?: WorkerPostPasswordStatus | null;
+            redirectTo?: string;
+          };
+          window.location.href =
+            payload.redirectTo ?? resolvePostPasswordSetupHref(payload.worker);
+          return;
+        }
       }
 
       let worker: WorkerPostPasswordStatus | null = null;
@@ -335,8 +343,14 @@ function SetYourPasswordForm() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <div className={cardClass + " flex w-full max-w-md flex-col items-center p-8"}>
-          <Loader2 className="mb-4 h-8 w-8 animate-spin text-orange-500" />
-          <p className="text-sm text-slate-500">Verifying your password setup session…</p>
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500">
+            <HardHat className="h-6 w-6 text-white" />
+          </div>
+          <Loader2 className="mb-3 h-8 w-8 animate-spin text-orange-500" />
+          <p className="text-sm font-medium text-slate-700">SiteBolt</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Verifying your password setup session…
+          </p>
         </div>
       </div>
     );
@@ -361,10 +375,16 @@ function SetYourPasswordForm() {
           Create a password for your Site-Bolt account.
         </p>
 
-        {isReady ? (
+        {hasSession && !successMsg ? (
           <p className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
             Link verified. Set your password below.
           </p>
+        ) : null}
+
+        {successMsg ? (
+          <div className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+            {successMsg}
+          </div>
         ) : null}
 
         {resendSuccess ? (
@@ -373,10 +393,10 @@ function SetYourPasswordForm() {
           </div>
         ) : null}
 
-        {!loading && !isReady && errorMsg ? (
+        {!loading && !hasSession ? (
           <div className="space-y-4">
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {errorMsg}
+              {errorMsg || NO_SESSION_MESSAGE}
             </div>
             <div className="space-y-1">
               <label htmlFor="setyourpassword-resend-email" className={labelClass}>
@@ -405,13 +425,13 @@ function SetYourPasswordForm() {
                   Sending new link…
                 </>
               ) : (
-                "Request New Password Link"
+                "Request new link"
               )}
             </button>
           </div>
         ) : null}
 
-        {isReady ? (
+        {hasSession ? (
           <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
             {errorMsg ? (
               <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
@@ -462,10 +482,10 @@ function SetYourPasswordForm() {
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Setting password…
+                  Saving password…
                 </>
               ) : (
-                "Set Password"
+                "Save Password & Continue"
               )}
             </button>
           </form>
@@ -480,8 +500,11 @@ export default function SetYourPasswordPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-            <h1 className="text-xl font-bold text-slate-900">Set Your Password</h1>
+          <div className="flex w-full max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500">
+              <HardHat className="h-6 w-6 text-white" />
+            </div>
+            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
           </div>
         </div>
       }

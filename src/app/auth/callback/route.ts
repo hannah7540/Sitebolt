@@ -70,21 +70,13 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  if (token_hash && type) {
-    const { error } = await supabase.auth.verifyOtp({
-      type,
+  if (token_hash) {
+    await supabase.auth.verifyOtp({
+      type: (type ?? "recovery") as EmailOtpType,
       token_hash,
     });
-    if (!error) {
-      return response;
-    }
-  }
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return response;
-    }
+  } else if (code) {
+    await supabase.auth.exchangeCodeForSession(code);
   }
 
   return response;
