@@ -59,8 +59,6 @@ function Field({
 
 export default function WorkerLeaveSubmitModal({
   worker,
-  projectId,
-  allowedProjectIds,
   onClose,
   onSubmitted,
 }: WorkerLeaveSubmitModalProps) {
@@ -97,12 +95,6 @@ export default function WorkerLeaveSubmitModal({
     e.preventDefault();
     setError(null);
 
-    const resolvedProjectId =
-      projectId ??
-      allowedProjectIds?.[0] ??
-      worker.assigned_project_id ??
-      "";
-
     if (!signature) {
       setError("Please sign your leave request.");
       return;
@@ -132,7 +124,6 @@ export default function WorkerLeaveSubmitModal({
         workerId: worker.id,
         worker,
         workerName: resolveWorkerName(worker),
-        projectId: resolvedProjectId || null,
         firstDate: formatDateOnly(firstDate),
         lastDate: formatDateOnly(lastDate),
         numberOfDays: days,

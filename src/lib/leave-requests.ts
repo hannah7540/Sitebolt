@@ -171,8 +171,6 @@ function omitFields(
 const LEAVE_REQUEST_WRITE_COLUMNS = new Set([
   "worker_id",
   "worker_name",
-  "project_id",
-  "project_name",
   "leave_type",
   "start_date",
   "first_date",
@@ -338,18 +336,11 @@ function buildDualDateLeavePayload(
   const calculatedDays = input.numberOfDays > 0 ? input.numberOfDays : 1;
   const leaveType = sanitizeLeaveType(input.leaveType);
 
-  const projectId = sanitizeOptionalText(input.projectId);
-  const projectName = projectId
-    ? sanitizeOptionalText(getProjectDisplayName(projectId))
-    : null;
-
   return pickLeaveRequestWriteColumns(
     sanitizeWritePayload(
       stripNullishFields({
         worker_id: input.workerId,
         worker_name: input.workerName,
-        project_id: projectId,
-        project_name: projectName,
         leave_type: leaveType,
         start_date: startDateStr,
         first_date: startDateStr,
@@ -370,6 +361,8 @@ function buildDualDateLeavePayload(
           "assigned_project_id",
           "assigned_project_ids",
           "assigned_project_name",
+          "project_id",
+          "project_name",
         ],
         requiredTextKeys: ["worker_id", "worker_name"],
       }
@@ -396,7 +389,7 @@ async function insertLeaveRequestRow(
   try {
     const { data, error } = await supabase
       .from(LEAVE_REQUESTS_TABLE)
-      .insert([payload])
+      .insert([pickLeaveRequestWriteColumns(stripAssignedProjectFields(payload))])
       .select("*")
       .single();
 
