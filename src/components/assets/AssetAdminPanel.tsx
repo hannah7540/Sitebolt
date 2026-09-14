@@ -300,6 +300,7 @@ export default function AssetAdminPanel({
           </td>
           <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
           <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>{asset.state || "—"}</td>
           <td className={cellClass}>{asset.make || "—"}</td>
           <td className={cellClass}>{asset.model || "—"}</td>
           <td className={cellClass}>{asset.serial_number || "—"}</td>
@@ -321,6 +322,7 @@ export default function AssetAdminPanel({
           </td>
           <td className={cellClass}>{workerLabel(workers, asset.assigned_worker_id)}</td>
           <td className={cellClass}>{projectName}</td>
+          <td className={cellClass}>{asset.state || "—"}</td>
           <td className={cellClass}>{asset.make || "—"}</td>
           <td className={cellClass}>{asset.model || "—"}</td>
           <td className={cellClass}>{asset.serial_number || "—"}</td>

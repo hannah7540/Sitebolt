@@ -13,6 +13,7 @@ import {
   getAssetTypeLabel,
   isLaserAssetType,
   isMobileDeviceAssetType,
+  assetTypeUsesStateField,
   signInLaser,
   signOutLaser,
   updateAssetStatus,
@@ -198,6 +199,9 @@ export default function ProjectAssetsPanel({
                 <p className="mt-2 text-sm text-slate-600">
                   {[selectedAsset.make, selectedAsset.model].filter(Boolean).join(" ")}
                   {selectedAsset.serial_number ? ` · S/N ${selectedAsset.serial_number}` : ""}
+                  {assetTypeUsesStateField(selectedAsset.asset_type) && selectedAsset.state
+                    ? ` · State ${selectedAsset.state}`
+                    : ""}
                 </p>
               ) : null}
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -364,6 +368,9 @@ export default function ProjectAssetsPanel({
                       <p className="mt-1 text-sm text-slate-600">
                         {[asset.make, asset.model].filter(Boolean).join(" ")}
                         {asset.serial_number ? ` · S/N ${asset.serial_number}` : ""}
+                        {assetTypeUsesStateField(asset.asset_type) && asset.state
+                          ? ` · State ${asset.state}`
+                          : ""}
                       </p>
                     ) : null}
                     {isLaserAssetType(asset.asset_type) && activeSignout ? (

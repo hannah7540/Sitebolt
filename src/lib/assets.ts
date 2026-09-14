@@ -108,6 +108,21 @@ export function assetTypeRequiresCalibration(type: AssetType): boolean {
   return type === "laser" || type === "pressure_gauge";
 }
 
+export const ASSET_STATE_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
+export type AssetState = (typeof ASSET_STATE_OPTIONS)[number];
+
+export function assetTypeUsesStateField(type: AssetType | string): boolean {
+  const normalized = normalizeAssetType(type);
+  return normalized === "laser" || normalized === "pressure_gauge";
+}
+
+export function normalizeAssetState(value: unknown): AssetState | null {
+  const raw = String(value ?? "").trim().toUpperCase();
+  return (ASSET_STATE_OPTIONS as readonly string[]).includes(raw)
+    ? (raw as AssetState)
+    : null;
+}
+
 export function assetTypeRequiresService(type: AssetType): boolean {
   return type === "laser";
 }
@@ -251,6 +266,7 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
         "Ref #",
         "Assigned Worker",
         "Assigned Project",
+        "State",
         "Make",
         "Model",
         "Serial #",
@@ -264,6 +280,7 @@ export function getAssetCategoryColumnHeaders(type: AssetType): string[] {
         "Ref #",
         "Assigned Worker",
         "Assigned Project",
+        "State",
         "Make",
         "Model",
         "Serial #",
@@ -355,6 +372,7 @@ export interface Asset {
   make: string | null;
   model: string | null;
   serial_number: string | null;
+  state?: string | null;
   status: AssetStatus;
   next_service_due_date: string | null;
   next_calibration_due_date: string | null;
@@ -402,6 +420,7 @@ function normalizeAsset(row: Record<string, unknown>): Asset {
     make: (row.make as string | null) ?? null,
     model: (row.model as string | null) ?? null,
     serial_number: (row.serial_number as string | null) ?? null,
+    state: normalizeAssetState(row.state),
     status: (row.status as AssetStatus) ?? "active",
     next_service_due_date:
       (row.next_service_due_date as string | null) ??
@@ -499,6 +518,7 @@ export interface AssetInput {
   make?: string;
   model?: string;
   serial_number?: string;
+  state?: string | null;
   status?: AssetStatus;
   next_service_due_date?: string | null;
   next_calibration_due_date?: string | null;
@@ -648,6 +668,7 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
       make: nullIfBlank(input.make),
       model: nullIfBlank(input.model),
       serial_number: nullIfBlank(input.serial_number),
+      state: normalizeAssetState(input.state),
       laser_type: input.laser_type ?? null,
       is_pipe: input.laser_type === "pipe",
       is_rotating: input.laser_type === "rotating",
@@ -679,6 +700,7 @@ export function buildAssetWritePayload(input: AssetInput): Record<string, unknow
     make: nullIfBlank(input.make),
     model: nullIfBlank(input.model),
     serial_number: nullIfBlank(input.serial_number),
+    state: normalizeAssetState(input.state),
     laser_type: null,
     is_pipe: null,
     is_rotating: null,
@@ -707,6 +729,7 @@ export function buildAssetInputFromForm(values: {
   make: string;
   model: string;
   serialNumber: string;
+  state?: string | null;
   status?: AssetStatus;
   assignedWorkerId: string | null;
   assignedProjectId: string | null;
@@ -773,6 +796,9 @@ export function buildAssetInputFromForm(values: {
     make: values.make,
     model: values.model,
     serial_number: serial || undefined,
+    state: assetTypeUsesStateField(values.assetType)
+      ? normalizeAssetState(values.state)
+      : undefined,
     laser_type: values.assetType === "laser" ? values.laserType : null,
     next_service_due_date: values.nextServiceDue || null,
     next_calibration_due_date: values.nextCalibrationDue || null,
@@ -804,6 +830,7 @@ const OPTIONAL_ASSET_COLUMNS = [
   "make",
   "model",
   "serial_number",
+  "state",
   "reference_number",
   "ref_number",
   "next_service_date",

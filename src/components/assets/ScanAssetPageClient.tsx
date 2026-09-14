@@ -7,6 +7,7 @@ import {
   fetchAssetById,
   getAssetTypeLabel,
   isLaserAssetType,
+  assetTypeUsesStateField,
   signInLaser,
   signOutLaser,
   fetchLaserSignouts,
@@ -137,6 +138,9 @@ export default function ScanAssetPageClient({ assetId }: ScanAssetPageProps) {
           ) : null}
           {asset.serial_number ? (
             <p className="text-sm text-slate-500">S/N {asset.serial_number}</p>
+          ) : null}
+          {assetTypeUsesStateField(asset.asset_type) && asset.state ? (
+            <p className="text-sm text-slate-500">State {asset.state}</p>
           ) : null}
 
           {isLaserAssetType(asset.asset_type) && asset.assigned_project_id ? (

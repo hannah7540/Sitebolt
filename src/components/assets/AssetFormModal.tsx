@@ -5,6 +5,7 @@ import { Loader2, X } from "lucide-react";
 import {
   ASSET_TYPES,
   ASSET_TYPE_LABELS,
+  ASSET_STATE_OPTIONS,
   LASER_TYPE_LABELS,
   LASER_TYPE_OPTIONS,
   attachAssetCertificates,
@@ -13,6 +14,7 @@ import {
   isAssignedAccountsAssetType,
   isManagedAssetType,
   isMobileDeviceAssetType,
+  assetTypeUsesStateField,
   toDateInputValue,
   updateAssetCertificateUrl,
   updateAssetDueDates,
@@ -60,6 +62,7 @@ export default function AssetFormModal({
   const [make, setMake] = useState(asset?.make ?? "");
   const [model, setModel] = useState(asset?.model ?? "");
   const [serialNumber, setSerialNumber] = useState(asset?.serial_number ?? "");
+  const [state, setState] = useState(asset?.state ?? "");
   const [assignedWorkerId, setAssignedWorkerId] = useState<string | null>(
     asset?.assigned_worker_id ?? null
   );
@@ -126,6 +129,7 @@ export default function AssetFormModal({
   const showGaugeFields = assetType === "pressure_gauge";
   const showAccountFields = isAssignedAccountsAssetType(assetType);
   const showCalibratedFields = showLaserFields || showGaugeFields;
+  const showStateField = assetTypeUsesStateField(assetType);
   const referenceLabel = getAssetReferenceLabel(assetType);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,6 +142,7 @@ export default function AssetFormModal({
       make,
       model,
       serialNumber,
+      state: showStateField ? state : "",
       status,
       assignedWorkerId,
       assignedProjectId,
@@ -386,6 +391,28 @@ export default function AssetFormModal({
                 value={assignedProjectId}
                 onChange={setAssignedProjectId}
               />
+
+              {showStateField ? (
+                <div>
+                  <label className={labelClass} htmlFor="asset-state">
+                    State
+                  </label>
+                  <select
+                    id="asset-state"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    className={inputClass}
+                    disabled={saving}
+                  >
+                    <option value="">Select state</option>
+                    {ASSET_STATE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
