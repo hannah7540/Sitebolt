@@ -5,15 +5,6 @@ import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
-const VALID_OTP_TYPES = new Set<EmailOtpType>([
-  "signup",
-  "invite",
-  "magiclink",
-  "recovery",
-  "email",
-  "email_change",
-]);
-
 function resolvePasswordSetupPath(next: string | null): string {
   if (
     next?.startsWith("/") &&
@@ -53,8 +44,15 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
 
   const destination = resolvePasswordSetupPath(next);
-  const redirectUrl = `${origin}${destination.startsWith("/") ? destination : `/${destination}`}`;
-  const response = NextResponse.redirect(redirectUrl);
+  const targetUrl = new URL(
+    destination.startsWith("/") ? destination : `/${destination}`,
+    origin
+  );
+  if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
+  if (type) targetUrl.searchParams.set("type", type);
+  if (code) targetUrl.searchParams.set("code", code);
+
+  const response = NextResponse.redirect(targetUrl);
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -72,27 +70,16 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  if (token_hash && type && VALID_OTP_TYPES.has(type)) {
-    const { error } = await supabase.auth.verifyOtp({
-      type,
-      token_hash,
-    });
-
-    if (!error) {
-      return response;
-    }
-  }
+  // Do not consume token_hash here. Forward it so /setyourpassword can
+  // verifyOtp on the client if cookies are dropped. Cookie writes still
+  // run for PKCE `code` exchanges below.
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return response;
+    if (error) {
+      console.warn("[auth/callback] exchangeCodeForSession failed:", error.message);
     }
   }
 
-  if (!token_hash && !code) {
-    return response;
-  }
-
-  return NextResponse.redirect(`${origin}/login?error=Invalid+or+expired+token`);
+  return response;
 }

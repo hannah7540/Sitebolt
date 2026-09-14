@@ -108,11 +108,6 @@ export async function generateWorkerInviteSetupLink(
     }
 
     authUserId = data.user?.id ?? authUserId;
-    const actionLink = data.properties?.action_link ?? null;
-    if (actionLink) {
-      return { inviteLink: actionLink, authUserId, error: null };
-    }
-
     const hashedToken = data.properties?.hashed_token ?? null;
     const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
     if (hashedToken) {
@@ -126,6 +121,11 @@ export async function generateWorkerInviteSetupLink(
         authUserId,
         error: null,
       };
+    }
+
+    const actionLink = data.properties?.action_link ?? null;
+    if (actionLink) {
+      return { inviteLink: actionLink, authUserId, error: null };
     }
   }
 

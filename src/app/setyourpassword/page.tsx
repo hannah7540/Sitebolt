@@ -102,16 +102,24 @@ function SetYourPasswordForm() {
     );
 
     async function initAuth() {
-      const pageParams = new URLSearchParams(window.location.search);
-      const tokenHash = pageParams.get("token_hash")?.trim() || "";
-      const code = pageParams.get("code")?.trim() || "";
-      const otpType = resolveOtpType(pageParams.get("type"));
+      const tokenHash =
+        searchParams.get("token_hash")?.trim() ||
+        new URLSearchParams(window.location.search).get("token_hash")?.trim() ||
+        "";
+      const rawType =
+        searchParams.get("type") ||
+        new URLSearchParams(window.location.search).get("type");
+      const otpType = resolveOtpType(rawType);
+      const code =
+        searchParams.get("code")?.trim() ||
+        new URLSearchParams(window.location.search).get("code")?.trim() ||
+        "";
       const hash = window.location.hash;
 
       if (
         hash.includes("error=") ||
         hash.includes("error_code=") ||
-        pageParams.get("error") === "expired" ||
+        searchParams.get("error") === "expired" ||
         hash.includes("otp_expired")
       ) {
         markUnresolved(EXPIRED_LINK_MESSAGE);
@@ -124,13 +132,27 @@ function SetYourPasswordForm() {
           type: otpType,
         });
         if (!mounted) return;
-        if (!error && data.session) {
-          markReady(data.session);
-          window.history.replaceState({}, document.title, window.location.pathname);
+        if (!error && (data.session || data.user)) {
+          if (data.session) {
+            markReady(data.session);
+          } else {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            if (session) {
+              markReady(session);
+            } else {
+              settled = true;
+              isReadyRef.current = true;
+              setIsReady(true);
+              setErrorMsg(null);
+              setLoading(false);
+            }
+          }
           return;
         }
         if (error) {
-          console.error("[SET_PASSWORD] verifyOtp failed:", error.message);
+          console.warn("[SET_PASSWORD] verifyOtp failed, checking session:", error.message);
         }
       }
 
@@ -139,7 +161,6 @@ function SetYourPasswordForm() {
         if (!mounted) return;
         if (!error && data.session) {
           markReady(data.session);
-          window.history.replaceState({}, document.title, window.location.pathname);
           return;
         }
       }
@@ -176,7 +197,7 @@ function SetYourPasswordForm() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [searchParams]);
 
   const requestNewLink = async () => {
     const email = resendEmail.trim();
@@ -229,9 +250,21 @@ function SetYourPasswordForm() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const {
+      let {
         data: { session },
       } = await supabase.auth.getSession();
+
+      if (!session) {
+        const tokenHash = searchParams.get("token_hash")?.trim() || "";
+        if (tokenHash) {
+          const { data } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: resolveOtpType(searchParams.get("type")),
+          });
+          session = data.session ?? session;
+        }
+      }
+
       if (!session) {
         setErrorMsg(
           "Auth session not found. Please request a new password link."
