@@ -4,6 +4,7 @@ export const PLANT_EQUIPMENT_CATEGORIES = [
   "Roller",
   "Truck",
   "Hydrovac",
+  "Site Dumper",
 ] as const;
 
 export type PlantEquipmentCategory = (typeof PLANT_EQUIPMENT_CATEGORIES)[number];

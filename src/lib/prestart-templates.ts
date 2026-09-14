@@ -3,7 +3,8 @@ export type PrestartTemplate =
   | "loader"
   | "roller"
   | "truck"
-  | "hydrovac";
+  | "hydrovac"
+  | "site_dumper";
 
 export type FieldType = "select" | "number" | "text" | "section";
 
@@ -23,6 +24,7 @@ export const PRESTART_TEMPLATE_LABELS: Record<PrestartTemplate, string> = {
   roller: "Roller",
   truck: "Truck",
   hydrovac: "Hydrovac",
+  site_dumper: "Site Dumper",
 };
 
 const CHECK_OK_DEFECT = ["OK", "Defect", "N/A"];
@@ -310,6 +312,68 @@ export const PRESTART_TEMPLATES: Record<PrestartTemplate, PrestartField[]> = {
     {
       key: "gate_valves",
       label: "Gate Valves",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+  ],
+  site_dumper: [
+    { key: "hours", label: "Hours", type: "number", required: true, unit: "hrs" },
+    {
+      key: "next_service",
+      label: "Next Service",
+      type: "number",
+      required: true,
+      unit: "hrs",
+    },
+    {
+      key: "_daily_section",
+      label: "Daily Inspections",
+      type: "section",
+    },
+    { key: "engine_oil", label: "Engine Oil", type: "select", options: CHECK_OK_DEFECT },
+    {
+      key: "engine_coolant",
+      label: "Engine Coolant",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    {
+      key: "hydraulic_oil",
+      label: "Hydraulic oil",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    {
+      key: "break_fluid",
+      label: "Break Fluid",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    { key: "fuel", label: "Fuel", type: "select", options: CHECK_OK_DEFECT },
+    { key: "tyres", label: "Tyres", type: "select", options: CHECK_OK_DEFECT },
+    { key: "seat_belt", label: "Seat Belt", type: "select", options: CHECK_OK_DEFECT },
+    {
+      key: "motion_beacon",
+      label: "Motion Beacon",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    {
+      key: "hazard_light",
+      label: "Hazard Light",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    {
+      key: "machine_greased",
+      label: "Machine Greased",
+      type: "select",
+      options: CHECK_OK_DEFECT,
+    },
+    { key: "rops_fops", label: "ROPS & FOPS", type: "select", options: CHECK_OK_DEFECT },
+    {
+      key: "fire_extinguisher",
+      label: "Fire Extinguisher",
       type: "select",
       options: CHECK_OK_DEFECT,
     },

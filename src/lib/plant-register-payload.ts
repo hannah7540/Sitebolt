@@ -88,9 +88,17 @@ export function asPrestartTemplate(
 ): PrestartTemplate | null {
   const trimmed = nullIfBlank(value);
   if (!trimmed) return null;
-  return trimmed in PRESTART_TEMPLATE_LABELS
-    ? (trimmed as PrestartTemplate)
-    : null;
+  if (trimmed in PRESTART_TEMPLATE_LABELS) {
+    return trimmed as PrestartTemplate;
+  }
+  const normalized = trimmed.toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized in PRESTART_TEMPLATE_LABELS) {
+    return normalized as PrestartTemplate;
+  }
+  const byLabel = (
+    Object.entries(PRESTART_TEMPLATE_LABELS) as [PrestartTemplate, string][]
+  ).find(([, label]) => label.toLowerCase() === trimmed.toLowerCase());
+  return byLabel?.[0] ?? null;
 }
 
 export function numberOrNull(value: string | number | null | undefined): number | null {
