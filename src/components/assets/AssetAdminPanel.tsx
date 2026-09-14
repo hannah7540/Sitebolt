@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -218,11 +219,9 @@ export default function AssetAdminPanel({
   };
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [assetToDelete, setAssetToDelete] = useState<Asset | null>(null);
 
   const handleDeleteAsset = async (asset: Asset) => {
-    const label = getAssetPrimaryLabel(asset);
-    const confirmed = window.confirm(`Delete asset "${label}"? This cannot be undone.`);
-    if (!confirmed) return;
     setDeletingId(asset.id);
     const { error } = await deleteAsset(asset.id);
     setDeletingId(null);
@@ -262,7 +261,7 @@ export default function AssetAdminPanel({
       </button>
       <button
         type="button"
-        onClick={() => void handleDeleteAsset(asset)}
+        onClick={() => setAssetToDelete(asset)}
         disabled={deletingId === asset.id}
         className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
       >
@@ -524,6 +523,17 @@ export default function AssetAdminPanel({
       {qrAsset ? (
         <AssetQRModal asset={qrAsset} onClose={() => setQrAsset(null)} />
       ) : null}
+
+      <ConfirmDeletionDialog
+        open={assetToDelete !== null}
+        confirming={Boolean(assetToDelete && deletingId === assetToDelete.id)}
+        onCancel={() => setAssetToDelete(null)}
+        onConfirm={async () => {
+          if (!assetToDelete) return;
+          await handleDeleteAsset(assetToDelete);
+          setAssetToDelete(null);
+        }}
+      />
 
       {assignAsset ? (
         <AssignAssetToProjectModal

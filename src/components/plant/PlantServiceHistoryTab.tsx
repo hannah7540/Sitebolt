@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import {
   deletePlantServiceHistory,
   fetchPlantServiceHistory,
@@ -26,6 +27,8 @@ export default function PlantServiceHistoryTab({ plantId }: PlantServiceHistoryT
   const [hoursLogged, setHoursLogged] = useState("");
   const [description, setDescription] = useState("");
   const [technicianCompany, setTechnicianCompany] = useState("");
+  const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -81,9 +84,6 @@ export default function PlantServiceHistoryTab({ plantId }: PlantServiceHistoryT
   };
 
   const handleDelete = async (recordId: string) => {
-    const confirmed = window.confirm("Delete this service history record?");
-    if (!confirmed) return;
-
     const result = await deletePlantServiceHistory(recordId);
     if (result.error) {
       setError(result.error);
@@ -223,7 +223,7 @@ export default function PlantServiceHistoryTab({ plantId }: PlantServiceHistoryT
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      onClick={() => void handleDelete(record.id)}
+                      onClick={() => setRecordToDelete(record.id)}
                       className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -236,6 +236,19 @@ export default function PlantServiceHistoryTab({ plantId }: PlantServiceHistoryT
           </table>
         </div>
       )}
+
+      <ConfirmDeletionDialog
+        open={recordToDelete !== null}
+        confirming={deleting}
+        onCancel={() => setRecordToDelete(null)}
+        onConfirm={async () => {
+          if (!recordToDelete) return;
+          setDeleting(true);
+          await handleDelete(recordToDelete);
+          setDeleting(false);
+          setRecordToDelete(null);
+        }}
+      />
     </div>
   );
 }

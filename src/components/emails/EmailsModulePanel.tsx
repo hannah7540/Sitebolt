@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import EmailSignatureModal from "@/components/emails/EmailSignatureModal";
 import EmailTemplatesPanel from "@/components/emails/EmailTemplatesPanel";
 import Toast from "@/components/ui/Toast";
@@ -114,6 +115,11 @@ export default function EmailsModulePanel() {
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [liveSignature, setLiveSignature] = useState<EmailSignatureRow | null>(null);
   const [saving, setSaving] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<
+    | { kind: "scheduled"; message: EmailMessageRow }
+    | { kind: "template"; template: EmailTemplateRow }
+    | null
+  >(null);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
 
   const canAccess = canAccessEmailsModule(sessionRole);
@@ -212,7 +218,6 @@ export default function EmailsModulePanel() {
   };
 
   const handleDeleteScheduled = async (message: EmailMessageRow) => {
-    if (!window.confirm("Delete this scheduled email?")) return;
     setSaving(true);
     await deleteScheduledEmail(message.id);
     setSaving(false);
@@ -220,7 +225,6 @@ export default function EmailsModulePanel() {
   };
 
   const handleDeleteTemplate = async (template: EmailTemplateRow) => {
-    if (!window.confirm(`Delete template "${template.title}"?`)) return;
     setSaving(true);
     await deleteEmailTemplate(template.id);
     setSaving(false);
@@ -488,7 +492,7 @@ export default function EmailsModulePanel() {
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void handleDeleteScheduled(message);
+                                  setItemToDelete({ kind: "scheduled", message });
                                 }}
                                 className="rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600"
                               >
@@ -642,6 +646,21 @@ export default function EmailsModulePanel() {
           showSuccess(
             madeLive ? "Live email signature updated." : "Signature saved successfully."
           );
+        }}
+      />
+
+      <ConfirmDeletionDialog
+        open={itemToDelete !== null}
+        confirming={saving && itemToDelete !== null}
+        onCancel={() => setItemToDelete(null)}
+        onConfirm={async () => {
+          if (!itemToDelete) return;
+          if (itemToDelete.kind === "scheduled") {
+            await handleDeleteScheduled(itemToDelete.message);
+          } else {
+            await handleDeleteTemplate(itemToDelete.template);
+          }
+          setItemToDelete(null);
         }}
       />
 

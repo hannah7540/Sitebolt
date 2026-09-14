@@ -22,6 +22,7 @@ import {
   formatInductionFormUpdatedAt,
   type InductionFormTemplate,
 } from "@/lib/induction-form-builder";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import AssignFormModal from "@/components/administration/forms/AssignFormModal";
 import InductionTrackerModal from "@/components/administration/forms/InductionTrackerModal";
 import FormsAdminTabs from "@/components/administration/forms/FormsAdminTabs";
@@ -55,6 +56,7 @@ export default function InductionFormsPanel({
   const [assignTarget, setAssignTarget] = useState<InductionFormTemplate | null>(null);
   const [trackerTarget, setTrackerTarget] = useState<InductionFormTemplate | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [formToDelete, setFormToDelete] = useState<InductionFormTemplate | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -144,9 +146,6 @@ export default function InductionFormsPanel({
   };
 
   const handleDelete = async (form: InductionFormTemplate) => {
-    if (!window.confirm(`Delete "${form.title}"? Worker assignments will also be removed.`)) {
-      return;
-    }
     setActionId(form.id);
     setSuccessMessage(null);
     try {
@@ -370,7 +369,7 @@ export default function InductionFormsPanel({
                             disabled={busy}
                             onClick={(event) => {
                               event.preventDefault();
-                              void handleDelete(form);
+                              setFormToDelete(form);
                             }}
                             className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                           >
@@ -408,6 +407,17 @@ export default function InductionFormsPanel({
           onAssigned={handleAssigned}
         />
       ) : null}
+
+      <ConfirmDeletionDialog
+        open={formToDelete !== null}
+        confirming={Boolean(formToDelete && actionId === formToDelete.id)}
+        onCancel={() => setFormToDelete(null)}
+        onConfirm={async () => {
+          if (!formToDelete) return;
+          await handleDelete(formToDelete);
+          setFormToDelete(null);
+        }}
+      />
 
       {toast ? (
         <Toast

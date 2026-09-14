@@ -24,6 +24,7 @@ import {
   shouldOpenDeepLinkModal,
   useOrganisationEntityDeepLink,
 } from "@/hooks/useOrganisationEntityDeepLink";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import InsuranceFormModal from "./InsuranceFormModal";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
@@ -39,6 +40,8 @@ export default function InsurancesPanel() {
     useState<CompanyInsuranceFormRecord | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [insuranceToDelete, setInsuranceToDelete] =
+    useState<CompanyInsuranceFormRecord | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -101,14 +104,7 @@ export default function InsurancesPanel() {
     clearDeepLink();
   };
 
-  const handleDelete = async (
-    item: CompanyInsuranceFormRecord,
-    event?: React.MouseEvent
-  ) => {
-    event?.stopPropagation();
-    const label = resolveInsuranceDisplayType(item);
-    if (!window.confirm(`Delete insurance policy "${label}"?`)) return;
-
+  const handleDelete = async (item: CompanyInsuranceFormRecord) => {
     setDeletingId(item.id);
     try {
       const { error } = await deleteCompanyInsuranceFromApi(item.id);
@@ -227,7 +223,10 @@ export default function InsurancesPanel() {
                         <button
                           type="button"
                           disabled={deletingId === item.id}
-                          onClick={(event) => void handleDelete(item, event)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setInsuranceToDelete(item);
+                          }}
                           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                         >
                           {deletingId === item.id ? (
@@ -273,6 +272,17 @@ export default function InsurancesPanel() {
           }}
         />
       )}
+
+      <ConfirmDeletionDialog
+        open={insuranceToDelete !== null}
+        confirming={Boolean(insuranceToDelete && deletingId === insuranceToDelete.id)}
+        onCancel={() => setInsuranceToDelete(null)}
+        onConfirm={async () => {
+          if (!insuranceToDelete) return;
+          await handleDelete(insuranceToDelete);
+          setInsuranceToDelete(null);
+        }}
+      />
 
       {toast ? (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />

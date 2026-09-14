@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2, Trash2 } from "lucide-react";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import BulkAddCompanyRdosModal from "@/components/administration/BulkAddCompanyRdosModal";
 import {
   COMPANY_CALENDAR_STATES,
@@ -33,6 +34,7 @@ export default function CompanyCalendarHolidaysPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showBulkRdos, setShowBulkRdos] = useState(false);
+  const [dayToDelete, setDayToDelete] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState("2026");
   const [stateFilter, setStateFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState<"all" | CompanyCalendarDayType>("all");
@@ -327,7 +329,7 @@ export default function CompanyCalendarHolidaysPanel() {
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void handleDelete(day.id)}
+                        onClick={() => setDayToDelete(day.id)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
                         aria-label={`Remove ${day.title}`}
                       >
@@ -351,6 +353,17 @@ export default function CompanyCalendarHolidaysPanel() {
           }}
         />
       ) : null}
+
+      <ConfirmDeletionDialog
+        open={dayToDelete !== null}
+        confirming={busy && dayToDelete !== null}
+        onCancel={() => setDayToDelete(null)}
+        onConfirm={async () => {
+          if (!dayToDelete) return;
+          await handleDelete(dayToDelete);
+          setDayToDelete(null);
+        }}
+      />
 
       {toast ? (
         <Toast
