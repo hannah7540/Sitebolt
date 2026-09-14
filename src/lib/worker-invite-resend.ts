@@ -1,4 +1,10 @@
+import { Resend } from "resend";
 import type { User } from "@supabase/supabase-js";
+import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
+import {
+  appendTeamEmailFooter,
+  appendTeamEmailFooterText,
+} from "@/lib/email-team-footer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
@@ -22,17 +28,20 @@ export interface WorkerInviteEmailResult {
   authUserId?: string | null;
 }
 
+function getResendClient(): Resend | null {
+  const apiKey =
+    process.env.RESEND_API_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_RESEND_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new Resend(apiKey);
+}
+
 function getInviteOrigin(): string {
   return resolveInviteSiteOrigin(getSiteUrl());
 }
 
 function getPasswordSetupRedirectTo(origin: string): string {
   return `${origin.replace(/\/$/, "")}${PASSWORD_SETUP_PATH}`;
-}
-
-// LOCKED: Critical worker invite functionality - do not delete or replace
-export function getWorkerInviteRedirectTo(origin = getInviteOrigin()): string {
-  return `${origin.replace(/\/$/, "")}/auth/callback?next=/setyourpassword`;
 }
 
 export async function findAuthUserByEmail(
@@ -99,9 +108,13 @@ export async function generateWorkerInviteSetupLink(
     }
 
     authUserId = data.user?.id ?? authUserId;
+    const actionLink = data.properties?.action_link ?? null;
+    if (actionLink) {
+      return { inviteLink: actionLink, authUserId, error: null };
+    }
+
     const hashedToken = data.properties?.hashed_token ?? null;
     const verificationType = (data.properties?.verification_type ?? type) as AuthLinkType;
-
     if (hashedToken) {
       return {
         inviteLink: buildAuthCallbackUrl(
@@ -113,11 +126,6 @@ export async function generateWorkerInviteSetupLink(
         authUserId,
         error: null,
       };
-    }
-
-    const actionLink = data.properties?.action_link ?? null;
-    if (actionLink) {
-      return { inviteLink: actionLink, authUserId, error: null };
     }
   }
 
@@ -137,8 +145,6 @@ export async function generateWorkerAuthActionLink(
 }
 
 // LOCKED: Critical worker invite functionality - do not delete or replace
-// Sends via Supabase Auth SMTP / dashboard templates (invite, then recovery).
-// Do not intercept this with a custom Resend html/text payload.
 export async function sendWorkerInviteEmailViaResend(
   email: string,
   _options?: { userAlreadyExists?: boolean }
@@ -155,10 +161,11 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  if (!isSupabaseAdminConfigured()) {
+  const resend = getResendClient();
+  if (!resend) {
     return {
       success: false,
-      error: "Supabase service role is not configured.",
+      error: "RESEND_API_KEY is not configured.",
       message: null,
       messageId: null,
       actionLink: null,
@@ -166,51 +173,66 @@ export async function sendWorkerInviteEmailViaResend(
     };
   }
 
-  const admin = createSupabaseAdminClient();
-  const redirectTo = getWorkerInviteRedirectTo();
+  const { inviteLink, authUserId, error: linkError } =
+    await generateWorkerInviteSetupLink(trimmedEmail);
 
-  const inviteResult = await admin.auth.admin.inviteUserByEmail(trimmedEmail, {
-    redirectTo,
-  });
-
-  if (!inviteResult.error) {
+  if (!inviteLink) {
     return {
-      success: true,
-      error: null,
-      message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
+      success: false,
+      error: linkError ?? "Unable to generate auth link.",
+      message: null,
       messageId: null,
       actionLink: null,
-      authUserId: inviteResult.data.user?.id ?? null,
+      authUserId,
     };
   }
 
-  console.warn(
-    `[worker-invite] inviteUserByEmail failed for ${trimmedEmail}, using recovery fallback:`,
-    inviteResult.error.message
+  const actionLink = inviteLink;
+  const inviteHtml = appendTeamEmailFooter(`
+        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
+          <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 16px;">Welcome to SiteBolt</h1>
+          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
+            You have been added to SiteBolt. Tap the button below to set your account password and access your profile:
+          </p>
+          <p style="margin: 0 0 32px;">
+            <a href="${actionLink}" style="background-color: #f97316; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Set Your Password</a>
+          </p>
+          <p style="font-size: 14px; color: #64748b; margin: 0;">
+            If the button above does not work, copy and paste this link into your browser:<br />
+            <a href="${actionLink}">${actionLink}</a>
+          </p>
+        </div>
+      `.trim());
+  const inviteText = appendTeamEmailFooterText(
+    `Welcome to SiteBolt.\n\nPlease click the link below to set your password and access your account:\n${actionLink}`
   );
 
-  const { error: resetError } = await admin.auth.resetPasswordForEmail(trimmedEmail, {
-    redirectTo,
+  const resendResult = await resend.emails.send({
+    from: DEFAULT_SYSTEM_FROM_EMAIL,
+    to: [trimmedEmail],
+    subject: "Welcome to SiteBolt - Set Your Password",
+    html: inviteHtml,
+    text: inviteText,
   });
 
-  if (resetError) {
+  if (resendResult.error) {
+    console.error("[worker-invite] Resend error:", resendResult.error);
     return {
       success: false,
-      error: resetError.message || inviteResult.error.message,
+      error: resendResult.error.message,
       message: null,
       messageId: null,
-      actionLink: null,
-      authUserId: null,
+      actionLink,
+      authUserId,
     };
   }
 
-  const existing = await findAuthUserByEmail(admin, trimmedEmail);
   return {
     success: true,
     error: null,
     message: PASSWORD_SETUP_LINK_SENT_MESSAGE,
-    messageId: null,
-    actionLink: null,
-    authUserId: existing?.id ?? null,
+    messageId: resendResult.data?.id ?? null,
+    actionLink,
+    authUserId,
   };
 }
