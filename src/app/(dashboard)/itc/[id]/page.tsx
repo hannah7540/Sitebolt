@@ -1,10 +1,11 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getAdminItcPath } from "@/lib/console-nav-routes";
 
-import { useParams } from "next/navigation";
-import FieldItcModule from "@/components/itc/field/FieldItcModule";
-
-export default function IsolatedItcDetailPage() {
-  const params = useParams();
-  const itcId = String(params.id ?? "");
-  return <FieldItcModule initialItcId={itcId || null} />;
+export default async function IsolatedItcDetailRedirectPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  redirect(getAdminItcPath(id));
 }

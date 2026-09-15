@@ -73,6 +73,7 @@ export type ActiveView =
   | "scheduler"
   | "subcontractors"
   | "admin-master-dashboard"
+  | "admin-itc"
   | "admin-plant-calendar"
   | "admin-worker-calendar"
   | "admin-swms"
@@ -83,7 +84,6 @@ export type ActiveView =
   | "org-dashboard"
   | "org-insurances"
   | "org-documents"
-  | "org-itc"
   | "org-projects"
   | "org-workers"
   | "org-inductions"
@@ -492,7 +492,6 @@ function buildStandardProjectNavItems(): (SubItem | NestedGroup)[] {
       ],
     },
     { label: "Assets", view: "assets" as const },
-    { label: "ITPs & ITCs", view: "itps" as const },
     { label: "SWMS", view: "swms" as const },
   ];
 }
@@ -605,7 +604,6 @@ export default function Sidebar({
       { label: "Company Information", href: "/organisation/company" },
       { label: "Insurances", href: "/organisation/insurances" },
       { label: "Documents", href: "/organisation/documents" },
-      { label: "ITP / ITC", href: "/itc" },
       { label: "Projects", href: "/organisation/projects" },
       { label: "Workers", href: "/organisation/workers" },
       { label: "Inductions", href: "/admin/forms/inductions" },
@@ -1039,6 +1037,7 @@ function AdministrationSection({
     { label: "Full Plant Calendar", view: "admin-plant-calendar" },
     { label: "Full Worker Calendar", view: "admin-worker-calendar" },
     { label: "SWMS", view: "admin-swms" },
+    { label: "ITP / ITC", view: "admin-itc" },
     { label: "1-Click Document Pack", view: "admin-document-pack" },
     { label: "Reporting", view: "admin-reporting" },
   ];
@@ -1152,9 +1151,7 @@ function OrganisationSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const isOrganisationRoute =
-    (pathname?.startsWith("/organisation") ?? false) ||
-    (pathname?.startsWith("/itc") ?? false) ||
-    isInductionsPath(pathname);
+    (pathname?.startsWith("/organisation") ?? false) || isInductionsPath(pathname);
   const [open, toggleOpen] = usePersistedSidebarSection(
     "organisation",
     isOrganisationRoute

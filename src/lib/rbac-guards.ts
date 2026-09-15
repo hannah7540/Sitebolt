@@ -16,7 +16,6 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-company",
   "org-insurances",
   "org-documents",
-  "org-itc",
   "org-projects",
   "org-workers",
   "org-inductions",
@@ -27,6 +26,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
 
 export const ADMINISTRATION_VIEWS: readonly ActiveView[] = [
   "admin-master-dashboard",
+  "admin-itc",
   "admin-plant-calendar",
   "admin-worker-calendar",
   "admin-swms",
@@ -40,7 +40,6 @@ export const PROJECT_VIEWS: readonly ActiveView[] = [
   "worker-scheduler",
   "plant",
   "assets",
-  "itps",
   "swms",
   "scheduler",
 ];
@@ -50,9 +49,7 @@ export function isOrganisationView(view: ActiveView): boolean {
 }
 
 export function isOrganisationPath(pathname: string | null | undefined): boolean {
-  return Boolean(
-    pathname?.startsWith("/organisation") || pathname?.startsWith("/itc")
-  );
+  return Boolean(pathname?.startsWith("/organisation"));
 }
 
 export function isAccountsPath(pathname: string | null | undefined): boolean {

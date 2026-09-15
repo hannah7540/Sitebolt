@@ -14,7 +14,6 @@ import {
 import { fetchAssets, type Asset } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
-  getProjectItcPath,
   getProjectViewPath,
   parseProjectRoute,
 } from "@/lib/project-nav-routes";
@@ -44,7 +43,6 @@ import PlantAdminPanel from "@/components/plant/PlantAdminPanel";
 import ProjectPlantAssignmentsPanel from "@/components/plant/ProjectPlantAssignmentsPanel";
 import AssetAdminPanel from "@/components/assets/AssetAdminPanel";
 import ProjectAssetsPanel from "@/components/assets/ProjectAssetsPanel";
-import ItcQualitySystemView from "@/components/itc/ItcQualitySystemView";
 import ProjectSwmsPanel from "@/components/swms/ProjectSwmsPanel";
 import PlantFleetScheduler from "@/components/plant/PlantFleetScheduler";
 import WorkerDirectoryPanel from "@/components/workers/WorkerDirectoryPanel";
@@ -335,23 +333,6 @@ function HomeConsole() {
       return;
     }
 
-    if (view === "itps") {
-      const projectId =
-        options?.projectId ?? dashboardProject?.id ?? visibleProjects[0]?.id;
-      if (
-        projectId &&
-        canNavigateToView(sessionRole, view, assignedProjectIds, projectId)
-      ) {
-        if (options?.projectId) {
-          const project = visibleProjects.find((p) => p.id === options.projectId);
-          if (project) setDashboardProject(project);
-        }
-        router.push(getProjectItcPath(projectId));
-        setSidebarOpen(false);
-        return;
-      }
-    }
-
     if (options?.projectId) {
       const project = visibleProjects.find((p) => p.id === options.projectId);
       if (project) setDashboardProject(project);
@@ -489,7 +470,6 @@ function HomeConsole() {
                 { id: "worker-scheduler" as const, label: "Worker Scheduler", icon: "🗓️" },
                 { id: "plant" as const, label: "Assigned Plant", icon: "🚜" },
                 { id: "assets" as const, label: "Assets", icon: "📐" },
-                { id: "itps" as const, label: "ITPs & ITCs", icon: "📋" },
                 { id: "swms" as const, label: "SWMS", icon: "📄" },
                 { id: "scheduler" as const, label: "Plant Scheduler", icon: "📅" },
               ] as const
@@ -498,13 +478,6 @@ function HomeConsole() {
                 key={tab.id}
                 type="button"
                 onClick={() => {
-                  if (tab.id === "itps") {
-                    const projectId = dashboardProject?.id ?? sidebarProjects[0]?.id;
-                    if (projectId) {
-                      router.push(getProjectItcPath(projectId));
-                      return;
-                    }
-                  }
                   const projectId = dashboardProject?.id ?? visibleProjects[0]?.id ?? null;
                   if (projectId && PROJECT_VIEWS.includes(tab.id)) {
                     router.push(getProjectViewPath(projectId, tab.id));
@@ -586,22 +559,6 @@ function HomeConsole() {
               loading={loading}
               onRefresh={fetchData}
             />
-          )}
-
-          {activeTab === "itps" && dashboardProject?.id && adminWorkerId && (
-            <ItcQualitySystemView
-              projectId={dashboardProject.id}
-              projectName={dashboardProject.name}
-              workerId={adminWorkerId}
-              workerName={adminProfileName}
-              defaultPanel="batch"
-            />
-          )}
-
-          {activeTab === "itps" && !dashboardProject?.id && (
-            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-              Select a project from the sidebar to open ITPs & ITCs.
-            </div>
           )}
 
           {activeTab === "swms" && (

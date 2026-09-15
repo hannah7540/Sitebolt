@@ -27,6 +27,7 @@ import {
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { getAdminItcPath } from "@/lib/console-nav-routes";
 
 type FieldItcTab =
   | "register"
@@ -146,7 +147,7 @@ export default function FieldItcModule({ initialItcId = null }: FieldItcModulePr
   const handleSelect = (itc: FieldItcRecord) => {
     setSelected(itc);
     setTab("detail");
-    router.replace(`/itc/${itc.id}`);
+    router.replace(getAdminItcPath(itc.id));
     void loadDetail(itc.id);
   };
 
@@ -175,7 +176,7 @@ export default function FieldItcModule({ initialItcId = null }: FieldItcModulePr
               setProjectId(event.target.value);
               setSelected(null);
               setTab("register");
-              router.replace("/itc");
+              router.replace(getAdminItcPath());
             }}
             className={inputClass}
           >

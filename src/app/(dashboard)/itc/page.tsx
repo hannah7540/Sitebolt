@@ -1,7 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
+import { ADMIN_ITC_PATH } from "@/lib/console-nav-routes";
 
-import FieldItcModule from "@/components/itc/field/FieldItcModule";
-
-export default function IsolatedItcPage() {
-  return <FieldItcModule />;
+export default function IsolatedItcRedirectPage() {
+  redirect(ADMIN_ITC_PATH);
 }

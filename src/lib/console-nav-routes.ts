@@ -9,6 +9,12 @@ import { ORGANISATION_NAV_ITEMS } from "@/lib/organisation-nav-routes";
 
 export const CONSOLE_VIEW_SEARCH_PARAM = "view";
 export const CONSOLE_OPEN_ADD_SEARCH_PARAM = "openAdd";
+export const ADMIN_ITC_PATH = "/admin/itc";
+
+export function getAdminItcPath(itcId?: string | null): string {
+  const id = itcId?.trim();
+  return id ? `${ADMIN_ITC_PATH}/${id}` : ADMIN_ITC_PATH;
+}
 
 const CONSOLE_QUERY_VIEWS: readonly ActiveView[] = [
   ...ORGANISATION_VIEWS,
@@ -50,6 +56,10 @@ export function parseConsoleRoute(
     return { view: "admin-master-dashboard" };
   }
 
+  if (pathname === ADMIN_ITC_PATH || pathname?.startsWith(`${ADMIN_ITC_PATH}/`)) {
+    return { view: "admin-itc" };
+  }
+
   if (pathname === "/") {
     return { view: "dashboard" };
   }
@@ -78,6 +88,10 @@ export function buildConsoleNavHref(
 
   if (view === "admin-master-dashboard") {
     return "/admin/dashboard";
+  }
+
+  if (view === "admin-itc" || view === "itps") {
+    return ADMIN_ITC_PATH;
   }
 
   const projectId = options.projectId?.trim() || null;

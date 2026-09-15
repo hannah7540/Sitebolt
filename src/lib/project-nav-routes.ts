@@ -7,7 +7,6 @@ const PROJECT_VIEW_SEGMENTS: Partial<Record<ActiveView, string>> = {
   "worker-scheduler": "worker-scheduler",
   plant: "plant",
   assets: "assets",
-  itps: "itc",
   swms: "swms",
   scheduler: "scheduler",
 };
@@ -19,17 +18,17 @@ const SEGMENT_TO_VIEW = Object.entries(PROJECT_VIEW_SEGMENTS).reduce<
   return acc;
 }, {});
 
-/** Project-scoped App Router paths used by the sidebar and deep links. */
-export function getProjectItcPath(projectId: string): string {
-  return `/projects/${projectId}/itc`;
+/** Unified Administration ITP/ITC module. Project-scoped ITC URLs redirect here. */
+export function getProjectItcPath(_projectId?: string): string {
+  return "/admin/itc";
 }
 
-export function getProjectItpsItcsPath(projectId: string): string {
-  return `/projects/${projectId}/itps-itcs`;
+export function getProjectItpsItcsPath(_projectId?: string): string {
+  return "/admin/itc";
 }
 
 export function getProjectViewPath(projectId: string, view: ActiveView): string {
-  if (view === "itps") return getProjectItcPath(projectId);
+  if (view === "itps") return "/admin/itc";
   const segment = PROJECT_VIEW_SEGMENTS[view];
   if (segment === undefined || segment === "") {
     return `/projects/${projectId}`;
@@ -59,7 +58,7 @@ export function parseProjectRoute(
   const [, projectId, segment] = match;
   if (!segment) return { projectId, view: "dashboard" };
   if (segment === "itc" || segment === "itps-itcs") {
-    return { projectId, view: "itps" };
+    return { projectId, view: "dashboard" };
   }
 
   const view = SEGMENT_TO_VIEW[segment];
