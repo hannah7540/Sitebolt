@@ -11,6 +11,7 @@ export const ORGANISATION_NAV_ITEMS: OrganisationNavItem[] = [
   { label: "Company Information", href: "/organisation/company", view: "org-company" },
   { label: "Insurances", href: "/organisation/insurances", view: "org-insurances" },
   { label: "Documents", href: "/organisation/documents", view: "org-documents" },
+  { label: "ITP / ITC", href: "/itc", view: "org-itc" },
   { label: "Projects", href: "/organisation/projects", view: "org-projects" },
   { label: "Workers", href: "/organisation/workers", view: "org-workers" },
   { label: "Inductions", href: "/admin/forms/inductions", view: "org-inductions" },

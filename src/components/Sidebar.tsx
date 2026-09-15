@@ -83,6 +83,7 @@ export type ActiveView =
   | "org-dashboard"
   | "org-insurances"
   | "org-documents"
+  | "org-itc"
   | "org-projects"
   | "org-workers"
   | "org-inductions"
@@ -604,6 +605,7 @@ export default function Sidebar({
       { label: "Company Information", href: "/organisation/company" },
       { label: "Insurances", href: "/organisation/insurances" },
       { label: "Documents", href: "/organisation/documents" },
+      { label: "ITP / ITC", href: "/itc" },
       { label: "Projects", href: "/organisation/projects" },
       { label: "Workers", href: "/organisation/workers" },
       { label: "Inductions", href: "/admin/forms/inductions" },
@@ -1150,7 +1152,9 @@ function OrganisationSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const isOrganisationRoute =
-    (pathname?.startsWith("/organisation") ?? false) || isInductionsPath(pathname);
+    (pathname?.startsWith("/organisation") ?? false) ||
+    (pathname?.startsWith("/itc") ?? false) ||
+    isInductionsPath(pathname);
   const [open, toggleOpen] = usePersistedSidebarSection(
     "organisation",
     isOrganisationRoute

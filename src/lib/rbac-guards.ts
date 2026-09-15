@@ -16,6 +16,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-company",
   "org-insurances",
   "org-documents",
+  "org-itc",
   "org-projects",
   "org-workers",
   "org-inductions",
@@ -49,7 +50,9 @@ export function isOrganisationView(view: ActiveView): boolean {
 }
 
 export function isOrganisationPath(pathname: string | null | undefined): boolean {
-  return Boolean(pathname?.startsWith("/organisation"));
+  return Boolean(
+    pathname?.startsWith("/organisation") || pathname?.startsWith("/itc")
+  );
 }
 
 export function isAccountsPath(pathname: string | null | undefined): boolean {
