@@ -12,6 +12,8 @@ import {
 } from "@/lib/plant-prestart-utils";
 import {
   PRESTART_TEMPLATES,
+  isHydrovacPrestartTemplate,
+  readHydrovacAttachmentHours,
   type PrestartTemplate,
 } from "@/lib/prestart-templates";
 import { getProjectName } from "@/lib/projects";
@@ -51,6 +53,13 @@ export default function PlantPrestartDetailModal({
   const template = (plantAsset?.prestart_template ?? "excavator") as PrestartTemplate;
   const fields = PRESTART_TEMPLATES[template] ?? [];
   const checkData = prestart.check_data ?? {};
+  const hydrovacAttachmentHours =
+    isHydrovacPrestartTemplate(template) ||
+    checkData.attachment_hours != null ||
+    checkData.attachment_service_due_hours != null ||
+    checkData.attachment_next_due_hours != null
+      ? readHydrovacAttachmentHours(checkData)
+      : null;
 
   const checklistRows = useMemo(() => {
     const listed = fields
@@ -129,6 +138,22 @@ export default function PlantPrestartDetailModal({
                 {formatPrestartHours(prestart.next_service_due)}
               </p>
             </div>
+            {hydrovacAttachmentHours?.hours != null ? (
+              <div className={sectionClass}>
+                <p className={labelClass}>Attachment Hours</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {formatPrestartHours(hydrovacAttachmentHours.hours)}
+                </p>
+              </div>
+            ) : null}
+            {hydrovacAttachmentHours?.serviceDueHours != null ? (
+              <div className={sectionClass}>
+                <p className={labelClass}>Attachment Service Due Hours</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {formatPrestartHours(hydrovacAttachmentHours.serviceDueHours)}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {plantAsset ? (

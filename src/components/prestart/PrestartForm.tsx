@@ -81,6 +81,7 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value)}
           required={field.required}
           placeholder={field.placeholder}
+          step={field.step}
           className={inputClass}
         />
       </label>
@@ -133,6 +134,19 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
       initial[readingKey] = String(
         template === "truck" ? plant.current_kms ?? "" : plant.current_hours
       );
+    }
+    if (template === "hydrovac") {
+      if (plant.attachment_hours != null && plant.attachment_hours !== "") {
+        initial.attachment_hours = String(plant.attachment_hours);
+      }
+      if (
+        plant.attachment_next_due_hours != null &&
+        plant.attachment_next_due_hours !== ""
+      ) {
+        initial.attachment_service_due_hours = String(
+          plant.attachment_next_due_hours
+        );
+      }
     }
     void serviceKey;
     setCheckData(initial);

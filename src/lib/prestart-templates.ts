@@ -16,6 +16,7 @@ export interface PrestartField {
   required?: boolean;
   placeholder?: string;
   unit?: string;
+  step?: string;
 }
 
 export const PRESTART_TEMPLATE_LABELS: Record<PrestartTemplate, string> = {
@@ -259,6 +260,20 @@ export const PRESTART_TEMPLATES: Record<PrestartTemplate, PrestartField[]> = {
       required: true,
       unit: "hrs",
     },
+    {
+      key: "attachment_hours",
+      label: "Attachment Hours",
+      type: "number",
+      unit: "hrs",
+      step: "any",
+    },
+    {
+      key: "attachment_service_due_hours",
+      label: "Attachment Service Due Hours",
+      type: "number",
+      unit: "hrs",
+      step: "any",
+    },
     { key: "_daily_section", label: "Daily Checks", type: "section" },
     { key: "engine_oil", label: "Engine Oil", type: "select", options: CHECK_OK_DEFECT },
     { key: "coolant", label: "Coolant", type: "select", options: CHECK_OK_DEFECT },
@@ -379,6 +394,42 @@ export const PRESTART_TEMPLATES: Record<PrestartTemplate, PrestartField[]> = {
     },
   ],
 };
+
+export const HYDROVAC_ATTACHMENT_HOURS_KEY = "attachment_hours";
+export const HYDROVAC_ATTACHMENT_SERVICE_DUE_KEY = "attachment_service_due_hours";
+
+export function isHydrovacPrestartTemplate(
+  template: PrestartTemplate | string | null | undefined
+): boolean {
+  return template === "hydrovac";
+}
+
+export function readOptionalCheckNumber(
+  checkData: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): number | null {
+  if (!checkData) return null;
+  for (const key of keys) {
+    const raw = checkData[key];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
+export function readHydrovacAttachmentHours(
+  checkData: Record<string, unknown> | null | undefined
+): { hours: number | null; serviceDueHours: number | null } {
+  return {
+    hours: readOptionalCheckNumber(checkData, HYDROVAC_ATTACHMENT_HOURS_KEY),
+    serviceDueHours: readOptionalCheckNumber(
+      checkData,
+      HYDROVAC_ATTACHMENT_SERVICE_DUE_KEY,
+      "attachment_next_due_hours"
+    ),
+  };
+}
 
 export function usesKilometres(template: PrestartTemplate): boolean {
   return template === "truck";

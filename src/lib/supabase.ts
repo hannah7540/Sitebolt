@@ -14,6 +14,8 @@ import type { PrestartTemplate } from "./prestart-templates";
 import {
   getReadingFieldKey,
   getServiceFieldKey,
+  isHydrovacPrestartTemplate,
+  readHydrovacAttachmentHours,
   usesKilometres,
 } from "./prestart-templates";
 import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields, nullIfBlankWorkerDate, sanitizeWorkerWritePayload } from "./worker-utils";
@@ -2742,6 +2744,34 @@ export async function submitPlantPrestart(input: {
     .from("plant")
     .update(plantUpdate)
     .eq("id", input.plantId);
+
+  if (isHydrovacPrestartTemplate(input.template)) {
+    const attachmentReadings = readHydrovacAttachmentHours(input.checkData);
+    const attachmentPayload: Record<string, unknown> = {};
+    if (attachmentReadings.hours != null) {
+      attachmentPayload.attachment_hours = attachmentReadings.hours;
+    }
+    if (attachmentReadings.serviceDueHours != null) {
+      attachmentPayload.attachment_next_due_hours =
+        attachmentReadings.serviceDueHours;
+    }
+    if (Object.keys(attachmentPayload).length > 0) {
+      await tryUpdateTableWithOptionalColumns(
+        MASTER_PLANT_TABLE,
+        "id",
+        input.plantId,
+        attachmentPayload,
+        PLANT_MASTER_OPTIONAL_COLUMNS
+      );
+      await tryUpdateTableWithOptionalColumns(
+        PRIMARY_PLANT_ASSIGNMENT_TABLE,
+        "id",
+        input.plantId,
+        attachmentPayload,
+        PLANT_EQUIPMENT_OPTIONAL_COLUMNS
+      );
+    }
+  }
 
   return { error: updateError?.message ?? null };
 }
