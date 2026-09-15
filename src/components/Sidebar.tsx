@@ -82,6 +82,7 @@ export type ActiveView =
   | "org-company"
   | "org-dashboard"
   | "org-insurances"
+  | "org-documents"
   | "org-projects"
   | "org-workers"
   | "org-inductions"
@@ -602,6 +603,7 @@ export default function Sidebar({
       { label: "Profile Dashboard", href: "/organisation/dashboard" },
       { label: "Company Information", href: "/organisation/company" },
       { label: "Insurances", href: "/organisation/insurances" },
+      { label: "Documents", href: "/organisation/documents" },
       { label: "Projects", href: "/organisation/projects" },
       { label: "Workers", href: "/organisation/workers" },
       { label: "Inductions", href: "/admin/forms/inductions" },

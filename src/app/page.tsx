@@ -55,6 +55,7 @@ import ProjectDashboard from "@/components/dashboard/ProjectDashboard";
 import OrganisationProfileDashboard from "@/components/dashboard/OrganisationProfileDashboard";
 import CompanyInformationPanel from "@/components/organisation/CompanyInformationPanel";
 import InsurancesPanel from "@/components/organisation/InsurancesPanel";
+import OrganisationDocumentsPanel from "@/components/organisation/OrganisationDocumentsPanel";
 import ProjectsManagementPanel from "@/components/organisation/ProjectsManagementPanel";
 import SecuritySettingsPanel from "@/components/organisation/SecuritySettingsPanel";
 import SubcontractorsListView from "@/components/subcontractors/SubcontractorsListView";
@@ -681,6 +682,9 @@ function HomeConsole() {
           )}
           {activeTab === "org-insurances" && canManageOrganisation(sessionRole) && (
             <InsurancesPanel />
+          )}
+          {activeTab === "org-documents" && canManageOrganisation(sessionRole) && (
+            <OrganisationDocumentsPanel />
           )}
           {activeTab === "org-projects" && canManageOrganisation(sessionRole) && (
             <ProjectsManagementPanel

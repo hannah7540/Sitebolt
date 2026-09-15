@@ -38,6 +38,7 @@ import {
 } from "@/lib/worker-compliance";
 import WorkerMyDetailsPanel from "./WorkerMyDetailsPanel";
 import WorkerDashboardSignOutButton from "./WorkerDashboardSignOutButton";
+import WorkerUsefulDocumentsWidget from "./WorkerUsefulDocumentsWidget";
 import WorkerTimesheetsWidget from "./WorkerTimesheetsWidget";
 import WorkerTimesheetModal from "./WorkerTimesheetModal";
 import WorkerTimesheetHistoryDrawer from "./WorkerTimesheetHistoryDrawer";
@@ -1265,6 +1266,11 @@ export default function WorkerDashboardView({
             </div>
           </>
         )}
+        {!showFormsSubDashboard ? (
+          <div className="mt-3">
+            <WorkerUsefulDocumentsWidget />
+          </div>
+        ) : null}
         {!embedded && !showFormsSubDashboard ? (
           <WorkerDashboardSignOutButton />
         ) : null}
