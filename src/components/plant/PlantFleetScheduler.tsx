@@ -551,11 +551,38 @@ export default function PlantFleetScheduler({
         width: 124,
         renderCell: (asset: PlantAsset) => {
           const latest = latestPrestartByPlant.get(asset.id);
+          const machineServiceDue =
+            latest?.next_service_due ?? asset.next_service_hours ?? null;
+          const checkData = latest?.check_data ?? {};
+          const attachmentServiceDueRaw =
+            asset.attachment_next_due_hours ??
+            checkData.attachment_next_due_hours ??
+            checkData.attachment_service_due_hours;
+          const attachmentServiceDue =
+            attachmentServiceDueRaw == null || attachmentServiceDueRaw === ""
+              ? null
+              : Number(attachmentServiceDueRaw);
+          const showAttachmentServiceDue =
+            plantHasHydrovacCategory(asset.category) &&
+            attachmentServiceDue != null &&
+            Number.isFinite(attachmentServiceDue);
+
+          if (showAttachmentServiceDue) {
+            return (
+              <div className="flex flex-col gap-0.5 leading-tight">
+                <span className="font-semibold text-slate-900">
+                  Machine: {formatPrestartHours(machineServiceDue)}
+                </span>
+                <span className="font-semibold text-slate-900">
+                  Attachment: {formatPrestartHours(attachmentServiceDue)}
+                </span>
+              </div>
+            );
+          }
+
           return (
             <span className="font-semibold text-slate-900">
-              {formatPrestartHours(
-                latest?.next_service_due ?? asset.next_service_hours ?? null
-              )}
+              {formatPrestartHours(machineServiceDue)}
             </span>
           );
         },
