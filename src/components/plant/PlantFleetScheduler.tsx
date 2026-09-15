@@ -47,6 +47,7 @@ import {
   resolvePlantAssignedProjectId,
   resolvePlantAssignedProjectName,
 } from "@/lib/project-assignments";
+import { resolvePlantCalendarProjectTone } from "@/lib/plant-calendar-project-colors";
 import HorizontalCalendarGrid, {
   SCROLL_EXTEND_DAYS,
 } from "@/components/shared/HorizontalCalendarGrid";
@@ -85,15 +86,18 @@ interface PlantFleetSchedulerProps {
 
 function PlantProjectAssignmentCell({
   projectName,
+  badgeClass,
   compact = false,
 }: {
   projectName: string;
+  badgeClass: string;
   compact?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-md bg-orange-600 px-0.5 py-1 text-center text-[9px] font-bold uppercase leading-tight tracking-wide text-white",
+        "flex flex-col items-center justify-center rounded-md px-0.5 py-1 text-center text-[9px] font-bold uppercase leading-tight tracking-wide",
+        badgeClass,
         compact ? "mb-0.5 w-full" : "min-h-[52px]"
       )}
       title={projectName}
@@ -649,8 +653,13 @@ export default function PlantFleetScheduler({
         scheduledService != null &&
         isUpcomingHeaderBookedService(scheduledService, formatDateOnly(new Date()));
 
+      const projectTone = resolvePlantCalendarProjectTone({
+        projectId: resolvePlantAssignedProjectId(asset),
+        projectName: resolvePlantAssignedProjectName(asset),
+      });
+
       return (
-        <>
+        <div className={cn("border-l-4 pl-2", projectTone.indicatorClass)}>
           <p className="font-semibold text-slate-900">{asset.unit_number}</p>
           <p className="truncate text-xs text-slate-500">
             {makeModel || asset.category}
@@ -685,7 +694,7 @@ export default function PlantFleetScheduler({
               )
             </div>
           ) : null}
-        </>
+        </div>
       );
     },
     [
@@ -722,6 +731,9 @@ export default function PlantFleetScheduler({
           {projectAssignment ? (
             <PlantProjectAssignmentCell
               projectName={projectAssignment.projectName}
+              badgeClass={
+                resolvePlantCalendarProjectTone(projectAssignment).badgeClass
+              }
               compact={hasOverlays}
             />
           ) : null}
@@ -791,11 +803,19 @@ export default function PlantFleetScheduler({
             renderStickyColumn={renderStickyColumn}
             pinnedExtraColumns={pinnedExtraColumns}
             renderDayCell={renderDayCell}
-            getRowClassName={(asset) =>
-              getFleetStatusLabel(asset, getServiceWarning(asset)) === "Tagged Out"
-                ? "bg-red-50/60"
-                : undefined
-            }
+            getRowClassName={(asset) => {
+              if (
+                getFleetStatusLabel(asset, getServiceWarning(asset)) === "Tagged Out"
+              ) {
+                return "bg-red-50/60";
+              }
+              return (
+                resolvePlantCalendarProjectTone({
+                  projectId: resolvePlantAssignedProjectId(asset),
+                  projectName: resolvePlantAssignedProjectName(asset),
+                }).rowClass || undefined
+              );
+            }}
             emptyMessage="No plant matches the selected project filter."
             renderHeaderDayExtra={renderHeaderDayExtra}
             onRangeExtendPast={handleRangeExtendPast}
@@ -915,10 +935,10 @@ export default function PlantFleetScheduler({
             <p className="mb-2 font-semibold uppercase text-slate-600">Legend</p>
             <ul className="space-y-1.5">
               <li>
-                <span className="rounded bg-orange-600 px-1.5 py-0.5 font-bold uppercase text-white">
+                <span className="rounded border border-blue-300 bg-blue-100 px-1.5 py-0.5 font-bold uppercase text-blue-800">
                   Project
                 </span>{" "}
-                Assigned project (date cell)
+                Assigned site (Marsden Park blue, EC6 yellow, Barton orange)
               </li>
               <li>
                 <span className="rounded bg-red-600 px-1.5 py-0.5 font-bold uppercase text-white">
