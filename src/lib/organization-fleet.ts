@@ -26,6 +26,8 @@ const OPTIONAL_FLEET_COLUMNS = [
   "rego",
   "rego_expiry_date",
   "rego_document_url",
+  "warranty_fitness_expiry_date",
+  "warranty_fitness_document_url",
   "insurance_expiry_date",
   "insurance_document_url",
   "current_hours",
@@ -49,7 +51,7 @@ export const FLEET_STATUSES = ["Active", "Maintenance", "Out of Service"] as con
 
 export type FleetStatus = (typeof FLEET_STATUSES)[number];
 
-export type FleetDocumentType = "rego" | "insurance";
+export type FleetDocumentType = "rego" | "warranty_fitness" | "insurance";
 
 export interface OrganizationFleetVehicle {
   id: string;
@@ -60,6 +62,8 @@ export interface OrganizationFleetVehicle {
   serial_number?: string | null;
   rego_expiry_date: string | null;
   rego_document_url: string | null;
+  warranty_fitness_expiry_date?: string | null;
+  warranty_fitness_document_url?: string | null;
   insurance_expiry_date: string | null;
   insurance_document_url: string | null;
   current_hours: number;
@@ -86,6 +90,8 @@ export interface FleetVehicleInput {
   serial_number?: string | null;
   regoExpiryDate?: string | null;
   regoDocumentUrl?: string | null;
+  warrantyFitnessExpiryDate?: string | null;
+  warrantyFitnessDocumentUrl?: string | null;
   insuranceExpiryDate?: string | null;
   insuranceDocumentUrl?: string | null;
   currentHours?: number;
@@ -112,6 +118,12 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
     serial_number: firstNonEmptyText(row.serial_number),
     rego_expiry_date: row.rego_expiry_date ? String(row.rego_expiry_date) : null,
     rego_document_url: row.rego_document_url ? String(row.rego_document_url) : null,
+    warranty_fitness_expiry_date: row.warranty_fitness_expiry_date
+      ? String(row.warranty_fitness_expiry_date)
+      : null,
+    warranty_fitness_document_url: row.warranty_fitness_document_url
+      ? String(row.warranty_fitness_document_url)
+      : null,
     insurance_expiry_date: row.insurance_expiry_date
       ? String(row.insurance_expiry_date)
       : null,
@@ -251,6 +263,8 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     serial_number: input.serial_number?.trim() || null,
     rego_expiry_date: nullIfBlankDate(input.regoExpiryDate),
     rego_document_url: input.regoDocumentUrl ?? null,
+    warranty_fitness_expiry_date: nullIfBlankDate(input.warrantyFitnessExpiryDate),
+    warranty_fitness_document_url: input.warrantyFitnessDocumentUrl ?? null,
     insurance_expiry_date: nullIfBlankDate(input.insuranceExpiryDate),
     insurance_document_url: input.insuranceDocumentUrl ?? null,
     current_hours: input.currentHours ?? 0,
@@ -540,6 +554,13 @@ export async function updateFleetDocumentCompliance(input: {
   if (input.documentType === "rego") {
     if (input.expiryDate !== undefined) payload.rego_expiry_date = input.expiryDate;
     if (input.documentUrl !== undefined) payload.rego_document_url = input.documentUrl;
+  } else if (input.documentType === "warranty_fitness") {
+    if (input.expiryDate !== undefined) {
+      payload.warranty_fitness_expiry_date = input.expiryDate;
+    }
+    if (input.documentUrl !== undefined) {
+      payload.warranty_fitness_document_url = input.documentUrl;
+    }
   } else {
     if (input.expiryDate !== undefined) {
       payload.insurance_expiry_date = input.expiryDate;

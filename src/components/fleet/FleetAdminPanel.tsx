@@ -97,7 +97,9 @@ export default function FleetAdminPanel() {
     if (!shouldOpenDeepLinkModal(target)) return;
 
     const documentType =
-      target.documentType === "insurance" || target.documentType === "rego"
+      target.documentType === "insurance" ||
+      target.documentType === "rego" ||
+      target.documentType === "warranty_fitness"
         ? target.documentType
         : null;
 
@@ -283,6 +285,7 @@ export default function FleetAdminPanel() {
                 <th className="px-4 py-3">Make & Model</th>
                 <th className="px-4 py-3">Registration</th>
                 <th className="px-4 py-3">Rego Expiry</th>
+                <th className="px-4 py-3">Warranty Fitness</th>
                 <th className="px-4 py-3">Current Hours</th>
                 <th className="px-4 py-3">Assigned Worker</th>
                 <th className="px-4 py-3">Status</th>
@@ -292,7 +295,7 @@ export default function FleetAdminPanel() {
             <tbody>
               {filteredVehicles.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     {searchQuery.trim()
                       ? "No fleet vehicles match your search."
                       : listTab === "archived"
@@ -343,6 +346,25 @@ export default function FleetAdminPanel() {
                         <p className={cn("text-xs", regoStatus.cellClass)}>
                           {regoStatus.label}
                         </p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div>
+                          {vehicle.warranty_fitness_expiry_date
+                            ? new Date(
+                                `${vehicle.warranty_fitness_expiry_date}T12:00:00`
+                              ).toLocaleDateString("en-AU")
+                            : "Not set"}
+                        </div>
+                        {vehicle.warranty_fitness_document_url ? (
+                          <a
+                            href={vehicle.warranty_fitness_document_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-block text-xs font-medium text-orange-600 hover:text-orange-700"
+                          >
+                            View document
+                          </a>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         {Number(vehicle.current_hours).toLocaleString()} hrs

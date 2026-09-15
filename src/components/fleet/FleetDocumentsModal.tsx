@@ -12,6 +12,24 @@ import { fleetDocumentTypeLabel } from "@/lib/fleet-utils";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 
+function expiryDateForType(
+  vehicle: OrganizationFleetVehicle,
+  type: FleetDocumentType
+): string {
+  if (type === "warranty_fitness") return vehicle.warranty_fitness_expiry_date ?? "";
+  if (type === "insurance") return vehicle.insurance_expiry_date ?? "";
+  return vehicle.rego_expiry_date ?? "";
+}
+
+function documentUrlForType(
+  vehicle: OrganizationFleetVehicle,
+  type: FleetDocumentType
+): string | null {
+  if (type === "warranty_fitness") return vehicle.warranty_fitness_document_url ?? null;
+  if (type === "insurance") return vehicle.insurance_document_url ?? null;
+  return vehicle.rego_document_url ?? null;
+}
+
 interface FleetDocumentsModalProps {
   vehicle: OrganizationFleetVehicle;
   documentType?: FleetDocumentType;
@@ -26,22 +44,14 @@ export default function FleetDocumentsModal({
   onSaved,
 }: FleetDocumentsModalProps) {
   const [activeType, setActiveType] = useState<FleetDocumentType>(documentType);
-  const [expiryDate, setExpiryDate] = useState(
-    documentType === "insurance"
-      ? vehicle.insurance_expiry_date ?? ""
-      : vehicle.rego_expiry_date ?? ""
-  );
+  const [expiryDate, setExpiryDate] = useState(expiryDateForType(vehicle, documentType));
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleTypeChange = (type: FleetDocumentType) => {
     setActiveType(type);
-    setExpiryDate(
-      type === "insurance"
-        ? vehicle.insurance_expiry_date ?? ""
-        : vehicle.rego_expiry_date ?? ""
-    );
+    setExpiryDate(expiryDateForType(vehicle, type));
     setFile(null);
     setError(null);
   };
@@ -106,8 +116,8 @@ export default function FleetDocumentsModal({
           </button>
         </div>
 
-        <div className="mb-4 flex gap-2">
-          {(["rego", "insurance"] as const).map((type) => (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {(["rego", "warranty_fitness", "insurance"] as const).map((type) => (
             <button
               key={type}
               type="button"
@@ -142,6 +152,16 @@ export default function FleetDocumentsModal({
               className={inputClass}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
+            {documentUrlForType(vehicle, activeType) ? (
+              <a
+                href={documentUrlForType(vehicle, activeType) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs font-medium text-orange-600 hover:text-orange-700"
+              >
+                View current document
+              </a>
+            ) : null}
           </label>
         </div>
 

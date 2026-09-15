@@ -5,7 +5,7 @@ export const FLEET_DOCUMENTS_BUCKET = "plant-documents";
 export async function uploadFleetDocument(
   file: File,
   fleetId: string,
-  documentType: "rego" | "insurance"
+  documentType: "rego" | "warranty_fitness" | "insurance"
 ): Promise<{ url: string | null; error: string | null }> {
   try {
     const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";

@@ -52,14 +52,21 @@ export default function AddFleetModal({
       : "Active"
   );
   const [regoExpiryDate, setRegoExpiryDate] = useState(vehicle?.rego_expiry_date ?? "");
+  const [warrantyFitnessExpiryDate, setWarrantyFitnessExpiryDate] = useState(
+    vehicle?.warranty_fitness_expiry_date ?? ""
+  );
   const [insuranceExpiryDate, setInsuranceExpiryDate] = useState(
     vehicle?.insurance_expiry_date ?? ""
   );
   const [regoDocumentUrl, setRegoDocumentUrl] = useState(vehicle?.rego_document_url ?? "");
+  const [warrantyFitnessDocumentUrl, setWarrantyFitnessDocumentUrl] = useState(
+    vehicle?.warranty_fitness_document_url ?? ""
+  );
   const [insuranceDocumentUrl, setInsuranceDocumentUrl] = useState(
     vehicle?.insurance_document_url ?? ""
   );
   const [regoFile, setRegoFile] = useState<File | null>(null);
+  const [warrantyFitnessFile, setWarrantyFitnessFile] = useState<File | null>(null);
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
   const [assignedWorkerId, setAssignedWorkerId] = useState<string | null>(
     vehicle?.assigned_worker_id ?? null
@@ -125,8 +132,10 @@ export default function AddFleetModal({
         : "Active"
     );
     setRegoExpiryDate(vehicle.rego_expiry_date ?? "");
+    setWarrantyFitnessExpiryDate(vehicle.warranty_fitness_expiry_date ?? "");
     setInsuranceExpiryDate(vehicle.insurance_expiry_date ?? "");
     setRegoDocumentUrl(vehicle.rego_document_url ?? "");
+    setWarrantyFitnessDocumentUrl(vehicle.warranty_fitness_document_url ?? "");
     setInsuranceDocumentUrl(vehicle.insurance_document_url ?? "");
     setAssignedWorkerId(vehicle.assigned_worker_id ?? null);
   }, [vehicle]);
@@ -156,8 +165,10 @@ export default function AddFleetModal({
         currentHours: Number(currentHours) || 0,
         status,
         regoExpiryDate: regoExpiryDate || null,
+        warrantyFitnessExpiryDate: warrantyFitnessExpiryDate || null,
         insuranceExpiryDate: insuranceExpiryDate || null,
         regoDocumentUrl: regoDocumentUrl || null,
+        warrantyFitnessDocumentUrl: warrantyFitnessDocumentUrl || null,
         insuranceDocumentUrl: insuranceDocumentUrl || null,
       };
 
@@ -180,6 +191,7 @@ export default function AddFleetModal({
       }
 
       let nextRegoUrl = payload.regoDocumentUrl;
+      let nextWarrantyFitnessUrl = payload.warrantyFitnessDocumentUrl;
       let nextInsuranceUrl = payload.insuranceDocumentUrl;
 
       if (regoFile && vehicleId) {
@@ -191,6 +203,19 @@ export default function AddFleetModal({
         nextRegoUrl = upload.url;
       }
 
+      if (warrantyFitnessFile && vehicleId) {
+        const upload = await uploadFleetDocument(
+          warrantyFitnessFile,
+          vehicleId,
+          "warranty_fitness"
+        );
+        if (upload.error) {
+          setError(upload.error);
+          return;
+        }
+        nextWarrantyFitnessUrl = upload.url;
+      }
+
       if (insuranceFile && vehicleId) {
         const upload = await uploadFleetDocument(insuranceFile, vehicleId, "insurance");
         if (upload.error) {
@@ -200,10 +225,11 @@ export default function AddFleetModal({
         nextInsuranceUrl = upload.url;
       }
 
-      if ((regoFile || insuranceFile) && vehicleId) {
+      if ((regoFile || warrantyFitnessFile || insuranceFile) && vehicleId) {
         const updateResult = await updateOrganizationFleetVehicle(vehicleId, {
           ...payload,
           regoDocumentUrl: nextRegoUrl,
+          warrantyFitnessDocumentUrl: nextWarrantyFitnessUrl,
           insuranceDocumentUrl: nextInsuranceUrl,
         });
         if (updateResult.error) {
@@ -402,6 +428,24 @@ export default function AddFleetModal({
                 accept=".pdf,.jpg,.jpeg,.png,.webp"
                 className={inputClass}
                 onChange={(e) => setRegoFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Warranty Fitness Expiry Date</span>
+              <input
+                type="date"
+                className={inputClass}
+                value={warrantyFitnessExpiryDate ?? ""}
+                onChange={(e) => setWarrantyFitnessExpiryDate(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Warranty Fitness Document Upload</span>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                className={inputClass}
+                onChange={(e) => setWarrantyFitnessFile(e.target.files?.[0] ?? null)}
               />
             </label>
             <label className="block">

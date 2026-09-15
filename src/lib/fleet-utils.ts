@@ -105,7 +105,9 @@ export function formatFleetAssignedWorker(
 }
 
 export function fleetDocumentTypeLabel(type: FleetDocumentType): string {
-  return type === "rego" ? "Registration Expiry" : "Insurance Expiry";
+  if (type === "rego") return "Registration Expiry";
+  if (type === "warranty_fitness") return "Warranty Fitness Expiry Date";
+  return "Insurance Expiry";
 }
 
 export interface ExpiringFleetAlert {
