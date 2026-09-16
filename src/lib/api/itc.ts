@@ -30,6 +30,7 @@ import {
 } from "@/lib/itc-service";
 import { formatItcAutoName } from "@/lib/itc-naming";
 import { PROJECT_ITCS_TABLE, retryItpItcWrite } from "@/lib/itp-itc-payload";
+import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
 import { fetchItcMasterSpecs } from "@/lib/itc-master-spec-service";
 import { fetchCompactionTests, type ItcCompactionTest } from "@/lib/itc-compaction-service";
 import {
@@ -1230,6 +1231,39 @@ export async function listFormVersions(): Promise<FieldFormVersion[]> {
   });
 }
 
+async function writeProjectItcIgnoringUnknownColumns(payload: Record<string, unknown>) {
+  const form =
+    payload.form_data && typeof payload.form_data === "object" && !Array.isArray(payload.form_data)
+      ? (payload.form_data as Record<string, unknown>)
+      : {};
+  const next: Record<string, unknown> = { ...payload };
+  delete next.form_data;
+  next.checklist_answers = payload.checklist_answers ?? payload.data ?? form.checklist_answers ?? form.checklist ?? {};
+
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const { data, error } = await supabase
+      .from(PROJECT_ITCS_TABLE)
+      .insert(next)
+      .select("*")
+      .maybeSingle();
+    if (!error) return { data, error: null };
+    lastError = error.message;
+    const missing = parseMissingColumnFromError(lastError);
+    if (missing && missing in next) {
+      delete next[missing];
+      continue;
+    }
+    const lower = lastError.toLowerCase();
+    if (lower.includes("form_data") && "form_data" in next) {
+      delete next.form_data;
+      continue;
+    }
+    return { data: undefined, error: lastError };
+  }
+  return { data: undefined, error: lastError };
+}
+
 export async function createItcFromPin(
   input: CreateItcFromPinInput
 ): Promise<{ error: string | null; itc?: FieldItcRecord }> {
@@ -1314,6 +1348,13 @@ export async function createItcFromPin(
     form_version_id: input.formVersionId || null,
     status: "not_started",
     progress_percent: 0,
+    checklist_answers: {},
+    data: {
+      pin_x: pinX,
+      pin_y: pinY,
+      service_id: input.serviceId,
+      form_version_id: input.formVersionId,
+    },
     form_data: {
       pin_x: pinX,
       pin_y: pinY,
@@ -1322,14 +1363,7 @@ export async function createItcFromPin(
     },
   };
 
-  const result = await retryItpItcWrite("project_itcs.pin_drop", siteboltPayload, async (next) => {
-    const { data, error } = await supabase
-      .from(PROJECT_ITCS_TABLE)
-      .insert(next)
-      .select("*")
-      .maybeSingle();
-    return { data, error };
-  });
+  const result = await writeProjectItcIgnoringUnknownColumns(siteboltPayload);
 
   if (result.error || !result.data) {
     return { error: result.error ?? "Failed to create ITC from pin." };

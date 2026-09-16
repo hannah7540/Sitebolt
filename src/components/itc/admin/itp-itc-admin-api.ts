@@ -15,6 +15,7 @@ import {
 import { fetchProjectItcs } from "@/lib/itc-service";
 import { fetchProjectItps } from "@/lib/itp-service";
 import { downscaleImage, captureGps } from "@/lib/api/itc";
+import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
 import {
   getAdminItpTemplate,
   type AdminChecklistQuestion,
@@ -235,7 +236,10 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
     pipe_material: str(form, "pipe_material"),
     pin_x: num(hydrated, "pin_x") ?? num(hydrated, "map_x") ?? num(form, "pin_x"),
     pin_y: num(hydrated, "pin_y") ?? num(hydrated, "map_y") ?? num(form, "pin_y"),
-    checklist: mapChecklist(form.checklist ?? hydrated.checklist, template?.questions ?? []),
+    checklist: mapChecklist(
+      form.checklist ?? form.checklist_answers ?? hydrated.checklist ?? hydrated.checklist_answers,
+      template?.questions ?? []
+    ),
     photos: mapPhotos(form.photos ?? hydrated.photos),
     wae_url: str(form, "wae_url") ?? str(form, "wae_plan_markup_url"),
     completed_by_name: str(form, "completed_by_name") ?? str(form, "completed_by"),
@@ -617,13 +621,19 @@ export async function createAdminItcFromPin(input: {
       itc_number: itcNumber,
       status: input.status ?? "in_progress",
       checklist,
+      checklist_answers: checklist,
       photos: [],
     },
+    checklist_answers: checklist,
   };
 
-  const prototype = await retryItpItcWrite("itcs.admin_pin", payload, async (next) => {
-    const { data, error } = await supabase.from("itcs").insert(next).select("*").maybeSingle();
-    return { data, error };
+  const prototype = await writeItcMutation({
+    table: "itcs",
+    payload,
+    write: async (next) => {
+      const { data, error } = await supabase.from("itcs").insert(next).select("*").maybeSingle();
+      return { data, error };
+    },
   });
   if (!prototype.error && prototype.data) {
     return {
@@ -639,13 +649,17 @@ export async function createAdminItcFromPin(input: {
     };
   }
 
-  const result = await retryItpItcWrite("project_itcs.admin_pin", payload, async (next) => {
-    const { data, error } = await supabase
-      .from(PROJECT_ITCS_TABLE)
-      .insert(next)
-      .select("*")
-      .maybeSingle();
-    return { data, error };
+  const result = await writeItcMutation({
+    table: PROJECT_ITCS_TABLE,
+    payload,
+    write: async (next) => {
+      const { data, error } = await supabase
+        .from(PROJECT_ITCS_TABLE)
+        .insert(next)
+        .select("*")
+        .maybeSingle();
+      return { data, error };
+    },
   });
   if (result.error || !result.data) {
     return { error: result.error ?? "Failed to create ITC" };
@@ -664,22 +678,92 @@ export async function createAdminItcFromPin(input: {
   };
 }
 
+async function writeItcMutation<T>(input: {
+  table: string;
+  payload: Record<string, unknown>;
+  write: (payload: Record<string, unknown>) => Promise<{ data?: T; error: { message: string } | null }>;
+}): Promise<{ data?: T; error: string | null }> {
+  let payload = payloadForItcTable(input.table, input.payload);
+  let lastError: string | null = null;
+
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const result = await input.write(payload);
+    if (!result.error) {
+      return { data: result.data, error: null };
+    }
+    lastError = result.error.message;
+    const missing = parseMissingColumnFromError(lastError);
+    if (missing && missing in payload) {
+      const next = { ...payload };
+      delete next[missing];
+      payload = next;
+      continue;
+    }
+    if (isFormDataColumnError(lastError) && "form_data" in payload) {
+      payload = payloadForItcTable("project_itcs", payload);
+      continue;
+    }
+    return { data: undefined, error: lastError };
+  }
+  return { data: undefined, error: lastError };
+}
+
+function isFormDataColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("form_data") && (lower.includes("schema cache") || lower.includes("column"));
+}
+
+function asFormRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function payloadForItcTable(table: string, payload: Record<string, unknown>): Record<string, unknown> {
+  const form = asFormRecord(payload.form_data);
+  const checklist =
+    payload.checklist_answers ??
+    payload.data ??
+    form.checklist_answers ??
+    form.checklist ??
+    form.data ??
+    {};
+  if (table === PROJECT_ITCS_TABLE) {
+    const next = { ...payload };
+    delete next.form_data;
+    next.checklist_answers = checklist;
+    return next;
+  }
+  return {
+    ...payload,
+    form_data: payload.form_data ?? payload.data ?? checklist ?? {},
+    checklist_answers: checklist,
+  };
+}
+
 async function updateAdminItcRow(
   id: string,
   payload: Record<string, unknown>
 ): Promise<{ error: string | null }> {
-  const [project, prototype] = await Promise.all([
-    retryItpItcWrite("project_itcs.admin_save", payload, async (next) => {
-      const { error } = await supabase.from(PROJECT_ITCS_TABLE).update(next).eq("id", id);
-      return { error };
-    }),
-    retryItpItcWrite("itcs.admin_save", payload, async (next) => {
-      const { error } = await supabase.from("itcs").update(next).eq("id", id);
-      return { error };
-    }),
-  ]);
-  if (!project.error || !prototype.error) return { error: null };
-  return { error: project.error ?? prototype.error };
+  let lastError: string | null = null;
+  for (const table of ["itcs", PROJECT_ITCS_TABLE]) {
+    const result = await writeItcMutation({
+      table,
+      payload,
+      write: async (next) => {
+        const { data, error } = await supabase
+          .from(table)
+          .update(next)
+          .eq("id", id)
+          .select("id")
+          .maybeSingle();
+        return { data, error };
+      },
+    });
+    if (!result.error && result.data) return { error: null };
+    lastError = result.error;
+  }
+  return { error: lastError ?? "Failed to save ITC" };
 }
 
 function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
@@ -815,7 +899,12 @@ export async function uploadAdminItcPhoto(input: {
 }
 
 export async function persistAdminItcMedia(itc: AdminItcRecord): Promise<{ error: string | null }> {
-  return updateAdminItcRow(itc.id, { form_data: buildItcFormData(itc) });
+  return updateAdminItcRow(itc.id, {
+    checklist_answers: itc.checklist,
+    photo_urls: itc.photos.map((photo) => photo.url),
+    wae_plan_markup_url: itc.wae_url,
+    form_data: buildItcFormData(itc),
+  });
 }
 
 export async function uploadAdminWaeMarkup(input: {
