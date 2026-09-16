@@ -563,6 +563,7 @@ export async function createAdminItcFromPin(input: {
   pipeMaterial: string;
   preferredNumber?: string | null;
   reservedNumbers?: string[];
+  status?: "not_started" | "in_progress";
 }): Promise<{ error: string | null; itc?: AdminItcRecord }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
@@ -601,7 +602,7 @@ export async function createAdminItcFromPin(input: {
     map_x: input.pinX,
     map_y: input.pinY,
     drawing_rev: input.itp.drawing_ref,
-    status: "not_started",
+    status: input.status ?? "in_progress",
     progress_percent: 0,
     form_data: {
       itp_id: input.itp.id,
@@ -614,6 +615,7 @@ export async function createAdminItcFromPin(input: {
       drawing_ref: input.itp.drawing_ref,
       area: input.itp.area,
       itc_number: itcNumber,
+      status: input.status ?? "in_progress",
       checklist,
       photos: [],
     },
@@ -626,7 +628,14 @@ export async function createAdminItcFromPin(input: {
   if (!prototype.error && prototype.data) {
     return {
       error: null,
-      itc: { ...mapItcRow(asRecord(prototype.data)), number: itcNumber },
+      itc: {
+        ...mapItcRow(asRecord(prototype.data)),
+        number: itcNumber,
+        pin_x: input.pinX,
+        pin_y: input.pinY,
+        itp_id: input.itp.id,
+        status: input.status === "not_started" ? "active" : "in_progress",
+      },
     };
   }
 
@@ -650,6 +659,7 @@ export async function createAdminItcFromPin(input: {
       pin_y: input.pinY,
       itp_id: input.itp.id,
       checklist,
+      status: input.status === "not_started" ? "active" : "in_progress",
     },
   };
 }

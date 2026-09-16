@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Plus, Upload, X } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
-import { adminItcPinMarker, parseAdminItcSequence } from "@/components/itc/admin/itp-itc-admin-numbering";
+import {
+  adminItcPinMarker,
+  formatAdminItcNumber,
+  parseAdminItcSequence,
+} from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
+  allocateAdminItcNumber,
+  createAdminItcFromPin,
   formatAdminDate,
   saveAdminItpRecord,
   uploadItpPlan,
@@ -14,10 +20,16 @@ import {
   type AdminItpRecord,
   type AdminStatusBadge,
 } from "@/components/itc/admin/itp-itc-admin-api";
+import {
+  ADMIN_PIPE_MATERIALS,
+  ADMIN_PIPE_SIZES,
+  getAdminItpTemplate,
+} from "@/components/itc/admin/itp-itc-admin-types";
 import Toast from "@/components/ui/Toast";
 import {
   inputClass,
   modalBodyClass,
+  modalClass,
   modalCloseIconButtonClass,
   modalOverlayClass,
   modalShellClass,
@@ -28,10 +40,12 @@ import { cn } from "@/lib/utils";
 interface ItpMasterDrawerProps {
   itp: AdminItpRecord;
   itcs: AdminItcRecord[];
+  projectName: string;
   loading?: boolean;
   onClose: () => void;
   onOpenItc: (id: string) => void;
   onSaved?: (itp: AdminItpRecord) => void;
+  onCreatedItc?: (itc: AdminItcRecord) => void;
 }
 
 const STATUS_OPTIONS: Array<{ value: AdminStatusBadge; label: string }> = [
@@ -43,10 +57,12 @@ const STATUS_OPTIONS: Array<{ value: AdminStatusBadge; label: string }> = [
 export default function ItpMasterDrawer({
   itp,
   itcs,
+  projectName,
   loading = false,
   onClose,
   onOpenItc,
   onSaved,
+  onCreatedItc,
 }: ItpMasterDrawerProps) {
   const [title, setTitle] = useState(itp.title);
   const [area, setArea] = useState(itp.area ?? "");
@@ -56,24 +72,42 @@ export default function ItpMasterDrawer({
   const [drawingRef, setDrawingRef] = useState(itp.drawing_ref ?? "");
   const [status, setStatus] = useState<AdminStatusBadge>(itp.status);
   const [planUrl, setPlanUrl] = useState(itp.plan_url);
+  const [localItcs, setLocalItcs] = useState(itcs);
+  const [dropMode, setDropMode] = useState(false);
+  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null);
+  const [pendingNumber, setPendingNumber] = useState("");
+  const [runNumber, setRunNumber] = useState("");
+  const [pipeSize, setPipeSize] = useState("100mm");
+  const [pipeMaterial, setPipeMaterial] = useState("PVC");
   const [saving, setSaving] = useState(false);
+  const [savingPin, setSavingPin] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const pins = itcs
-    .filter((row) => row.pin_x != null && row.pin_y != null)
-    .map((row, index) => {
-      const sequence = parseAdminItcSequence(row.number) ?? index + 1;
-      return {
-        id: row.id,
-        x: row.pin_x as number,
-        y: row.pin_y as number,
-        number: sequence,
-        marker: adminItcPinMarker(row.number, index + 1),
-        label: row.number,
-      };
-    });
+  useEffect(() => {
+    setLocalItcs(itcs);
+  }, [itcs]);
+
+  const template = getAdminItpTemplate(itp.template_key);
+
+  const pins = useMemo(
+    () =>
+      localItcs
+        .filter((row) => row.pin_x != null && row.pin_y != null)
+        .map((row, index) => {
+          const sequence = parseAdminItcSequence(row.number) ?? index + 1;
+          return {
+            id: row.id,
+            x: row.pin_x as number,
+            y: row.pin_y as number,
+            number: sequence,
+            marker: adminItcPinMarker(row.number, index + 1),
+            label: row.number,
+          };
+        }),
+    [localItcs]
+  );
 
   const currentItp = (): AdminItpRecord => ({
     ...itp,
@@ -111,6 +145,65 @@ export default function ItpMasterDrawer({
     }
     setToast("Changes saved successfully");
     onSaved?.(next);
+  };
+
+  const startDropMode = () => {
+    if (!planUrl) {
+      setMessage("Upload a plan drawing before dropping pins.");
+      return;
+    }
+    setDropMode((current) => !current);
+    setMessage(null);
+  };
+
+  const handleDrop = async (x: number, y: number) => {
+    setDropMode(false);
+    setPendingPin({ x, y });
+    setRunNumber("");
+    setMessage(null);
+    const allocated = await allocateAdminItcNumber({
+      projectId: itp.project_id,
+      projectName,
+      area: area.trim() || itp.area || "AREA",
+      reservedNumbers: localItcs.map((row) => row.number),
+    });
+    setPendingNumber(allocated.number);
+  };
+
+  const savePin = async () => {
+    if (!pendingPin) return;
+    if (!runNumber.trim()) {
+      setMessage("Enter a run / line number.");
+      return;
+    }
+    setSavingPin(true);
+    setMessage(null);
+    const parent = currentItp();
+    const result = await createAdminItcFromPin({
+      projectId: itp.project_id,
+      projectName,
+      itp: parent,
+      pinX: pendingPin.x,
+      pinY: pendingPin.y,
+      runNumber: runNumber.trim(),
+      pipeSize,
+      pipeMaterial,
+      preferredNumber: pendingNumber,
+      reservedNumbers: localItcs.map((row) => row.number),
+      status: "in_progress",
+    });
+    setSavingPin(false);
+    if (result.error || !result.itc) {
+      setMessage(result.error ?? "Failed to create ITC");
+      return;
+    }
+    const created = result.itc;
+    setLocalItcs((current) => [...current, created]);
+    setPendingPin(null);
+    setPendingNumber("");
+    setRunNumber("");
+    setToast(`Created ITC ${created.number}`);
+    onCreatedItc?.(created);
   };
 
   return (
@@ -245,19 +338,37 @@ export default function ItpMasterDrawer({
                   />
                 </label>
               </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-slate-600">
+                  Interactive plan — click a pin to edit that ITC, or drop a new pin to create one.
+                </p>
+                <button
+                  type="button"
+                  onClick={startDropMode}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
+                    dropMode ? "bg-orange-500 text-white" : "bg-slate-900 text-white"
+                  )}
+                >
+                  <Plus className="h-4 w-4" />
+                  {dropMode ? "Click plan to drop pin" : "+ Drop Pin to Add ITC"}
+                </button>
+              </div>
               <ItpItcPlanCanvas
                 planUrl={planUrl}
                 pins={pins}
+                dropEnabled={dropMode}
                 emptyHint="No plan drawing uploaded for this ITP."
+                onDrop={(x, y) => void handleDrop(x, y)}
                 onPinClick={(pin) => onOpenItc(pin.id)}
               />
               <div>
                 <h3 className="mb-2 text-sm font-semibold text-slate-900">Associated ITCs</h3>
-                {itcs.length === 0 ? (
+                {localItcs.length === 0 ? (
                   <p className="text-sm text-slate-500">No pins have been saved against this ITP yet.</p>
                 ) : (
                   <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                    {itcs.map((itc, index) => (
+                    {localItcs.map((itc, index) => (
                       <li key={itc.id}>
                         <button
                           type="button"
@@ -304,6 +415,129 @@ export default function ItpMasterDrawer({
           </button>
         </div>
       </div>
+
+      {pendingPin ? (
+        <div
+          className={`${modalOverlayClass} z-[60]`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setPendingPin(null);
+          }}
+        >
+          <div className={`${modalClass} max-w-lg`} onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">New ITC Pin</h3>
+            <p className="mb-4 text-sm text-slate-500">
+              Pin at {(pendingPin.x * 100).toFixed(1)}% × {(pendingPin.y * 100).toFixed(1)}%
+            </p>
+            <div className="space-y-3">
+              <div>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  ITC number
+                </span>
+                <p className="inline-flex items-center rounded-full bg-orange-100 px-3 py-1.5 font-mono text-sm font-bold text-orange-800">
+                  {pendingNumber ||
+                    formatAdminItcNumber(projectName, area || itp.area || "AREA", localItcs.length + 1)}
+                </p>
+              </div>
+              <dl className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-slate-500">Project</dt>
+                  <dd>{projectName}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-slate-500">Area</dt>
+                  <dd>{area || itp.area || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-slate-500">Drawing ref</dt>
+                  <dd>{drawingRef || itp.drawing_ref || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-slate-500">Template</dt>
+                  <dd>{template?.title || "—"}</dd>
+                </div>
+              </dl>
+              <label>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  Run / Line number
+                </span>
+                <input
+                  value={runNumber}
+                  onChange={(event) => setRunNumber(event.target.value)}
+                  placeholder='e.g. "SW11-01 to SW11-02"'
+                  className={inputClass}
+                />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  Pipe size
+                </span>
+                <select
+                  value={pipeSize}
+                  onChange={(event) => setPipeSize(event.target.value)}
+                  className={inputClass}
+                >
+                  {ADMIN_PIPE_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  Pipe material
+                </span>
+                <select
+                  value={pipeMaterial}
+                  onChange={(event) => setPipeMaterial(event.target.value)}
+                  className={inputClass}
+                >
+                  {ADMIN_PIPE_MATERIALS.map((material) => (
+                    <option key={material} value={material}>
+                      {material}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
+                  Checklist from template
+                </p>
+                {template?.questions.length ? (
+                  <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
+                    {template.questions.map((question) => (
+                      <li key={question.key}>{question.text}</li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-sm text-slate-500">No template questions on this ITP.</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              {message ? <p className="mr-auto self-center text-sm text-rose-600">{message}</p> : null}
+              <button
+                type="button"
+                onClick={() => setPendingPin(null)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void savePin()}
+                disabled={savingPin}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+              >
+                {savingPin ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Create ITC
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {toast ? (
         <div onClick={(event) => event.stopPropagation()}>
           <Toast message={toast} variant="success" onDismiss={() => setToast(null)} />

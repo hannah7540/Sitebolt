@@ -102,7 +102,10 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
   };
 
   const openItcDrawer = async (id: string) => {
-    const itc = itcs.find((row) => row.id === id) ?? (await getAdminItc(id));
+    const itc =
+      itcs.find((row) => row.id === id) ??
+      itpPins.find((row) => row.id === id) ??
+      (await getAdminItc(id));
     if (!itc) return;
     setOpenItc(itc);
   };
@@ -180,12 +183,21 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
           key={openItp.id}
           itp={openItp}
           itcs={itpPins}
+          projectName={projectName(openItp.project_id)}
           loading={loadingPins}
           onClose={() => setOpenItp(null)}
           onOpenItc={(id) => void openItcDrawer(id)}
           onSaved={(next) => {
             setOpenItp(next);
             setItps((current) => current.map((row) => (row.id === next.id ? next : row)));
+          }}
+          onCreatedItc={(created) => {
+            setItpPins((current) =>
+              current.some((row) => row.id === created.id) ? current : [...current, created]
+            );
+            setItcs((current) =>
+              current.some((row) => row.id === created.id) ? current : [...current, created]
+            );
           }}
         />
       ) : null}
