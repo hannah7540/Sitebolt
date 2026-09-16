@@ -177,24 +177,30 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
 
       {openItp ? (
         <ItpMasterDrawer
+          key={openItp.id}
           itp={openItp}
           itcs={itpPins}
           loading={loadingPins}
           onClose={() => setOpenItp(null)}
           onOpenItc={(id) => void openItcDrawer(id)}
+          onSaved={(next) => {
+            setOpenItp(next);
+            setItps((current) => current.map((row) => (row.id === next.id ? next : row)));
+          }}
         />
       ) : null}
 
       {openItc ? (
         <ItcChecklistDrawer
+          key={openItc.id}
           itc={openItc}
           projectName={projectName(openItc.project_id)}
           defaultSignerName={signerName}
           onClose={() => setOpenItc(null)}
           onSaved={(next) => {
-            setOpenItc(null);
+            setOpenItc(next);
             setItcs((current) => current.map((row) => (row.id === next.id ? next : row)));
-            void loadRecords();
+            setItpPins((current) => current.map((row) => (row.id === next.id ? next : row)));
           }}
         />
       ) : null}

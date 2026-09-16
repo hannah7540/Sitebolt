@@ -81,8 +81,10 @@ export interface AdminItcRecord {
   wae_url: string | null;
   completed_by_name: string | null;
   completed_by_signature: string | null;
+  completed_at: string | null;
   reviewed_by_name: string | null;
   reviewed_by_signature: string | null;
+  reviewed_at: string | null;
   status: AdminStatusBadge;
   created_at: string | null;
 }
@@ -136,6 +138,12 @@ function mapStatus(value: string | null | undefined): AdminStatusBadge {
     return "in_progress";
   }
   return "active";
+}
+
+export function toDbItcStatus(status: AdminStatusBadge): string {
+  if (status === "completed") return "complete";
+  if (status === "in_progress") return "in_progress";
+  return "not_started";
 }
 
 function mapChecklist(
@@ -229,11 +237,15 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
     pin_y: num(hydrated, "pin_y") ?? num(hydrated, "map_y") ?? num(form, "pin_y"),
     checklist: mapChecklist(form.checklist ?? hydrated.checklist, template?.questions ?? []),
     photos: mapPhotos(form.photos ?? hydrated.photos),
-    wae_url: str(form, "wae_url"),
-    completed_by_name: str(form, "completed_by_name"),
-    completed_by_signature: str(form, "completed_by_signature"),
-    reviewed_by_name: str(form, "reviewed_by_name"),
-    reviewed_by_signature: str(form, "reviewed_by_signature"),
+    wae_url: str(form, "wae_url") ?? str(form, "wae_plan_markup_url"),
+    completed_by_name: str(form, "completed_by_name") ?? str(form, "completed_by"),
+    completed_by_signature:
+      str(form, "completed_by_signature") ?? str(form, "signature_url"),
+    completed_at: str(form, "signed_at") ?? str(form, "completed_at"),
+    reviewed_by_name: str(form, "reviewed_by_name") ?? str(form, "reviewed_by"),
+    reviewed_by_signature:
+      str(form, "reviewed_by_signature") ?? str(form, "reviewed_signature_url"),
+    reviewed_at: str(form, "reviewed_at"),
     status: mapStatus(str(hydrated, "status")),
     created_at: str(hydrated, "created_at"),
   };
@@ -670,14 +682,56 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     pin_y: itc.pin_y,
     drawing_ref: itc.drawing_ref,
     area: itc.area,
+    line_location: itc.area,
     checklist: itc.checklist,
+    checklist_answers: itc.checklist,
     photos: itc.photos,
+    photo_urls: itc.photos,
     wae_url: itc.wae_url,
+    wae_plan_markup_url: itc.wae_url,
+    completed_by: itc.completed_by_name,
     completed_by_name: itc.completed_by_name,
     completed_by_signature: itc.completed_by_signature,
+    signature_url: itc.completed_by_signature,
+    signed_at: itc.completed_at,
+    completed_at: itc.completed_at,
+    reviewed_by: itc.reviewed_by_name,
     reviewed_by_name: itc.reviewed_by_name,
     reviewed_by_signature: itc.reviewed_by_signature,
+    reviewed_signature_url: itc.reviewed_by_signature,
+    reviewed_at: itc.reviewed_at,
+    status: itc.status,
   };
+}
+
+export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: string | null }> {
+  const answered = itc.checklist.filter((item) => item.result).length;
+  const payload: Record<string, unknown> = {
+    start_location: itc.run_number,
+    end_location: itc.run_number,
+    building: itc.area,
+    line_location: itc.area,
+    drawing_rev: itc.drawing_ref,
+    pipe_size: itc.pipe_size,
+    pipe_material: itc.pipe_material,
+    material_and_size: [itc.pipe_size, itc.pipe_material].filter(Boolean).join(" "),
+    checklist_answers: itc.checklist,
+    photo_urls: itc.photos.map((photo) => photo.url),
+    wae_plan_markup_url: itc.wae_url,
+    status: toDbItcStatus(itc.status),
+    progress_percent: itc.checklist.length
+      ? Math.round((answered / itc.checklist.length) * 100)
+      : 0,
+    completed_by: itc.completed_by_name,
+    signature_url: itc.completed_by_signature,
+    signed_at: itc.completed_at,
+    reviewed_by: itc.reviewed_by_name,
+    reviewed_signature_url: itc.reviewed_by_signature,
+    reviewed_at: itc.reviewed_at,
+    updated_at: new Date().toISOString(),
+    form_data: buildItcFormData(itc),
+  };
+  return updateAdminItcRow(itc.id, payload);
 }
 
 export async function saveAdminItcChecklist(input: {
@@ -688,24 +742,37 @@ export async function saveAdminItcChecklist(input: {
   reviewedByName: string;
   reviewedBySignature: string | null;
 }): Promise<{ error: string | null }> {
-  const answered = input.checklist.filter((item) => item.result).length;
-  const complete =
-    answered > 0 && answered === input.checklist.length && Boolean(input.completedBySignature);
-  const nextItc: AdminItcRecord = {
+  return saveAdminItcRecord({
     ...input.itc,
     checklist: input.checklist,
     completed_by_name: input.completedByName,
     completed_by_signature: input.completedBySignature,
     reviewed_by_name: input.reviewedByName,
     reviewed_by_signature: input.reviewedBySignature,
-    status: complete ? "completed" : answered > 0 ? "in_progress" : "active",
+  });
+}
+
+export async function saveAdminItpRecord(itp: AdminItpRecord): Promise<{ error: string | null }> {
+  const payload: Record<string, unknown> = {
+    title: itp.title,
+    location_area: itp.area,
+    subcontractor_name: itp.subcontractor,
+    revision: itp.drawing_ref || "A",
+    status: toDbItcStatus(itp.status),
+    updated_at: new Date().toISOString(),
+    form_data: {
+      client: itp.client,
+      managing_contractor: itp.managing_contractor,
+      subcontractor: itp.subcontractor,
+      drawing_ref: itp.drawing_ref,
+      plan_url: itp.plan_url,
+      template_key: itp.template_key,
+      area: itp.area,
+    },
   };
-  return updateAdminItcRow(input.itc.id, {
-    status: complete ? "complete" : answered > 0 ? "in_progress" : "not_started",
-    progress_percent: input.checklist.length
-      ? Math.round((answered / input.checklist.length) * 100)
-      : 0,
-    form_data: buildItcFormData(nextItc),
+  return retryItpItcWrite("project_itps.admin_save", payload, async (next) => {
+    const { error } = await supabase.from(PROJECT_ITPS_TABLE).update(next).eq("id", itp.id);
+    return { error };
   });
 }
 
@@ -780,7 +847,7 @@ export function isPlanPdf(url: string | null | undefined, mime?: string | null):
 }
 
 export const ADMIN_STATUS_LABELS: Record<AdminStatusBadge, string> = {
-  active: "Active",
+  active: "Draft",
   in_progress: "In Progress",
   completed: "Completed",
 };
