@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
+import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
 import {
   allocateAdminItcNumber,
   createAdminItcFromPin,
@@ -18,12 +19,11 @@ import {
 } from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
   ADMIN_ITP_TEMPLATES,
-  ADMIN_PIPE_MATERIALS,
-  ADMIN_PIPE_SIZES,
   DEFAULT_ITC_CLIENT,
   DEFAULT_MANAGING_CONTRACTOR,
   DEFAULT_SUBCONTRACTOR,
   getAdminItpTemplate,
+  type AdminItcSpecValues,
 } from "@/components/itc/admin/itp-itc-admin-types";
 import { cardClass, inputClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
   const [runNumber, setRunNumber] = useState("");
   const [pipeSize, setPipeSize] = useState("100mm");
   const [pipeMaterial, setPipeMaterial] = useState("PVC");
+  const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(null);
   const [nextSequence, setNextSequence] = useState(1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -192,6 +193,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       runNumber: runNumber.trim(),
       pipeSize,
       pipeMaterial,
+      specValues,
       preferredNumber: pendingItcNumber,
       reservedNumbers: pins.map((row) => row.number),
     });
@@ -435,7 +437,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
 
       {pendingPin ? (
         <div className={modalOverlayClass} onClick={() => setPendingPin(null)}>
-          <div className={`${modalClass} max-w-lg`} onClick={(event) => event.stopPropagation()}>
+          <div className={`${modalClass} max-w-xl`} onClick={(event) => event.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-900">Define this run</h3>
             <p className="mb-4 text-sm text-slate-500">
               Pin at {(pendingPin.x * 100).toFixed(1)}% × {(pendingPin.y * 100).toFixed(1)}%
@@ -461,38 +463,15 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
                   className={inputClass}
                 />
               </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Pipe size
-                </span>
-                <select
-                  value={pipeSize}
-                  onChange={(event) => setPipeSize(event.target.value)}
-                  className={inputClass}
-                >
-                  {ADMIN_PIPE_SIZES.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Pipe material
-                </span>
-                <select
-                  value={pipeMaterial}
-                  onChange={(event) => setPipeMaterial(event.target.value)}
-                  className={inputClass}
-                >
-                  {ADMIN_PIPE_MATERIALS.map((material) => (
-                    <option key={material} value={material}>
-                      {material}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <AdminItcServiceSpecFields
+                pipeSize={pipeSize}
+                pipeMaterial={pipeMaterial}
+                templateKey={templateKey}
+                specValues={specValues}
+                onPipeSizeChange={setPipeSize}
+                onPipeMaterialChange={setPipeMaterial}
+                onSpecValuesChange={setSpecValues}
+              />
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
                   Checklist from template

@@ -1,21 +1,39 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, MapPin, Trash2, Upload, X } from "lucide-react";
-import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import { Loader2, Trash2, X } from "lucide-react";
+import AdminItcPhotoSlotGrid from "@/components/itc/admin/AdminItcPhotoSlotGrid";
+import AdminItcPressureTestSection from "@/components/itc/admin/AdminItcPressureTestSection";
+import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
+import AdminItcSignoffTiers from "@/components/itc/admin/AdminItcSignoffTiers";
 import Toast from "@/components/ui/Toast";
 import {
-  formatAdminDate,
-  formatGpsTag,
+  ADMIN_STATUS_CLASSES,
+  ADMIN_STATUS_LABELS,
+  deriveAdminItcStatus,
   saveAdminItcRecord,
-  uploadAdminItcPhoto,
   uploadAdminWaeMarkup,
   type AdminChecklistItem,
   type AdminItcRecord,
-  type AdminStatusBadge,
   type ChecklistResult,
 } from "@/components/itc/admin/itp-itc-admin-api";
-import { ADMIN_PIPE_MATERIALS, ADMIN_PIPE_SIZES } from "@/components/itc/admin/itp-itc-admin-types";
+import {
+  emptyAdminPhotoSlots,
+  emptyAdminPressureTest,
+  emptyAdminSignoff,
+} from "@/components/itc/admin/itp-itc-admin-hybrid";
+import {
+  isPressurisedAdminItc,
+  parsePipeDiameterMm,
+  requiredPressureKpaForItc,
+} from "@/components/itc/admin/itp-itc-admin-specs";
+import {
+  DEFAULT_ITC_CLIENT,
+  DEFAULT_MANAGING_CONTRACTOR,
+  DEFAULT_SUBCONTRACTOR,
+  type AdminItcSpecValues,
+} from "@/components/itc/admin/itp-itc-admin-types";
+import { headFromTestPressureKpa } from "@/lib/itc-pressure-test";
 import {
   inputClass,
   modalBodyClass,
@@ -24,6 +42,7 @@ import {
   modalShellClass,
   modalStickyFooterClass,
 } from "@/lib/ui-classes";
+import { cn } from "@/lib/utils";
 
 interface ItcChecklistDrawerProps {
   itc: AdminItcRecord;
@@ -35,25 +54,6 @@ interface ItcChecklistDrawerProps {
 }
 
 const RESULTS: ChecklistResult[] = ["yes", "no", "na"];
-const STATUS_OPTIONS: Array<{ value: AdminStatusBadge; label: string }> = [
-  { value: "active", label: "Draft" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "completed", label: "Completed" },
-];
-
-function toDateTimeLocal(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-}
-
-function fromDateTimeLocal(value: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
 
 export default function ItcChecklistDrawer({
   itc,
@@ -68,80 +68,106 @@ export default function ItcChecklistDrawer({
   const [pipeMaterial, setPipeMaterial] = useState(itc.pipe_material ?? "");
   const [drawingRef, setDrawingRef] = useState(itc.drawing_ref ?? "");
   const [area, setArea] = useState(itc.area ?? "");
-  const [status, setStatus] = useState<AdminStatusBadge>(itc.status);
   const [checklist, setChecklist] = useState<AdminChecklistItem[]>(itc.checklist);
-  const [photos, setPhotos] = useState(itc.photos);
+  const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(itc.spec_values);
+  const [photoSlots, setPhotoSlots] = useState(itc.photo_slots ?? emptyAdminPhotoSlots());
   const [waeUrl, setWaeUrl] = useState(itc.wae_url);
-  const [completedByName, setCompletedByName] = useState(
-    itc.completed_by_name || defaultSignerName
+  const [subcontractorSign, setSubcontractorSign] = useState(
+    itc.subcontractor_sign ??
+      emptyAdminSignoff({
+        company: DEFAULT_SUBCONTRACTOR,
+        full_name: itc.completed_by_name || defaultSignerName,
+        signature_url: itc.completed_by_signature,
+        signed_at: itc.completed_at,
+      })
   );
-  const [reviewedByName, setReviewedByName] = useState(itc.reviewed_by_name || "");
-  const [completedSignature, setCompletedSignature] = useState<string | null>(
-    itc.completed_by_signature
+  const [contractorSign, setContractorSign] = useState(
+    itc.contractor_sign ??
+      emptyAdminSignoff({
+        company: DEFAULT_MANAGING_CONTRACTOR,
+        full_name: itc.reviewed_by_name,
+        signature_url: itc.reviewed_by_signature,
+        signed_at: itc.reviewed_at,
+      })
   );
-  const [reviewedSignature, setReviewedSignature] = useState<string | null>(
-    itc.reviewed_by_signature
+  const [clientSign, setClientSign] = useState(
+    itc.client_sign ?? emptyAdminSignoff({ company: DEFAULT_ITC_CLIENT })
   );
-  const [completedAt, setCompletedAt] = useState(itc.completed_at);
-  const [reviewedAt, setReviewedAt] = useState(itc.reviewed_at);
-  const [resignCompleted, setResignCompleted] = useState(!itc.completed_by_signature);
-  const [resignReviewed, setResignReviewed] = useState(!itc.reviewed_by_signature);
-  const [completedPadKey, setCompletedPadKey] = useState(0);
-  const [reviewedPadKey, setReviewedPadKey] = useState(0);
+  const requiredKpa = requiredPressureKpaForItc({ template_key: itc.template_key });
+  const diameterM = parsePipeDiameterMm(pipeSize);
+  const [pressureTest, setPressureTest] = useState(
+    itc.pressure_test_data ??
+      emptyAdminPressureTest({
+        requiredKpa,
+        diameterM: diameterM != null ? diameterM / 1000 : null,
+      })
+  );
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const pipeSizeOptions = useMemo(() => {
-    const extra = pipeSize && !ADMIN_PIPE_SIZES.includes(pipeSize as (typeof ADMIN_PIPE_SIZES)[number]);
-    return extra ? [pipeSize, ...ADMIN_PIPE_SIZES] : [...ADMIN_PIPE_SIZES];
-  }, [pipeSize]);
-  const pipeMaterialOptions = useMemo(() => {
-    const extra =
-      pipeMaterial &&
-      !ADMIN_PIPE_MATERIALS.includes(pipeMaterial as (typeof ADMIN_PIPE_MATERIALS)[number]);
-    return extra ? [pipeMaterial, ...ADMIN_PIPE_MATERIALS] : [...ADMIN_PIPE_MATERIALS];
-  }, [pipeMaterial]);
+  const pressurised = isPressurisedAdminItc({
+    template_key: itc.template_key,
+    pipe_material: pipeMaterial,
+    pipe_size: pipeSize,
+  });
 
-  const currentItc = useMemo<AdminItcRecord>(
-    () => ({
+  const currentItc = useMemo<AdminItcRecord>(() => {
+    const next: AdminItcRecord = {
       ...itc,
       run_number: runNumber.trim() || null,
       pipe_size: pipeSize.trim() || null,
       pipe_material: pipeMaterial.trim() || null,
       drawing_ref: drawingRef.trim() || null,
       area: area.trim() || null,
-      status,
       checklist,
-      photos,
+      spec_values: specValues,
+      photo_slots: photoSlots,
+      pressure_test_data: pressurised
+        ? {
+            ...pressureTest,
+            required_pressure_kpa: requiredKpa,
+            diameter_m: pressureTest.diameter_m ?? (diameterM != null ? diameterM / 1000 : null),
+            head_m: pressureTest.head_m ?? headFromTestPressureKpa(requiredKpa),
+          }
+        : pressureTest,
       wae_url: waeUrl,
-      completed_by_name: completedByName.trim() || null,
-      completed_by_signature: completedSignature,
-      completed_at: completedAt,
-      reviewed_by_name: reviewedByName.trim() || null,
-      reviewed_by_signature: reviewedSignature,
-      reviewed_at: reviewedAt,
-    }),
-    [
-      itc,
-      runNumber,
-      pipeSize,
-      pipeMaterial,
-      drawingRef,
-      area,
-      status,
-      checklist,
-      photos,
-      waeUrl,
-      completedByName,
-      completedSignature,
-      completedAt,
-      reviewedByName,
-      reviewedSignature,
-      reviewedAt,
-    ]
-  );
+      subcontractor_sign: {
+        ...subcontractorSign,
+        full_name: subcontractorSign.full_name || defaultSignerName,
+        company: subcontractorSign.company || DEFAULT_SUBCONTRACTOR,
+      },
+      contractor_sign: contractorSign,
+      client_sign: clientSign,
+      completed_by_name: subcontractorSign.full_name || defaultSignerName,
+      completed_by_signature: subcontractorSign.signature_url,
+      completed_at: subcontractorSign.signed_at,
+      reviewed_by_name: contractorSign.full_name,
+      reviewed_by_signature: contractorSign.signature_url,
+      reviewed_at: contractorSign.signed_at,
+    };
+    return { ...next, status: deriveAdminItcStatus(next) };
+  }, [
+    itc,
+    runNumber,
+    pipeSize,
+    pipeMaterial,
+    drawingRef,
+    area,
+    checklist,
+    specValues,
+    photoSlots,
+    pressureTest,
+    pressurised,
+    requiredKpa,
+    diameterM,
+    waeUrl,
+    subcontractorSign,
+    contractorSign,
+    clientSign,
+    defaultSignerName,
+  ]);
 
   const updateResult = (key: string, result: ChecklistResult) => {
     setChecklist((rows) =>
@@ -153,23 +179,6 @@ export default function ItcChecklistDrawer({
     setChecklist((rows) =>
       rows.map((row) => (row.key === key ? { ...row, remarks } : row))
     );
-  };
-
-  const handlePhoto = async (file: File) => {
-    setUploading(true);
-    setMessage(null);
-    const uploaded = await uploadAdminItcPhoto({
-      projectId: itc.project_id,
-      itcId: itc.id,
-      file,
-      label: "Installation photo",
-    });
-    setUploading(false);
-    if (uploaded.error || !uploaded.photo) {
-      setMessage(uploaded.error ?? "Photo upload failed");
-      return;
-    }
-    setPhotos((current) => [...current, uploaded.photo!]);
   };
 
   const handleWae = async (file: File) => {
@@ -204,7 +213,7 @@ export default function ItcChecklistDrawer({
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
-        className={`${modalShellClass} max-w-4xl`}
+        className={`${modalShellClass} max-w-5xl`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -215,9 +224,19 @@ export default function ItcChecklistDrawer({
             <h2 className="text-lg font-semibold text-slate-900">{itc.number}</h2>
             <p className="text-sm text-slate-500">{projectName}</p>
           </div>
-          <button type="button" onClick={onClose} className={modalCloseIconButtonClass}>
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                ADMIN_STATUS_CLASSES[currentItc.status]
+              )}
+            >
+              {ADMIN_STATUS_LABELS[currentItc.status]}
+            </span>
+            <button type="button" onClick={onClose} className={modalCloseIconButtonClass}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <div className={modalBodyClass}>
           <div className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
@@ -243,40 +262,17 @@ export default function ItcChecklistDrawer({
                 placeholder="Area, pit, or location notes"
               />
             </label>
-            <label>
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Pipe size
-              </span>
-              <select
-                value={pipeSize}
-                onChange={(event) => setPipeSize(event.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select size</option>
-                {pipeSizeOptions.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Pipe material
-              </span>
-              <select
-                value={pipeMaterial}
-                onChange={(event) => setPipeMaterial(event.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select material</option>
-                {pipeMaterialOptions.map((material) => (
-                  <option key={material} value={material}>
-                    {material}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="sm:col-span-2">
+              <AdminItcServiceSpecFields
+                pipeSize={pipeSize}
+                pipeMaterial={pipeMaterial}
+                templateKey={itc.template_key}
+                specValues={specValues}
+                onPipeSizeChange={setPipeSize}
+                onPipeMaterialChange={setPipeMaterial}
+                onSpecValuesChange={setSpecValues}
+              />
+            </div>
             <label>
               <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
                 Drawing ref & rev
@@ -287,22 +283,6 @@ export default function ItcChecklistDrawer({
                 className={inputClass}
                 placeholder='e.g. "C0604 Rev B"'
               />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Status
-              </span>
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value as AdminStatusBadge)}
-                className={inputClass}
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
             </label>
           </div>
 
@@ -334,57 +314,30 @@ export default function ItcChecklistDrawer({
             ))}
           </div>
 
-          <section className="mt-6">
-            <h3 className="text-sm font-semibold text-slate-900">Photo gallery</h3>
-            <p className="mb-3 text-xs text-slate-500">
-              Previously saved photos stay here. Add new shots from files or the camera, or remove
-              unwanted ones before saving.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {photos.map((photo) => (
-                <figure
-                  key={photo.url}
-                  className="relative overflow-hidden rounded-lg border border-slate-200"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photo.url} alt={photo.label} className="h-32 w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPhotos((current) => current.filter((row) => row.url !== photo.url))
-                    }
-                    className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-rose-600 shadow"
-                    title="Remove photo"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                  <figcaption className="space-y-0.5 p-2 text-[11px] text-slate-600">
-                    <p className="font-semibold">{photo.label}</p>
-                    <p>{formatAdminDate(photo.captured_at) || photo.captured_at || "No timestamp"}</p>
-                    <p className="inline-flex items-center gap-1">
-                      <MapPin className="h-3 w-3" />
-                      {formatGpsTag(photo.gps_lat, photo.gps_lng) || "Location unavailable"}
-                    </p>
-                  </figcaption>
-                </figure>
-              ))}
-            </div>
-            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
-              <Upload className="h-4 w-4" />
-              {uploading ? "Uploading…" : "Add photo / camera"}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void handlePhoto(file);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-          </section>
+          <AdminItcPhotoSlotGrid
+            projectId={itc.project_id}
+            itcId={itc.id}
+            slots={photoSlots}
+            onChange={setPhotoSlots}
+          />
+
+          {pressurised ? (
+            <AdminItcPressureTestSection
+              serviceLabel={
+                String(itc.template_key ?? "").includes("fire")
+                  ? "Fire service — 1700 kPa"
+                  : "Potable water — 1500 kPa"
+              }
+              value={{
+                ...pressureTest,
+                required_pressure_kpa: requiredKpa,
+                diameter_m:
+                  pressureTest.diameter_m ?? (diameterM != null ? diameterM / 1000 : null),
+                head_m: pressureTest.head_m ?? headFromTestPressureKpa(requiredKpa),
+              }}
+              onChange={setPressureTest}
+            />
+          ) : null}
 
           <section className="mt-6">
             <h3 className="text-sm font-semibold text-slate-900">Plan markup (WAE)</h3>
@@ -410,7 +363,7 @@ export default function ItcChecklistDrawer({
               <p className="mt-1 text-xs text-slate-500">No WAE uploaded yet.</p>
             )}
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-              {waeUrl ? "Replace plan markup (WAE)" : "Upload plan markup (WAE)"}
+              {uploading ? "Uploading…" : waeUrl ? "Replace plan markup (WAE)" : "Upload plan markup (WAE)"}
               <input
                 type="file"
                 accept="image/*,application/pdf"
@@ -424,110 +377,14 @@ export default function ItcChecklistDrawer({
             </label>
           </section>
 
-          <section className="mt-6 grid gap-4 md:grid-cols-2">
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-slate-900">Completed by</h3>
-              <input
-                value={completedByName}
-                onChange={(event) => setCompletedByName(event.target.value)}
-                className={`${inputClass} mb-2`}
-                placeholder="Name"
-              />
-              <label className="mb-2 block">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Date
-                </span>
-                <input
-                  type="datetime-local"
-                  value={toDateTimeLocal(completedAt)}
-                  onChange={(event) => setCompletedAt(fromDateTimeLocal(event.target.value))}
-                  className={inputClass}
-                />
-              </label>
-              {completedSignature && !resignCompleted ? (
-                <div className="space-y-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={completedSignature}
-                    alt="Completed by signature"
-                    className="h-24 w-full rounded-lg border border-slate-200 bg-white object-contain"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCompletedSignature(null);
-                      setCompletedAt(null);
-                      setResignCompleted(true);
-                      setCompletedPadKey((current) => current + 1);
-                    }}
-                    className="text-sm font-semibold text-orange-600"
-                  >
-                    Clear / Resign
-                  </button>
-                </div>
-              ) : (
-                <SignatureCanvas
-                  key={`completed-${itc.id}-${completedPadKey}`}
-                  value={null}
-                  onChange={(value) => {
-                    setCompletedSignature(value);
-                    if (value && !completedAt) setCompletedAt(new Date().toISOString());
-                  }}
-                />
-              )}
-            </div>
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-slate-900">Reviewed by</h3>
-              <input
-                value={reviewedByName}
-                onChange={(event) => setReviewedByName(event.target.value)}
-                className={`${inputClass} mb-2`}
-                placeholder="Name"
-              />
-              <label className="mb-2 block">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Date
-                </span>
-                <input
-                  type="datetime-local"
-                  value={toDateTimeLocal(reviewedAt)}
-                  onChange={(event) => setReviewedAt(fromDateTimeLocal(event.target.value))}
-                  className={inputClass}
-                />
-              </label>
-              {reviewedSignature && !resignReviewed ? (
-                <div className="space-y-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={reviewedSignature}
-                    alt="Reviewed by signature"
-                    className="h-24 w-full rounded-lg border border-slate-200 bg-white object-contain"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReviewedSignature(null);
-                      setReviewedAt(null);
-                      setResignReviewed(true);
-                      setReviewedPadKey((current) => current + 1);
-                    }}
-                    className="text-sm font-semibold text-orange-600"
-                  >
-                    Clear / Resign
-                  </button>
-                </div>
-              ) : (
-                <SignatureCanvas
-                  key={`reviewed-${itc.id}-${reviewedPadKey}`}
-                  value={null}
-                  onChange={(value) => {
-                    setReviewedSignature(value);
-                    if (value && !reviewedAt) setReviewedAt(new Date().toISOString());
-                  }}
-                />
-              )}
-            </div>
-          </section>
+          <AdminItcSignoffTiers
+            subcontractor={subcontractorSign}
+            contractor={contractorSign}
+            client={clientSign}
+            onSubcontractorChange={setSubcontractorSign}
+            onContractorChange={setContractorSign}
+            onClientChange={setClientSign}
+          />
           {message ? <p className="mt-4 text-sm text-rose-600">{message}</p> : null}
         </div>
         <div className={`${modalStickyFooterClass} flex flex-wrap items-center justify-between gap-2`}>
@@ -544,22 +401,22 @@ export default function ItcChecklistDrawer({
             <span />
           )}
           <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save Changes
-          </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </button>
           </div>
         </div>
       </div>

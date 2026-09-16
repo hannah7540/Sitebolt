@@ -17,9 +17,25 @@ import { fetchProjectItps } from "@/lib/itp-service";
 import { downscaleImage, captureGps } from "@/lib/api/itc";
 import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
 import {
+  ADMIN_ITC_PHOTO_SLOTS,
+  DEFAULT_ITC_CLIENT,
+  DEFAULT_MANAGING_CONTRACTOR,
+  DEFAULT_SUBCONTRACTOR,
   getAdminItpTemplate,
   type AdminChecklistQuestion,
+  type AdminItcPhotoSlot,
+  type AdminItcSignoff,
+  type AdminItcSpecValues,
+  type AdminPressureTestData,
 } from "@/components/itc/admin/itp-itc-admin-types";
+import { emptyAdminItcSpecValues } from "@/components/itc/admin/itp-itc-admin-specs";
+import {
+  emptyAdminPhotoSlots,
+  mapAdminPhotoSlots,
+  mapAdminPressureTest,
+  mapAdminSignoff,
+  photoSlotsSatisfied,
+} from "@/components/itc/admin/itp-itc-admin-hybrid";
 import {
   adminItcNumberPrefix,
   formatAdminItcNumber,
@@ -75,10 +91,14 @@ export interface AdminItcRecord {
   drawing_ref: string | null;
   pipe_size: string | null;
   pipe_material: string | null;
+  template_key: string | null;
   pin_x: number | null;
   pin_y: number | null;
   checklist: AdminChecklistItem[];
   photos: AdminItcPhoto[];
+  photo_slots: Record<string, AdminItcPhotoSlot>;
+  spec_values: AdminItcSpecValues | null;
+  pressure_test_data: AdminPressureTestData | null;
   wae_url: string | null;
   completed_by_name: string | null;
   completed_by_signature: string | null;
@@ -86,6 +106,9 @@ export interface AdminItcRecord {
   reviewed_by_name: string | null;
   reviewed_by_signature: string | null;
   reviewed_at: string | null;
+  subcontractor_sign: AdminItcSignoff;
+  contractor_sign: AdminItcSignoff;
+  client_sign: AdminItcSignoff;
   status: AdminStatusBadge;
   created_at: string | null;
 }
@@ -197,6 +220,86 @@ function mapPhotos(raw: unknown): AdminItcPhoto[] {
     .filter((item): item is AdminItcPhoto => Boolean(item));
 }
 
+function mapSpecValues(
+  raw: unknown,
+  hydrated: Record<string, unknown>,
+  pipeSize: string | null,
+  pipeMaterial: string | null
+): AdminItcSpecValues | null {
+  const form = asRecord(raw);
+  const hasForm =
+    form.min_bedding_mm != null ||
+    form.min_overlay_mm != null ||
+    form.min_side_clearance_mm != null ||
+    form.trench_width_mm != null;
+  if (!hasForm && num(hydrated, "min_bedding_mm") == null) return null;
+  const values: AdminItcSpecValues = {
+    ...emptyAdminItcSpecValues(),
+    source_table: str(form, "source_table"),
+    pipe_size: str(form, "pipe_size") ?? pipeSize,
+    pipe_material: str(form, "pipe_material") ?? pipeMaterial,
+    min_bedding_mm: num(form, "min_bedding_mm") ?? num(hydrated, "min_bedding_mm"),
+    min_overlay_mm: num(form, "min_overlay_mm") ?? num(hydrated, "min_overlay_mm"),
+    min_side_clearance_mm:
+      num(form, "min_side_clearance_mm") ?? num(hydrated, "min_side_mm"),
+    trench_width_mm: num(form, "trench_width_mm") ?? num(hydrated, "trench_width_mm"),
+    joint_gap_min_mm: num(form, "joint_gap_min_mm"),
+    joint_gap_max_mm: num(form, "joint_gap_max_mm"),
+    joint_gap_range: str(form, "joint_gap_range"),
+  };
+  return values;
+}
+
+function hydratePhotoSlots(
+  raw: unknown,
+  photos: AdminItcPhoto[]
+): Record<string, AdminItcPhotoSlot> {
+  const mapped = mapAdminPhotoSlots(raw);
+  const hasAny = Object.values(mapped).some((slot) => slot.url || slot.not_required);
+  if (hasAny) return mapped;
+  for (const photo of photos) {
+    const label = photo.label.toLowerCase();
+    const slot = ADMIN_ITC_PHOTO_SLOTS.find(
+      (item) => item.id === photo.label || item.label.toLowerCase() === label
+    );
+    if (!slot || mapped[slot.id]?.url) continue;
+    mapped[slot.id] = {
+      ...mapped[slot.id],
+      url: photo.url,
+      path: photo.url,
+      captured_at: photo.captured_at,
+    };
+  }
+  return mapped;
+}
+
+function photosFromSlots(
+  slots: Record<string, AdminItcPhotoSlot>,
+  fallback: AdminItcPhoto[]
+): AdminItcPhoto[] {
+  const fromSlots = Object.values(slots)
+    .filter((slot) => slot.url && !slot.not_required)
+    .map((slot) => ({
+      url: slot.url as string,
+      captured_at: slot.captured_at,
+      gps_lat: null,
+      gps_lng: null,
+      label: slot.id,
+    }));
+  return fromSlots.length ? fromSlots : fallback;
+}
+
+export function deriveAdminItcStatus(itc: Pick<
+  AdminItcRecord,
+  "checklist" | "photo_slots" | "subcontractor_sign"
+>): AdminStatusBadge {
+  const checklistDone =
+    itc.checklist.length > 0 && itc.checklist.every((item) => Boolean(item.result));
+  const photosDone = photoSlotsSatisfied(itc.photo_slots);
+  const signed = Boolean(itc.subcontractor_sign.signature_url);
+  return checklistDone && photosDone && signed ? "completed" : "in_progress";
+}
+
 export function mapItpRow(row: Record<string, unknown>): AdminItpRecord {
   const hydrated = hydrateItpItcRow(row);
   const form = asRecord(hydrated.form_data);
@@ -220,7 +323,42 @@ export function mapItpRow(row: Record<string, unknown>): AdminItpRecord {
 export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
   const hydrated = hydrateItpItcRow(row);
   const form = asRecord(hydrated.form_data);
-  const template = getAdminItpTemplate(str(form, "template_key"));
+  const templateKey = str(form, "template_key") ?? str(hydrated, "template_key");
+  const template = getAdminItpTemplate(templateKey);
+  const pipeSize = str(form, "pipe_size") ?? str(hydrated, "material_and_size");
+  const pipeMaterial = str(form, "pipe_material");
+  const photos = mapPhotos(form.photos ?? hydrated.photos);
+  const photoSlots = hydratePhotoSlots(form.photo_slots ?? hydrated.photo_slots, photos);
+  const completedName = str(form, "completed_by_name") ?? str(form, "completed_by");
+  const completedSignature =
+    str(form, "completed_by_signature") ?? str(form, "signature_url") ?? str(hydrated, "signature_url");
+  const completedAt = str(form, "signed_at") ?? str(form, "completed_at") ?? str(hydrated, "signed_at");
+  const reviewedName = str(form, "reviewed_by_name") ?? str(form, "reviewed_by");
+  const reviewedSignature =
+    str(form, "reviewed_by_signature") ??
+    str(form, "reviewed_signature_url") ??
+    str(hydrated, "contractor_sign");
+  const reviewedAt = str(form, "reviewed_at");
+  const subcontractorSign = mapAdminSignoff(form.subcontractor_sign ?? form.tier1_sign, {
+    company: DEFAULT_SUBCONTRACTOR,
+    full_name: completedName,
+    signature_url: completedSignature,
+    signed_at: completedAt,
+  });
+  const contractorSign = mapAdminSignoff(
+    form.contractor_signoff ?? form.contractor_sign ?? hydrated.contractor_sign,
+    {
+      company: DEFAULT_MANAGING_CONTRACTOR,
+      full_name: reviewedName,
+      signature_url: reviewedSignature,
+      signed_at: reviewedAt,
+    }
+  );
+  const clientSign = mapAdminSignoff(form.client_signoff ?? form.client_sign ?? hydrated.client_sign, {
+    company: DEFAULT_ITC_CLIENT,
+    signature_url: str(hydrated, "client_sign"),
+  });
+  const pressureRaw = form.pressure_test_data ?? hydrated.pressure_test_data;
   return {
     id: String(hydrated.id ?? ""),
     project_id: String(hydrated.project_id ?? ""),
@@ -232,24 +370,29 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
       str(hydrated, "upstream_pit_number"),
     area: str(hydrated, "building") ?? str(form, "area"),
     drawing_ref: str(hydrated, "drawing_rev") ?? str(form, "drawing_ref"),
-    pipe_size: str(form, "pipe_size") ?? str(hydrated, "material_and_size"),
-    pipe_material: str(form, "pipe_material"),
+    pipe_size: pipeSize,
+    pipe_material: pipeMaterial,
+    template_key: templateKey,
     pin_x: num(hydrated, "pin_x") ?? num(hydrated, "map_x") ?? num(form, "pin_x"),
     pin_y: num(hydrated, "pin_y") ?? num(hydrated, "map_y") ?? num(form, "pin_y"),
     checklist: mapChecklist(
       form.checklist ?? form.checklist_answers ?? hydrated.checklist ?? hydrated.checklist_answers,
       template?.questions ?? []
     ),
-    photos: mapPhotos(form.photos ?? hydrated.photos),
+    photos: photosFromSlots(photoSlots, photos),
+    photo_slots: photoSlots,
+    spec_values: mapSpecValues(form.spec_values ?? hydrated.spec_values, hydrated, pipeSize, pipeMaterial),
+    pressure_test_data: pressureRaw ? mapAdminPressureTest(pressureRaw) : null,
     wae_url: str(form, "wae_url") ?? str(form, "wae_plan_markup_url"),
-    completed_by_name: str(form, "completed_by_name") ?? str(form, "completed_by"),
-    completed_by_signature:
-      str(form, "completed_by_signature") ?? str(form, "signature_url"),
-    completed_at: str(form, "signed_at") ?? str(form, "completed_at"),
-    reviewed_by_name: str(form, "reviewed_by_name") ?? str(form, "reviewed_by"),
-    reviewed_by_signature:
-      str(form, "reviewed_by_signature") ?? str(form, "reviewed_signature_url"),
-    reviewed_at: str(form, "reviewed_at"),
+    completed_by_name: subcontractorSign.full_name,
+    completed_by_signature: subcontractorSign.signature_url,
+    completed_at: subcontractorSign.signed_at,
+    reviewed_by_name: contractorSign.full_name,
+    reviewed_by_signature: contractorSign.signature_url,
+    reviewed_at: contractorSign.signed_at,
+    subcontractor_sign: subcontractorSign,
+    contractor_sign: contractorSign,
+    client_sign: clientSign,
     status: mapStatus(str(hydrated, "status")),
     created_at: str(hydrated, "created_at"),
   };
@@ -565,6 +708,7 @@ export async function createAdminItcFromPin(input: {
   runNumber: string;
   pipeSize: string;
   pipeMaterial: string;
+  specValues?: AdminItcSpecValues | null;
   preferredNumber?: string | null;
   reservedNumbers?: string[];
   status?: "not_started" | "in_progress";
@@ -589,6 +733,8 @@ export async function createAdminItcFromPin(input: {
     remarks: "",
   }));
 
+  const photoSlots = emptyAdminPhotoSlots();
+  const specValues = input.specValues ?? null;
   const payload: Record<string, unknown> = {
     project_id: input.projectId,
     itp_id: input.itp.id,
@@ -601,6 +747,8 @@ export async function createAdminItcFromPin(input: {
     start_location: input.runNumber,
     end_location: input.runNumber,
     material_and_size: [input.pipeSize, input.pipeMaterial].filter(Boolean).join(" "),
+    pipe_size: input.pipeSize,
+    pipe_material: input.pipeMaterial,
     pin_x: input.pinX,
     pin_y: input.pinY,
     map_x: input.pinX,
@@ -608,6 +756,11 @@ export async function createAdminItcFromPin(input: {
     drawing_rev: input.itp.drawing_ref,
     status: input.status ?? "in_progress",
     progress_percent: 0,
+    spec_values: specValues,
+    photo_slots: photoSlots,
+    min_bedding_mm: specValues?.min_bedding_mm ?? null,
+    min_overlay_mm: specValues?.min_overlay_mm ?? null,
+    min_side_mm: specValues?.min_side_clearance_mm ?? null,
     form_data: {
       itp_id: input.itp.id,
       template_key: input.itp.template_key,
@@ -623,6 +776,8 @@ export async function createAdminItcFromPin(input: {
       checklist,
       checklist_answers: checklist,
       photos: [],
+      spec_values: specValues,
+      photo_slots: photoSlots,
     },
     checklist_answers: checklist,
   };
@@ -644,6 +799,9 @@ export async function createAdminItcFromPin(input: {
         pin_x: input.pinX,
         pin_y: input.pinY,
         itp_id: input.itp.id,
+        template_key: input.itp.template_key,
+        spec_values: specValues,
+        photo_slots: photoSlots,
         status: input.status === "not_started" ? "active" : "in_progress",
       },
     };
@@ -672,6 +830,9 @@ export async function createAdminItcFromPin(input: {
       pin_x: input.pinX,
       pin_y: input.pinY,
       itp_id: input.itp.id,
+      template_key: input.itp.template_key,
+      spec_values: specValues,
+      photo_slots: photoSlots,
       checklist,
       status: input.status === "not_started" ? "active" : "in_progress",
     },
@@ -769,6 +930,7 @@ async function updateAdminItcRow(
 function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
   return {
     itp_id: itc.itp_id,
+    template_key: itc.template_key,
     run_number: itc.run_number,
     pipe_size: itc.pipe_size,
     pipe_material: itc.pipe_material,
@@ -781,24 +943,34 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     checklist_answers: itc.checklist,
     photos: itc.photos,
     photo_urls: itc.photos,
+    photo_slots: itc.photo_slots,
+    spec_values: itc.spec_values,
+    pressure_test_data: itc.pressure_test_data,
     wae_url: itc.wae_url,
     wae_plan_markup_url: itc.wae_url,
-    completed_by: itc.completed_by_name,
-    completed_by_name: itc.completed_by_name,
-    completed_by_signature: itc.completed_by_signature,
-    signature_url: itc.completed_by_signature,
-    signed_at: itc.completed_at,
-    completed_at: itc.completed_at,
-    reviewed_by: itc.reviewed_by_name,
-    reviewed_by_name: itc.reviewed_by_name,
-    reviewed_by_signature: itc.reviewed_by_signature,
-    reviewed_signature_url: itc.reviewed_by_signature,
-    reviewed_at: itc.reviewed_at,
+    completed_by: itc.subcontractor_sign.full_name,
+    completed_by_name: itc.subcontractor_sign.full_name,
+    completed_by_signature: itc.subcontractor_sign.signature_url,
+    signature_url: itc.subcontractor_sign.signature_url,
+    signed_at: itc.subcontractor_sign.signed_at,
+    completed_at: itc.subcontractor_sign.signed_at,
+    reviewed_by: itc.contractor_sign.full_name,
+    reviewed_by_name: itc.contractor_sign.full_name,
+    reviewed_by_signature: itc.contractor_sign.signature_url,
+    reviewed_signature_url: itc.contractor_sign.signature_url,
+    reviewed_at: itc.contractor_sign.signed_at,
+    subcontractor_sign: itc.subcontractor_sign,
+    contractor_sign: itc.contractor_sign.signature_url,
+    contractor_signoff: itc.contractor_sign,
+    client_sign: itc.client_sign.signature_url,
+    client_signoff: itc.client_sign,
     status: itc.status,
   };
 }
 
 export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: string | null }> {
+  const status = deriveAdminItcStatus(itc);
+  const photos = photosFromSlots(itc.photo_slots, itc.photos);
   const answered = itc.checklist.filter((item) => item.result).length;
   const payload: Record<string, unknown> = {
     start_location: itc.run_number,
@@ -810,20 +982,28 @@ export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: 
     pipe_material: itc.pipe_material,
     material_and_size: [itc.pipe_size, itc.pipe_material].filter(Boolean).join(" "),
     checklist_answers: itc.checklist,
-    photo_urls: itc.photos.map((photo) => photo.url),
+    photo_urls: photos.map((photo) => photo.url),
+    photo_slots: itc.photo_slots,
+    spec_values: itc.spec_values,
+    pressure_test_data: itc.pressure_test_data,
     wae_plan_markup_url: itc.wae_url,
-    status: toDbItcStatus(itc.status),
+    status: toDbItcStatus(status),
     progress_percent: itc.checklist.length
       ? Math.round((answered / itc.checklist.length) * 100)
       : 0,
-    completed_by: itc.completed_by_name,
-    signature_url: itc.completed_by_signature,
-    signed_at: itc.completed_at,
-    reviewed_by: itc.reviewed_by_name,
-    reviewed_signature_url: itc.reviewed_by_signature,
-    reviewed_at: itc.reviewed_at,
+    completed_by: itc.subcontractor_sign.full_name,
+    signature_url: itc.subcontractor_sign.signature_url,
+    signed_at: itc.subcontractor_sign.signed_at,
+    contractor_sign: itc.contractor_sign.signature_url,
+    client_sign: itc.client_sign.signature_url,
+    reviewed_by: itc.contractor_sign.full_name,
+    reviewed_signature_url: itc.contractor_sign.signature_url,
+    reviewed_at: itc.contractor_sign.signed_at,
+    min_bedding_mm: itc.spec_values?.min_bedding_mm ?? null,
+    min_overlay_mm: itc.spec_values?.min_overlay_mm ?? null,
+    min_side_mm: itc.spec_values?.min_side_clearance_mm ?? null,
     updated_at: new Date().toISOString(),
-    form_data: buildItcFormData(itc),
+    form_data: buildItcFormData({ ...itc, status, photos }),
   };
   return updateAdminItcRow(itc.id, payload);
 }
@@ -899,12 +1079,7 @@ export async function uploadAdminItcPhoto(input: {
 }
 
 export async function persistAdminItcMedia(itc: AdminItcRecord): Promise<{ error: string | null }> {
-  return updateAdminItcRow(itc.id, {
-    checklist_answers: itc.checklist,
-    photo_urls: itc.photos.map((photo) => photo.url),
-    wae_plan_markup_url: itc.wae_url,
-    form_data: buildItcFormData(itc),
-  });
+  return saveAdminItcRecord(itc);
 }
 
 export async function uploadAdminWaeMarkup(input: {

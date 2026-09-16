@@ -36,13 +36,98 @@ export const ADMIN_PIPE_SIZES = [
 export const ADMIN_PIPE_MATERIALS = [
   "PVC",
   "PE",
+  "PE100",
   "DICL",
   "Blackmax",
   "RCP",
   "StormPRO",
   "HDPE",
+  "HV",
   "Copper",
 ] as const;
+
+export const ADMIN_PIPE_SERVICES = [
+  { label: "225mm Blackmax", size: "225mm", material: "Blackmax" },
+  { label: "150mm HV", size: "150mm", material: "HV" },
+  { label: "100mm PVC", size: "100mm", material: "PVC" },
+  { label: "DN150 PE100", size: "150mm", material: "PE100" },
+  { label: "50mm PVC", size: "50mm", material: "PVC" },
+  { label: "80mm PVC", size: "80mm", material: "PVC" },
+  { label: "150mm PVC", size: "150mm", material: "PVC" },
+  { label: "225mm PVC", size: "225mm", material: "PVC" },
+  { label: "300mm PVC", size: "300mm", material: "PVC" },
+  { label: "100mm PE", size: "100mm", material: "PE" },
+  { label: "150mm DICL", size: "150mm", material: "DICL" },
+  { label: "100mm HDPE", size: "100mm", material: "HDPE" },
+  { label: "375mm RCP", size: "375mm", material: "RCP" },
+  { label: "450mm RCP", size: "450mm", material: "RCP" },
+] as const;
+
+export const ADMIN_ITC_PHOTO_SLOTS = [
+  { id: "trench", label: "Bottom of trench", allowNa: false },
+  { id: "bedding", label: "Bedding", allowNa: false },
+  { id: "service", label: "Service installed", allowNa: false },
+  { id: "haunch", label: "Haunching", allowNa: true },
+  { id: "cover", label: "Cover material", allowNa: false },
+  { id: "tape", label: "Trace / warning tape", allowNa: false },
+  { id: "backfill", label: "Backfill", allowNa: false },
+  { id: "compaction", label: "Compaction", allowNa: false },
+  { id: "reinstatement", label: "Surface reinstatement", allowNa: false },
+] as const;
+
+export type AdminItcPhotoSlotId = (typeof ADMIN_ITC_PHOTO_SLOTS)[number]["id"];
+
+export interface AdminItcSpecValues {
+  source_table: string | null;
+  pipe_size: string | null;
+  pipe_material: string | null;
+  min_bedding_mm: number | null;
+  min_overlay_mm: number | null;
+  min_side_clearance_mm: number | null;
+  trench_width_mm: number | null;
+  joint_gap_min_mm: number | null;
+  joint_gap_max_mm: number | null;
+  joint_gap_range: string | null;
+}
+
+export interface AdminItcPhotoSlot {
+  id: string;
+  url: string | null;
+  path: string | null;
+  captured_at: string | null;
+  file_size: number | null;
+  not_required: boolean;
+}
+
+export type AdminPressureVerdict = "PASS" | "FAIL" | "WAIT";
+
+export interface AdminPressureReading {
+  hour_index: number;
+  reading_time: string;
+  water_added_l: number | null;
+  pressure_kpa: number | null;
+}
+
+export interface AdminPressureTestData {
+  start_time: string | null;
+  starting_pressure_kpa: number | null;
+  required_pressure_kpa: number | null;
+  length_m: number | null;
+  diameter_m: number | null;
+  head_m: number | null;
+  readings: AdminPressureReading[];
+  q_litres: number | null;
+  allowable: number | null;
+  verdict: AdminPressureVerdict;
+}
+
+export interface AdminItcSignoff {
+  company: string | null;
+  full_name: string | null;
+  position: string | null;
+  signature_url: string | null;
+  signed_at: string | null;
+}
 
 export const DEFAULT_ITC_CLIENT = "Canberra Data Centre (CDC)";
 export const DEFAULT_MANAGING_CONTRACTOR = "Built Pty Ltd";

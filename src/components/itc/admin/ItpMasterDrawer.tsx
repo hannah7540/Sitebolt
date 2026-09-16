@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Upload, X } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
+import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
 import {
   adminItcPinMarker,
   formatAdminItcNumber,
@@ -21,9 +22,8 @@ import {
   type AdminStatusBadge,
 } from "@/components/itc/admin/itp-itc-admin-api";
 import {
-  ADMIN_PIPE_MATERIALS,
-  ADMIN_PIPE_SIZES,
   getAdminItpTemplate,
+  type AdminItcSpecValues,
 } from "@/components/itc/admin/itp-itc-admin-types";
 import Toast from "@/components/ui/Toast";
 import {
@@ -83,6 +83,7 @@ export default function ItpMasterDrawer({
   const [runNumber, setRunNumber] = useState("");
   const [pipeSize, setPipeSize] = useState("100mm");
   const [pipeMaterial, setPipeMaterial] = useState("PVC");
+  const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -192,6 +193,7 @@ export default function ItpMasterDrawer({
       runNumber: runNumber.trim(),
       pipeSize,
       pipeMaterial,
+      specValues,
       preferredNumber: pendingNumber,
       reservedNumbers: localItcs.map((row) => row.number),
       status: "in_progress",
@@ -451,7 +453,7 @@ export default function ItpMasterDrawer({
             setPendingPin(null);
           }}
         >
-          <div className={`${modalClass} max-w-lg`} onClick={(event) => event.stopPropagation()}>
+          <div className={`${modalClass} max-w-xl`} onClick={(event) => event.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-900">New ITC Pin</h3>
             <p className="mb-4 text-sm text-slate-500">
               Pin at {(pendingPin.x * 100).toFixed(1)}% × {(pendingPin.y * 100).toFixed(1)}%
@@ -495,38 +497,15 @@ export default function ItpMasterDrawer({
                   className={inputClass}
                 />
               </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Pipe size
-                </span>
-                <select
-                  value={pipeSize}
-                  onChange={(event) => setPipeSize(event.target.value)}
-                  className={inputClass}
-                >
-                  {ADMIN_PIPE_SIZES.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Pipe material
-                </span>
-                <select
-                  value={pipeMaterial}
-                  onChange={(event) => setPipeMaterial(event.target.value)}
-                  className={inputClass}
-                >
-                  {ADMIN_PIPE_MATERIALS.map((material) => (
-                    <option key={material} value={material}>
-                      {material}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <AdminItcServiceSpecFields
+                pipeSize={pipeSize}
+                pipeMaterial={pipeMaterial}
+                templateKey={itp.template_key}
+                specValues={specValues}
+                onPipeSizeChange={setPipeSize}
+                onPipeMaterialChange={setPipeMaterial}
+                onSpecValuesChange={setSpecValues}
+              />
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
                   Checklist from template
