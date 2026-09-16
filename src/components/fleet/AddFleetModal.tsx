@@ -16,10 +16,11 @@ import {
 import type { Worker } from "@/lib/supabase";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import { uploadFleetDocument } from "@/lib/fleet-upload";
+import EntityFormsTab from "@/components/forms/EntityFormsTab";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 
-type FleetFormTab = "basic" | "documents";
+type FleetFormTab = "basic" | "documents" | "forms";
 
 interface AddFleetModalProps {
   vehicle?: OrganizationFleetVehicle | null;
@@ -264,9 +265,15 @@ export default function AddFleetModal({
     }
   };
 
+  const fleetTabs = [
+    { id: "basic" as const, label: "Basic Information" },
+    { id: "documents" as const, label: "Documents & Compliance" },
+    ...(isEdit ? [{ id: "forms" as const, label: "Forms" }] : []),
+  ];
+
   return (
     <div className={modalOverlayClass}>
-      <form onSubmit={handleSubmit} className={cn(modalClass, "max-w-2xl")}>
+      <div className={cn(modalClass, isEdit && activeTab === "forms" ? "max-w-3xl" : "max-w-2xl")}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-slate-900">
@@ -287,12 +294,7 @@ export default function AddFleetModal({
         </div>
 
         <div className="mb-4 flex gap-2 border-b border-slate-200">
-          {(
-            [
-              { id: "basic" as const, label: "Basic Information" },
-              { id: "documents" as const, label: "Documents & Compliance" },
-            ] as const
-          ).map((tab) => (
+          {fleetTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -308,6 +310,27 @@ export default function AddFleetModal({
             </button>
           ))}
         </div>
+
+        {activeTab === "forms" && vehicle ? (
+          <div>
+            <EntityFormsTab
+              entityType="fleet"
+              entityId={vehicle.id}
+              projectId={vehicle.assigned_project_id}
+              compact
+            />
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : (
+      <form onSubmit={handleSubmit}>
 
         {activeTab === "basic" ? (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -493,6 +516,8 @@ export default function AddFleetModal({
           </button>
         </div>
       </form>
+        )}
+      </div>
     </div>
   );
 }

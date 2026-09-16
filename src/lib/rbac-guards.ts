@@ -16,6 +16,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-company",
   "org-insurances",
   "org-documents",
+  "org-forms",
   "org-projects",
   "org-workers",
   "org-inductions",
@@ -42,6 +43,7 @@ export const PROJECT_VIEWS: readonly ActiveView[] = [
   "assets",
   "swms",
   "scheduler",
+  "forms",
 ];
 
 export function isOrganisationView(view: ActiveView): boolean {

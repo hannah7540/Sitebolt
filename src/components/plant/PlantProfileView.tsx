@@ -10,9 +10,10 @@ import {
   X,
 } from "lucide-react";
 import type { DbProject } from "@/lib/project-resolver";
-import type { PlantAsset, PlantPrestart } from "@/lib/supabase";
+import type { PlantAsset, PlantPrestart, Worker } from "@/lib/supabase";
 import {
   fetchPlantPrestarts,
+  resolvePlantAssignedProjectId,
   updatePlant,
 } from "@/lib/supabase";
 import {
@@ -55,17 +56,18 @@ import {
   resolvePlantWorkerOptionLabel,
   syncPlantWorkerAssignment,
 } from "@/lib/plant-worker-assignment";
-import type { Worker } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
+import EntityFormsTab from "@/components/forms/EntityFormsTab";
 
-type ProfileTab = "basic" | "prestarts" | "documentation" | "service-history";
+type ProfileTab = "basic" | "prestarts" | "documentation" | "service-history" | "forms";
 
 const TAB_ITEMS: Array<{ id: ProfileTab; label: string }> = [
   { id: "basic", label: "Basic Information" },
   { id: "prestarts", label: "Pre-Starts" },
   { id: "service-history", label: "Service History" },
   { id: "documentation", label: "Documentation" },
+  { id: "forms", label: "Forms" },
 ];
 
 interface PlantProfileViewProps {
@@ -228,6 +230,12 @@ export default function PlantProfileView({
         <PrestartsTab plant={currentPlant} />
       ) : tab === "service-history" ? (
         <PlantServiceHistoryTab plantId={currentPlant.id} />
+      ) : tab === "forms" ? (
+        <EntityFormsTab
+          entityType="plant"
+          entityId={currentPlant.id}
+          projectId={resolvePlantAssignedProjectId(currentPlant) || null}
+        />
       ) : (
         <DocumentationTab plant={currentPlant} onSaved={patchPlant} />
       )}

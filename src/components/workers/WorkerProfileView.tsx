@@ -73,8 +73,9 @@ import {
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
 } from "@/lib/worker-state-region";
+import EntityFormsTab from "@/components/forms/EntityFormsTab";
 
-type ProfileTab = "basic" | "cards" | "inductions" | "financial";
+type ProfileTab = "basic" | "cards" | "inductions" | "financial" | "forms";
 
 type AccountStatusOption = "active" | "pending_induction" | "Revoked";
 
@@ -84,6 +85,7 @@ const TAB_ITEMS: Array<{ id: ProfileTab; label: string }> = [
   { id: "basic", label: "Basic Info" },
   { id: "cards", label: "CARDS / VOCs" },
   { id: "inductions", label: "Inductions" },
+  { id: "forms", label: "Forms" },
   { id: "financial", label: "Financial Information" },
 ];
 
@@ -366,6 +368,8 @@ export default function WorkerProfileView({
           workers={workers.length > 0 ? workers : [currentWorker]}
           projects={projects}
         />
+      ) : tab === "forms" ? (
+        <EntityFormsTab entityType="worker" entityId={currentWorker.id} />
       ) : (
         <FinancialInfoTab
           worker={currentWorker}

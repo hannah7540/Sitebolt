@@ -30,6 +30,7 @@ import { fetchWorkers, type Worker } from "@/lib/supabase";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import WorkerSearchSelect from "./WorkerSearchSelect";
 import AssetCertificateField from "./AssetCertificateField";
+import EntityFormsTab from "@/components/forms/EntityFormsTab";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
@@ -49,6 +50,7 @@ export default function AssetFormModal({
   onSave,
 }: AssetFormModalProps) {
   const isEdit = Boolean(asset);
+  const [activeTab, setActiveTab] = useState<"details" | "forms">("details");
   const [assetNumber, setAssetNumber] = useState(asset?.asset_number ?? "");
   const [name, setName] = useState(asset?.name ?? "");
   const [assetType, setAssetType] = useState<AssetType>(
@@ -249,7 +251,12 @@ export default function AssetFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <div
+        className={cn(
+          "relative max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl",
+          isEdit && activeTab === "forms" ? "max-w-3xl" : "max-w-lg"
+        )}
+      >
         <button
           type="button"
           onClick={onClose}
@@ -269,6 +276,50 @@ export default function AssetFormModal({
             : "Fields update automatically based on the selected asset type."}
         </p>
 
+        {isEdit ? (
+          <div className="mt-4 flex gap-2 border-b border-slate-200">
+            {(
+              [
+                { id: "details" as const, label: "Details" },
+                { id: "forms" as const, label: "Forms" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "border-b-2 px-3 py-2 text-sm font-medium transition",
+                  activeTab === tab.id
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-slate-500 hover:text-orange-600"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {isEdit && activeTab === "forms" && asset ? (
+          <div className="mt-5">
+            <EntityFormsTab
+              entityType="asset"
+              entityId={asset.id}
+              projectId={asset.project_id ?? asset.assigned_project_id}
+              compact
+            />
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={(e) => void handleSubmit(e)} className="mt-5 space-y-4" noValidate>
           <div>
             <label className={labelClass} htmlFor="asset-type">
@@ -580,6 +631,7 @@ export default function AssetFormModal({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

@@ -71,6 +71,7 @@ export type ActiveView =
   | "itps"
   | "swms"
   | "scheduler"
+  | "forms"
   | "subcontractors"
   | "admin-master-dashboard"
   | "admin-itc"
@@ -84,6 +85,7 @@ export type ActiveView =
   | "org-dashboard"
   | "org-insurances"
   | "org-documents"
+  | "org-forms"
   | "org-projects"
   | "org-workers"
   | "org-inductions"
@@ -493,6 +495,7 @@ function buildStandardProjectNavItems(): (SubItem | NestedGroup)[] {
     },
     { label: "Assets", view: "assets" as const },
     { label: "SWMS", view: "swms" as const },
+    { label: "Forms", view: "forms" as const },
   ];
 }
 
@@ -604,6 +607,7 @@ export default function Sidebar({
       { label: "Company Information", href: "/organisation/company" },
       { label: "Insurances", href: "/organisation/insurances" },
       { label: "Documents", href: "/organisation/documents" },
+      { label: "Forms", href: "/organisation/forms" },
       { label: "Projects", href: "/organisation/projects" },
       { label: "Workers", href: "/organisation/workers" },
       { label: "Inductions", href: "/admin/forms/inductions" },

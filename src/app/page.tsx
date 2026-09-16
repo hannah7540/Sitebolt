@@ -54,6 +54,8 @@ import OrganisationProfileDashboard from "@/components/dashboard/OrganisationPro
 import CompanyInformationPanel from "@/components/organisation/CompanyInformationPanel";
 import InsurancesPanel from "@/components/organisation/InsurancesPanel";
 import OrganisationDocumentsPanel from "@/components/organisation/OrganisationDocumentsPanel";
+import FormTemplateManager from "@/components/forms/FormTemplateManager";
+import EntityFormsTab from "@/components/forms/EntityFormsTab";
 import ProjectsManagementPanel from "@/components/organisation/ProjectsManagementPanel";
 import SecuritySettingsPanel from "@/components/organisation/SecuritySettingsPanel";
 import SubcontractorsListView from "@/components/subcontractors/SubcontractorsListView";
@@ -471,6 +473,7 @@ function HomeConsole() {
                 { id: "plant" as const, label: "Assigned Plant", icon: "🚜" },
                 { id: "assets" as const, label: "Assets", icon: "📐" },
                 { id: "swms" as const, label: "SWMS", icon: "📄" },
+                { id: "forms" as const, label: "Forms", icon: "📝" },
                 { id: "scheduler" as const, label: "Plant Scheduler", icon: "📅" },
               ] as const
             ).map((tab) => (
@@ -569,6 +572,14 @@ function HomeConsole() {
             />
           )}
 
+          {activeTab === "forms" && dashboardProject?.id ? (
+            <EntityFormsTab
+              entityType="project"
+              entityId={dashboardProject.id}
+              projectId={dashboardProject.id}
+            />
+          ) : null}
+
           {activeTab === "scheduler" && (
             <PlantFleetScheduler
               plant={plant}
@@ -642,6 +653,9 @@ function HomeConsole() {
           )}
           {activeTab === "org-documents" && canManageOrganisation(sessionRole) && (
             <OrganisationDocumentsPanel />
+          )}
+          {activeTab === "org-forms" && canManageOrganisation(sessionRole) && (
+            <FormTemplateManager />
           )}
           {activeTab === "org-projects" && canManageOrganisation(sessionRole) && (
             <ProjectsManagementPanel

@@ -9,6 +9,7 @@ const PROJECT_VIEW_SEGMENTS: Partial<Record<ActiveView, string>> = {
   assets: "assets",
   swms: "swms",
   scheduler: "scheduler",
+  forms: "forms",
 };
 
 const SEGMENT_TO_VIEW = Object.entries(PROJECT_VIEW_SEGMENTS).reduce<
