@@ -9,15 +9,20 @@ import ItpItcBrowseView, {
 import ItpItcCreateWizard from "@/components/itc/admin/ItpItcCreateWizard";
 import ItpMasterDrawer from "@/components/itc/admin/ItpMasterDrawer";
 import {
+  deleteAdminItc,
+  deleteAdminItp,
   getAdminItc,
   getAdminItp,
   listAdminItcs,
   listAdminItps,
   listItcsForItp,
   toAdminBrowseItems,
+  type AdminBrowseItem,
   type AdminItcRecord,
   type AdminItpRecord,
 } from "@/components/itc/admin/itp-itc-admin-api";
+import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
+import Toast from "@/components/ui/Toast";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 
@@ -40,6 +45,13 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
   const [openItc, setOpenItc] = useState<AdminItcRecord | null>(null);
   const [itpPins, setItpPins] = useState<AdminItcRecord[]>([]);
   const [loadingPins, setLoadingPins] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: "itp"; itp: AdminItpRecord }
+    | { kind: "itc"; itc: AdminItcRecord }
+    | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const signerName = useMemo(() => {
     if (!adminWorkerId) return "Signed-in user";
@@ -113,6 +125,53 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
   const projectName = (projectId: string) =>
     projects.find((row) => row.id === projectId)?.name ?? "Project";
 
+  const requestDeleteFromBrowse = (item: AdminBrowseItem) => {
+    if (item.kind === "itp") {
+      const itp = itps.find((row) => row.id === item.id);
+      if (itp) setDeleteTarget({ kind: "itp", itp });
+      return;
+    }
+    const itc =
+      itcs.find((row) => row.id === item.id) ?? itpPins.find((row) => row.id === item.id);
+    if (itc) setDeleteTarget({ kind: "itc", itc });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    if (deleteTarget.kind === "itp") {
+      const result = await deleteAdminItp(deleteTarget.itp);
+      setDeleting(false);
+      if (result.error) {
+        setToast(result.error);
+        return;
+      }
+      const itpId = deleteTarget.itp.id;
+      setOpenItp(null);
+      setOpenItc(null);
+      setItpPins([]);
+      setItps((current) => current.filter((row) => row.id !== itpId));
+      setItcs((current) => current.filter((row) => row.itp_id !== itpId));
+      setDeleteTarget(null);
+      setToast("ITP and associated ITCs deleted successfully.");
+      return;
+    }
+
+    const result = await deleteAdminItc(deleteTarget.itc.id);
+    setDeleting(false);
+    if (result.error) {
+      setToast(result.error);
+      return;
+    }
+    const itcId = deleteTarget.itc.id;
+    const itcNo = deleteTarget.itc.number;
+    setOpenItc((current) => (current?.id === itcId ? null : current));
+    setItcs((current) => current.filter((row) => row.id !== itcId));
+    setItpPins((current) => current.filter((row) => row.id !== itcId));
+    setDeleteTarget(null);
+    setToast(`ITC ${itcNo} deleted.`);
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -175,6 +234,7 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
           onKindChange={setKind}
           onOpenItp={(id) => void openItpDrawer(id)}
           onOpenItc={(id) => void openItcDrawer(id)}
+          onDeleteItem={requestDeleteFromBrowse}
         />
       )}
 
@@ -199,6 +259,8 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
               current.some((row) => row.id === created.id) ? current : [...current, created]
             );
           }}
+          onRequestDeleteItp={() => setDeleteTarget({ kind: "itp", itp: openItp })}
+          onRequestDeleteItc={(itc) => setDeleteTarget({ kind: "itc", itc })}
         />
       ) : null}
 
@@ -214,6 +276,26 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
             setItcs((current) => current.map((row) => (row.id === next.id ? next : row)));
             setItpPins((current) => current.map((row) => (row.id === next.id ? next : row)));
           }}
+          onRequestDelete={() => setDeleteTarget({ kind: "itc", itc: openItc })}
+        />
+      ) : null}
+
+      <div className="relative z-[80]">
+        <ConfirmDeletionDialog
+          open={deleteTarget !== null}
+          confirming={deleting}
+          onCancel={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+          onConfirm={() => void handleConfirmDelete()}
+        />
+      </div>
+
+      {toast ? (
+        <Toast
+          message={toast}
+          variant={toast.toLowerCase().includes("deleted") ? "success" : "error"}
+          onDismiss={() => setToast(null)}
         />
       ) : null}
     </div>

@@ -31,6 +31,7 @@ interface ItcChecklistDrawerProps {
   defaultSignerName: string;
   onClose: () => void;
   onSaved: (itc: AdminItcRecord) => void;
+  onRequestDelete?: () => void;
 }
 
 const RESULTS: ChecklistResult[] = ["yes", "no", "na"];
@@ -60,6 +61,7 @@ export default function ItcChecklistDrawer({
   defaultSignerName,
   onClose,
   onSaved,
+  onRequestDelete,
 }: ItcChecklistDrawerProps) {
   const [runNumber, setRunNumber] = useState(itc.run_number ?? "");
   const [pipeSize, setPipeSize] = useState(itc.pipe_size ?? "");
@@ -528,7 +530,20 @@ export default function ItcChecklistDrawer({
           </section>
           {message ? <p className="mt-4 text-sm text-rose-600">{message}</p> : null}
         </div>
-        <div className={`${modalStickyFooterClass} flex justify-end gap-2`}>
+        <div className={`${modalStickyFooterClass} flex flex-wrap items-center justify-between gap-2`}>
+          {onRequestDelete ? (
+            <button
+              type="button"
+              onClick={onRequestDelete}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              title={`Delete ITC? Are you sure you want to delete ${itc.number} - ${runNumber || itc.number}? This will permanently remove this checklist, photos, and remove its pin from the drawing.`}
+            >
+              Delete ITC
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -545,6 +560,7 @@ export default function ItcChecklistDrawer({
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save Changes
           </button>
+          </div>
         </div>
       </div>
       {toast ? (

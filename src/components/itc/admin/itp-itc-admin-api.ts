@@ -867,3 +867,61 @@ export const ADMIN_STATUS_CLASSES: Record<AdminStatusBadge, string> = {
   in_progress: "bg-amber-100 text-amber-800",
   completed: "bg-emerald-100 text-emerald-800",
 };
+
+function parseStorageObject(url: string | null | undefined): { bucket: string; path: string } | null {
+  if (!url) return null;
+  const match = url.match(
+    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?]+)\/([^?]+)/
+  );
+  if (!match) return null;
+  return {
+    bucket: decodeURIComponent(match[1] ?? ""),
+    path: decodeURIComponent(match[2] ?? ""),
+  };
+}
+
+async function removeStoredFile(url: string | null | undefined): Promise<void> {
+  const parsed = parseStorageObject(url);
+  if (!parsed?.bucket || !parsed.path) return;
+  const buckets = Array.from(
+    new Set([parsed.bucket, ITP_PLANS_BUCKET, ITP_DRAWINGS_BUCKET, ITP_ATTACHMENTS_BUCKET, "itp-uploads"])
+  );
+  for (const bucket of buckets) {
+    const { error } = await supabase.storage.from(bucket).remove([parsed.path]);
+    if (!error) return;
+  }
+}
+
+async function deleteRowsById(tables: string[], id: string): Promise<{ error: string | null }> {
+  let lastError: string | null = "Delete failed";
+  let deleted = false;
+  for (const table of tables) {
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (!error) {
+      deleted = true;
+      continue;
+    }
+    lastError = error.message;
+  }
+  return { error: deleted ? null : lastError };
+}
+
+export async function deleteAdminItc(id: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+  return deleteRowsById(["itcs", PROJECT_ITCS_TABLE], id);
+}
+
+export async function deleteAdminItp(itp: AdminItpRecord): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const related = (await listAdminItcs(itp.project_id)).filter((row) => row.itp_id === itp.id);
+  for (const child of related) {
+    await deleteAdminItc(child.id);
+  }
+  await supabase.from("itcs").delete().eq("itp_id", itp.id);
+  await supabase.from(PROJECT_ITCS_TABLE).delete().eq("itp_id", itp.id);
+
+  const result = await deleteRowsById(["itps", PROJECT_ITPS_TABLE], itp.id);
+  await removeStoredFile(itp.plan_url);
+  return result;
+}

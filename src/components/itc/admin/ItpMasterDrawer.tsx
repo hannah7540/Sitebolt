@@ -46,6 +46,8 @@ interface ItpMasterDrawerProps {
   onOpenItc: (id: string) => void;
   onSaved?: (itp: AdminItpRecord) => void;
   onCreatedItc?: (itc: AdminItcRecord) => void;
+  onRequestDeleteItp?: () => void;
+  onRequestDeleteItc?: (itc: AdminItcRecord) => void;
 }
 
 const STATUS_OPTIONS: Array<{ value: AdminStatusBadge; label: string }> = [
@@ -63,6 +65,8 @@ export default function ItpMasterDrawer({
   onOpenItc,
   onSaved,
   onCreatedItc,
+  onRequestDeleteItp,
+  onRequestDeleteItc,
 }: ItpMasterDrawerProps) {
   const [title, setTitle] = useState(itp.title);
   const [area, setArea] = useState(itp.area ?? "");
@@ -369,11 +373,11 @@ export default function ItpMasterDrawer({
                 ) : (
                   <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                     {localItcs.map((itc, index) => (
-                      <li key={itc.id}>
+                      <li key={itc.id} className="flex items-stretch">
                         <button
                           type="button"
                           onClick={() => onOpenItc(itc.id)}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-orange-50"
+                          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-orange-50"
                         >
                           <span>
                             <span className="font-semibold text-orange-600">
@@ -387,6 +391,15 @@ export default function ItpMasterDrawer({
                               "Open checklist"}
                           </span>
                         </button>
+                        {onRequestDeleteItc ? (
+                          <button
+                            type="button"
+                            onClick={() => onRequestDeleteItc(itc)}
+                            className="px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -396,7 +409,20 @@ export default function ItpMasterDrawer({
             </div>
           )}
         </div>
-        <div className={`${modalStickyFooterClass} flex justify-end gap-2`}>
+        <div className={`${modalStickyFooterClass} flex flex-wrap items-center justify-between gap-2`}>
+          {onRequestDeleteItp ? (
+            <button
+              type="button"
+              onClick={onRequestDeleteItp}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              title={`Delete ITP and All Associated ITCs? Are you sure you want to delete ${itp.number} - ${title}? This action cannot be undone and will permanently delete this plan and all associated ITCs, checklist records, photos, and pins.`}
+            >
+              Delete ITP
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -413,6 +439,7 @@ export default function ItpMasterDrawer({
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save Changes
           </button>
+          </div>
         </div>
       </div>
 
