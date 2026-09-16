@@ -14,14 +14,19 @@ const MISSING_TABLE_MESSAGE =
 
 export type CustomFormEntityType = "project" | "plant" | "worker" | "fleet" | "asset";
 
+export type CustomFormFieldKind = "question" | "statement" | "media";
+
+export type CustomFormQuestionType = "text" | "select" | "checkbox" | "upload";
+
 export type CustomFormFieldType =
-  | "text"
+  | CustomFormQuestionType
   | "textarea"
-  | "select"
   | "multiselect"
   | "image"
   | "document"
-  | "signature";
+  | "signature"
+  | "statement"
+  | "media";
 
 export type CustomFormAssigneeRole =
   | "all"
@@ -31,11 +36,18 @@ export type CustomFormAssigneeRole =
 
 export interface CustomFormField {
   id: string;
+  kind: CustomFormFieldKind;
   type: CustomFormFieldType;
   label: string;
   helpText: string;
   required: boolean;
   options: string[];
+  title?: string;
+  text?: string;
+  file_url?: string;
+  file_name?: string;
+  file_type?: "image" | "doc";
+  caption?: string;
 }
 
 export interface CustomFormTemplate {
@@ -105,18 +117,18 @@ export interface CustomFormSubmissionInput {
   signature_url?: string | null;
 }
 
-export const CUSTOM_FORM_FIELD_TYPES: Array<{
-  type: CustomFormFieldType;
+export const CUSTOM_FORM_QUESTION_TYPES: Array<{
+  type: CustomFormQuestionType;
   label: string;
 }> = [
-  { type: "text", label: "Text Box" },
-  { type: "textarea", label: "Text Area" },
-  { type: "select", label: "Multiple Choice / Dropdown" },
-  { type: "multiselect", label: "Multi-Select Checkboxes" },
-  { type: "image", label: "Image Upload" },
-  { type: "document", label: "Document Upload" },
-  { type: "signature", label: "Signature Canvas" },
+  { type: "text", label: "Text Entry" },
+  { type: "select", label: "Multiple Choice" },
+  { type: "checkbox", label: "Checkboxes" },
+  { type: "upload", label: "Upload File or Picture" },
 ];
+
+/** @deprecated Use CUSTOM_FORM_QUESTION_TYPES. Kept so older imports still type-check. */
+export const CUSTOM_FORM_FIELD_TYPES = CUSTOM_FORM_QUESTION_TYPES;
 
 export const CUSTOM_FORM_ASSIGNEE_ROLES: Array<{
   value: CustomFormAssigneeRole;
@@ -170,35 +182,192 @@ function bool(row: Record<string, unknown>, key: string): boolean {
   return row[key] === true;
 }
 
-export function createEmptyFormField(type: CustomFormFieldType = "text"): CustomFormField {
+function questionNeedsOptions(type: CustomFormFieldType): boolean {
+  return type === "select" || type === "checkbox" || type === "multiselect";
+}
+
+export function isQuestionField(field: CustomFormField): boolean {
+  return field.kind === "question";
+}
+
+export function isStatementField(field: CustomFormField): boolean {
+  return field.kind === "statement";
+}
+
+export function isMediaField(field: CustomFormField): boolean {
+  return field.kind === "media";
+}
+
+export function createEmptyQuestion(): CustomFormField {
   return {
     id: crypto.randomUUID(),
-    type,
+    kind: "question",
+    type: "text",
     label: "",
     helpText: "",
     required: false,
-    options: type === "select" || type === "multiselect" ? ["Option 1"] : [],
+    options: [],
   };
+}
+
+export function createEmptyStatement(): CustomFormField {
+  return {
+    id: crypto.randomUUID(),
+    kind: "statement",
+    type: "statement",
+    label: "",
+    helpText: "",
+    required: false,
+    options: [],
+    title: "",
+    text: "",
+  };
+}
+
+export function createEmptyMedia(): CustomFormField {
+  return {
+    id: crypto.randomUUID(),
+    kind: "media",
+    type: "media",
+    label: "",
+    helpText: "",
+    required: false,
+    options: [],
+    file_url: "",
+    file_name: "",
+    file_type: "image",
+    caption: "",
+  };
+}
+
+export function createEmptyFormField(type: CustomFormFieldType = "text"): CustomFormField {
+  if (type === "statement") return createEmptyStatement();
+  if (type === "media") return createEmptyMedia();
+  const question = createEmptyQuestion();
+  const mapped = mapLegacyQuestionType(type);
+  return {
+    ...question,
+    type: mapped,
+    options: questionNeedsOptions(mapped) ? ["Option 1"] : [],
+  };
+}
+
+function mapLegacyQuestionType(type: string): CustomFormQuestionType {
+  if (type === "textarea") return "text";
+  if (type === "multiselect") return "checkbox";
+  if (type === "image" || type === "document") return "upload";
+  if (type === "select" || type === "checkbox" || type === "upload" || type === "text") {
+    return type;
+  }
+  return "text";
+}
+
+function inferFieldKind(row: Record<string, unknown>): CustomFormFieldKind | "skip" {
+  const kind = String(row.kind ?? "");
+  if (kind === "question" || kind === "statement" || kind === "media") return kind;
+  const type = String(row.type ?? "");
+  if (type === "statement") return "statement";
+  if (type === "media") return "media";
+  if (type === "signature") return "skip";
+  return "question";
+}
+
+export function serializeFormFields(fields: CustomFormField[]): unknown[] {
+  return fields.map((field) => {
+    if (field.kind === "statement") {
+      return {
+        id: field.id,
+        kind: "statement",
+        text: field.text?.trim() || "",
+        title: field.title?.trim() || undefined,
+      };
+    }
+    if (field.kind === "media") {
+      return {
+        id: field.id,
+        kind: "media",
+        file_url: field.file_url || "",
+        file_name: field.file_name || "",
+        file_type: field.file_type === "doc" ? "doc" : "image",
+        caption: field.caption?.trim() || undefined,
+      };
+    }
+    const payload: Record<string, unknown> = {
+      id: field.id,
+      kind: "question",
+      type: mapLegacyQuestionType(field.type),
+      label: field.label.trim(),
+      required: field.required,
+    };
+    if (questionNeedsOptions(field.type) && field.options.length) {
+      payload.options = field.options;
+    }
+    return payload;
+  });
 }
 
 export function normalizeFormFields(raw: unknown): CustomFormField[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((item, index) => {
+  return raw.flatMap((item, index): CustomFormField[] => {
     const row = asRecord(item);
-    const type = String(row.type ?? "text") as CustomFormFieldType;
+    const kind = inferFieldKind(row);
+    if (kind === "skip") return [];
+    const id = str(row, "id") ?? `field_${index + 1}`;
     const options = Array.isArray(row.options)
       ? row.options.map((option) => String(option)).filter(Boolean)
       : [];
-    return {
-      id: str(row, "id") ?? `field_${index + 1}`,
-      type: CUSTOM_FORM_FIELD_TYPES.some((itemType) => itemType.type === type)
-        ? type
-        : "text",
-      label: str(row, "label") ?? `Field ${index + 1}`,
-      helpText: str(row, "helpText") ?? str(row, "placeholder") ?? "",
-      required: bool(row, "required"),
-      options,
-    };
+
+    if (kind === "statement") {
+      const title = str(row, "title") ?? "";
+      const text = str(row, "text") ?? str(row, "label") ?? "";
+      return [
+        {
+          id,
+          kind: "statement",
+          type: "statement",
+          label: title || text || "Statement",
+          helpText: text,
+          required: false,
+          options: [],
+          title,
+          text,
+        },
+      ];
+    }
+
+    if (kind === "media") {
+      const caption = str(row, "caption") ?? "";
+      const fileName = str(row, "file_name") ?? "";
+      const fileType = str(row, "file_type") === "doc" ? "doc" : "image";
+      return [
+        {
+          id,
+          kind: "media",
+          type: "media",
+          label: caption || fileName || "Media",
+          helpText: caption,
+          required: false,
+          options: [],
+          file_url: str(row, "file_url") ?? "",
+          file_name: fileName,
+          file_type: fileType,
+          caption,
+        },
+      ];
+    }
+
+    const type = mapLegacyQuestionType(String(row.type ?? "text"));
+    return [
+      {
+        id,
+        kind: "question",
+        type,
+        label: str(row, "label") ?? `Question ${index + 1}`,
+        helpText: str(row, "helpText") ?? str(row, "placeholder") ?? "",
+        required: bool(row, "required"),
+        options,
+      },
+    ];
   });
 }
 
@@ -311,7 +480,7 @@ export async function saveCustomFormTemplate(
     applies_to_assets: input.applies_to_assets,
     assignee_role: input.assignee_role,
     is_active: input.is_active ?? true,
-    fields: input.fields,
+    fields: serializeFormFields(input.fields),
     updated_at: new Date().toISOString(),
   };
   const query = id
@@ -495,7 +664,7 @@ export function emptyTemplateDraft(): CustomFormTemplateInput {
     applies_to_assets: false,
     assignee_role: "all",
     is_active: true,
-    fields: [createEmptyFormField("text")],
+    fields: [],
   };
 }
 
@@ -536,23 +705,26 @@ export function asNamedFileList(
 }
 
 export function isAnswerFilled(field: CustomFormField, value: unknown): boolean {
-  if (field.type === "multiselect") return asStringList(value).length > 0;
-  if (field.type === "image") return asStringList(value).length > 0;
-  if (field.type === "document") return asNamedFileList(value).length > 0;
-  if (field.type === "signature") return typeof value === "string" && value.trim().length > 0;
+  if (!isQuestionField(field)) return true;
+  if (field.type === "checkbox" || field.type === "multiselect") {
+    return asStringList(value).length > 0;
+  }
+  if (field.type === "upload" || field.type === "image" || field.type === "document") {
+    return asNamedFileList(value).length > 0 || asStringList(value).length > 0;
+  }
   if (typeof value === "string") return value.trim().length > 0;
   return value != null && String(value).trim().length > 0;
 }
 
 export function formatAnswerForDisplay(value: unknown, type: CustomFormFieldType): string {
-  if (type === "multiselect") return asStringList(value).join(", ") || "—";
-  if (type === "image") {
-    const count = asStringList(value).length;
-    return count ? `${count} image${count === 1 ? "" : "s"}` : "—";
+  if (type === "checkbox" || type === "multiselect") {
+    return asStringList(value).join(", ") || "—";
   }
-  if (type === "document") {
+  if (type === "upload" || type === "image" || type === "document") {
     const files = asNamedFileList(value);
-    return files.length ? files.map((file) => file.name).join(", ") : "—";
+    if (files.length) return files.map((file) => file.name).join(", ");
+    const urls = asStringList(value);
+    return urls.length ? `${urls.length} file${urls.length === 1 ? "" : "s"}` : "—";
   }
   if (type === "signature") return typeof value === "string" && value.trim() ? "Signed" : "—";
   if (typeof value === "string" && value.trim()) return value.trim();

@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, X } from "lucide-react";
+import { FileText, Loader2, X } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import {
   asNamedFileList,
   asStringList,
   isAnswerFilled,
+  isMediaField,
+  isQuestionField,
+  isStatementField,
   type CustomFormAnswers,
   type CustomFormEntityType,
   type CustomFormField,
@@ -45,9 +48,23 @@ interface FormFillDrawerProps {
 }
 
 function emptyValue(field: CustomFormField): unknown {
-  if (field.type === "multiselect" || field.type === "image") return [];
-  if (field.type === "document") return [];
+  if (
+    field.type === "checkbox" ||
+    field.type === "multiselect" ||
+    field.type === "upload" ||
+    field.type === "image" ||
+    field.type === "document"
+  ) {
+    return [];
+  }
   return "";
+}
+
+function isUploadQuestion(field: CustomFormField): boolean {
+  return (
+    isQuestionField(field) &&
+    (field.type === "upload" || field.type === "image" || field.type === "document")
+  );
 }
 
 export default function FormFillDrawer({
@@ -63,6 +80,7 @@ export default function FormFillDrawer({
 }: FormFillDrawerProps) {
   const [mounted, setMounted] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [uploadingFieldId, setUploadingFieldId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -78,9 +96,10 @@ export default function FormFillDrawer({
   useEffect(() => {
     if (!open || !template) return;
     setLocalError(null);
+    setSignatureDataUrl(null);
     const next: Record<string, unknown> = {};
     for (const field of template.fields) {
-      next[field.id] = emptyValue(field);
+      if (isQuestionField(field)) next[field.id] = emptyValue(field);
     }
     setValues(next);
   }, [open, template]);
@@ -109,14 +128,7 @@ export default function FormFillDrawer({
         }
         uploaded.push({ name: file.name, url: result.url });
       }
-      if (field.type === "image") {
-        setFieldValue(field.id, [
-          ...asStringList(values[field.id]),
-          ...uploaded.map((item) => item.url),
-        ]);
-      } else {
-        setFieldValue(field.id, [...asNamedFileList(values[field.id]), ...uploaded]);
-      }
+      setFieldValue(field.id, [...asNamedFileList(values[field.id]), ...uploaded]);
     } finally {
       setUploadingFieldId(null);
     }
@@ -124,39 +136,38 @@ export default function FormFillDrawer({
 
   const handleSubmit = async () => {
     const missing = template.fields.find(
-      (field) => field.required && !isAnswerFilled(field, values[field.id])
+      (field) =>
+        isQuestionField(field) && field.required && !isAnswerFilled(field, values[field.id])
     );
     if (missing) {
       setLocalError(`"${missing.label}" is required.`);
+      return;
+    }
+    if (!signatureDataUrl) {
+      setLocalError("Please sign the form before submitting.");
       return;
     }
 
     setSubmitting(true);
     setLocalError(null);
     try {
+      const uploadedSignature = await uploadSignatureDataUrl(signatureDataUrl, submissionKey);
+      if (uploadedSignature.error || !uploadedSignature.url) {
+        setLocalError(uploadedSignature.error ?? "Signature upload failed.");
+        setSubmitting(false);
+        return;
+      }
+
       const answers: CustomFormAnswers = {};
-      let signatureUrl: string | null = null;
       for (const field of template.fields) {
-        let value = values[field.id];
-        if (field.type === "signature" && typeof value === "string" && value.startsWith("data:")) {
-          const uploaded = await uploadSignatureDataUrl(value, submissionKey);
-          if (uploaded.error || !uploaded.url) {
-            setLocalError(uploaded.error ?? "Signature upload failed.");
-            setSubmitting(false);
-            return;
-          }
-          value = uploaded.url;
-        }
-        if (field.type === "signature" && typeof value === "string" && value.trim()) {
-          signatureUrl = value;
-        }
+        if (!isQuestionField(field)) continue;
         answers[field.id] = {
           label: field.label,
           type: field.type,
-          value,
+          value: values[field.id],
         };
       }
-      await onSubmit({ answers, signatureUrl });
+      await onSubmit({ answers, signatureUrl: uploadedSignature.url });
     } finally {
       setSubmitting(false);
     }
@@ -191,143 +202,164 @@ export default function FormFillDrawer({
 
         <div className={modalBodyClass}>
           <div className="space-y-5">
-            {template.fields.map((field) => (
-              <div key={field.id} className="space-y-2">
-                <label className={labelClass} htmlFor={`fill-${field.id}`}>
-                  {field.label}
-                  {field.required ? <span className="ml-1 text-red-500">*</span> : null}
-                </label>
-                {field.type === "text" ? (
-                  <input
-                    id={`fill-${field.id}`}
-                    className={inputClass}
-                    placeholder={field.helpText}
-                    value={String(values[field.id] ?? "")}
-                    onChange={(event) => setFieldValue(field.id, event.target.value)}
-                  />
-                ) : null}
-                {field.type === "textarea" ? (
-                  <textarea
-                    id={`fill-${field.id}`}
-                    className={cn(inputClass, "min-h-[96px]")}
-                    placeholder={field.helpText}
-                    value={String(values[field.id] ?? "")}
-                    onChange={(event) => setFieldValue(field.id, event.target.value)}
-                  />
-                ) : null}
-                {field.type === "select" ? (
-                  <select
-                    id={`fill-${field.id}`}
-                    className={inputClass}
-                    value={String(values[field.id] ?? "")}
-                    onChange={(event) => setFieldValue(field.id, event.target.value)}
+            {template.fields.map((field) => {
+              if (isStatementField(field)) {
+                return (
+                  <div
+                    key={field.id}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
                   >
-                    <option value="">{field.helpText || "Select an option"}</option>
-                    {field.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                {field.type === "multiselect" ? (
-                  <div className="space-y-2">
-                    {field.options.map((option) => {
-                      const selected = asStringList(values[field.id]);
-                      return (
+                    {field.title ? (
+                      <p className="text-sm font-semibold text-amber-950">{field.title}</p>
+                    ) : null}
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">
+                      {field.text || field.label}
+                    </p>
+                  </div>
+                );
+              }
+
+              if (isMediaField(field) && field.file_url) {
+                return (
+                  <div key={field.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    {field.file_type === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={field.file_url}
+                        alt={field.caption || field.file_name || "Reference image"}
+                        className="w-full object-contain"
+                      />
+                    ) : (
+                      <a
+                        href={field.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 p-4 text-sm font-medium text-orange-600 hover:bg-orange-50"
+                      >
+                        <FileText className="h-5 w-5 shrink-0" />
+                        <span>
+                          {field.caption || field.file_name || "Open reference document"}
+                        </span>
+                      </a>
+                    )}
+                    {field.caption && field.file_type === "image" ? (
+                      <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+                        {field.caption}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              if (!isQuestionField(field)) return null;
+
+              return (
+                <div key={field.id} className="space-y-2">
+                  <label className={labelClass} htmlFor={`fill-${field.id}`}>
+                    {field.label}
+                    {field.required ? <span className="ml-1 text-red-500">*</span> : null}
+                  </label>
+                  {field.type === "text" || field.type === "textarea" ? (
+                    <textarea
+                      id={`fill-${field.id}`}
+                      className={cn(inputClass, "min-h-[88px]")}
+                      placeholder={field.helpText || "Enter your response"}
+                      value={String(values[field.id] ?? "")}
+                      onChange={(event) => setFieldValue(field.id, event.target.value)}
+                    />
+                  ) : null}
+                  {field.type === "select" ? (
+                    <div className="space-y-2">
+                      {field.options.map((option) => (
                         <label key={option} className="flex items-center gap-2 text-sm text-slate-700">
                           <input
-                            type="checkbox"
-                            checked={selected.includes(option)}
-                            onChange={(event) => {
-                              setFieldValue(
-                                field.id,
-                                event.target.checked
-                                  ? [...selected, option]
-                                  : selected.filter((item) => item !== option)
-                              );
-                            }}
+                            type="radio"
+                            name={`fill-${field.id}`}
+                            checked={String(values[field.id] ?? "") === option}
+                            onChange={() => setFieldValue(field.id, option)}
                           />
                           {option}
                         </label>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                {field.type === "image" ? (
-                  <div>
-                    <input
-                      id={`fill-${field.id}`}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      multiple
-                      className={inputClass}
-                      onChange={(event) => void handleUpload(field, event.target.files)}
-                    />
-                    {field.helpText ? (
-                      <p className="mt-1 text-xs text-slate-500">{field.helpText}</p>
-                    ) : null}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {asStringList(values[field.id]).map((url) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={url}
-                          src={url}
-                          alt=""
-                          className="h-16 w-16 rounded-md object-cover ring-1 ring-slate-200"
-                        />
                       ))}
                     </div>
-                  </div>
-                ) : null}
-                {field.type === "document" ? (
-                  <div>
-                    <input
-                      id={`fill-${field.id}`}
-                      type="file"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
-                      multiple
-                      className={inputClass}
-                      onChange={(event) => void handleUpload(field, event.target.files)}
-                    />
-                    {field.helpText ? (
-                      <p className="mt-1 text-xs text-slate-500">{field.helpText}</p>
-                    ) : null}
-                    <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                      {asNamedFileList(values[field.id]).map((file) => (
-                        <li key={file.url}>
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-orange-600 hover:underline"
-                          >
-                            {file.name}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {field.type === "signature" ? (
-                  <div>
-                    {field.helpText ? (
-                      <p className="mb-2 text-xs text-slate-500">{field.helpText}</p>
-                    ) : null}
-                    <SignatureCanvas
-                      onChange={(dataUrl) => setFieldValue(field.id, dataUrl ?? "")}
-                    />
-                  </div>
-                ) : null}
-                {uploadingFieldId === field.id ? (
-                  <p className="inline-flex items-center gap-2 text-xs text-slate-500">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Uploading…
-                  </p>
-                ) : null}
-              </div>
-            ))}
+                  ) : null}
+                  {field.type === "checkbox" || field.type === "multiselect" ? (
+                    <div className="space-y-2">
+                      {field.options.map((option) => {
+                        const selected = asStringList(values[field.id]);
+                        return (
+                          <label key={option} className="flex items-center gap-2 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(option)}
+                              onChange={(event) => {
+                                setFieldValue(
+                                  field.id,
+                                  event.target.checked
+                                    ? [...selected, option]
+                                    : selected.filter((item) => item !== option)
+                                );
+                              }}
+                            />
+                            {option}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {isUploadQuestion(field) ? (
+                    <div>
+                      <input
+                        id={`fill-${field.id}`}
+                        type="file"
+                        accept="image/*,.pdf,.doc,.docx,.dwg,.dxf"
+                        capture="environment"
+                        multiple
+                        className={inputClass}
+                        onChange={(event) => void handleUpload(field, event.target.files)}
+                      />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {asNamedFileList(values[field.id]).map((file) =>
+                          /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name) ||
+                          file.url.match(/\.(png|jpe?g|gif|webp|svg)(\?|$)/i) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={file.url}
+                              src={file.url}
+                              alt={file.name}
+                              className="h-16 w-16 rounded-md object-cover ring-1 ring-slate-200"
+                            />
+                          ) : (
+                            <a
+                              key={file.url}
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-orange-600 hover:underline"
+                            >
+                              {file.name}
+                            </a>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                  {uploadingFieldId === field.id ? (
+                    <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Uploading…
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            <div className="space-y-2 border-t border-slate-200 pt-5">
+              <p className={labelClass}>
+                Signature <span className="text-red-500">*</span>
+              </p>
+              <SignatureCanvas onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
+            </div>
           </div>
 
           {localError || error ? (

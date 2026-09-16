@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronUp,
+  FileText,
+  ImageIcon,
   Loader2,
   Plus,
   Trash2,
@@ -12,15 +14,18 @@ import {
 } from "lucide-react";
 import {
   CUSTOM_FORM_ASSIGNEE_ROLES,
-  CUSTOM_FORM_FIELD_TYPES,
+  CUSTOM_FORM_QUESTION_TYPES,
   CUSTOM_FORM_TARGET_KEYS,
-  createEmptyFormField,
+  createEmptyMedia,
+  createEmptyQuestion,
+  createEmptyStatement,
   emptyTemplateDraft,
   type CustomFormField,
-  type CustomFormFieldType,
+  type CustomFormQuestionType,
   type CustomFormTemplate,
   type CustomFormTemplateInput,
 } from "@/lib/custom-forms";
+import { uploadCustomFormAttachment } from "@/lib/custom-form-upload";
 import { cn } from "@/lib/utils";
 import {
   inputClass,
@@ -41,8 +46,13 @@ interface FormBuilderDrawerProps {
   onSave?: (input: CustomFormTemplateInput) => Promise<void> | void;
 }
 
-function fieldNeedsOptions(type: CustomFormFieldType): boolean {
-  return type === "select" || type === "multiselect";
+function fieldNeedsOptions(field: CustomFormField): boolean {
+  return field.kind === "question" && (field.type === "select" || field.type === "checkbox");
+}
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name);
 }
 
 export default function FormBuilderDrawer({
@@ -58,6 +68,9 @@ export default function FormBuilderDrawer({
   const [draft, setDraft] = useState<CustomFormTemplateInput>(emptyTemplateDraft());
   const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
   const [localError, setLocalError] = useState<string | null>(null);
+  const [addMenu, setAddMenu] = useState<"closed" | "root" | "static">("closed");
+  const [uploadingFieldId, setUploadingFieldId] = useState<string | null>(null);
+  const templateKey = template?.id ?? "new-template";
 
   useEffect(() => {
     setMounted(true);
@@ -66,6 +79,7 @@ export default function FormBuilderDrawer({
   useEffect(() => {
     if (!open) return;
     setLocalError(null);
+    setAddMenu("closed");
     if (template) {
       setDraft({
         title: template.title,
@@ -77,9 +91,10 @@ export default function FormBuilderDrawer({
         applies_to_assets: template.applies_to_assets,
         assignee_role: template.assignee_role,
         is_active: template.is_active,
-        fields: template.fields.length
-          ? template.fields.map((field) => ({ ...field, options: [...field.options] }))
-          : [createEmptyFormField("text")],
+        fields: template.fields.map((field) => ({
+          ...field,
+          options: [...(field.options ?? [])],
+        })),
       });
       return;
     }
@@ -102,6 +117,11 @@ export default function FormBuilderDrawer({
     }));
   };
 
+  const addField = (field: CustomFormField) => {
+    setDraft((current) => ({ ...current, fields: [...current.fields, field] }));
+    setAddMenu("closed");
+  };
+
   const moveField = (index: number, direction: -1 | 1) => {
     setDraft((current) => {
       const nextIndex = index + direction;
@@ -110,6 +130,28 @@ export default function FormBuilderDrawer({
       const [item] = fields.splice(index, 1);
       fields.splice(nextIndex, 0, item);
       return { ...current, fields };
+    });
+  };
+
+  const handleMediaUpload = async (field: CustomFormField, file: File | undefined) => {
+    if (!file) return;
+    setUploadingFieldId(field.id);
+    setLocalError(null);
+    const uploaded = await uploadCustomFormAttachment({
+      file,
+      submissionKey: `template-${templateKey}`,
+      fieldId: field.id,
+    });
+    setUploadingFieldId(null);
+    if (uploaded.error || !uploaded.url) {
+      setLocalError(uploaded.error ?? "File upload failed.");
+      return;
+    }
+    updateField(field.id, {
+      file_url: uploaded.url,
+      file_name: file.name,
+      file_type: isImageFile(file) ? "image" : "doc",
+      label: field.caption?.trim() || file.name,
     });
   };
 
@@ -130,13 +172,33 @@ export default function FormBuilderDrawer({
       setLocalError("Select at least one target: Projects, People, Plant, Fleet, or Assets.");
       return;
     }
-    const labeledFields = draft.fields.filter((field) => field.label.trim());
-    if (!labeledFields.length) {
-      setLocalError("Add at least one field with a label.");
+    if (!draft.fields.length) {
+      setLocalError("Add at least one question or static content block.");
       return;
     }
-    const missingOptions = labeledFields.find(
-      (field) => fieldNeedsOptions(field.type) && field.options.length === 0
+    const unlabeledQuestion = draft.fields.find(
+      (field) => field.kind === "question" && !field.label.trim()
+    );
+    if (unlabeledQuestion) {
+      setLocalError("Every question needs a label / prompt.");
+      return;
+    }
+    const emptyStatement = draft.fields.find(
+      (field) => field.kind === "statement" && !field.text?.trim()
+    );
+    if (emptyStatement) {
+      setLocalError("Text statements need a notice or instructions.");
+      return;
+    }
+    const emptyMedia = draft.fields.find(
+      (field) => field.kind === "media" && !field.file_url
+    );
+    if (emptyMedia) {
+      setLocalError("Embedded files need an uploaded PDF, image, or CAD export.");
+      return;
+    }
+    const missingOptions = draft.fields.find(
+      (field) => fieldNeedsOptions(field) && field.options.length === 0
     );
     if (missingOptions) {
       setLocalError(`Add options for "${missingOptions.label}".`);
@@ -147,12 +209,15 @@ export default function FormBuilderDrawer({
       ...draft,
       title: titleValue,
       description: draft.description?.trim() || "",
-      fields: labeledFields.map((field) => ({
-        ...field,
-        label: field.label.trim(),
-        helpText: field.helpText.trim(),
-      })),
+      fields: draft.fields,
     });
+  };
+
+  const addOption = (field: CustomFormField) => {
+    const next = (optionDrafts[field.id] ?? "").trim();
+    if (!next || field.options.includes(next)) return;
+    updateField(field.id, { options: [...field.options, next] });
+    setOptionDrafts((current) => ({ ...current, [field.id]: "" }));
   };
 
   return createPortal(
@@ -164,7 +229,7 @@ export default function FormBuilderDrawer({
               {title}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Configure targets, roles, and dynamic fields for this template.
+              Add questions for workers to answer, or static notices and files for them to read.
             </p>
           </div>
           <button
@@ -260,24 +325,81 @@ export default function FormBuilderDrawer({
           </div>
 
           <div className="mt-8 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-900">Dynamic Fields</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-900">Form Content</h3>
               {!readOnly ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      fields: [...current.fields, createEmptyFormField("text")],
-                    }))
-                  }
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Field
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAddMenu((current) => (current === "closed" ? "root" : "closed"))
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-600"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Element
+                  </button>
+                  {addMenu !== "closed" ? (
+                    <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      {addMenu === "root" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
+                            onClick={() => addField(createEmptyQuestion())}
+                          >
+                            Add a Question
+                            <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                              Interactive field expecting a worker response
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
+                            onClick={() => setAddMenu("static")}
+                          >
+                            Add Static Content
+                            <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                              Notices, instructions, or reference files
+                            </span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
+                            onClick={() => addField(createEmptyStatement())}
+                          >
+                            Text Statement / Notice
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
+                            onClick={() => addField(createEmptyMedia())}
+                          >
+                            Embed File or Image
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs text-slate-500 hover:bg-slate-50"
+                            onClick={() => setAddMenu("root")}
+                          >
+                            ← Back
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
+
+            {draft.fields.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                No content yet. Add a question or static content block.
+              </p>
+            ) : null}
 
             {draft.fields.map((field, index) => (
               <div
@@ -285,7 +407,13 @@ export default function FormBuilderDrawer({
                 className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-800">Field {index + 1}</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {field.kind === "question"
+                      ? `Question ${index + 1}`
+                      : field.kind === "statement"
+                        ? `Statement ${index + 1}`
+                        : `File ${index + 1}`}
+                  </p>
                   {!readOnly ? (
                     <div className="flex items-center gap-1">
                       <button
@@ -293,7 +421,7 @@ export default function FormBuilderDrawer({
                         onClick={() => moveField(index, -1)}
                         disabled={index === 0}
                         className="rounded-md p-1.5 text-slate-500 hover:bg-white disabled:opacity-40"
-                        aria-label="Move field up"
+                        aria-label="Move block up"
                       >
                         <ChevronUp className="h-4 w-4" />
                       </button>
@@ -302,7 +430,7 @@ export default function FormBuilderDrawer({
                         onClick={() => moveField(index, 1)}
                         disabled={index === draft.fields.length - 1}
                         className="rounded-md p-1.5 text-slate-500 hover:bg-white disabled:opacity-40"
-                        aria-label="Move field down"
+                        aria-label="Move block down"
                       >
                         <ChevronDown className="h-4 w-4" />
                       </button>
@@ -314,9 +442,8 @@ export default function FormBuilderDrawer({
                             fields: current.fields.filter((item) => item.id !== field.id),
                           }))
                         }
-                        disabled={draft.fields.length === 1}
-                        className="rounded-md p-1.5 text-red-500 hover:bg-white disabled:opacity-40"
-                        aria-label="Remove field"
+                        className="rounded-md p-1.5 text-red-500 hover:bg-white"
+                        aria-label="Remove block"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -324,125 +451,209 @@ export default function FormBuilderDrawer({
                   ) : null}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className={labelClass}>Field Type</span>
-                    <select
-                      className={inputClass}
-                      value={field.type}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const type = event.target.value as CustomFormFieldType;
-                        updateField(field.id, {
-                          type,
-                          options: fieldNeedsOptions(type)
-                            ? field.options.length
-                              ? field.options
-                              : ["Option 1"]
-                            : [],
-                        });
-                      }}
-                    >
-                      {CUSTOM_FORM_FIELD_TYPES.map((item) => (
-                        <option key={item.type} value={item.type}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className={labelClass}>Label *</span>
-                    <input
-                      className={inputClass}
-                      value={field.label}
-                      disabled={readOnly}
-                      onChange={(event) => updateField(field.id, { label: event.target.value })}
-                    />
-                  </label>
-                  <label className="block sm:col-span-2">
-                    <span className={labelClass}>Help Text / Placeholder</span>
-                    <input
-                      className={inputClass}
-                      value={field.helpText}
-                      disabled={readOnly}
-                      onChange={(event) => updateField(field.id, { helpText: event.target.value })}
-                    />
-                  </label>
-                </div>
-
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={field.required}
-                    disabled={readOnly}
-                    onChange={(event) => updateField(field.id, { required: event.target.checked })}
-                  />
-                  Required
-                </label>
-
-                {fieldNeedsOptions(field.type) ? (
-                  <div>
-                    <p className={labelClass}>Options</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {field.options.map((option) => (
-                        <span
-                          key={option}
-                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200"
+                {field.kind === "question" ? (
+                  <>
+                    <label className="block">
+                      <span className={labelClass}>Question Label / Prompt *</span>
+                      <input
+                        className={inputClass}
+                        value={field.label}
+                        disabled={readOnly}
+                        placeholder='e.g. "Is the perimeter fenced?"'
+                        onChange={(event) => updateField(field.id, { label: event.target.value })}
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className={labelClass}>Response Type</span>
+                        <select
+                          className={inputClass}
+                          value={field.type}
+                          disabled={readOnly}
+                          onChange={(event) => {
+                            const type = event.target.value as CustomFormQuestionType;
+                            updateField(field.id, {
+                              type,
+                              options: fieldNeedsOptions({ ...field, type })
+                                ? field.options.length
+                                  ? field.options
+                                  : ["Option 1"]
+                                : [],
+                            });
+                          }}
                         >
-                          {option}
-                          {!readOnly ? (
+                          {CUSTOM_FORM_QUESTION_TYPES.map((item) => (
+                            <option key={item.type} value={item.type}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={field.required}
+                          disabled={readOnly}
+                          onChange={(event) =>
+                            updateField(field.id, { required: event.target.checked })
+                          }
+                        />
+                        Required
+                      </label>
+                    </div>
+                    {fieldNeedsOptions(field) ? (
+                      <div>
+                        <p className={labelClass}>Options</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {field.options.map((option) => (
+                            <span
+                              key={option}
+                              className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200"
+                            >
+                              {option}
+                              {!readOnly ? (
+                                <button
+                                  type="button"
+                                  className="text-slate-400 hover:text-red-500"
+                                  onClick={() =>
+                                    updateField(field.id, {
+                                      options: field.options.filter((item) => item !== option),
+                                    })
+                                  }
+                                  aria-label={`Remove ${option}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              ) : null}
+                            </span>
+                          ))}
+                        </div>
+                        {!readOnly ? (
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              className={inputClass}
+                              placeholder="Add option"
+                              value={optionDrafts[field.id] ?? ""}
+                              onChange={(event) =>
+                                setOptionDrafts((current) => ({
+                                  ...current,
+                                  [field.id]: event.target.value,
+                                }))
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key !== "Enter") return;
+                                event.preventDefault();
+                                addOption(field);
+                              }}
+                            />
                             <button
                               type="button"
-                              className="text-slate-400 hover:text-red-500"
-                              onClick={() =>
-                                updateField(field.id, {
-                                  options: field.options.filter((item) => item !== option),
-                                })
-                              }
-                              aria-label={`Remove ${option}`}
+                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-white"
+                              onClick={() => addOption(field)}
                             >
-                              <X className="h-3 w-3" />
+                              Add
                             </button>
-                          ) : null}
-                        </span>
-                      ))}
-                    </div>
-                    {!readOnly ? (
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          className={inputClass}
-                          placeholder="Add option"
-                          value={optionDrafts[field.id] ?? ""}
-                          onChange={(event) =>
-                            setOptionDrafts((current) => ({
-                              ...current,
-                              [field.id]: event.target.value,
-                            }))
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            const next = (optionDrafts[field.id] ?? "").trim();
-                            if (!next || field.options.includes(next)) return;
-                            updateField(field.id, { options: [...field.options, next] });
-                            setOptionDrafts((current) => ({ ...current, [field.id]: "" }));
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-white"
-                          onClick={() => {
-                            const next = (optionDrafts[field.id] ?? "").trim();
-                            if (!next || field.options.includes(next)) return;
-                            updateField(field.id, { options: [...field.options, next] });
-                            setOptionDrafts((current) => ({ ...current, [field.id]: "" }));
-                          }}
-                        >
-                          Add
-                        </button>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
-                  </div>
+                  </>
+                ) : null}
+
+                {field.kind === "statement" ? (
+                  <>
+                    <label className="block">
+                      <span className={labelClass}>Title / Heading</span>
+                      <input
+                        className={inputClass}
+                        value={field.title ?? ""}
+                        disabled={readOnly}
+                        placeholder="Optional heading"
+                        onChange={(event) =>
+                          updateField(field.id, {
+                            title: event.target.value,
+                            label: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Text / Instructions *</span>
+                      <textarea
+                        className={cn(inputClass, "min-h-[120px]")}
+                        value={field.text ?? ""}
+                        disabled={readOnly}
+                        placeholder="Safety warnings, terms, or guidance for the worker to read."
+                        onChange={(event) => updateField(field.id, { text: event.target.value })}
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                {field.kind === "media" ? (
+                  <>
+                    <label className="block">
+                      <span className={labelClass}>Caption / Label</span>
+                      <input
+                        className={inputClass}
+                        value={field.caption ?? ""}
+                        disabled={readOnly}
+                        placeholder='e.g. "Site Evacuation Plan"'
+                        onChange={(event) =>
+                          updateField(field.id, {
+                            caption: event.target.value,
+                            label: event.target.value || field.file_name || "Media",
+                          })
+                        }
+                      />
+                    </label>
+                    {!readOnly ? (
+                      <label className="block">
+                        <span className={labelClass}>Upload PDF, image, or CAD export</span>
+                        <input
+                          type="file"
+                          accept=".pdf,.png,.jpg,.jpeg,.webp,.dwg,.dxf,.svg"
+                          className={inputClass}
+                          onChange={(event) =>
+                            void handleMediaUpload(field, event.target.files?.[0])
+                          }
+                        />
+                      </label>
+                    ) : null}
+                    {uploadingFieldId === field.id ? (
+                      <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Uploading…
+                      </p>
+                    ) : null}
+                    {field.file_url ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        {field.file_type === "image" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={field.file_url}
+                            alt={field.caption || field.file_name || "Embedded image"}
+                            className="max-h-40 w-full rounded-md object-contain"
+                          />
+                        ) : (
+                          <a
+                            href={field.file_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-sm font-medium text-orange-600 hover:underline"
+                          >
+                            <FileText className="h-4 w-4" />
+                            {field.file_name || "Open document"}
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        No file uploaded yet.
+                      </p>
+                    )}
+                  </>
                 ) : null}
               </div>
             ))}
@@ -467,7 +678,7 @@ export default function FormBuilderDrawer({
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving}
+              disabled={saving || Boolean(uploadingFieldId)}
               className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

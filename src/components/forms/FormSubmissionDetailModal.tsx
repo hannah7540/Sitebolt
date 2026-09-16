@@ -41,9 +41,14 @@ export default function FormSubmissionDetailModal({
     if (!submission) return [];
     const urls: Array<{ url: string; alt: string }> = [];
     for (const answer of Object.values(submission.answers)) {
-      if (answer.type === "image") {
+      if (answer.type === "image" || answer.type === "upload") {
         for (const url of asStringList(answer.value)) {
           urls.push({ url, alt: answer.label });
+        }
+        for (const file of asNamedFileList(answer.value)) {
+          if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(file.url) || /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name)) {
+            urls.push({ url: file.url, alt: file.name || answer.label });
+          }
         }
       }
       if (answer.type === "signature" && typeof answer.value === "string" && answer.value) {
@@ -76,11 +81,19 @@ export default function FormSubmissionDetailModal({
     if (!popup) return;
     const rows = Object.values(submission.answers)
       .map((answer) => {
-        if (answer.type === "image") {
-          const thumbs = asStringList(answer.value)
+        if (answer.type === "image" || answer.type === "upload") {
+          const thumbs = [
+            ...asStringList(answer.value),
+            ...asNamedFileList(answer.value).map((file) => file.url),
+          ]
+            .filter((url, index, list) => list.indexOf(url) === index)
             .map((url) => `<img src="${url}" alt="" style="height:80px;margin-right:8px;border-radius:6px" />`)
             .join("");
-          return `<p><strong>${answer.label}</strong><br/>${thumbs || "—"}</p>`;
+          const docs = asNamedFileList(answer.value)
+            .filter((file) => !/\.(png|jpe?g|gif|webp|svg)$/i.test(file.name))
+            .map((file) => `<a href="${file.url}">${file.name}</a>`)
+            .join(", ");
+          return `<p><strong>${answer.label}</strong><br/>${thumbs || docs || "—"}</p>`;
         }
         if (answer.type === "document") {
           const links = asNamedFileList(answer.value)
@@ -144,25 +157,55 @@ export default function FormSubmissionDetailModal({
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {answer.label}
                 </p>
-                {answer.type === "image" ? (
+                {answer.type === "image" || answer.type === "upload" ? (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {asStringList(answer.value).map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() =>
-                          setLightboxIndex(images.findIndex((item) => item.url === url))
-                        }
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={answer.label}
-                          className="h-20 w-20 rounded-md object-cover ring-1 ring-slate-200"
-                        />
-                      </button>
-                    ))}
-                    {!asStringList(answer.value).length ? (
+                    {asNamedFileList(answer.value).length
+                      ? asNamedFileList(answer.value).map((file) =>
+                          /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name) ||
+                          file.url.match(/\.(png|jpe?g|gif|webp|svg)(\?|$)/i) ? (
+                            <button
+                              key={file.url}
+                              type="button"
+                              onClick={() =>
+                                setLightboxIndex(images.findIndex((item) => item.url === file.url))
+                              }
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={file.url}
+                                alt={file.name}
+                                className="h-20 w-20 rounded-md object-cover ring-1 ring-slate-200"
+                              />
+                            </button>
+                          ) : (
+                            <a
+                              key={file.url}
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-orange-600 hover:underline"
+                            >
+                              {file.name}
+                            </a>
+                          )
+                        )
+                      : asStringList(answer.value).map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() =>
+                              setLightboxIndex(images.findIndex((item) => item.url === url))
+                            }
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={answer.label}
+                              className="h-20 w-20 rounded-md object-cover ring-1 ring-slate-200"
+                            />
+                          </button>
+                        ))}
+                    {!asNamedFileList(answer.value).length && !asStringList(answer.value).length ? (
                       <p className="text-sm text-slate-600">—</p>
                     ) : null}
                   </div>
