@@ -23,6 +23,7 @@ import WorkerRequestTile from "@/components/workers/WorkerRequestTile";
 import WorkerIncidentReportModal from "@/components/workers/WorkerIncidentReportModal";
 import WorkerIncidentReportTile from "@/components/workers/WorkerIncidentReportTile";
 import WorkerPastSubmissionsPanel from "@/components/workers/WorkerPastSubmissionsPanel";
+import WorkerOtherFormsSection from "@/components/workers/WorkerOtherFormsSection";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -188,6 +189,12 @@ export default function WorkerFormsSubDashboard({
         <WorkerRequestTile onClick={openRequestForm} />
         <WorkerIncidentReportTile onClick={openIncidentForm} />
       </div>
+
+      <WorkerOtherFormsSection
+        worker={worker}
+        projects={projects}
+        defaultProjectId={defaultProjectId}
+      />
 
       <button
         type="button"
