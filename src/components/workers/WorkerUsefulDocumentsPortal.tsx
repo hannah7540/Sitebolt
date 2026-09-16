@@ -151,22 +151,21 @@ export default function WorkerUsefulDocumentsPortal({
   const translate = `translate3d(${offset.x}px, ${offset.y}px, 0)`;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70]">
-      <div
-        className="absolute inset-0 bg-slate-900/40"
-        onClick={onClose}
-        aria-hidden
-      />
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 lg:p-6"
+      onClick={onClose}
+    >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="useful-documents-title"
-        className="absolute inset-0 flex flex-col bg-white shadow-2xl"
+        className="flex h-full w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl lg:max-w-3xl lg:max-h-[85vh]"
         style={{
           transform: translate,
           transition: dragging ? "none" : "transform 180ms ease-out",
         }}
+        onClick={(event) => event.stopPropagation()}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -176,7 +175,7 @@ export default function WorkerUsefulDocumentsPortal({
           setOffset({ x: 0, y: 0 });
         }}
       >
-        <div className="mobile-safe-area-top flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
+        <div className="mobile-safe-area-top flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
           <div>
             <h2 id="useful-documents-title" className="text-lg font-bold text-slate-900">
               Useful Documents
@@ -195,7 +194,7 @@ export default function WorkerUsefulDocumentsPortal({
           </button>
         </div>
 
-        <div className="border-b border-slate-100 px-4 py-3">
+        <div className="shrink-0 border-b border-slate-100 px-4 py-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
