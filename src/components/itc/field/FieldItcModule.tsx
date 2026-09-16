@@ -9,6 +9,7 @@ import FieldItcPhotoGallery from "@/components/itc/field/FieldItcPhotoGallery";
 import FieldItcPressureTest from "@/components/itc/field/FieldItcPressureTest";
 import FieldItcMaterialsAdmin from "@/components/itc/field/FieldItcMaterialsAdmin";
 import FieldItcCertificate from "@/components/itc/field/FieldItcCertificate";
+import FieldItcPlanView from "@/components/itc/field/FieldItcPlanView";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import {
   getItc,
@@ -31,6 +32,7 @@ import { getAdminItcPath } from "@/lib/console-nav-routes";
 
 type FieldItcTab =
   | "register"
+  | "plan"
   | "detail"
   | "photos"
   | "pressure"
@@ -39,6 +41,7 @@ type FieldItcTab =
 
 const TABS: Array<{ id: FieldItcTab; label: string }> = [
   { id: "register", label: "Register" },
+  { id: "plan", label: "Plan" },
   { id: "detail", label: "ITC Detail" },
   { id: "photos", label: "Photo QA" },
   { id: "pressure", label: "Pressure Test" },
@@ -151,7 +154,7 @@ export default function FieldItcModule({ initialItcId = null }: FieldItcModulePr
     void loadDetail(itc.id);
   };
 
-  const requireSelected = tab !== "register" && tab !== "materials";
+  const requireSelected = tab !== "register" && tab !== "materials" && tab !== "plan";
 
   return (
     <div className="space-y-4">
@@ -223,6 +226,17 @@ export default function FieldItcModule({ initialItcId = null }: FieldItcModulePr
         />
       ) : tab === "materials" ? (
         <FieldItcMaterialsAdmin />
+      ) : tab === "plan" ? (
+        <FieldItcPlanView
+          projectId={projectId}
+          data={list}
+          selectedId={selected?.id ?? initialItcId ?? null}
+          onSelect={handleSelect}
+          onCreated={(itc) => {
+            void loadList();
+            setSelected(itc);
+          }}
+        />
       ) : requireSelected && !selected ? (
         <div className={`${cardClass} p-6 text-sm text-slate-600`}>
           Select an ITC from the Register tab to open this view.

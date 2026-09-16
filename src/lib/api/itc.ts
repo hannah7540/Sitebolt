@@ -21,12 +21,16 @@ import {
   fetchItcDetail,
   fetchItcZones,
   fetchProjectItcs,
+  getNextItcSequence,
   type ItcDetailBundle,
   type ItcPhoto,
   type ItcSignoff,
   type ItcZone,
   type ProjectItc,
 } from "@/lib/itc-service";
+import { formatItcAutoName } from "@/lib/itc-naming";
+import { PROJECT_ITCS_TABLE, retryItpItcWrite } from "@/lib/itp-itc-payload";
+import { fetchItcMasterSpecs } from "@/lib/itc-master-spec-service";
 import { fetchCompactionTests, type ItcCompactionTest } from "@/lib/itc-compaction-service";
 import {
   fetchLatestPressureTest,
@@ -34,12 +38,12 @@ import {
   type PressureTestRow,
   type SavePressureTestInput,
 } from "@/lib/itc-pressure-test-service";
-import { fetchItcMasterSpecs } from "@/lib/itc-master-spec-service";
 import {
   ELECTRICAL_CONDUIT_SPEC_TABLE,
   type ElectricalConduitSpecEntry,
 } from "@/lib/itc-electrical-conduit-specs";
 import {
+  DEMO_ITC_ZONES,
   ITC_STATUS_COLORS,
   ITC_STATUS_LABELS,
   type ItcFormStepTemplate,
@@ -242,6 +246,8 @@ export interface FieldItcZone {
   id: string;
   code: string;
   name: string;
+  pin_x: number | null;
+  pin_y: number | null;
 }
 
 export interface FieldItcRecord {
@@ -264,7 +270,32 @@ export interface FieldItcRecord {
   progress_percent: number;
   gps_lat: number | null;
   gps_lng: number | null;
+  pin_x: number | null;
+  pin_y: number | null;
+  form_version_id: string | null;
   source: "prototype" | "project_itcs";
+}
+
+export interface FieldFormVersion {
+  id: string;
+  name: string;
+  is_current: boolean;
+}
+
+export interface CreateItcFromPinInput {
+  projectId: string;
+  pinX: number;
+  pinY: number;
+  zoneId?: string | null;
+  zoneCode?: string | null;
+  serviceId?: string | null;
+  serviceCode?: string | null;
+  serviceName?: string | null;
+  drawingRev?: string | null;
+  formVersionId?: string | null;
+  endA: string;
+  endB: string;
+  lengthM: number | null;
 }
 
 export interface FieldItcSignoff {
@@ -418,6 +449,9 @@ function mapPrototypeItc(row: Record<string, unknown>): FieldItcRecord {
     progress_percent: num(row, "progress_percent") ?? 0,
     gps_lat: num(row, "gps_lat"),
     gps_lng: num(row, "gps_lng"),
+    pin_x: num(row, "pin_x") ?? num(row, "map_x") ?? num(asRecord(row.form_data), "pin_x"),
+    pin_y: num(row, "pin_y") ?? num(row, "map_y") ?? num(asRecord(row.form_data), "pin_y"),
+    form_version_id: str(row, "form_version_id"),
     source: "prototype",
   };
 }
@@ -443,6 +477,12 @@ function mapProjectItc(row: ProjectItc): FieldItcRecord {
     progress_percent: row.progress_percent,
     gps_lat: row.gps_lat,
     gps_lng: row.gps_lng,
+    pin_x: row.map_x,
+    pin_y: row.map_y,
+    form_version_id:
+      row.form_data && typeof row.form_data.form_version_id === "string"
+        ? row.form_data.form_version_id
+        : null,
     source: "project_itcs",
   };
 }
@@ -450,6 +490,41 @@ function mapProjectItc(row: ProjectItc): FieldItcRecord {
 export function fieldItcStatusChip(status: FieldItcStatus): { bg: string; text: string; label: string } {
   const colors = FIELD_ITC_STATUS_COLORS[status];
   return { ...colors, label: FIELD_ITC_STATUS_LABELS[status] };
+}
+
+export const SITE_PLAN_FALLBACK_URL = "/assets/site-plan.jpg";
+
+function demoZoneToField(zone: (typeof DEMO_ITC_ZONES)[number]): FieldItcZone {
+  return {
+    id: `demo-${zone.zone_code}`,
+    code: zone.zone_code,
+    name: zone.zone_name,
+    pin_x: zone.map_x,
+    pin_y: zone.map_y,
+  };
+}
+
+function withDemoZonePins(zone: FieldItcZone): FieldItcZone {
+  if (zone.pin_x != null && zone.pin_y != null) return zone;
+  const demo = DEMO_ITC_ZONES.find((item) => item.zone_code === zone.code);
+  if (!demo) return zone;
+  return { ...zone, pin_x: demo.map_x, pin_y: demo.map_y };
+}
+
+export function nearestZoneForPin(
+  zones: FieldItcZone[],
+  pinX: number,
+  pinY: number
+): FieldItcZone | null {
+  const located = zones.filter((zone) => zone.pin_x != null && zone.pin_y != null);
+  if (!located.length) return zones[0] ?? null;
+  return located.reduce((best, zone) => {
+    const bestDist =
+      (Number(best.pin_x) - pinX) ** 2 + (Number(best.pin_y) - pinY) ** 2;
+    const nextDist =
+      (Number(zone.pin_x) - pinX) ** 2 + (Number(zone.pin_y) - pinY) ** 2;
+    return nextDist < bestDist ? zone : best;
+  });
 }
 
 export function serviceChipColor(service: string | null | undefined): string {
@@ -588,17 +663,24 @@ export async function listZones(projectId?: string | null): Promise<FieldItcZone
         id: String(row.id),
         code,
         name: str(row, "name") ?? str(row, "zone_name") ?? code,
+        pin_x: num(row, "pin_x") ?? num(row, "map_x"),
+        pin_y: num(row, "pin_y") ?? num(row, "map_y"),
       };
-    });
+    }).map(withDemoZonePins);
   }
 
-  if (!projectId) return [];
+  if (!projectId) return DEMO_ITC_ZONES.map(demoZoneToField);
   const zones: ItcZone[] = await fetchItcZones(projectId);
-  return zones.map((zone) => ({
-    id: zone.id,
-    code: zone.zone_code,
-    name: zone.zone_name || zone.zone_code,
-  }));
+  if (!zones.length) return DEMO_ITC_ZONES.map(demoZoneToField);
+  return zones.map((zone) =>
+    withDemoZonePins({
+      id: zone.id,
+      code: zone.zone_code,
+      name: zone.zone_name || zone.zone_code,
+      pin_x: zone.map_x,
+      pin_y: zone.map_y,
+    })
+  );
 }
 
 async function listPrototypeItcs(projectId?: string | null): Promise<FieldItcRecord[] | null> {
@@ -1133,3 +1215,128 @@ export async function uploadFieldSignature(input: {
 }
 
 export type { ItcPhoto, ItcSignoff, ProjectItc };
+
+export async function listFormVersions(): Promise<FieldFormVersion[]> {
+  const rows = await queryTable("form_versions", async () =>
+    supabase.from("form_versions").select("*").order("created_at", { ascending: false })
+  );
+  return (rows ?? []).map((item) => {
+    const row = asRecord(item);
+    return {
+      id: String(row.id),
+      name: str(row, "name") ?? str(row, "title") ?? "Form version",
+      is_current: row.is_current === true || row.current === true,
+    };
+  });
+}
+
+export async function createItcFromPin(
+  input: CreateItcFromPinInput
+): Promise<{ error: string | null; itc?: FieldItcRecord }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  const pinX = Math.min(1, Math.max(0, input.pinX));
+  const pinY = Math.min(1, Math.max(0, input.pinY));
+  const zoneCode = input.zoneCode?.trim() || "SITE";
+  const service = input.serviceName?.trim() || input.serviceCode?.trim() || "General";
+  const sequence = await getNextItcSequence(input.projectId, zoneCode, service);
+  const itcNumber = formatItcAutoName(zoneCode, service, sequence);
+  const endA = input.endA.trim();
+  const endB = input.endB.trim();
+
+  const prototypePayload = {
+    project_id: input.projectId,
+    itc_number: itcNumber,
+    zone_id: input.zoneId || null,
+    zone: zoneCode,
+    service_id: input.serviceId || null,
+    form_version_id: input.formVersionId || null,
+    drawing_rev: input.drawingRev || null,
+    pin_x: pinX,
+    pin_y: pinY,
+    map_x: pinX,
+    map_y: pinY,
+    start_location: endA,
+    end_location: endB,
+    from_pit: endA,
+    to_pit: endB,
+    length_m: input.lengthM,
+    status: "not_started",
+    stage: "Not Started",
+  };
+
+  const prototypeInsert = await supabase.from("itcs").insert(prototypePayload).select("*").maybeSingle();
+  if (!prototypeInsert.error && prototypeInsert.data) {
+    return {
+      error: null,
+      itc: { ...mapPrototypeItc(asRecord(prototypeInsert.data)), pin_x: pinX, pin_y: pinY },
+    };
+  }
+
+  if (
+    prototypeInsert.error &&
+    !isMissingRelation(prototypeInsert.error.message, "itcs") &&
+    !isSupabaseMissingColumnError(toSupabaseRequestError(prototypeInsert.error))
+  ) {
+    // Continue to SiteBolt table if prototype insert is a schema miss; otherwise report.
+    if (prototypeInsert.error.code !== "PGRST204") {
+      const retry = await retryItpItcWrite("itcs.pin_drop", prototypePayload, async (next) => {
+        const { data, error } = await supabase.from("itcs").insert(next).select("*").maybeSingle();
+        return { data, error };
+      });
+      if (!retry.error && retry.data) {
+        return {
+          error: null,
+          itc: { ...mapPrototypeItc(asRecord(retry.data)), pin_x: pinX, pin_y: pinY },
+        };
+      }
+    }
+  }
+
+  const siteboltPayload: Record<string, unknown> = {
+    project_id: input.projectId,
+    itc_number: itcNumber,
+    zone_id: input.zoneId || null,
+    zone_code: zoneCode,
+    service_discipline: service,
+    service_type: service,
+    trade_discipline: service,
+    start_location: endA,
+    end_location: endB,
+    upstream_pit_number: endA,
+    downstream_pit_number: endB,
+    length_m: input.lengthM,
+    pin_x: pinX,
+    pin_y: pinY,
+    map_x: pinX,
+    map_y: pinY,
+    drawing_rev: input.drawingRev || null,
+    form_version_id: input.formVersionId || null,
+    status: "not_started",
+    progress_percent: 0,
+    form_data: {
+      pin_x: pinX,
+      pin_y: pinY,
+      service_id: input.serviceId,
+      form_version_id: input.formVersionId,
+    },
+  };
+
+  const result = await retryItpItcWrite("project_itcs.pin_drop", siteboltPayload, async (next) => {
+    const { data, error } = await supabase
+      .from(PROJECT_ITCS_TABLE)
+      .insert(next)
+      .select("*")
+      .maybeSingle();
+    return { data, error };
+  });
+
+  if (result.error || !result.data) {
+    return { error: result.error ?? "Failed to create ITC from pin." };
+  }
+  return {
+    error: null,
+    itc: { ...mapPrototypeItc(asRecord(result.data)), pin_x: pinX, pin_y: pinY },
+  };
+}
+
