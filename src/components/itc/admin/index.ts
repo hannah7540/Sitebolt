@@ -3,3 +3,8 @@ export { default as ItpItcBrowseView } from "./ItpItcBrowseView";
 export { default as ItpItcCreateWizard } from "./ItpItcCreateWizard";
 export { default as ItpMasterDrawer } from "./ItpMasterDrawer";
 export { default as ItcChecklistDrawer } from "./ItcChecklistDrawer";
+export {
+  formatAdminItcNumber,
+  parseAdminItcSequence,
+  adminItcPinMarker,
+} from "./itp-itc-admin-numbering";

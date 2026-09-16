@@ -2,6 +2,7 @@
 
 import { Loader2, X } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
+import { adminItcPinMarker, parseAdminItcSequence } from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
@@ -35,13 +36,17 @@ export default function ItpMasterDrawer({
 }: ItpMasterDrawerProps) {
   const pins = itcs
     .filter((row) => row.pin_x != null && row.pin_y != null)
-    .map((row, index) => ({
-      id: row.id,
-      x: row.pin_x as number,
-      y: row.pin_y as number,
-      number: index + 1,
-      label: row.run_number || row.number,
-    }));
+    .map((row, index) => {
+      const sequence = parseAdminItcSequence(row.number) ?? index + 1;
+      return {
+        id: row.id,
+        x: row.pin_x as number,
+        y: row.pin_y as number,
+        number: sequence,
+        marker: adminItcPinMarker(row.number, index + 1),
+        label: row.number,
+      };
+    });
 
   return (
     <div className={modalOverlayClass} onClick={onClose}>
@@ -123,8 +128,11 @@ export default function ItpMasterDrawer({
                           className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-orange-50"
                         >
                           <span>
-                            <span className="font-semibold text-orange-600">#{index + 1}</span>{" "}
-                            {itc.run_number || itc.number}
+                            <span className="font-semibold text-orange-600">
+                              #{adminItcPinMarker(itc.number, index + 1)}
+                            </span>{" "}
+                            {itc.number}
+                            {itc.run_number ? ` · ${itc.run_number}` : ""}
                           </span>
                           <span className="text-xs text-slate-500">
                             {[itc.pipe_size, itc.pipe_material].filter(Boolean).join(" · ") ||

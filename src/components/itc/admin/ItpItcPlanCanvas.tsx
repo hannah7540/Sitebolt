@@ -11,6 +11,7 @@ export interface PlanCanvasPin {
   x: number;
   y: number;
   number: number;
+  marker?: string;
   label?: string | null;
   selected?: boolean;
 }
@@ -101,13 +102,13 @@ export default function ItpItcPlanCanvas({
           }}
           style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }}
           className={cn(
-            "absolute z-10 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-xs font-bold shadow-md ring-2 ring-white",
+            "absolute z-10 flex h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-1.5 text-[11px] font-bold shadow-md ring-2 ring-white",
             pin.selected ? "bg-orange-600 text-white" : "bg-orange-500 text-white"
           )}
-          title={pin.label || `Pin ${pin.number}`}
+          title={pin.label || `Pin ${pin.marker ?? pin.number}`}
         >
           <span className="sr-only">{pin.label || `Pin ${pin.number}`}</span>
-          {pin.number}
+          {pin.marker ?? pin.number}
           <MapPin className="absolute -bottom-3 h-3 w-3 text-orange-600" />
         </button>
       ))}

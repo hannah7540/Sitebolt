@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { Loader2, Upload } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
 import {
+  allocateAdminItcNumber,
   createAdminItcFromPin,
   createAdminItp,
   uploadItpPlan,
   type AdminItcRecord,
   type AdminItpRecord,
 } from "@/components/itc/admin/itp-itc-admin-api";
+import {
+  adminItcPinMarker,
+  formatAdminItcNumber,
+  parseAdminItcSequence,
+} from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
   ADMIN_ITP_TEMPLATES,
   ADMIN_PIPE_MATERIALS,
@@ -50,25 +56,48 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
   const [runNumber, setRunNumber] = useState("");
   const [pipeSize, setPipeSize] = useState("100mm");
   const [pipeMaterial, setPipeMaterial] = useState("PVC");
+  const [nextSequence, setNextSequence] = useState(1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const template = getAdminItpTemplate(templateKey);
+  const projectName = projects.find((row) => row.id === projectId)?.name ?? "Project";
+  const pendingItcNumber = formatAdminItcNumber(projectName, area, nextSequence);
 
   const canvasPins = useMemo(
     () =>
       pins
         .filter((row) => row.pin_x != null && row.pin_y != null)
-        .map((row, index) => ({
-          id: row.id,
-          x: row.pin_x as number,
-          y: row.pin_y as number,
-          number: index + 1,
-          label: row.run_number || row.number,
-        })),
+        .map((row, index) => {
+          const sequence = parseAdminItcSequence(row.number) ?? index + 1;
+          return {
+            id: row.id,
+            x: row.pin_x as number,
+            y: row.pin_y as number,
+            number: sequence,
+            marker: adminItcPinMarker(row.number, index + 1),
+            label: row.number,
+          };
+        }),
     [pins]
   );
+
+  useEffect(() => {
+    if (step !== 3 || !projectId) return;
+    let cancelled = false;
+    void allocateAdminItcNumber({
+      projectId,
+      projectName,
+      area,
+      reservedNumbers: pins.map((row) => row.number),
+    }).then((allocated) => {
+      if (!cancelled) setNextSequence(allocated.sequence);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, projectId, projectName, area, pins]);
 
   const acceptPlan = async (file: File) => {
     const allowed = ["application/pdf", "image/png", "image/jpeg", "image/jpg"];
@@ -156,12 +185,15 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     setMessage(null);
     const result = await createAdminItcFromPin({
       projectId,
+      projectName,
       itp: createdItp,
       pinX: pendingPin.x,
       pinY: pendingPin.y,
       runNumber: runNumber.trim(),
       pipeSize,
       pipeMaterial,
+      preferredNumber: pendingItcNumber,
+      reservedNumbers: pins.map((row) => row.number),
     });
     setBusy(false);
     if (result.error || !result.itc) {
@@ -169,6 +201,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       return;
     }
     setPins((current) => [...current, result.itc!]);
+    setNextSequence((current) => (parseAdminItcSequence(result.itc?.number) ?? current) + 1);
     setPendingPin(null);
     setRunNumber("");
   };
@@ -363,7 +396,9 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       {step === 3 ? (
         <div className={`${cardClass} space-y-4 p-5`}>
           <p className="text-sm text-slate-600">
-            Click the plan to drop a numbered pin. Each pin becomes an ITC linked to{" "}
+            Click the plan to drop a numbered pin. ITC numbers are assigned automatically as{" "}
+            <span className="font-semibold">{formatAdminItcNumber(projectName, area, 1)}</span>,{" "}
+            then 00002, 00003, and so on, linked to{" "}
             <span className="font-semibold">{createdItp?.number}</span>.
           </p>
           <ItpItcPlanCanvas
@@ -406,6 +441,15 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
               Pin at {(pendingPin.x * 100).toFixed(1)}% × {(pendingPin.y * 100).toFixed(1)}%
             </p>
             <div className="space-y-3">
+              <div>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  ITC number
+                </span>
+                <p className="inline-flex items-center rounded-full bg-orange-100 px-3 py-1.5 font-mono text-sm font-bold text-orange-800">
+                  {pendingItcNumber}
+                </p>
+                <input type="hidden" readOnly value={pendingItcNumber} />
+              </div>
               <label>
                 <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
                   Run / Line number

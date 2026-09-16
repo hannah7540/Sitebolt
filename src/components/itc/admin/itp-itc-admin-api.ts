@@ -12,14 +12,20 @@ import {
   hydrateItpItcRow,
   retryItpItcWrite,
 } from "@/lib/itp-itc-payload";
-import { formatItcAutoName } from "@/lib/itc-naming";
-import { getNextItcSequence, fetchProjectItcs } from "@/lib/itc-service";
+import { fetchProjectItcs } from "@/lib/itc-service";
 import { fetchProjectItps } from "@/lib/itp-service";
 import { downscaleImage, captureGps } from "@/lib/api/itc";
 import {
   getAdminItpTemplate,
   type AdminChecklistQuestion,
 } from "@/components/itc/admin/itp-itc-admin-types";
+import {
+  adminItcNumberPrefix,
+  formatAdminItcNumber,
+  maxAdminItcSequence,
+  parseAdminItcSequence,
+  sanitizeAdminItcPart,
+} from "@/components/itc/admin/itp-itc-admin-numbering";
 
 export const ITP_PLANS_BUCKET = "itp-plans";
 
@@ -436,22 +442,129 @@ export async function createAdminItp(input: {
   return { error: null, itp: mapItpRow(asRecord(result.data)) };
 }
 
+async function listItcNumbersForPrefix(
+  projectId: string,
+  prefix: string
+): Promise<string[]> {
+  const numbers: string[] = [];
+  for (const table of ["itcs", PROJECT_ITCS_TABLE]) {
+    let query = supabase.from(table).select("itc_number");
+    if (projectId) query = query.eq("project_id", projectId);
+    const { data, error } = await query.ilike("itc_number", `${prefix}%`);
+    if (error || !data?.length) continue;
+    for (const row of data) {
+      const value = String((row as { itc_number?: string }).itc_number ?? "").trim();
+      if (value) numbers.push(value);
+    }
+  }
+  return numbers;
+}
+
+function parseRpcItcResult(data: unknown): { number?: string; sequence?: number } {
+  if (typeof data === "number" && Number.isFinite(data) && data > 0) {
+    return { sequence: Math.floor(data) };
+  }
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    const fromPattern = parseAdminItcSequence(trimmed);
+    if (fromPattern != null) {
+      return { number: trimmed.includes("/") ? trimmed : undefined, sequence: fromPattern };
+    }
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+      return { sequence: Math.floor(asNumber) };
+    }
+  }
+  if (Array.isArray(data) && data.length) {
+    return parseRpcItcResult(data[0]);
+  }
+  if (data && typeof data === "object") {
+    const row = data as Record<string, unknown>;
+    return parseRpcItcResult(
+      row.itc_no ?? row.itc_number ?? row.next_no ?? row.sequence ?? row.get_next_itc_no
+    );
+  }
+  return {};
+}
+
+export async function allocateAdminItcNumber(input: {
+  projectId: string;
+  projectName: string;
+  area: string;
+  preferredNumber?: string | null;
+  reservedNumbers?: string[];
+}): Promise<{ number: string; sequence: number }> {
+  const taken = new Set(
+    (input.reservedNumbers ?? []).map((value) => value.trim()).filter(Boolean)
+  );
+  let rpcCandidate: { number: string; sequence: number } | null = null;
+
+  if (isSupabaseConfigured()) {
+    const existing = await listItcNumbersForPrefix(
+      input.projectId,
+      adminItcNumberPrefix(input.projectName, input.area)
+    );
+    for (const value of existing) taken.add(value);
+
+    const rpc = await supabase.rpc("get_next_itc_no", {
+      project_name: sanitizeAdminItcPart(input.projectName, "Project"),
+      area: sanitizeAdminItcPart(input.area, "AREA"),
+    });
+    const parsed = rpc.error ? {} : parseRpcItcResult(rpc.data);
+    if (parsed.number && !taken.has(parsed.number)) {
+      rpcCandidate = {
+        number: parsed.number,
+        sequence: parseAdminItcSequence(parsed.number) ?? parsed.sequence ?? 1,
+      };
+    } else if (parsed.sequence && parsed.sequence > 0) {
+      const candidate = formatAdminItcNumber(input.projectName, input.area, parsed.sequence);
+      if (!taken.has(candidate)) {
+        rpcCandidate = { number: candidate, sequence: parsed.sequence };
+      }
+    }
+  }
+
+  const preferred = input.preferredNumber?.trim() || "";
+  const preferredSequence = parseAdminItcSequence(preferred);
+  if (preferred && preferredSequence && !taken.has(preferred)) {
+    return { number: preferred, sequence: preferredSequence };
+  }
+  if (rpcCandidate) return rpcCandidate;
+
+  let sequence = maxAdminItcSequence([...taken]) + 1;
+  let next = formatAdminItcNumber(input.projectName, input.area, sequence);
+  while (taken.has(next)) {
+    sequence += 1;
+    next = formatAdminItcNumber(input.projectName, input.area, sequence);
+  }
+  return { number: next, sequence };
+}
+
 export async function createAdminItcFromPin(input: {
   projectId: string;
+  projectName: string;
   itp: AdminItpRecord;
   pinX: number;
   pinY: number;
   runNumber: string;
   pipeSize: string;
   pipeMaterial: string;
+  preferredNumber?: string | null;
+  reservedNumbers?: string[];
 }): Promise<{ error: string | null; itc?: AdminItcRecord }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const template = getAdminItpTemplate(input.itp.template_key);
   const service = template?.trade ?? "General";
   const zone = input.itp.area?.trim() || "SITE";
-  const sequence = await getNextItcSequence(input.projectId, zone, service);
-  const itcNumber = formatItcAutoName(zone, service, sequence);
+  const allocated = await allocateAdminItcNumber({
+    projectId: input.projectId,
+    projectName: input.projectName,
+    area: input.itp.area || zone,
+    preferredNumber: input.preferredNumber,
+    reservedNumbers: input.reservedNumbers,
+  });
+  const itcNumber = allocated.number;
   const checklist: AdminChecklistItem[] = (template?.questions ?? []).map((question) => ({
     key: question.key,
     text: question.text,
@@ -488,6 +601,7 @@ export async function createAdminItcFromPin(input: {
       pin_y: input.pinY,
       drawing_ref: input.itp.drawing_ref,
       area: input.itp.area,
+      itc_number: itcNumber,
       checklist,
       photos: [],
     },
@@ -498,7 +612,10 @@ export async function createAdminItcFromPin(input: {
     return { data, error };
   });
   if (!prototype.error && prototype.data) {
-    return { error: null, itc: mapItcRow(asRecord(prototype.data)) };
+    return {
+      error: null,
+      itc: { ...mapItcRow(asRecord(prototype.data)), number: itcNumber },
+    };
   }
 
   const result = await retryItpItcWrite("project_itcs.admin_pin", payload, async (next) => {
@@ -516,6 +633,7 @@ export async function createAdminItcFromPin(input: {
     error: null,
     itc: {
       ...mapItcRow(asRecord(result.data)),
+      number: itcNumber,
       pin_x: input.pinX,
       pin_y: input.pinY,
       itp_id: input.itp.id,
