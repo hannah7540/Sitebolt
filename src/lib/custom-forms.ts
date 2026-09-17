@@ -21,7 +21,12 @@ export type CustomFormEntityType = "project" | "plant" | "worker" | "fleet" | "a
 
 export type CustomFormFieldKind = "question" | "statement" | "media";
 
-export type CustomFormQuestionType = "text" | "select" | "checkbox" | "upload";
+export type CustomFormQuestionType =
+  | "text"
+  | "select"
+  | "checkbox"
+  | "upload"
+  | "signature";
 
 export type CustomFormFieldType =
   | CustomFormQuestionType
@@ -131,6 +136,7 @@ export const CUSTOM_FORM_QUESTION_TYPES: Array<{
   { type: "select", label: "Multiple Choice" },
   { type: "checkbox", label: "Checkboxes" },
   { type: "upload", label: "Upload File or Picture" },
+  { type: "signature", label: "Signature" },
 ];
 
 /** @deprecated Use CUSTOM_FORM_QUESTION_TYPES. Kept so older imports still type-check. */
@@ -297,7 +303,13 @@ function mapLegacyQuestionType(type: string): CustomFormQuestionType {
   if (type === "textarea") return "text";
   if (type === "multiselect") return "checkbox";
   if (type === "image" || type === "document") return "upload";
-  if (type === "select" || type === "checkbox" || type === "upload" || type === "text") {
+  if (
+    type === "select" ||
+    type === "checkbox" ||
+    type === "upload" ||
+    type === "text" ||
+    type === "signature"
+  ) {
     return type;
   }
   return "text";
@@ -309,7 +321,6 @@ function inferFieldKind(row: Record<string, unknown>): CustomFormFieldKind | "sk
   const type = String(row.type ?? "");
   if (type === "statement") return "statement";
   if (type === "media") return "media";
-  if (type === "signature") return "skip";
   return "question";
 }
 
@@ -757,6 +768,20 @@ export function asStringList(value: unknown): string[] {
   return [];
 }
 
+export function asSignatureAnswer(value: unknown): {
+  url: string | null;
+  signed_at: string | null;
+} {
+  if (typeof value === "string" && value.trim()) {
+    return { url: value.trim(), signed_at: null };
+  }
+  const row = asRecord(value);
+  return {
+    url: str(row, "url") ?? str(row, "dataUrl") ?? str(row, "data_url"),
+    signed_at: str(row, "signed_at") ?? str(row, "signedAt"),
+  };
+}
+
 export function asNamedFileList(
   value: unknown
 ): Array<{ name: string; url: string }> {
@@ -787,6 +812,9 @@ export function isAnswerFilled(field: CustomFormField, value: unknown): boolean 
   if (field.type === "upload" || field.type === "image" || field.type === "document") {
     return asNamedFileList(value).length > 0 || asStringList(value).length > 0;
   }
+  if (field.type === "signature") {
+    return Boolean(asSignatureAnswer(value).url);
+  }
   if (typeof value === "string") return value.trim().length > 0;
   return value != null && String(value).trim().length > 0;
 }
@@ -801,7 +829,7 @@ export function formatAnswerForDisplay(value: unknown, type: CustomFormFieldType
     const urls = asStringList(value);
     return urls.length ? `${urls.length} file${urls.length === 1 ? "" : "s"}` : "—";
   }
-  if (type === "signature") return typeof value === "string" && value.trim() ? "Signed" : "—";
+  if (type === "signature") return asSignatureAnswer(value).url ? "Signed" : "—";
   if (typeof value === "string" && value.trim()) return value.trim();
   return "—";
 }

@@ -6,6 +6,7 @@ import { Printer, Share2, X } from "lucide-react";
 import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import {
   asNamedFileList,
+  asSignatureAnswer,
   asStringList,
   formatAnswerForDisplay,
   formatFormDate,
@@ -51,8 +52,11 @@ export default function FormSubmissionDetailModal({
           }
         }
       }
-      if (answer.type === "signature" && typeof answer.value === "string" && answer.value) {
-        urls.push({ url: answer.value, alt: `${answer.label} signature` });
+      if (answer.type === "signature") {
+        const signature = asSignatureAnswer(answer.value);
+        if (signature.url) {
+          urls.push({ url: signature.url, alt: `${answer.label} signature` });
+        }
       }
     }
     if (submission.signature_url) {
@@ -101,8 +105,12 @@ export default function FormSubmissionDetailModal({
             .join(", ");
           return `<p><strong>${answer.label}</strong><br/>${links || "—"}</p>`;
         }
-        if (answer.type === "signature" && typeof answer.value === "string" && answer.value) {
-          return `<p><strong>${answer.label}</strong><br/><img src="${answer.value}" alt="Signature" style="height:80px" /></p>`;
+        if (answer.type === "signature") {
+          const signature = asSignatureAnswer(answer.value);
+          if (signature.url) {
+            const signedAt = formatFormDate(signature.signed_at || submission.submitted_at);
+            return `<p><strong>${answer.label}</strong><br/><img src="${signature.url}" alt="Signature" style="height:96px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px" /><br/><span style="color:#64748b;font-size:12px">${signedAt}</span></p>`;
+          }
         }
         return `<p><strong>${answer.label}</strong><br/>${formatAnswerForDisplay(answer.value, answer.type)}</p>`;
       })
@@ -152,7 +160,10 @@ export default function FormSubmissionDetailModal({
 
         <div className={modalBodyClass}>
           <div className="space-y-5">
-            {Object.entries(submission.answers).map(([fieldId, answer]) => (
+            {Object.entries(submission.answers).map(([fieldId, answer]) => {
+              const signature =
+                answer.type === "signature" ? asSignatureAnswer(answer.value) : null;
+              return (
               <div key={fieldId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {answer.label}
@@ -227,33 +238,36 @@ export default function FormSubmissionDetailModal({
                       <li className="text-slate-600">—</li>
                     ) : null}
                   </ul>
-                ) : answer.type === "signature" &&
-                  typeof answer.value === "string" &&
-                  answer.value ? (
-                  <button
-                    type="button"
-                    className="mt-2"
-                    onClick={() =>
-                      setLightboxIndex(images.findIndex((item) => item.url === answer.value))
-                    }
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={answer.value}
-                      alt={`${answer.label} signature`}
-                      className="h-20 rounded-md bg-white object-contain ring-1 ring-slate-200"
-                    />
-                    <p className="mt-1 text-xs text-slate-500">
-                      {formatFormDate(submission.submitted_at)}
-                    </p>
-                  </button>
+                ) : signature ? (
+                  signature.url ? (
+                    <button
+                      type="button"
+                      className="mt-3 w-full max-w-md text-left"
+                      onClick={() =>
+                        setLightboxIndex(images.findIndex((item) => item.url === signature.url))
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={signature.url}
+                        alt={`${answer.label} signature`}
+                        className="h-28 w-full rounded-lg bg-white object-contain p-3 ring-1 ring-slate-200"
+                      />
+                      <p className="mt-2 text-xs font-medium text-slate-500">
+                        Signed {formatFormDate(signature.signed_at || submission.submitted_at)}
+                      </p>
+                    </button>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-600">—</p>
+                  )
                 ) : (
                   <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
                     {formatAnswerForDisplay(answer.value, answer.type)}
                   </p>
                 )}
               </div>
-            ))}
+              );
+            })}
 
             {submission.signature_url ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

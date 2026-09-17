@@ -6,6 +6,7 @@ import { FileText, Loader2, X } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
 import {
   asNamedFileList,
+  asSignatureAnswer,
   asStringList,
   isAnswerFilled,
   isMediaField,
@@ -106,6 +107,10 @@ export default function FormFillDrawer({
 
   if (!open || !mounted || !template) return null;
 
+  const hasSignatureFields = template.fields.some(
+    (field) => isQuestionField(field) && field.type === "signature"
+  );
+
   const setFieldValue = (fieldId: string, value: unknown) => {
     setValues((current) => ({ ...current, [fieldId]: value }));
   };
@@ -143,7 +148,7 @@ export default function FormFillDrawer({
       setLocalError(`"${missing.label}" is required.`);
       return;
     }
-    if (!signatureDataUrl) {
+    if (!hasSignatureFields && !signatureDataUrl) {
       setLocalError("Please sign the form before submitting.");
       return;
     }
@@ -151,23 +156,62 @@ export default function FormFillDrawer({
     setSubmitting(true);
     setLocalError(null);
     try {
-      const uploadedSignature = await uploadSignatureDataUrl(signatureDataUrl, submissionKey);
-      if (uploadedSignature.error || !uploadedSignature.url) {
-        setLocalError(uploadedSignature.error ?? "Signature upload failed.");
-        setSubmitting(false);
-        return;
+      let formSignatureUrl: string | null = null;
+      if (!hasSignatureFields && signatureDataUrl) {
+        const uploadedSignature = await uploadSignatureDataUrl(signatureDataUrl, submissionKey);
+        if (uploadedSignature.error || !uploadedSignature.url) {
+          setLocalError(uploadedSignature.error ?? "Signature upload failed.");
+          setSubmitting(false);
+          return;
+        }
+        formSignatureUrl = uploadedSignature.url;
       }
 
       const answers: CustomFormAnswers = {};
       for (const field of template.fields) {
         if (!isQuestionField(field)) continue;
+        if (field.type === "signature") {
+          const dataUrl = asSignatureAnswer(values[field.id]).url;
+          if (!dataUrl) {
+            answers[field.id] = { label: field.label, type: field.type, value: "" };
+            continue;
+          }
+          if (dataUrl.startsWith("data:")) {
+            const blob = await fetch(dataUrl).then((response) => response.blob());
+            const file = new File([blob], "signature.png", {
+              type: blob.type || "image/png",
+            });
+            const uploaded = await uploadCustomFormAttachment({
+              file,
+              submissionKey,
+              fieldId: field.id,
+            });
+            if (uploaded.error || !uploaded.url) {
+              setLocalError(uploaded.error ?? `Signature upload failed for "${field.label}".`);
+              setSubmitting(false);
+              return;
+            }
+            answers[field.id] = {
+              label: field.label,
+              type: field.type,
+              value: { url: uploaded.url, signed_at: new Date().toISOString() },
+            };
+          } else {
+            answers[field.id] = {
+              label: field.label,
+              type: field.type,
+              value: { url: dataUrl, signed_at: new Date().toISOString() },
+            };
+          }
+          continue;
+        }
         answers[field.id] = {
           label: field.label,
           type: field.type,
           value: values[field.id],
         };
       }
-      await onSubmit({ answers, signatureUrl: uploadedSignature.url });
+      await onSubmit({ answers, signatureUrl: formSignatureUrl });
     } finally {
       setSubmitting(false);
     }
@@ -344,6 +388,12 @@ export default function FormFillDrawer({
                       </div>
                     </div>
                   ) : null}
+                  {field.type === "signature" ? (
+                    <SignatureCanvas
+                      key={field.id}
+                      onChange={(dataUrl) => setFieldValue(field.id, dataUrl)}
+                    />
+                  ) : null}
                   {uploadingFieldId === field.id ? (
                     <p className="inline-flex items-center gap-2 text-xs text-slate-500">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -354,12 +404,14 @@ export default function FormFillDrawer({
               );
             })}
 
-            <div className="space-y-2 border-t border-slate-200 pt-5">
-              <p className={labelClass}>
-                Signature <span className="text-red-500">*</span>
-              </p>
-              <SignatureCanvas onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
-            </div>
+            {!hasSignatureFields ? (
+              <div className="space-y-2 border-t border-slate-200 pt-5">
+                <p className={labelClass}>
+                  Signature <span className="text-red-500">*</span>
+                </p>
+                <SignatureCanvas onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
+              </div>
+            ) : null}
           </div>
 
           {localError || error ? (

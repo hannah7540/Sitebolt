@@ -285,7 +285,11 @@ export default function FormBuilderDrawer({
                         }))
                       }
                     />
-                    {target.label === "Worker" ? "People (Workers)" : `${target.label}s`}
+                    {target.label === "Worker"
+                      ? "People (Workers)"
+                      : target.label === "Plant"
+                        ? "Plant"
+                        : `${target.label}s`}
                   </label>
                 ))}
               </div>
@@ -410,7 +414,9 @@ export default function FormBuilderDrawer({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-slate-800">
                     {field.kind === "question"
-                      ? `Question ${index + 1}`
+                      ? field.type === "signature"
+                        ? `Signature ${index + 1}`
+                        : `Question ${index + 1}`
                       : field.kind === "statement"
                         ? `Statement ${index + 1}`
                         : `File ${index + 1}`}
@@ -455,12 +461,18 @@ export default function FormBuilderDrawer({
                 {field.kind === "question" ? (
                   <>
                     <label className="block">
-                      <span className={labelClass}>Question Label / Prompt *</span>
+                      <span className={labelClass}>
+                        {field.type === "signature" ? "Field Label *" : "Question Label / Prompt *"}
+                      </span>
                       <input
                         className={inputClass}
                         value={field.label}
                         disabled={readOnly}
-                        placeholder='e.g. "Is the perimeter fenced?"'
+                        placeholder={
+                          field.type === "signature"
+                            ? 'e.g. "Operator Signature", "Supervisor Sign-off", "Client Acceptance"'
+                            : 'e.g. "Is the perimeter fenced?"'
+                        }
                         onChange={(event) => updateField(field.id, { label: event.target.value })}
                       />
                     </label>
@@ -499,7 +511,7 @@ export default function FormBuilderDrawer({
                             updateField(field.id, { required: event.target.checked })
                           }
                         />
-                        Required
+                        {field.type === "signature" ? "Required (Yes / No)" : "Required"}
                       </label>
                     </div>
                     {fieldNeedsOptions(field) ? (
