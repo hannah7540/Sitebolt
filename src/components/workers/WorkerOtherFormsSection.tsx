@@ -747,6 +747,14 @@ export default function WorkerOtherFormsSection({
         entityType={fillEntity.type as CustomFormEntityType}
         entityId={fillEntity.id}
         projectId={resolvedProjectId}
+        submittedByName={getWorkerDisplayName(worker, worker.full_name || "Worker")}
+        contextPills={[
+          resolvedProjectId
+            ? projects.find((project) => project.id === resolvedProjectId)?.name
+              ? `Project · ${projects.find((project) => project.id === resolvedProjectId)?.name}`
+              : ""
+            : "",
+        ].filter(Boolean)}
         saving={saving}
         error={fillError}
         onClose={closeFill}

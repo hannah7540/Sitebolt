@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Loader2, X } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import FormBrandHeader, { formEntityTypeLabel } from "@/components/forms/FormBrandHeader";
 import {
+  formatFormDate,
   asNamedFileList,
   asSignatureAnswer,
   asStringList,
@@ -39,6 +41,7 @@ interface FormFillDrawerProps {
   projectId?: string | null;
   submittedByName?: string | null;
   submittedById?: string | null;
+  contextPills?: string[];
   saving?: boolean;
   error?: string | null;
   onClose: () => void;
@@ -74,6 +77,8 @@ export default function FormFillDrawer({
   entityType,
   entityId,
   projectId,
+  submittedByName = null,
+  contextPills = [],
   saving = false,
   error = null,
   onClose,
@@ -218,31 +223,24 @@ export default function FormFillDrawer({
   };
 
   const busy = saving || submitting;
+  const headerPills = [
+    formEntityTypeLabel(entityType),
+    projectId && entityType !== "project" ? "Project" : "",
+    ...contextPills,
+  ].filter((pill, index, list) => pill && list.indexOf(pill) === index);
 
   return createPortal(
     <div className={modalOverlayClass} role="dialog" aria-modal="true" aria-labelledby="fill-form-title">
       <div className={cn(modalShellClass, "max-w-2xl")}>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 id="fill-form-title" className="text-lg font-bold text-slate-900">
-              {template.title}
-            </h2>
-            {template.description ? (
-              <p className="mt-1 text-sm text-slate-500">{template.description}</p>
-            ) : null}
-            {projectId ? (
-              <p className="mt-1 text-xs text-slate-400">Linked project will be stamped on submit.</p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <FormBrandHeader
+          title={template.title}
+          titleId="fill-form-title"
+          description={template.description}
+          dateLabel={formatFormDate(new Date().toISOString())}
+          submitterName={submittedByName}
+          pills={headerPills}
+          onClose={onClose}
+        />
 
         <div className={modalBodyClass}>
           <div className="space-y-5">

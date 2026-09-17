@@ -248,6 +248,16 @@ export default function EntityFormsTab({
         entityType={entityType}
         entityId={entityId}
         projectId={projectId}
+        submittedByName={submitter.name}
+        contextPills={[
+          entityType === "project"
+            ? consoleContext?.projects.find((project) => project.id === entityId)?.name ?? ""
+            : projectId
+              ? consoleContext?.projects.find((project) => project.id === projectId)?.name
+                ? `Project · ${consoleContext.projects.find((project) => project.id === projectId)?.name}`
+                : ""
+              : "",
+        ].filter(Boolean)}
         saving={saving}
         error={fillError}
         onClose={() => setFilling(null)}

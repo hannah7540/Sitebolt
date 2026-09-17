@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Printer, Share2, X } from "lucide-react";
+import { Printer, Share2 } from "lucide-react";
 import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
+import FormBrandHeader from "@/components/forms/FormBrandHeader";
+import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
 import {
   asNamedFileList,
   asSignatureAnswer,
@@ -31,6 +33,7 @@ export default function FormSubmissionDetailModal({
   submission,
   onClose,
 }: FormSubmissionDetailModalProps) {
+  const consoleContext = useAdminConsoleOptional();
   const [mounted, setMounted] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -68,6 +71,27 @@ export default function FormSubmissionDetailModal({
   }, [submission]);
 
   if (!open || !mounted || !submission) return null;
+
+  const projectName =
+    submission.project_id
+      ? consoleContext?.projects.find((project) => project.id === submission.project_id)?.name
+      : null;
+  const workerName =
+    submission.worker_id
+      ? (() => {
+          const worker = consoleContext?.workers.find((item) => item.id === submission.worker_id);
+          return worker
+            ? [worker.first_name, worker.last_name].filter(Boolean).join(" ") || worker.full_name
+            : null;
+        })()
+      : null;
+  const contextPills = [
+    projectName ? `Project · ${projectName}` : submission.project_id ? "Project" : "",
+    submission.plant_id ? "Plant" : "",
+    workerName ? `Worker · ${workerName}` : submission.worker_id ? "Worker" : "",
+    submission.fleet_id ? "Fleet" : "",
+    submission.asset_id ? "Asset" : "",
+  ].filter(Boolean);
 
   const summaryText = [
     submission.template_title,
@@ -138,25 +162,14 @@ export default function FormSubmissionDetailModal({
   return createPortal(
     <div className={modalOverlayClass} role="dialog" aria-modal="true" aria-labelledby="submission-detail-title">
       <div className={cn(modalShellClass, "max-w-2xl")}>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
-          <div>
-            <h2 id="submission-detail-title" className="text-lg font-bold text-slate-900">
-              {submission.template_title}
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Submitted {formatFormDate(submission.submitted_at)}
-              {submission.submitted_by_name ? ` · ${submission.submitted_by_name}` : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <FormBrandHeader
+          title={submission.template_title}
+          titleId="submission-detail-title"
+          dateLabel={formatFormDate(submission.submitted_at)}
+          submitterName={submission.submitted_by_name}
+          pills={contextPills}
+          onClose={onClose}
+        />
 
         <div className={modalBodyClass}>
           <div className="space-y-5">

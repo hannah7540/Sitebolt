@@ -8,6 +8,7 @@ import {
   FileText,
   ImageIcon,
   Loader2,
+  PenLine,
   Plus,
   Trash2,
   X,
@@ -16,8 +17,8 @@ import {
   CUSTOM_FORM_ASSIGNEE_ROLES,
   CUSTOM_FORM_QUESTION_TYPES,
   CUSTOM_FORM_TARGET_KEYS,
+  createEmptyFormField,
   createEmptyMedia,
-  createEmptyQuestion,
   createEmptyStatement,
   emptyTemplateDraft,
   resolveTemplateAssigneeRole,
@@ -69,7 +70,9 @@ export default function FormBuilderDrawer({
   const [draft, setDraft] = useState<CustomFormTemplateInput>(emptyTemplateDraft());
   const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
   const [localError, setLocalError] = useState<string | null>(null);
-  const [addMenu, setAddMenu] = useState<"closed" | "root" | "static">("closed");
+  const [addMenu, setAddMenu] = useState<"closed" | "root" | "questions" | "static">(
+    "closed"
+  );
   const [uploadingFieldId, setUploadingFieldId] = useState<string | null>(null);
   const templateKey = template?.id ?? "new-template";
 
@@ -351,11 +354,11 @@ export default function FormBuilderDrawer({
                           <button
                             type="button"
                             className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
-                            onClick={() => addField(createEmptyQuestion())}
+                            onClick={() => setAddMenu("questions")}
                           >
                             Add a Question
                             <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                              Interactive field expecting a worker response
+                              Text, choice, checkbox, upload, or signature
                             </span>
                           </button>
                           <button
@@ -367,6 +370,40 @@ export default function FormBuilderDrawer({
                             <span className="mt-0.5 block text-xs font-normal text-slate-500">
                               Notices, instructions, or reference files
                             </span>
+                          </button>
+                        </>
+                      ) : addMenu === "questions" ? (
+                        <>
+                          <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Questions / Inputs
+                          </p>
+                          {CUSTOM_FORM_QUESTION_TYPES.map((item) => (
+                            <button
+                              key={item.type}
+                              type="button"
+                              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-orange-50"
+                              onClick={() => addField(createEmptyFormField(item.type))}
+                            >
+                              {item.type === "signature" ? (
+                                <span className="inline-flex items-center gap-2">
+                                  <PenLine className="h-3.5 w-3.5 text-orange-500" />
+                                  Signature
+                                </span>
+                              ) : item.type === "checkbox" ? (
+                                "Checkbox"
+                              ) : item.type === "upload" ? (
+                                "Upload File/Image"
+                              ) : (
+                                item.label
+                              )}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs text-slate-500 hover:bg-slate-50"
+                            onClick={() => setAddMenu("root")}
+                          >
+                            ← Back
                           </button>
                         </>
                       ) : (
@@ -514,6 +551,17 @@ export default function FormBuilderDrawer({
                         {field.type === "signature" ? "Required (Yes / No)" : "Required"}
                       </label>
                     </div>
+                    {field.type === "signature" ? (
+                      <div className="flex h-28 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-orange-300 bg-white text-orange-700">
+                        <PenLine className="h-6 w-6" />
+                        <p className="text-xs font-semibold uppercase tracking-wide">
+                          Signature pad
+                        </p>
+                        <p className="text-[11px] font-medium text-orange-600/80">
+                          Workers will sign here on a live canvas
+                        </p>
+                      </div>
+                    ) : null}
                     {fieldNeedsOptions(field) ? (
                       <div>
                         <p className={labelClass}>Options</p>
