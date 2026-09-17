@@ -20,6 +20,7 @@ import {
   createEmptyQuestion,
   createEmptyStatement,
   emptyTemplateDraft,
+  resolveTemplateAssigneeRole,
   type CustomFormField,
   type CustomFormQuestionType,
   type CustomFormTemplate,
@@ -89,7 +90,7 @@ export default function FormBuilderDrawer({
         applies_to_plant: template.applies_to_plant,
         applies_to_fleet: template.applies_to_fleet,
         applies_to_assets: template.applies_to_assets,
-        assignee_role: template.assignee_role,
+        assignee_role: resolveTemplateAssigneeRole(template),
         is_active: template.is_active,
         fields: template.fields.map((field) => ({
           ...field,

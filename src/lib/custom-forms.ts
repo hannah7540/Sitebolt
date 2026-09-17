@@ -1,10 +1,15 @@
 import { supabase, isSupabaseConfigured, MASTER_PLANT_TABLE } from "./supabase";
 import {
+  isSupabaseMissingColumnError,
   isSupabaseRelationMissingError,
   isSupabaseSchemaCacheError,
   isSupabaseTableUnavailableError,
   toSupabaseRequestError,
 } from "./supabase-errors";
+import {
+  parseMissingColumnFromError,
+  stripMissingColumn,
+} from "./form-payload-utils";
 
 export const CUSTOM_FORM_TEMPLATES_TABLE = "custom_form_templates";
 export const CUSTOM_FORM_SUBMISSIONS_TABLE = "custom_form_submissions";
@@ -60,6 +65,7 @@ export interface CustomFormTemplate {
   applies_to_fleet: boolean;
   applies_to_assets: boolean;
   assignee_role: CustomFormAssigneeRole;
+  assigned_to_role?: string | null;
   is_active: boolean;
   fields: CustomFormField[];
   created_at: string;
@@ -148,8 +154,7 @@ export const CUSTOM_FORM_TARGET_KEYS = [
   { key: "applies_to_assets" as const, label: "Asset", entity: "asset" as const },
 ];
 
-const TEMPLATE_SELECT_COLUMNS =
-  "id, title, description, applies_to_projects, applies_to_workers, applies_to_plant, applies_to_fleet, applies_to_assets, assignee_role, is_active, fields, created_at, updated_at";
+const TEMPLATE_SELECT_COLUMNS = "*";
 
 const SUBMISSION_SELECT_COLUMNS =
   "id, template_id, template_title, project_id, plant_id, worker_id, fleet_id, asset_id, answers, submitted_by_name, submitted_by_id, signature_url, submitted_at";
@@ -408,10 +413,20 @@ export function normalizeFormFields(raw: unknown): CustomFormField[] {
 }
 
 function normalizeAssigneeRole(value: unknown): CustomFormAssigneeRole {
-  const role = String(value ?? "all");
+  const role = String(value ?? "all").trim().toLowerCase().replace(/\s+/g, "_");
+  if (role === "all") return "all";
   return CUSTOM_FORM_ASSIGNEE_ROLES.some((item) => item.value === role)
     ? (role as CustomFormAssigneeRole)
     : "all";
+}
+
+export function resolveTemplateAssigneeRole(template: {
+  assignee_role?: unknown;
+  assigned_to_role?: unknown;
+}): CustomFormAssigneeRole {
+  return normalizeAssigneeRole(
+    template.assignee_role || template.assigned_to_role || "all"
+  );
 }
 
 function normalizeTemplate(row: Record<string, unknown>): CustomFormTemplate {
@@ -424,7 +439,8 @@ function normalizeTemplate(row: Record<string, unknown>): CustomFormTemplate {
     applies_to_plant: bool(row, "applies_to_plant"),
     applies_to_fleet: bool(row, "applies_to_fleet"),
     applies_to_assets: bool(row, "applies_to_assets"),
-    assignee_role: normalizeAssigneeRole(row.assignee_role),
+    assignee_role: resolveTemplateAssigneeRole(row),
+    assigned_to_role: str(row, "assigned_to_role") ?? str(row, "assignee_role"),
     is_active: row.is_active !== false,
     fields: normalizeFormFields(row.fields),
     created_at: String(row.created_at ?? ""),
@@ -507,7 +523,8 @@ export async function saveCustomFormTemplate(
   if (!isSupabaseConfigured()) {
     return { data: null, error: "Supabase is not configured." };
   }
-  const payload = {
+  const role = resolveTemplateAssigneeRole(input);
+  let payload: Record<string, unknown> = {
     title: input.title.trim(),
     description: input.description?.trim() || null,
     applies_to_projects: input.applies_to_projects,
@@ -515,20 +532,35 @@ export async function saveCustomFormTemplate(
     applies_to_plant: input.applies_to_plant,
     applies_to_fleet: input.applies_to_fleet,
     applies_to_assets: input.applies_to_assets,
-    assignee_role: input.assignee_role,
+    assignee_role: role,
+    assigned_to_role: role,
     is_active: input.is_active ?? true,
     fields: serializeFormFields(input.fields),
     updated_at: new Date().toISOString(),
   };
-  const query = id
-    ? supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).update(payload).eq("id", id)
-    : supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).insert(payload);
-  const { data, error } = await query.select(TEMPLATE_SELECT_COLUMNS).maybeSingle();
-  if (error) return { data: null, error: formatFormsError(error) };
-  return {
-    data: data ? normalizeTemplate(data as Record<string, unknown>) : null,
-    error: null,
-  };
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const query = id
+      ? supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).update(payload).eq("id", id)
+      : supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).insert(payload);
+    const { data, error } = await query.select(TEMPLATE_SELECT_COLUMNS).maybeSingle();
+    if (!error) {
+      return {
+        data: data ? normalizeTemplate(data as Record<string, unknown>) : null,
+        error: null,
+      };
+    }
+    if (isSupabaseMissingColumnError(error)) {
+      const missing = parseMissingColumnFromError(error.message);
+      if (missing && missing in payload) {
+        payload = stripMissingColumn(payload, missing);
+        continue;
+      }
+    }
+    return { data: null, error: formatFormsError(error) };
+  }
+
+  return { data: null, error: "Could not save template." };
 }
 
 export async function duplicateCustomFormTemplate(
