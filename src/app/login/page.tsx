@@ -251,12 +251,12 @@ function LoginPageContent() {
             <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
               SiteBolt
             </p>
-            <h1 className="text-xl font-bold text-slate-900">Admin Login</h1>
+            <h1 className="text-xl font-bold text-slate-900">Log In</h1>
           </div>
         </div>
 
         <p className="mb-6 text-sm text-slate-600">
-          Sign in with your administrator account to open the project dashboard.
+          Sign in to your account.
         </p>
 
         {resetSuccess || passwordSetMessage ? (

@@ -36,7 +36,7 @@ export default function AppScreenHeader({
             href="/login"
             className="inline-flex items-center rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
           >
-            Admin Login
+            Log In
           </Link>
         ) : null}
         {onOpenProfile ? (
