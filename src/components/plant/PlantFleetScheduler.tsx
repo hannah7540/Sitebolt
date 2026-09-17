@@ -13,6 +13,7 @@ import {
   indexBookedServicesByPlant,
   isUpcomingHeaderBookedService,
   resolveBookedServiceForPlant,
+  resolvePlantServiceDisplayName,
   type PlantServiceSchedule,
 } from "@/lib/plant-services";
 import { getServiceWarning } from "@/lib/plant-utils";
@@ -53,6 +54,15 @@ import HorizontalCalendarGrid, {
 } from "@/components/shared/HorizontalCalendarGrid";
 import PlantPrestartDetailModal from "@/components/dashboard/PlantPrestartDetailModal";
 import PlantDefectResolveModal from "@/components/plant/PlantDefectResolveModal";
+import PlantCalendarAddEventModal from "@/components/plant/PlantCalendarAddEventModal";
+import PlantCalendarEventDetailModal from "@/components/plant/PlantCalendarEventDetailModal";
+import {
+  deletePlantCalendarEvent,
+  fetchPlantCalendarEvents,
+  formatPlantCalendarEventLabel,
+  insertPlantCalendarEvent,
+  type PlantCalendarEvent,
+} from "@/components/plant/plant-calendar-events";
 import {
   applyResolvedPrestartPatch,
   formatLastPrestartColumnLabel,
@@ -119,6 +129,28 @@ function PlantServiceBadge({ schedule }: { schedule: PlantServiceSchedule }) {
     >
       {schedule.service_type || "SERVICE"}
     </div>
+  );
+}
+
+function PlantCalendarEventBadge({
+  event,
+  onSelect,
+}: {
+  event: PlantCalendarEvent;
+  onSelect: (event: PlantCalendarEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(clickEvent) => {
+        clickEvent.stopPropagation();
+        onSelect(event);
+      }}
+      className="mb-0.5 w-full rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-center text-xs font-semibold leading-tight text-amber-800"
+      title={formatPlantCalendarEventLabel(event)}
+    >
+      {formatPlantCalendarEventLabel(event)}
+    </button>
   );
 }
 
@@ -233,6 +265,16 @@ export default function PlantFleetScheduler({
     plant: PlantAsset;
     prestart: PlantPrestart;
   } | null>(null);
+  const [calendarEvents, setCalendarEvents] = useState<PlantCalendarEvent[]>([]);
+  const [addEventTarget, setAddEventTarget] = useState<{
+    plant: PlantAsset;
+    date: string;
+  } | null>(null);
+  const [selectedCalendarEvent, setSelectedCalendarEvent] =
+    useState<PlantCalendarEvent | null>(null);
+  const [eventSaving, setEventSaving] = useState(false);
+  const [eventDeleting, setEventDeleting] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
 
   const handleRangeExtendPast = useCallback(() => {
     if (extendingPastRef.current) return;
@@ -264,17 +306,20 @@ export default function PlantFleetScheduler({
     setSchedulesUnavailable(false);
     try {
       const todayIso = formatDateOnly(new Date());
-      const [rangeData, activeBookings] = await Promise.all([
+      const [rangeData, activeBookings, calendarEventResult] = await Promise.all([
         fetchServiceSchedules(rangeStartIso, rangeEndIso),
         showHeaderAlerts
           ? fetchActivePlantServiceSchedules(todayIso)
           : Promise.resolve([] as PlantServiceSchedule[]),
+        fetchPlantCalendarEvents(rangeStartIso, rangeEndIso),
       ]);
       setSchedules(Array.isArray(rangeData) ? rangeData : []);
       setBookedServices(activeBookings);
+      setCalendarEvents(calendarEventResult.data);
     } catch {
       setSchedules([]);
       setBookedServices([]);
+      setCalendarEvents([]);
       setSchedulesUnavailable(true);
     } finally {
       setSchedulesLoading(false);
@@ -373,14 +418,91 @@ export default function PlantFleetScheduler({
 
   const serviceDatesInRange = useMemo(() => {
     const set = new Set<string>();
-    if (!Array.isArray(schedules)) return set;
-    for (const schedule of schedules) {
-      if (schedule?.scheduled_date) {
-        set.add(formatDateOnly(schedule.scheduled_date));
+    if (Array.isArray(schedules)) {
+      for (const schedule of schedules) {
+        if (schedule?.scheduled_date) {
+          set.add(formatDateOnly(schedule.scheduled_date));
+        }
       }
     }
+    for (const event of calendarEvents) {
+      if (event.event_date) set.add(event.event_date);
+    }
     return set;
-  }, [schedules]);
+  }, [calendarEvents, schedules]);
+
+  const calendarEventsByPlantDate = useMemo(() => {
+    const map = new Map<string, PlantCalendarEvent[]>();
+    for (const event of calendarEvents) {
+      if (!event.plant_id || !event.event_date) continue;
+      const key = `${event.plant_id}:${event.event_date}`;
+      const list = map.get(key) ?? [];
+      list.push(event);
+      map.set(key, list);
+    }
+    return map;
+  }, [calendarEvents]);
+
+  const calendarEventsByPlant = useMemo(() => {
+    const map = new Map<string, PlantCalendarEvent[]>();
+    for (const event of calendarEvents) {
+      if (!event.plant_id) continue;
+      const list = map.get(event.plant_id) ?? [];
+      list.push(event);
+      map.set(event.plant_id, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.event_date.localeCompare(b.event_date));
+    }
+    return map;
+  }, [calendarEvents]);
+
+  const openAddEvent = useCallback((asset: PlantAsset, date: string) => {
+    setSelectedPlantId(asset.id);
+    setEventError(null);
+    setAddEventTarget({ plant: asset, date });
+  }, []);
+
+  const handleSaveCalendarEvent = async (input: {
+    event_date: string;
+    event_type: PlantCalendarEvent["event_type"];
+    title: string;
+    notes: string;
+  }) => {
+    if (!addEventTarget) return;
+    setEventSaving(true);
+    setEventError(null);
+    const result = await insertPlantCalendarEvent({
+      plant_id: addEventTarget.plant.id,
+      event_date: input.event_date,
+      event_type: input.event_type,
+      title: input.title,
+      notes: input.notes,
+    });
+    setEventSaving(false);
+    if (result.error || !result.data) {
+      setEventError(result.error ?? "Could not save event.");
+      return;
+    }
+    setCalendarEvents((current) =>
+      [...current, result.data!].sort((a, b) => a.event_date.localeCompare(b.event_date))
+    );
+    setAddEventTarget(null);
+  };
+
+  const handleDeleteCalendarEvent = async () => {
+    if (!selectedCalendarEvent) return;
+    setEventDeleting(true);
+    const { error } = await deletePlantCalendarEvent(selectedCalendarEvent.id);
+    setEventDeleting(false);
+    if (error) {
+      setEventError(error);
+      return;
+    }
+    const removedId = selectedCalendarEvent.id;
+    setCalendarEvents((current) => current.filter((event) => event.id !== removedId));
+    setSelectedCalendarEvent(null);
+  };
 
   const handleMoveProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -694,11 +816,25 @@ export default function PlantFleetScheduler({
               )
             </div>
           ) : null}
+          {(calendarEventsByPlant.get(asset.id) ?? []).slice(0, 3).map((event) => (
+            <button
+              key={event.id}
+              type="button"
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                setSelectedCalendarEvent(event);
+              }}
+              className="mt-1 w-full rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-left text-xs font-semibold text-amber-800"
+            >
+              {formatPlantCalendarEventLabel(event)}
+            </button>
+          ))}
         </div>
       );
     },
     [
       bookedServicesByPlant,
+      calendarEventsByPlant,
       latestPrestartByPlant,
       showHeaderAlerts,
     ]
@@ -724,10 +860,27 @@ export default function PlantFleetScheduler({
         day.iso,
         projectFilterSet
       );
-      const hasOverlays = defectPrestarts.length > 0 || cellSchedules.length > 0;
+      const cellEvents = calendarEventsByPlantDate.get(`${asset.id}:${dateKey}`) ?? [];
+      const hasOverlays =
+        defectPrestarts.length > 0 || cellSchedules.length > 0 || cellEvents.length > 0;
 
       return (
-        <div className="flex h-full min-h-[52px] flex-col">
+        <div
+          className="flex h-full min-h-[52px] cursor-pointer flex-col rounded-md hover:bg-orange-50/70"
+          onClick={(clickEvent) => {
+            clickEvent.stopPropagation();
+            openAddEvent(asset, day.iso);
+          }}
+          onKeyDown={(clickEvent) => {
+            if (clickEvent.key !== "Enter" && clickEvent.key !== " ") return;
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            openAddEvent(asset, day.iso);
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`Add event for ${asset.unit_number} on ${day.iso}`}
+        >
           {projectAssignment ? (
             <PlantProjectAssignmentCell
               projectName={projectAssignment.projectName}
@@ -747,10 +900,17 @@ export default function PlantFleetScheduler({
           {cellSchedules.map((schedule) => (
             <PlantServiceBadge key={schedule.id} schedule={schedule} />
           ))}
+          {cellEvents.map((event) => (
+            <PlantCalendarEventBadge
+              key={event.id}
+              event={event}
+              onSelect={setSelectedCalendarEvent}
+            />
+          ))}
         </div>
       );
     },
-    [prestartsByPlantDate, projectFilterSet, schedulesByPlantDate]
+    [calendarEventsByPlantDate, openAddEvent, prestartsByPlantDate, projectFilterSet, schedulesByPlantDate]
   );
 
   const renderHeaderDayExtra = useCallback(
@@ -953,10 +1113,10 @@ export default function PlantFleetScheduler({
                 Scheduled maintenance
               </li>
               <li>
-                <span className="rounded bg-amber-500 px-1.5 py-0.5 font-bold uppercase text-white">
-                  Service
+                <span className="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
+                  Service 18.09.2026
                 </span>{" "}
-                Scheduled maintenance
+                Click a date cell to schedule service or other maintenance
               </li>
               <li>
                 <span className="inline-block h-2 w-2 rounded-full bg-red-500" /> Tagged
@@ -983,6 +1143,37 @@ export default function PlantFleetScheduler({
           onConfirm={handleResolveDefect}
         />
       ) : null}
+
+      <PlantCalendarAddEventModal
+        open={Boolean(addEventTarget)}
+        plantName={
+          addEventTarget
+            ? resolvePlantServiceDisplayName(addEventTarget.plant)
+            : "Plant"
+        }
+        initialDate={addEventTarget?.date ?? ""}
+        saving={eventSaving}
+        error={eventError}
+        onClose={() => {
+          setAddEventTarget(null);
+          setEventError(null);
+        }}
+        onSave={handleSaveCalendarEvent}
+      />
+
+      <PlantCalendarEventDetailModal
+        event={selectedCalendarEvent}
+        plantName={
+          selectedCalendarEvent
+            ? resolvePlantServiceDisplayName(
+                plant.find((asset) => asset.id === selectedCalendarEvent.plant_id)
+              )
+            : "Plant"
+        }
+        deleting={eventDeleting}
+        onClose={() => setSelectedCalendarEvent(null)}
+        onDelete={handleDeleteCalendarEvent}
+      />
     </div>
   );
 }
