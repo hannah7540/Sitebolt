@@ -72,6 +72,17 @@ interface AdminConsoleShellProps {
   requireSmsAccess?: boolean;
 }
 
+function isWorkerDashboardPath(pathname: string | null): boolean {
+  return (
+    pathname === "/worker-dashboard" ||
+    pathname?.startsWith("/worker-dashboard/") === true
+  );
+}
+
+function isWorkerDashboardRoot(pathname: string | null): boolean {
+  return pathname === "/worker-dashboard" || pathname === "/worker-dashboard/";
+}
+
 export default function AdminConsoleShell({
   children,
   requireAccountsAccess = false,
@@ -143,6 +154,9 @@ export default function AdminConsoleShell({
     if (authSession.workerId) {
       setAdminWorkerId(authSession.workerId);
       setAdminWorkerIdState(authSession.workerId);
+    } else if (isWorkerDashboardPath(pathname)) {
+      // General workers keep the profile route; do not gate it as admin-only.
+      setAdminWorkerIdState(null);
     } else {
       setAccessDenied(
         "Your account is signed in but does not have admin console access. Sign in with an owner or admin account at /login."
@@ -216,6 +230,9 @@ export default function AdminConsoleShell({
     if (!sessionWorker || workers.length === 0) return;
 
     if (!canAccessAdminConsole(sessionRole)) {
+      if (isWorkerDashboardPath(pathname)) {
+        return;
+      }
       router.replace(`/worker-dashboard?worker_id=${sessionWorker.id}`);
       return;
     }
@@ -298,6 +315,7 @@ export default function AdminConsoleShell({
 
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
   const sidebarActiveView = useMemo(() => {
+    if (isWorkerDashboardPath(pathname)) return "my-profile";
     const organisationView = resolveOrganisationActiveView(pathname);
     if (organisationView) return organisationView;
     return (
@@ -330,6 +348,7 @@ export default function AdminConsoleShell({
 
   const handleOpenProfile = () => {
     setSidebarOpen(false);
+    if (isWorkerDashboardRoot(pathname)) return;
     router.push(workerProfileDashboardPath(adminWorkerId, { fromAdmin: true }));
   };
 
@@ -391,6 +410,12 @@ export default function AdminConsoleShell({
     );
   }
 
+  const workerDashboardRoute = isWorkerDashboardPath(pathname);
+
+  if (workerDashboardRoute && !canAccessAdminConsole(sessionRole)) {
+    return <>{children}</>;
+  }
+
   return (
     <AdminConsoleProvider value={contextValue}>
       <div className="flex h-screen overflow-hidden bg-transparent">
@@ -433,12 +458,14 @@ export default function AdminConsoleShell({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <AppScreenHeader
-            profileName={adminProfileName}
-            profilePhotoUrl={adminProfilePhotoUrl}
-            onOpenProfile={handleOpenProfile}
-            className="hidden lg:flex"
-          />
+          {!workerDashboardRoute ? (
+            <AppScreenHeader
+              profileName={adminProfileName}
+              profilePhotoUrl={adminProfilePhotoUrl}
+              onOpenProfile={handleOpenProfile}
+              className="hidden lg:flex"
+            />
+          ) : null}
 
           <div className="mobile-safe-area-y flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
             <button
@@ -449,10 +476,19 @@ export default function AdminConsoleShell({
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <CompanyLogo size="sm" showFallback className="flex-1" />
+            {workerDashboardRoute ? (
+              <span className="text-sm font-semibold text-slate-900">My Profile</span>
+            ) : (
+              <CompanyLogo size="sm" showFallback className="flex-1" />
+            )}
           </div>
 
-          <div className="relative z-0 flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">
+          <div
+            className={cn(
+              "relative z-0 flex-1 overflow-y-auto",
+              workerDashboardRoute ? "text-slate-800" : "p-6 text-slate-800 lg:p-8"
+            )}
+          >
             {children}
           </div>
         </div>

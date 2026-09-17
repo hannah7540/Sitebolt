@@ -543,7 +543,7 @@ export default function Sidebar({
     void signOutAndRedirect();
   };
   const handleProfileClick = () => {
-    if (onOpenProfile && pathname === "/") {
+    if (onOpenProfile) {
       onOpenProfile();
       return;
     }

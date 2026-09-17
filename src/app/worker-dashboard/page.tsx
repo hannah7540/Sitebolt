@@ -19,6 +19,7 @@ import {
   canAccessAdminConsole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
+import { useWebDashboardProfileShell } from "./profile-shell";
 import {
   DASHBOARD_LOADING_TIMEOUT_MS,
   getAdminWorkerId,
@@ -32,6 +33,7 @@ function WorkerDashboardContent() {
   const queryWorkerId = searchParams.get("worker_id");
   const fromAdmin = searchParams.get("from") === "admin";
   const showWelcome = searchParams.get("welcome") === "1";
+  const webDashboardShell = useWebDashboardProfileShell();
 
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [pickerLoading, setPickerLoading] = useState(true);
@@ -170,6 +172,7 @@ function WorkerDashboardContent() {
       ) : null}
       <WorkerDashboardView
         workerId={workerId}
+        embedded={webDashboardShell}
         showAdminSwitch={showAdminSwitch}
         preferAdminProfile={fromAdmin}
         sessionRole={sessionRole}
