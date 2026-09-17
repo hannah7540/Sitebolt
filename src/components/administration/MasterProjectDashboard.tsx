@@ -56,6 +56,7 @@ import PastSubmissionsModal, {
 import type { PastSubmissionWidgetType } from "@/lib/past-submissions";
 import SiteFormDetailRouter from "@/components/dashboard/SiteFormDetailRouter";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
+import SubmittedFormsWidget from "@/components/dashboard/SubmittedFormsWidget";
 import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
 import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
 import type { IncidentReportRecord } from "@/lib/incident-reports";
@@ -487,6 +488,7 @@ export default function MasterProjectDashboard() {
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <div className="grid min-w-0 flex-1 gap-4 md:grid-cols-2">
+            <SubmittedFormsWidget projectIds={effectiveProjectIds} />
             {LEFT_WIDGETS.map((widget) => (
               <WidgetCard
                 key={widget.key}

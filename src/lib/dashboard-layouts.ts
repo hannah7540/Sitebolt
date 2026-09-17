@@ -28,6 +28,7 @@ export const PROJECT_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
   { id: "toolbox_talks", position: 7, isVisible: true },
   { id: "plant_prestarts", position: 8, isVisible: true },
   { id: "safety_walks", position: 9, isVisible: true },
+  { id: "submitted_forms", position: 10, isVisible: true },
 ];
 
 export const ORGANISATION_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
@@ -61,6 +62,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   toolbox_talks: "Toolbox Talks",
   plant_prestarts: "Plant Pre-Starts",
   safety_walks: "Safety Walks",
+  submitted_forms: "Submitted Forms",
   company_profile: "Company Profile",
   workers_summary: "Workers Overview",
   plant_summary: "Plant Overview",

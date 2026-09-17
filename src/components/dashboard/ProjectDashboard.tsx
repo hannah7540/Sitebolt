@@ -48,6 +48,7 @@ import DashboardCustomizeToolbar, {
   DashboardWidgetFrame,
 } from "./DashboardCustomizeToolbar";
 import ProjectPersonnelCard from "./ProjectPersonnelCard";
+import SubmittedFormsWidget from "./SubmittedFormsWidget";
 import ProjectFormModal from "@/components/organisation/ProjectFormModal";
 import type { DbProject } from "@/lib/project-resolver";
 import { useDashboardLayout } from "@/hooks/useDashboardLayout";
@@ -401,6 +402,8 @@ export default function ProjectDashboard({
             onOpenPastSubmissions={() => setPastSubmissionsType("safety_walks")}
           />
         );
+      case "submitted_forms":
+        return <SubmittedFormsWidget projectId={projectId} />;
       default:
         return null;
     }
