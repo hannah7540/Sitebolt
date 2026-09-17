@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Search, X } from "lucide-react";
+import { ChevronRight, ClipboardList, Loader2, Search, X } from "lucide-react";
+import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import Toast from "@/components/ui/Toast";
 import FormFillDrawer from "@/components/forms/FormFillDrawer";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -51,8 +52,9 @@ interface BindingState {
 
 function templateBadges(template: CustomFormTemplate): string[] {
   const badges: string[] = [];
-  if (template.applies_to_projects) badges.push("Project");
   if (template.applies_to_plant) badges.push("Plant");
+  if (template.applies_to_projects) badges.push("Project");
+  if (template.applies_to_workers) badges.push("Worker");
   if (template.applies_to_fleet) badges.push("Fleet");
   if (template.applies_to_assets) badges.push("Asset");
   if (!badges.length) badges.push("General");
@@ -98,6 +100,10 @@ function emptyBinding(defaultProjectId: string): BindingState {
   return { projectId: defaultProjectId, plantId: "", fleetId: "", assetId: "" };
 }
 
+const EDGE_SWIPE_IGNORE_PX = 24;
+const DISMISS_DISTANCE_PX = 72;
+const HEADER_SWIPE_ZONE_PX = 96;
+
 export default function WorkerOtherFormsSection({
   worker,
   projects,
@@ -120,7 +126,12 @@ export default function WorkerOtherFormsSection({
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [fillError, setFillError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const startRef = useRef<{ x: number; y: number; edge: boolean } | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
 
   const fallbackProjectId =
     defaultProjectId || worker.assigned_project_id || projects[0]?.id || "";
@@ -269,7 +280,15 @@ export default function WorkerOtherFormsSection({
     setFillError(null);
   };
 
-  const nestedOpen = Boolean(picking || filling);
+  const closeBrowse = useCallback(() => {
+    setBrowseOpen(false);
+    setSearch("");
+    setOffset({ x: 0, y: 0 });
+    setDragging(false);
+    startRef.current = null;
+  }, []);
+
+  const nestedOpen = Boolean(browseOpen || picking || filling);
   const handleNestedBack = useCallback(() => {
     if (filling) {
       closeFill();
@@ -279,12 +298,23 @@ export default function WorkerOtherFormsSection({
       closePicker();
       return true;
     }
+    if (browseOpen) {
+      closeBrowse();
+      return true;
+    }
     return false;
-  }, [filling, picking]);
+  }, [browseOpen, closeBrowse, filling, picking]);
 
   useMobileBackHandler(handleNestedBack, nestedOpen);
+  useWorkerHistoryLayer(browseOpen, closeBrowse, "other-forms-browse");
   useWorkerHistoryLayer(Boolean(picking), closePicker, "other-forms-pick");
   useWorkerHistoryLayer(Boolean(filling), closeFill, "other-forms-fill");
+
+  useEffect(() => {
+    if (!browseOpen || picking || filling) return;
+    const id = window.setTimeout(() => searchInputRef.current?.focus(), 50);
+    return () => window.clearTimeout(id);
+  }, [browseOpen, filling, picking]);
 
   const fillEntity = useMemo(() => {
     if (binding.plantId) return { type: "plant" as const, id: binding.plantId };
@@ -340,78 +370,215 @@ export default function WorkerOtherFormsSection({
     closeFill();
   };
 
+  const browseVisible = browseOpen && !picking && !filling;
+
+  const dismissIfSwiped = (dx: number, dy: number) => {
+    const start = startRef.current;
+    if (!start || start.edge) return false;
+    const swipedRight = dx > DISMISS_DISTANCE_PX && dx > Math.abs(dy);
+    const swipedDown =
+      start.y < HEADER_SWIPE_ZONE_PX && dy > DISMISS_DISTANCE_PX && dy > Math.abs(dx);
+    return swipedRight || swipedDown;
+  };
+
+  const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    startRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      edge: touch.clientX <= EDGE_SWIPE_IGNORE_PX,
+    };
+    setDragging(true);
+  };
+
+  const onTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = startRef.current;
+    const touch = event.touches[0];
+    if (!start || start.edge || !touch) return;
+    const dx = Math.max(0, touch.clientX - start.x);
+    const dy = Math.max(0, touch.clientY - start.y);
+    const horizontal = dx > dy;
+    if (horizontal || start.y < HEADER_SWIPE_ZONE_PX) {
+      setOffset({ x: horizontal ? dx : 0, y: horizontal ? 0 : dy });
+    }
+  };
+
+  const onTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = startRef.current;
+    const touch = event.changedTouches[0];
+    setDragging(false);
+    startRef.current = null;
+    if (!start || start.edge || !touch) {
+      setOffset({ x: 0, y: 0 });
+      return;
+    }
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (dismissIfSwiped(dx, dy)) {
+      closeBrowse();
+      return;
+    }
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const translate = `translate3d(${offset.x}px, ${offset.y}px, 0)`;
+
   return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="text-base font-bold text-slate-900">Other Forms</h3>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Search organisation templates and fill them against a project, plant, fleet, or asset.
-        </p>
-      </div>
-
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          className={cn(inputClass, "pl-9")}
-          placeholder="Search forms (excavator, hume, daily, incident…)"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.preventDefault();
-          }}
-        />
-      </div>
-
-      {loadError ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {loadError}
-        </p>
-      ) : null}
-
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-          Loading forms…
+    <>
+      <button
+        type="button"
+        onClick={() => setBrowseOpen(true)}
+        className={cn(
+          cardClass,
+          "flex h-full flex-col items-start gap-3 p-4 text-left transition hover:border-orange-300 hover:shadow-md active:scale-[0.99]"
+        )}
+      >
+        <span className="text-xl" aria-hidden>
+          📑
+        </span>
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
+          <ClipboardList className="h-6 w-6" />
         </div>
-      ) : filteredTemplates.length === 0 ? (
-        <div className={cn(cardClass, "p-4 text-sm text-slate-500")}>
-          {search.trim()
-            ? "No matching organisation forms."
-            : "No active organisation form templates yet."}
+        <div className="flex-1">
+          <p className="font-semibold text-slate-900">Other Forms</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Browse organisation forms, plant inspections, and project checklists
+          </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {filteredTemplates.map((template) => (
-            <div key={template.id} className={cn(cardClass, "flex flex-col gap-3 p-4")}>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-slate-900">{template.title}</p>
-                {template.description ? (
-                  <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                    {template.description}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {templateBadges(template).map((badge) => (
-                    <span
-                      key={badge}
-                      className="rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700 ring-1 ring-orange-200"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleSelectTemplate(template)}
-                className="inline-flex items-center justify-center rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600">
+          Browse forms
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+        </span>
+      </button>
+
+      {mounted && browseOpen
+        ? createPortal(
+            <div
+              className={cn(
+                "fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 lg:p-6",
+                !browseVisible && "hidden"
+              )}
+              onClick={closeBrowse}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="other-forms-browse-title"
+                className="flex h-full w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl lg:max-h-[85vh] lg:max-w-3xl"
+                style={{
+                  transform: translate,
+                  transition: dragging ? "none" : "transform 180ms ease-out",
+                }}
+                onClick={(event) => event.stopPropagation()}
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
+                onTouchCancel={() => {
+                  startRef.current = null;
+                  setDragging(false);
+                  setOffset({ x: 0, y: 0 });
+                }}
               >
-                Fill Form
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+                <div className="mobile-safe-area-top flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
+                  <div>
+                    <h2 id="other-forms-browse-title" className="text-lg font-bold text-slate-900">
+                      Other Forms
+                    </h2>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      Search organisation templates by title, role, or equipment
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeBrowse}
+                    className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Close other forms"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="shrink-0 border-b border-slate-100 px-4 py-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      ref={searchInputRef}
+                      type="search"
+                      className={cn(inputClass, "pl-9")}
+                      placeholder="Search by title, role, or equipment…"
+                      value={search}
+                      autoFocus
+                      onChange={(event) => setSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.preventDefault();
+                      }}
+                      aria-label="Search other forms"
+                    />
+                  </div>
+                </div>
+
+                <div className="worker-mobile-content-pad min-h-0 flex-1 overflow-y-auto p-4 lg:pb-4">
+                  {loadError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {loadError}
+                    </p>
+                  ) : null}
+
+                  {loading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                      Loading forms…
+                    </div>
+                  ) : filteredTemplates.length === 0 ? (
+                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                      {search.trim()
+                        ? "No matching organisation forms."
+                        : "No active organisation form templates yet."}
+                    </p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {filteredTemplates.map((template) => (
+                        <li key={template.id}>
+                          <button
+                            type="button"
+                            onClick={() => void handleSelectTemplate(template)}
+                            className="flex w-full flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-orange-300 hover:bg-orange-50/40"
+                          >
+                            <p className="font-semibold text-slate-900">{template.title}</p>
+                            {template.description ? (
+                              <p className="line-clamp-2 text-xs text-slate-500">
+                                {template.description}
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-1">
+                              {templateBadges(template).map((badge) => (
+                                <span
+                                  key={badge}
+                                  className="rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700 ring-1 ring-orange-200"
+                                >
+                                  {badge}
+                                </span>
+                              ))}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <WorkerMobileBackButton
+                  label="Back"
+                  onClick={closeBrowse}
+                  alwaysVisible
+                  className="z-[80]"
+                />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {mounted && picking
         ? createPortal(
@@ -589,6 +756,6 @@ export default function WorkerOtherFormsSection({
       {toast ? (
         <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
-    </section>
+    </>
   );
 }

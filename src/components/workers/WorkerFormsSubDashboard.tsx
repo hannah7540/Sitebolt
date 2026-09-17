@@ -188,13 +188,12 @@ export default function WorkerFormsSubDashboard({
         <WorkerRFITile assignedCount={assignedRfiCount} onClick={openRfiForm} />
         <WorkerRequestTile onClick={openRequestForm} />
         <WorkerIncidentReportTile onClick={openIncidentForm} />
+        <WorkerOtherFormsSection
+          worker={worker}
+          projects={projects}
+          defaultProjectId={defaultProjectId}
+        />
       </div>
-
-      <WorkerOtherFormsSection
-        worker={worker}
-        projects={projects}
-        defaultProjectId={defaultProjectId}
-      />
 
       <button
         type="button"
