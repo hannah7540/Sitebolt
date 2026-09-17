@@ -12,6 +12,11 @@ import {
   formatProjectSaveError,
   isProjectArchived,
 } from "@/lib/project-resolver";
+import {
+  WORKER_STATE_REGION_OPTIONS,
+  normalizeWorkerStateRegion,
+  type WorkerStateRegion,
+} from "@/lib/worker-state-region";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import {
   modalOverlayClass,
@@ -88,6 +93,9 @@ export default function ProjectFormModal({
   const [projectCode, setProjectCode] = useState(project?.project_code ?? "");
   const [client, setClient] = useState(project?.client ?? "");
   const [location, setLocation] = useState(project?.location ?? "");
+  const [stateTag, setStateTag] = useState<WorkerStateRegion | "">(
+    () => normalizeWorkerStateRegion(project?.state) ?? ""
+  );
   const [projectManagers, setProjectManagers] = useState<string[]>(() =>
     normalizeWorkerUuidArray(project?.project_managers)
   );
@@ -114,6 +122,10 @@ export default function ProjectFormModal({
       reportError("Project title is required.");
       return;
     }
+    if (!stateTag) {
+      reportError("State is required.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -128,6 +140,7 @@ export default function ProjectFormModal({
         project_code: projectCode.trim() || null,
         client: client.trim() || null,
         location,
+        state: stateTag,
         project_managers: managerIds,
         project_administrators: administratorIds,
         project_admins: administratorIds,
@@ -224,6 +237,26 @@ export default function ProjectFormModal({
               onChange={(e) => setLocation(e.target.value)}
               placeholder="Site address or region"
             />
+          </label>
+          <label className="block space-y-1">
+            <span className={labelClass}>State *</span>
+            <select
+              className={inputClass}
+              value={stateTag}
+              onChange={(e) =>
+                setStateTag(
+                  (normalizeWorkerStateRegion(e.target.value) ?? "") as WorkerStateRegion | ""
+                )
+              }
+              required
+            >
+              <option value="">Select state</option>
+              {WORKER_STATE_REGION_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
 
           <WorkerSearchSelect

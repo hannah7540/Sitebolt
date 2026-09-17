@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { sanitizeWritePayload } from "./form-payload-utils";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
 
 /** Normalized project row used by the app. */
 export interface DbProject {
@@ -18,6 +19,7 @@ export interface DbProject {
   is_active: boolean;
   is_archived: boolean;
   status: string | null;
+  state: string | null;
 }
 
 export type ProjectViewFilter = "Active" | "Archived" | "All";
@@ -36,6 +38,7 @@ type RawProjectRow = {
   is_active?: boolean | null;
   is_archived?: boolean | string | null;
   status?: string | null;
+  state?: string | null;
 };
 
 const UUID_RE =
@@ -67,6 +70,7 @@ function normalizeProject(row: RawProjectRow): DbProject {
     is_active: isProjectActive(row.is_active) && !is_archived,
     is_archived,
     status: row.status ?? (is_archived ? "Archived" : "Active"),
+    state: normalizeWorkerStateRegion(row.state),
   };
 }
 
@@ -358,6 +362,7 @@ export type ProjectSaveInput = {
   assigned_workers?: string[] | null;
   is_active?: boolean;
   status?: string | null;
+  state?: string | null;
 };
 
 export type ProjectUpdateInput = ProjectSaveInput & {
@@ -378,6 +383,7 @@ type ProjectWritePayload = {
   is_active: boolean;
   is_archived: boolean;
   status: string;
+  state?: string | null;
 };
 
 const PROJECT_RETURN_SELECT =
@@ -392,7 +398,7 @@ function buildProjectWritePayload(input: ProjectSaveInput): ProjectWritePayload 
     input.project_administrators ?? input.project_admins
   );
   const managers = normalizeWorkerUuidArray(input.project_managers);
-  return sanitizeWritePayload(
+  const payload = sanitizeWritePayload(
     {
       project_name: input.project_name.trim(),
       slug: slugifyTitle(input.project_name),
@@ -409,6 +415,12 @@ function buildProjectWritePayload(input: ProjectSaveInput): ProjectWritePayload 
     },
     { requiredTextKeys: ["project_name", "slug"] }
   ) as ProjectWritePayload;
+
+  if (input.state !== undefined) {
+    payload.state = normalizeWorkerStateRegion(input.state);
+  }
+
+  return payload;
 }
 
 async function persistProjectWrite(
@@ -444,6 +456,7 @@ async function persistProjectWrite(
       "client",
       "is_archived",
       "status",
+      "state",
     ] as const;
 
     let body: Record<string, unknown> = { ...payload };

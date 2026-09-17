@@ -53,14 +53,18 @@ import {
 import type {
   ComposeEmailInput,
   EmailRecurrenceRule,
-  EmailTargetMode,
 } from "@/lib/email-module-types";
 import {
   EMAIL_RECURRENCE_OPTIONS,
-  EMAIL_TARGET_MODE_LABELS,
 } from "@/lib/email-module-types";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import RecipientTargetingControls from "@/components/communications/RecipientTargetingControls";
+import {
+  resolveCommsRecipients,
+  type CommsTargetMode,
+  type ProjectStateTag,
+} from "@/components/communications/recipient-targeting";
 
 type DateFilter = "all" | "today" | "last7" | "custom";
 
@@ -743,8 +747,10 @@ function ComposeEmailModal({
     body: string;
   }) => Promise<void>;
 }) {
-  const [targetMode, setTargetMode] = useState<EmailTargetMode>("all_workers");
-  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+  const [targetMode, setTargetMode] = useState<CommsTargetMode | "custom_emails">(
+    "all_workers"
+  );
+  const [selectedStateTags, setSelectedStateTags] = useState<ProjectStateTag[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [customEmails, setCustomEmails] = useState("");
   const [templateId, setTemplateId] = useState(initialTemplate?.id ?? "");
@@ -758,6 +764,21 @@ function ComposeEmailModal({
   const [templateName, setTemplateName] = useState("");
 
   const signatureHtml = liveSignatureHtml?.trim() ?? "";
+
+  const recipients = useMemo(
+    () =>
+      targetMode === "custom_emails"
+        ? []
+        : resolveCommsRecipients({
+            mode: targetMode,
+            workers,
+            projects,
+            stateTags: selectedStateTags,
+            projectIds: selectedProjectIds,
+            channel: "email",
+          }),
+    [projects, selectedProjectIds, selectedStateTags, targetMode, workers]
+  );
 
   useEffect(() => {
     if (!templateId) return;
@@ -795,13 +816,31 @@ function ComposeEmailModal({
       return;
     }
 
+    if (targetMode === "by_state" && selectedStateTags.length === 0) {
+      return;
+    }
+    if (targetMode === "by_project" && selectedProjectIds.length === 0) {
+      return;
+    }
+    if (targetMode === "custom_emails") {
+      const parsed = customEmails
+        .split(/[\n,;]+/)
+        .map((email) => email.trim())
+        .filter(Boolean);
+      if (parsed.length === 0) return;
+    } else if (recipients.length === 0) {
+      return;
+    }
+
     const input: ComposeEmailInput = {
       subject,
       body_html: buildBodyHtml(),
       body_text: buildBodyText(),
-      target_mode: targetMode,
+      target_mode:
+        targetMode === "custom_emails" ? "custom_emails" : "selected_workers",
       target_config: {
-        worker_ids: selectedWorkerIds,
+        worker_ids:
+          targetMode === "custom_emails" ? [] : recipients.map((worker) => worker.id),
         project_ids: selectedProjectIds,
         custom_emails: customEmails
           .split(/[\n,;]+/)
@@ -832,70 +871,30 @@ function ComposeEmailModal({
         </div>
 
         <div className="space-y-4 overflow-y-auto px-5 py-4">
-          <div>
-            <p className={labelClass}>Recipient Target</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {(Object.keys(EMAIL_TARGET_MODE_LABELS) as EmailTargetMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setTargetMode(mode)}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-semibold",
-                    targetMode === mode
-                      ? "bg-orange-500 text-white"
-                      : "bg-slate-100 text-slate-700"
-                  )}
-                >
-                  {EMAIL_TARGET_MODE_LABELS[mode]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {targetMode === "selected_workers" ? (
-            <div>
-              <p className={labelClass}>Select Workers</p>
-              <select
-                multiple
-                value={selectedWorkerIds}
-                onChange={(event) =>
-                  setSelectedWorkerIds(
-                    Array.from(event.target.selectedOptions).map((option) => option.value)
-                  )
-                }
-                className={cn(inputClass, "min-h-32")}
+          <RecipientTargetingControls
+            mode={targetMode}
+            onModeChange={setTargetMode}
+            selectedStateTags={selectedStateTags}
+            onStateTagsChange={setSelectedStateTags}
+            selectedProjectIds={selectedProjectIds}
+            onProjectIdsChange={setSelectedProjectIds}
+            projects={projects}
+            recipients={recipients}
+            extraModeSlot={
+              <button
+                type="button"
+                onClick={() => setTargetMode("custom_emails")}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  targetMode === "custom_emails"
+                    ? "border-orange-300 bg-orange-500 text-white"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                )}
               >
-                {workers.map((worker) => (
-                  <option key={worker.id} value={worker.id}>
-                    {getWorkerDisplayName(worker)} ({worker.email})
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-
-          {targetMode === "by_project" ? (
-            <div>
-              <p className={labelClass}>Select Projects / Sites</p>
-              <select
-                multiple
-                value={selectedProjectIds}
-                onChange={(event) =>
-                  setSelectedProjectIds(
-                    Array.from(event.target.selectedOptions).map((option) => option.value)
-                  )
-                }
-                className={cn(inputClass, "min-h-32")}
-              >
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
+                Custom emails
+              </button>
+            }
+          />
 
           {targetMode === "custom_emails" ? (
             <div>
