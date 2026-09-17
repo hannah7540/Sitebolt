@@ -2,26 +2,32 @@ import { getWorkerAssignedProjectIds, type Worker } from "@/lib/supabase";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
-  WORKER_STATE_REGION_OPTIONS,
   normalizeWorkerStateRegion,
-  type WorkerStateRegion,
 } from "@/lib/worker-state-region";
 import { toE164Phone } from "@/lib/sms-phone";
 
-export const PROJECT_STATE_OPTIONS = WORKER_STATE_REGION_OPTIONS;
-export type ProjectStateTag = WorkerStateRegion;
+/** Restricted comms regions — never include QLD, VIC, SA, TAS, or NT. */
+export const COMM_STATE_FILTER_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
+export const PROJECT_STATE_OPTIONS = COMM_STATE_FILTER_OPTIONS;
+export type ProjectStateTag = (typeof COMM_STATE_FILTER_OPTIONS)[number];
 
-export type CommsTargetMode = "by_state" | "by_project" | "all_workers";
+export type CommsTargetMode =
+  | "by_state"
+  | "by_project"
+  | "selected_workers"
+  | "all_workers";
 
 export const COMMS_TARGET_MODE_LABELS: Record<CommsTargetMode, string> = {
-  by_state: "Filter by State Tag",
+  by_state: "Filter by State",
   by_project: "Filter by Project",
+  selected_workers: "Select Worker",
   all_workers: "Send to All",
 };
 
 export const COMMS_TARGET_MODE_ORDER: CommsTargetMode[] = [
   "by_state",
   "by_project",
+  "selected_workers",
   "all_workers",
 ];
 
@@ -36,6 +42,16 @@ function hasValidMobile(worker: Worker): boolean {
 function hasValidEmail(worker: Worker): boolean {
   const email = String(worker.email ?? "").trim();
   return email.includes("@") && !email.startsWith("@") && !email.endsWith("@");
+}
+
+export function eligibleCommsWorkers(
+  workers: Worker[],
+  channel: "sms" | "email"
+): Worker[] {
+  return workers.filter((worker) => {
+    if (!isActiveCommsWorker(worker)) return false;
+    return channel === "sms" ? hasValidMobile(worker) : hasValidEmail(worker);
+  });
 }
 
 export function workerMatchesProjectIds(
@@ -59,27 +75,32 @@ export function resolveCommsRecipients(input: {
   projects: DbProject[];
   stateTags: ProjectStateTag[];
   projectIds: string[];
+  workerIds?: string[];
   channel: "sms" | "email";
 }): Worker[] {
-  const eligible = input.workers.filter((worker) => {
-    if (!isActiveCommsWorker(worker)) return false;
-    return input.channel === "sms" ? hasValidMobile(worker) : hasValidEmail(worker);
-  });
+  const eligible = eligibleCommsWorkers(input.workers, input.channel);
 
   if (input.mode === "all_workers") {
     return eligible;
   }
 
+  if (input.mode === "selected_workers") {
+    const ids = new Set((input.workerIds ?? []).filter(Boolean));
+    if (ids.size === 0) return [];
+    return eligible.filter((worker) => ids.has(worker.id));
+  }
+
   if (input.mode === "by_state") {
+    const allowed = new Set<string>(COMM_STATE_FILTER_OPTIONS);
     const tags = new Set(
       input.stateTags
         .map((tag) => normalizeWorkerStateRegion(tag))
-        .filter((tag): tag is ProjectStateTag => Boolean(tag))
+        .filter((tag): tag is ProjectStateTag => Boolean(tag && allowed.has(tag)))
     );
     if (tags.size === 0) return [];
     return eligible.filter((worker) => {
       const state = normalizeWorkerStateRegion(worker.state);
-      return Boolean(state && tags.has(state));
+      return Boolean(state && allowed.has(state) && tags.has(state));
     });
   }
 

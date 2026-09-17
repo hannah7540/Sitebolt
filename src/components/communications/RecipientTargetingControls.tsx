@@ -3,10 +3,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { Worker } from "@/lib/supabase";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
+import SearchableWorkerPicker from "@/components/communications/SearchableWorkerPicker";
 import {
+  COMM_STATE_FILTER_OPTIONS,
   COMMS_TARGET_MODE_LABELS,
   COMMS_TARGET_MODE_ORDER,
-  PROJECT_STATE_OPTIONS,
+  eligibleCommsWorkers,
   formatCommsRecipientPreview,
   type CommsTargetMode,
   type ProjectStateTag,
@@ -21,6 +23,10 @@ interface RecipientTargetingControlsProps {
   onStateTagsChange: (tags: ProjectStateTag[]) => void;
   selectedProjectIds: string[];
   onProjectIdsChange: (ids: string[]) => void;
+  selectedWorkerIds?: string[];
+  onWorkerIdsChange?: (ids: string[]) => void;
+  workers?: Worker[];
+  channel?: "sms" | "email";
   projects: DbProject[];
   recipients: Worker[];
   extraModeSlot?: ReactNode;
@@ -33,6 +39,10 @@ export default function RecipientTargetingControls({
   onStateTagsChange,
   selectedProjectIds,
   onProjectIdsChange,
+  selectedWorkerIds = [],
+  onWorkerIdsChange,
+  workers = [],
+  channel = "email",
   projects,
   recipients,
   extraModeSlot,
@@ -40,6 +50,10 @@ export default function RecipientTargetingControls({
   const [projectSearch, setProjectSearch] = useState("");
 
   const activeProjects = useMemo(() => filterActiveProjects(projects), [projects]);
+  const pickerWorkers = useMemo(
+    () => eligibleCommsWorkers(workers, channel),
+    [channel, workers]
+  );
 
   const filteredProjects = useMemo(() => {
     const needle = projectSearch.trim().toLowerCase();
@@ -50,13 +64,7 @@ export default function RecipientTargetingControls({
     });
   }, [activeProjects, projectSearch]);
 
-  const toggleState = (tag: ProjectStateTag) => {
-    onStateTagsChange(
-      selectedStateTags.includes(tag)
-        ? selectedStateTags.filter((item) => item !== tag)
-        : [...selectedStateTags, tag]
-    );
-  };
+  const selectedState = selectedStateTags[0] ?? "";
 
   const toggleProject = (id: string) => {
     onProjectIdsChange(
@@ -91,29 +99,28 @@ export default function RecipientTargetingControls({
       </fieldset>
 
       {mode === "by_state" ? (
-        <div>
-          <p className={labelClass}>State tags</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {PROJECT_STATE_OPTIONS.map((tag) => {
-              const selected = selectedStateTags.includes(tag);
-              return (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => toggleState(tag)}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-sm font-semibold",
-                    selected
-                      ? "border-orange-300 bg-orange-50 text-orange-800"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  )}
-                >
-                  {tag}
-                </button>
+        <label className="block space-y-1">
+          <span className={labelClass}>Filter by State</span>
+          <select
+            className={inputClass}
+            value={selectedState}
+            onChange={(event) => {
+              const next = event.target.value as ProjectStateTag | "";
+              onStateTagsChange(
+                next && (COMM_STATE_FILTER_OPTIONS as readonly string[]).includes(next)
+                  ? [next as ProjectStateTag]
+                  : []
               );
-            })}
-          </div>
-        </div>
+            }}
+          >
+            <option value="">Select state</option>
+            {COMM_STATE_FILTER_OPTIONS.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       {mode === "by_project" ? (
@@ -145,6 +152,15 @@ export default function RecipientTargetingControls({
             )}
           </div>
         </div>
+      ) : null}
+
+      {mode === "selected_workers" && onWorkerIdsChange ? (
+        <SearchableWorkerPicker
+          workers={pickerWorkers}
+          selectedIds={selectedWorkerIds}
+          onChange={onWorkerIdsChange}
+          contactKind={channel === "sms" ? "mobile" : "email"}
+        />
       ) : null}
 
       {mode === "custom_emails" ? null : (

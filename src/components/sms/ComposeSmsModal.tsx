@@ -50,6 +50,7 @@ export default function ComposeSmsModal({
   const [targetMode, setTargetMode] = useState<CommsTargetMode>("all_workers");
   const [selectedStateTags, setSelectedStateTags] = useState<ProjectStateTag[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -65,9 +66,10 @@ export default function ComposeSmsModal({
         projects,
         stateTags: selectedStateTags,
         projectIds: selectedProjectIds,
+        workerIds: selectedWorkerIds,
         channel: "sms",
       }),
-    [projects, selectedProjectIds, selectedStateTags, targetMode, workers]
+    [projects, selectedProjectIds, selectedStateTags, selectedWorkerIds, targetMode, workers]
   );
 
   const previewBody = `${SMS_OUTBOUND_PREFIX}${messageBody.trim()}`;
@@ -87,6 +89,10 @@ export default function ComposeSmsModal({
     }
     if (targetMode === "by_project" && selectedProjectIds.length === 0) {
       setError("Select at least one project.");
+      return;
+    }
+    if (targetMode === "selected_workers" && selectedWorkerIds.length === 0) {
+      setError("Select at least one worker.");
       return;
     }
     if (recipients.length === 0) {
@@ -159,6 +165,10 @@ export default function ComposeSmsModal({
             onStateTagsChange={setSelectedStateTags}
             selectedProjectIds={selectedProjectIds}
             onProjectIdsChange={setSelectedProjectIds}
+            selectedWorkerIds={selectedWorkerIds}
+            onWorkerIdsChange={setSelectedWorkerIds}
+            workers={workers}
+            channel="sms"
             projects={projects}
             recipients={recipients}
           />

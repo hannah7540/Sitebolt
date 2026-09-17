@@ -752,6 +752,7 @@ function ComposeEmailModal({
   );
   const [selectedStateTags, setSelectedStateTags] = useState<ProjectStateTag[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [customEmails, setCustomEmails] = useState("");
   const [templateId, setTemplateId] = useState(initialTemplate?.id ?? "");
   const [subject, setSubject] = useState(initialTemplate?.subject ?? "");
@@ -775,9 +776,10 @@ function ComposeEmailModal({
             projects,
             stateTags: selectedStateTags,
             projectIds: selectedProjectIds,
+            workerIds: selectedWorkerIds,
             channel: "email",
           }),
-    [projects, selectedProjectIds, selectedStateTags, targetMode, workers]
+    [projects, selectedProjectIds, selectedStateTags, selectedWorkerIds, targetMode, workers]
   );
 
   useEffect(() => {
@@ -820,6 +822,9 @@ function ComposeEmailModal({
       return;
     }
     if (targetMode === "by_project" && selectedProjectIds.length === 0) {
+      return;
+    }
+    if (targetMode === "selected_workers" && selectedWorkerIds.length === 0) {
       return;
     }
     if (targetMode === "custom_emails") {
@@ -878,6 +883,10 @@ function ComposeEmailModal({
             onStateTagsChange={setSelectedStateTags}
             selectedProjectIds={selectedProjectIds}
             onProjectIdsChange={setSelectedProjectIds}
+            selectedWorkerIds={selectedWorkerIds}
+            onWorkerIdsChange={setSelectedWorkerIds}
+            workers={workers}
+            channel="email"
             projects={projects}
             recipients={recipients}
             extraModeSlot={
