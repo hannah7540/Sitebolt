@@ -148,21 +148,57 @@ export const CUSTOM_FORM_TARGET_KEYS = [
   { key: "applies_to_assets" as const, label: "Asset", entity: "asset" as const },
 ];
 
-function formatFormsError(error: { message?: string; code?: string }): string {
-  const normalized = toSupabaseRequestError({
+const TEMPLATE_SELECT_COLUMNS =
+  "id, title, description, applies_to_projects, applies_to_workers, applies_to_plant, applies_to_fleet, applies_to_assets, assignee_role, is_active, fields, created_at, updated_at";
+
+const SUBMISSION_SELECT_COLUMNS =
+  "id, template_id, template_title, project_id, plant_id, worker_id, fleet_id, asset_id, answers, submitted_by_name, submitted_by_id, signature_url, submitted_at";
+
+function asFormsRequestError(error: { message?: string; code?: string }) {
+  return toSupabaseRequestError({
     message: error.message ?? "",
     code: error.code ?? "",
     details: "",
     hint: "",
   });
-  if (
-    isSupabaseRelationMissingError(normalized) ||
-    isSupabaseTableUnavailableError(normalized) ||
-    isSupabaseSchemaCacheError(normalized)
-  ) {
+}
+
+function isCustomFormRelationMissing(error: { message?: string; code?: string }): boolean {
+  const normalized = asFormsRequestError(error);
+  if (!isSupabaseRelationMissingError(normalized)) return false;
+  const message = String(error.message ?? "").toLowerCase();
+  return (
+    message.includes("custom_form_templates") ||
+    message.includes("custom_form_submissions") ||
+    message.includes("custom_form")
+  );
+}
+
+function isCustomFormReadSoftFailure(error: { message?: string; code?: string }): boolean {
+  const normalized = asFormsRequestError(error);
+  return (
+    isSupabaseSchemaCacheError(normalized) ||
+    isSupabaseTableUnavailableError(normalized, CUSTOM_FORM_TEMPLATES_TABLE) ||
+    isSupabaseTableUnavailableError(normalized, CUSTOM_FORM_SUBMISSIONS_TABLE)
+  );
+}
+
+function formatFormsError(error: { message?: string; code?: string }): string {
+  if (isCustomFormRelationMissing(error)) {
     return MISSING_TABLE_MESSAGE;
   }
   return error.message || "Custom forms request failed.";
+}
+
+function formsReadResult<T>(
+  error: { message?: string; code?: string } | null,
+  empty: T
+): { data: T; error: string | null } | null {
+  if (!error) return null;
+  if (isCustomFormReadSoftFailure(error) && !isCustomFormRelationMissing(error)) {
+    return { data: empty, error: null };
+  }
+  return { data: empty, error: formatFormsError(error) };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -454,9 +490,10 @@ export async function fetchCustomFormTemplates(): Promise<{
   }
   const { data, error } = await supabase
     .from(CUSTOM_FORM_TEMPLATES_TABLE)
-    .select("*")
+    .select(TEMPLATE_SELECT_COLUMNS)
     .order("created_at", { ascending: false });
-  if (error) return { data: [], error: formatFormsError(error) };
+  const soft = formsReadResult(error, [] as CustomFormTemplate[]);
+  if (soft) return soft;
   return {
     data: (data ?? []).map((row) => normalizeTemplate(row as Record<string, unknown>)),
     error: null,
@@ -486,7 +523,7 @@ export async function saveCustomFormTemplate(
   const query = id
     ? supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).update(payload).eq("id", id)
     : supabase.from(CUSTOM_FORM_TEMPLATES_TABLE).insert(payload);
-  const { data, error } = await query.select("*").maybeSingle();
+  const { data, error } = await query.select(TEMPLATE_SELECT_COLUMNS).maybeSingle();
   if (error) return { data: null, error: formatFormsError(error) };
   return {
     data: data ? normalizeTemplate(data as Record<string, unknown>) : null,
@@ -571,13 +608,13 @@ export async function fetchCustomFormSubmissions(filter: {
     const plantIds = await fetchPlantIdsForProject(filter.projectId);
     const projectQuery = supabase
       .from(CUSTOM_FORM_SUBMISSIONS_TABLE)
-      .select("*")
+      .select(SUBMISSION_SELECT_COLUMNS)
       .eq("project_id", filter.projectId)
       .order("submitted_at", { ascending: false });
     const plantQuery = plantIds.length
       ? supabase
           .from(CUSTOM_FORM_SUBMISSIONS_TABLE)
-          .select("*")
+          .select(SUBMISSION_SELECT_COLUMNS)
           .in("plant_id", plantIds)
           .order("submitted_at", { ascending: false })
       : null;
@@ -585,16 +622,21 @@ export async function fetchCustomFormSubmissions(filter: {
       projectQuery,
       plantQuery ?? Promise.resolve({ data: [], error: null }),
     ]);
-    if (projectResult.error) return { data: [], error: formatFormsError(projectResult.error) };
-    if (plantResult.error) return { data: [], error: formatFormsError(plantResult.error) };
-    mergeRows(projectResult.data);
-    mergeRows(plantResult.data);
+    const projectSoft = formsReadResult(projectResult.error, [] as CustomFormSubmission[]);
+    if (projectSoft?.error) return projectSoft;
+    if (!projectSoft) mergeRows(projectResult.data);
+    if (plantResult.error) {
+      const plantSoft = formsReadResult(plantResult.error, [] as CustomFormSubmission[]);
+      if (plantSoft?.error) return plantSoft;
+    } else {
+      mergeRows(plantResult.data);
+    }
     return { data: sortSubmissions([...mapById.values()]), error: null };
   }
 
   let query = supabase
     .from(CUSTOM_FORM_SUBMISSIONS_TABLE)
-    .select("*")
+    .select(SUBMISSION_SELECT_COLUMNS)
     .order("submitted_at", { ascending: false });
 
   if (filter.plantId) query = query.eq("plant_id", filter.plantId);
@@ -604,7 +646,8 @@ export async function fetchCustomFormSubmissions(filter: {
   if (filter.projectId) query = query.eq("project_id", filter.projectId);
 
   const { data, error } = await query;
-  if (error) return { data: [], error: formatFormsError(error) };
+  const soft = formsReadResult(error, [] as CustomFormSubmission[]);
+  if (soft) return soft;
   mergeRows(data);
   return { data: sortSubmissions([...mapById.values()]), error: null };
 }
@@ -631,7 +674,7 @@ export async function insertCustomFormSubmission(
       signature_url: input.signature_url ?? null,
       submitted_at: new Date().toISOString(),
     })
-    .select("*")
+    .select(SUBMISSION_SELECT_COLUMNS)
     .maybeSingle();
   if (error) return { data: null, error: formatFormsError(error) };
   return {
