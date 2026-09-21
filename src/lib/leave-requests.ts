@@ -186,6 +186,8 @@ const LEAVE_REQUEST_WRITE_COLUMNS = new Set([
   "notes",
   "signature_url",
   "status",
+  "project_id",
+  "project_name",
 ]);
 
 const ASSIGNED_PROJECT_PAYLOAD_KEYS = new Set([
@@ -327,6 +329,21 @@ export function getLeaveReason(
   return String((row as Record<string, unknown>).notes ?? "").trim();
 }
 
+function resolveLeaveProjectFields(projectId?: string | null): {
+  project_id: string | null;
+  project_name: string | null;
+} {
+  const trimmed = sanitizeOptionalText(projectId);
+  const projectUuid = trimmed && isProjectUuid(trimmed) ? trimmed : null;
+  if (!projectUuid) {
+    return { project_id: null, project_name: null };
+  }
+  return {
+    project_id: projectUuid,
+    project_name: getProjectDisplayName(projectUuid)?.trim() || null,
+  };
+}
+
 function buildDualDateLeavePayload(
   input: SubmitLeaveRequestInput & { projectId?: string | null; workerName: string }
 ) {
@@ -335,25 +352,30 @@ function buildDualDateLeavePayload(
   const reasonText = input.reason.trim() || "";
   const calculatedDays = input.numberOfDays > 0 ? input.numberOfDays : 1;
   const leaveType = sanitizeLeaveType(input.leaveType);
+  const { project_id, project_name } = resolveLeaveProjectFields(input.projectId);
 
   return pickLeaveRequestWriteColumns(
     sanitizeWritePayload(
-      stripNullishFields({
-        worker_id: input.workerId,
-        worker_name: input.workerName,
-        leave_type: leaveType,
-        start_date: startDateStr,
-        first_date: startDateStr,
-        end_date: endDateStr,
-        last_date: endDateStr,
-        ...buildDayCountFields(calculatedDays),
-        effective_days_deducted: calculatedDays,
-        calendar_breakdown: input.calendarBreakdown ?? null,
-        reason: reasonText,
-        notes: reasonText,
-        signature_url: nullIfBlank(input.signatureUrl),
-        status: "pending",
-      }),
+      stripAssignedProjectFields(
+        stripNullishFields({
+          worker_id: input.workerId,
+          worker_name: input.workerName,
+          leave_type: leaveType,
+          start_date: startDateStr,
+          first_date: startDateStr,
+          end_date: endDateStr,
+          last_date: endDateStr,
+          ...buildDayCountFields(calculatedDays),
+          effective_days_deducted: calculatedDays,
+          calendar_breakdown: input.calendarBreakdown ?? null,
+          reason: reasonText,
+          notes: reasonText,
+          signature_url: nullIfBlank(input.signatureUrl),
+          status: "pending",
+          project_id,
+          project_name,
+        })
+      ),
       {
         omitKeys: [
           "assigned_project",
@@ -361,8 +383,6 @@ function buildDualDateLeavePayload(
           "assigned_project_id",
           "assigned_project_ids",
           "assigned_project_name",
-          "project_id",
-          "project_name",
         ],
         requiredTextKeys: ["worker_id", "worker_name"],
       }
@@ -454,22 +474,30 @@ export async function insertLeaveRequestResilient(
       );
 
       const missingColumn = parseLeaveMissingColumn(result.error?.message ?? "");
+      const assignedProjectError =
+        missingColumn != null &&
+        (ASSIGNED_PROJECT_PAYLOAD_KEYS.has(missingColumn) ||
+          missingColumn === "assigned_project");
+      if (assignedProjectError) {
+        const stripped = omitFields(stripAssignedProjectFields(currentPayload), [
+          "assigned_project",
+          "assigned_project_id",
+          "assigned_project_ids",
+          "assigned_project_name",
+          "project_id",
+          "project_name",
+        ]);
+        if (Object.keys(stripped).join() !== Object.keys(currentPayload).join()) {
+          currentPayload = stripped;
+          continue;
+        }
+      }
+
       if (missingColumn && missingColumn in currentPayload) {
         currentPayload = stripAssignedProjectFields(
           stripMissingColumn(currentPayload, missingColumn)
         );
         continue;
-      }
-
-      const assignedProjectError =
-        missingColumn != null &&
-        ASSIGNED_PROJECT_PAYLOAD_KEYS.has(missingColumn);
-      if (assignedProjectError) {
-        const stripped = stripAssignedProjectFields(currentPayload);
-        if (Object.keys(stripped).length !== Object.keys(currentPayload).length) {
-          currentPayload = stripped;
-          continue;
-        }
       }
 
       if (!isSupabaseSchemaOrConstraintError(result.error)) {

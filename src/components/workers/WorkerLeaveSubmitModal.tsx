@@ -59,6 +59,8 @@ function Field({
 
 export default function WorkerLeaveSubmitModal({
   worker,
+  projectId,
+  allowedProjectIds,
   onClose,
   onSubmitted,
 }: WorkerLeaveSubmitModalProps) {
@@ -119,9 +121,14 @@ export default function WorkerLeaveSubmitModal({
       }
 
       const sanitizedLeaveType = sanitizeLeaveType(leaveType);
+      const resolvedProjectId =
+        [projectId, worker.assigned_project_id, ...(allowedProjectIds ?? [])]
+          .map((id) => id?.trim() || "")
+          .find((id) => id.length > 0) || null;
 
       const { error: submitError } = await submitLeaveRequest({
         workerId: worker.id,
+        projectId: resolvedProjectId,
         worker,
         workerName: resolveWorkerName(worker),
         firstDate: formatDateOnly(firstDate),
