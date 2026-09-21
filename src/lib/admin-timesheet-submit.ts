@@ -19,9 +19,11 @@ import { syncLineItemFields } from "./timesheet-line-items";
 import { mapTimesheetRow, type SaveWorkerTimesheetInput } from "./timesheet-entries";
 import { resolveTimesheetOvertimeHours } from "./accounts-timesheets";
 import type { WorkerTimesheet } from "./supabase";
+import { isProjectUuid } from "./project-resolver";
 
 export interface AdminTimesheetSubmitInput {
   workerId: string;
+  workerName?: string | null;
   workDate: string;
   projectId: string | null;
   timesheetProject?: TimesheetProject | null;
@@ -33,7 +35,15 @@ export interface AdminTimesheetSubmitInput {
   notes?: string | null;
   workerState?: string | null;
   approvedBy: string;
+  createdBy?: string | null;
+  submittedBy?: string | null;
+  approvedByName?: string | null;
   submittedByAdmin?: boolean;
+}
+
+function asUuid(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() || "";
+  return isProjectUuid(trimmed) ? trimmed : null;
 }
 
 function stripUndefined(row: Record<string, unknown>): Record<string, unknown> {
@@ -63,11 +73,16 @@ function buildApprovedAdminPayload(
   } as WorkerTimesheet;
   const overtimeHours = resolveTimesheetOvertimeHours(rowForOvertime);
 
+  const actorUuid =
+    asUuid(input.createdBy) ?? asUuid(input.submittedBy) ?? asUuid(approvedBy);
+  const workerName = input.workerName?.trim() || null;
+
   return sanitizeWritePayload(
     stripUndefined({
       worker_id: input.workerId,
+      worker_name: workerName,
       work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
-      project_id: projectId,
+      project_id: asUuid(projectId),
       project_name: projectName,
       worker_trade: input.workerTrade?.trim() || input.timesheetTaskName?.trim() || null,
       start_time: firstActivity?.startTime ?? "06:30",
@@ -97,12 +112,15 @@ function buildApprovedAdminPayload(
       status: "approved",
       submitted_at: now,
       approved_at: now,
-      approved_by: approvedBy.trim(),
+      approved_by: actorUuid,
+      created_by: actorUuid,
+      submitted_by: actorUuid,
       overtime_hours: overtimeHours,
       myob_export_status: "not_exported",
       form_metadata: {
         submitted_by_admin: input.submittedByAdmin !== false,
         approved_by_admin: true,
+        approved_by_name: input.approvedByName?.trim() || null,
       },
       updated_at: now,
     }),
@@ -155,7 +173,7 @@ export async function submitApprovedTimesheetAdmin(
   admin: SupabaseClient,
   input: AdminTimesheetSubmitInput
 ): Promise<{ error: string | null; data: WorkerTimesheet | null }> {
-  if (!input.workerId?.trim()) {
+  if (!asUuid(input.workerId)) {
     return { error: "Worker is required.", data: null };
   }
 
@@ -198,11 +216,11 @@ export async function submitApprovedTimesheetAdmin(
     return { error: actBreakError, data: null };
   }
 
-  let projectId = input.projectId;
+  let projectId = asUuid(input.projectId);
   let projectName = "General / Unassigned";
 
   if (input.timesheetProject) {
-    projectId = input.timesheetProject.id;
+    projectId = asUuid(input.timesheetProject.id) ?? projectId;
     projectName = formatTimesheetProjectDisplayName(input.timesheetProject);
   }
 
@@ -210,7 +228,9 @@ export async function submitApprovedTimesheetAdmin(
     return { error: "Please select a project.", data: null };
   }
 
-  if (!input.approvedBy?.trim()) {
+  const actorUuid =
+    asUuid(input.createdBy) ?? asUuid(input.submittedBy) ?? asUuid(input.approvedBy);
+  if (!actorUuid) {
     return { error: "Approver identity is required.", data: null };
   }
 
@@ -219,7 +239,7 @@ export async function submitApprovedTimesheetAdmin(
     projectId,
     projectName,
     totals,
-    input.approvedBy
+    actorUuid
   );
 
   const attempts: Record<string, unknown>[] = [fullPayload, buildLegacyPayload(fullPayload)];

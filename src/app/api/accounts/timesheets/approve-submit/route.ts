@@ -12,6 +12,7 @@ import {
 } from "@/lib/admin-timesheet-submit";
 import { resolveAccountsTimesheetCallerContext } from "@/lib/accounts-api-auth";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import { isProjectUuid } from "@/lib/project-resolver";
 import {
   migrateActivityToLineItem,
   type TimesheetLineCategory,
@@ -20,6 +21,11 @@ import type { TimesheetActivitySlot, TimesheetBreakSlot } from "@/lib/timesheet-
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readUuid(value: unknown): string | null {
+  const raw = readString(value);
+  return isProjectUuid(raw) ? raw : null;
 }
 
 function readNumber(value: unknown, fallback = 0): number {
@@ -88,7 +94,12 @@ export async function POST(req: Request) {
   const admin = createSupabaseAdminClient();
   const caller = await resolveAccountsTimesheetCallerContext(admin, user);
 
-  if (!caller.canManage) {
+  if (
+    !caller.canManage &&
+    caller.securityRole !== "project_admin" &&
+    caller.securityRole !== "project_super_admin" &&
+    caller.accountsAccessRole !== "full_access"
+  ) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }
 
@@ -98,9 +109,16 @@ export async function POST(req: Request) {
   }
 
   const raw = body as Record<string, unknown>;
-  const workerId = readString(raw.workerId);
+  const workerId = readUuid(raw.workerId);
+  const requestedWorkerName = readString(raw.workerName);
   if (!workerId) {
-    return NextResponse.json({ error: "Worker is required." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "Worker is required. Select a worker from the list rather than typing a name.",
+      },
+      { status: 400 }
+    );
   }
 
   const activities = parseActivities(raw.activities);
@@ -110,8 +128,9 @@ export async function POST(req: Request) {
 
   const input: AdminTimesheetSubmitInput = {
     workerId,
+    workerName: requestedWorkerName || null,
     workDate: readString(raw.workDate),
-    projectId: readString(raw.projectId) || null,
+    projectId: readUuid(raw.projectId),
     timesheetTaskName: readString(raw.timesheetTaskName) || null,
     workerTrade: readString(raw.workerTrade) || readString(raw.timesheetTaskName) || null,
     activities,
@@ -119,19 +138,25 @@ export async function POST(req: Request) {
     breakMinutes: readNumber(raw.breakMinutes, 0),
     notes: readString(raw.notes) || null,
     workerState: readString(raw.workerState) || null,
-    approvedBy: caller.approverName,
+    approvedBy: user.id,
+    createdBy: user.id,
+    submittedBy: user.id,
+    approvedByName: caller.approverName,
     submittedByAdmin: true,
   };
 
   if (raw.timesheetProject && typeof raw.timesheetProject === "object") {
     const project = raw.timesheetProject as Record<string, unknown>;
-    input.timesheetProject = {
-      id: readString(project.id),
-      client: readString(project.client),
-      project: readString(project.project),
-      address: readString(project.address),
-    };
-    input.projectId = input.timesheetProject.id;
+    const projectId = readUuid(project.id) ?? input.projectId;
+    if (projectId) {
+      input.timesheetProject = {
+        id: projectId,
+        client: readString(project.client),
+        project: readString(project.project),
+        address: readString(project.address),
+      };
+      input.projectId = projectId;
+    }
   }
 
   const result = await submitApprovedTimesheetAdmin(admin, input);
@@ -146,13 +171,13 @@ export async function POST(req: Request) {
     .eq("id", workerId)
     .maybeSingle();
 
-  const workerName = workerRow
+  const resolvedWorkerName = workerRow
     ? getWorkerDisplayName(workerRow as Parameters<typeof getWorkerDisplayName>[0])
-    : "Worker";
+    : requestedWorkerName || "Worker";
 
   return NextResponse.json({
     success: true,
     timesheet: result.data,
-    workerName,
+    workerName: resolvedWorkerName,
   });
 }

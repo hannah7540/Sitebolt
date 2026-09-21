@@ -46,13 +46,23 @@ function AccountsAddTimesheetsContent() {
     );
   }
 
-  if (
-    !canAddAccountsTimesheets(
+  const rawRole = String(sessionSecurityRoleRaw ?? sessionRole ?? "")
+    .trim()
+    .toLowerCase();
+  const canSubmitTimesheets =
+    canAddAccountsTimesheets(
       sessionSecurityRoleRaw ?? sessionRole,
       accountsAccessRole,
       canAccessAccounts
-    )
-  ) {
+    ) ||
+    rawRole === "admin" ||
+    rawRole === "manager" ||
+    rawRole === "accounts" ||
+    rawRole === "account" ||
+    sessionRole === "project_admin" ||
+    sessionRole === "project_super_admin";
+
+  if (!canSubmitTimesheets) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         You have view-only Accounts access and cannot submit timesheets on behalf of

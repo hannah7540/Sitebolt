@@ -35,8 +35,14 @@ import {
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import { isProjectUuid } from "@/lib/project-resolver";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+
+function resolveWorkerUuid(worker: Worker | null | undefined): string | null {
+  const workerId = worker?.id?.trim() || "";
+  return isProjectUuid(workerId) ? workerId : null;
+}
 
 function isActiveWorker(worker: Worker): boolean {
   if (isWorkerDeleted(worker)) return false;
@@ -169,12 +175,14 @@ export default function AccountsAddTimesheets() {
   };
 
   const handleWorkerChange = (workerId: string | null) => {
-    setSelectedWorkerId(workerId);
+    const nextId = workerId?.trim() || null;
+    const workerUuid = nextId && isProjectUuid(nextId) ? nextId : null;
+    setSelectedWorkerId(workerUuid);
     setShowViewLink(false);
 
-    if (!workerId) return;
+    if (!workerUuid) return;
 
-    const worker = workers.find((item) => item.id === workerId);
+    const worker = workers.find((item) => item.id === workerUuid);
     if (!worker) return;
 
     if (worker.assigned_project_id && projects.some((p) => p.id === worker.assigned_project_id)) {
@@ -196,8 +204,20 @@ export default function AccountsAddTimesheets() {
       return;
     }
 
+    const workerUuid = resolveWorkerUuid(selectedWorker);
+    if (!workerUuid) {
+      showError("Selected worker is invalid. Refresh the page and try again.");
+      return;
+    }
+
     if (!selectedProject) {
       showError("Please select a project.");
+      return;
+    }
+
+    const projectUuid = selectedProject.id?.trim() || "";
+    if (!isProjectUuid(projectUuid)) {
+      showError("Selected project is invalid. Refresh the page and try again.");
       return;
     }
 
@@ -233,10 +253,16 @@ export default function AccountsAddTimesheets() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workerId: selectedWorker.id,
+          workerId: workerUuid,
+          workerName: getWorkerDisplayName(selectedWorker),
           workDate,
-          projectId: selectedProject.id,
-          timesheetProject: selectedProject,
+          projectId: projectUuid,
+          timesheetProject: {
+            id: projectUuid,
+            client: selectedProject.client,
+            project: selectedProject.project,
+            address: selectedProject.address,
+          },
           timesheetTaskName: selectedTask?.name ?? resolveWorkerTrade(selectedWorker),
           workerTrade: selectedTask?.name ?? resolveWorkerTrade(selectedWorker),
           workerState: selectedWorker.state ?? null,
@@ -301,6 +327,11 @@ export default function AccountsAddTimesheets() {
             workers={workers}
             selected={selectedWorkerId}
             onChange={handleWorkerChange}
+            getWorkerLabel={(worker) =>
+              worker.full_name?.trim() ||
+              worker.name?.trim() ||
+              getWorkerDisplayName(worker)
+            }
             placeholder="Search by name, email, or mobile…"
             searchPlaceholder="Search by name, email, or mobile…"
             allowClear
