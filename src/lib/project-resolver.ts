@@ -387,7 +387,7 @@ type ProjectWritePayload = {
 };
 
 const PROJECT_RETURN_SELECT =
-  "id, project_name, slug, location, project_code, client, project_managers, project_administrators, project_admins, assigned_workers, is_active, is_archived, status";
+  "id, project_name, slug, location, project_code, client, project_managers, project_administrators, project_admins, assigned_workers, is_active, is_archived, status, state";
 
 const PROJECT_BASIC_RETURN_SELECT =
   "id, project_name, slug, location, is_active, is_archived, status";
@@ -465,6 +465,13 @@ async function persistProjectWrite(
     for (const key of optionalKeys) {
       if (!(key in body)) continue;
       delete body[key];
+      if (key === "state") {
+        select = select
+          .split(",")
+          .map((part) => part.trim())
+          .filter((part) => part !== "state")
+          .join(", ");
+      }
       if (key === "project_admins" || key === "assigned_workers" || key === "project_managers" || key === "project_administrators") {
         select = PROJECT_BASIC_RETURN_SELECT;
       }

@@ -4,7 +4,7 @@ import {
   fetchWorkerLeavePayRuleCondition,
   formatLeavePayRuleNoteSuffix,
 } from "./pay-rule-templates";
-import { getProjectDisplayName } from "./project-resolver";
+import { getProjectDisplayName, resolveProjectId } from "./project-resolver";
 import {
   formatDateOnly,
   getCalendarDaysInRange,
@@ -41,6 +41,43 @@ export function formatLeaveTimesheetApprovalToast(
   }
 
   return `Leave approved and timesheets generated for ${generatedCount} day(s) in the leave range.`;
+}
+
+const TIMESHEET_PROJECT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isTimesheetProjectUuid(value: string): boolean {
+  return TIMESHEET_PROJECT_UUID_RE.test(value);
+}
+
+/**
+ * worker_timesheets.project_id is uuid. leave_requests.project_id is text and
+ * may still hold a slug or display name on historical rows.
+ */
+async function resolveLeaveTimesheetProject(
+  rawProjectId?: string | null
+): Promise<{ projectId: string | null; projectName: string | null }> {
+  const trimmed = rawProjectId?.trim() || "";
+  if (!trimmed) {
+    return { projectId: null, projectName: null };
+  }
+
+  if (isTimesheetProjectUuid(trimmed)) {
+    return {
+      projectId: trimmed,
+      projectName: getProjectDisplayName(trimmed)?.trim() || null,
+    };
+  }
+
+  const resolved = await resolveProjectId(trimmed);
+  if (resolved.id && isTimesheetProjectUuid(resolved.id)) {
+    return {
+      projectId: resolved.id,
+      projectName: getProjectDisplayName(resolved.id)?.trim() || trimmed,
+    };
+  }
+
+  return { projectId: null, projectName: trimmed };
 }
 
 function stripNullishFields(row: Record<string, unknown>): Record<string, unknown> {
@@ -99,8 +136,7 @@ export async function generateTimesheetsForApprovedLeave(
         templateName: payRuleMatch.templateName,
       })
     : "";
-  const projectId = input.projectId?.trim() || null;
-  const projectName = projectId ? getProjectDisplayName(projectId) : null;
+  const { projectId, projectName } = await resolveLeaveTimesheetProject(input.projectId);
   const calendarDays = getCalendarDaysInRange(
     new Date(`${startDate}T12:00:00`),
     new Date(`${endDate}T12:00:00`)

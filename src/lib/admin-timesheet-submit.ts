@@ -80,7 +80,6 @@ function buildApprovedAdminPayload(
   return sanitizeWritePayload(
     stripUndefined({
       worker_id: input.workerId,
-      worker_name: workerName,
       work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
       project_id: asUuid(projectId),
       project_name: projectName,
@@ -113,14 +112,13 @@ function buildApprovedAdminPayload(
       submitted_at: now,
       approved_at: now,
       approved_by: actorUuid,
-      created_by: actorUuid,
-      submitted_by: actorUuid,
       overtime_hours: overtimeHours,
       myob_export_status: "not_exported",
       form_metadata: {
         submitted_by_admin: input.submittedByAdmin !== false,
         approved_by_admin: true,
         approved_by_name: input.approvedByName?.trim() || null,
+        worker_name: workerName,
       },
       updated_at: now,
     }),
