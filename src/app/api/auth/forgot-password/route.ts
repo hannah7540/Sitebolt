@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -98,16 +98,18 @@ function resetEmailHtml(resetLink: string): string {
           <p style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#475569;">
             We received a request to reset your password for your SiteBolt account. Tap the button below to set a new password:
           </p>
-          <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 28px auto;">
+          <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px auto;">
             <tr>
-              <td align="center" bgcolor="#f97316" style="border-radius: 6px; background-color: #f97316;">
-                <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; color: #ffffff !important; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; line-height: 48px; text-align: center; text-decoration: none; width: 220px; border-radius: 6px;">
+              <td align="center" bgcolor="#F97316" style="border-radius: 6px;">
+                <a href="${href}"
+                   target="_blank"
+                   style="display: inline-block; padding: 14px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 16px; font-weight: bold; color: #FFFFFF !important; text-decoration: none; border-radius: 6px; background-color: #F97316;">
                   Reset Password
                 </a>
               </td>
             </tr>
           </table>
-          <p style="text-align: center; font-size: 12px; margin-top: 16px;">
+          <p style="text-align: center; font-size: 12px; margin-top: 16px; word-break: break-all;">
             If the button above does not work, copy and paste this link into your browser:<br />
             <a href="${href}" style="color: #f97316; text-decoration: underline;">${href}</a>
           </p>
@@ -129,26 +131,44 @@ export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{
   if (!apiKey) {
     return { error: "Server error: RESEND_API_KEY is not configured." };
   }
-  if (!isSupabaseAdminConfigured() || !tokenSecret()) {
+  if (!isSupabaseAdminConfigured()) {
     return { error: "Server error: SUPABASE_SERVICE_ROLE_KEY is not configured." };
   }
 
   try {
     const supabaseAdmin = createSupabaseAdminClient();
-    const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "recovery",
-      email: normalizedEmail,
-    });
+    const { data: worker, error: workerError } = await supabaseAdmin
+      .from("workers")
+      .select("id, email, invite_token")
+      .ilike("email", normalizedEmail)
+      .limit(1)
+      .maybeSingle();
 
-    if (linkError || !data.user?.id) {
-      if (linkError) {
-        console.error("[/api/auth/forgot-password] user lookup failed:", linkError.message);
-      }
+    if (workerError) {
+      console.error("[/api/auth/forgot-password] worker lookup failed:", workerError.message);
       return { error: null };
     }
 
-    const token = signPasswordResetToken(data.user.id, normalizedEmail);
-    const resetLink = `${siteOrigin()}/reset-password?token=${encodeURIComponent(token)}`;
+    if (!worker?.id) {
+      return { error: null };
+    }
+
+    const existingToken =
+      typeof worker.invite_token === "string" ? worker.invite_token.trim() : "";
+    const token = existingToken || randomUUID();
+
+    if (!existingToken) {
+      const { error: tokenError } = await supabaseAdmin
+        .from("workers")
+        .update({ invite_token: token })
+        .eq("id", worker.id);
+      if (tokenError) {
+        console.error("[/api/auth/forgot-password] token persist failed:", tokenError.message);
+        return { error: null };
+      }
+    }
+
+    const resetLink = `${siteOrigin()}/setyourpassword?token=${token}`;
 
     const resend = new Resend(apiKey);
     const resendResult = await resend.emails.send({
