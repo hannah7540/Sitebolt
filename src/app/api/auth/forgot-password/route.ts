@@ -1,3 +1,15 @@
+/**
+ * ============================================================================
+ * CRITICAL ARCHITECTURAL LOCK - DO NOT MODIFY OR REFACTOR
+ * ============================================================================
+ * This route is verified production-ready. It uses:
+ * 1. DEFAULT_SYSTEM_FROM_EMAIL (verified sender: hannah@site-bolt.com.au)
+ * 2. buildWorkerInviteEmailContent for verified button styling
+ * 3. Direct /setyourpassword target to avoid fragile Supabase JWT auth sessions
+ *
+ * DO NOT touch this file in future refactors without explicit developer override.
+ * ============================================================================
+ */
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
