@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HardHat, Loader2 } from "lucide-react";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface ForgotPasswordFormProps {
@@ -33,16 +32,14 @@ export default function ForgotPasswordForm({
     setSubmitting(true);
 
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        trimmedEmail,
-        {
-          redirectTo: `${window.location.origin}/reset-password`,
-        }
-      );
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmedEmail }),
+      });
 
-      if (resetError) {
-        setError(resetError.message);
+      if (!response.ok && response.status >= 500) {
+        setError("Failed to send reset email.");
         return;
       }
 
@@ -70,8 +67,7 @@ export default function ForgotPasswordForm({
         </div>
 
         <p className="text-sm text-slate-600">
-          If an account exists for <strong>{email.trim()}</strong>, we sent a password reset
-          link. Check your email and click the link to set a new password.
+          A reset link has been sent to your email.
         </p>
 
         <button

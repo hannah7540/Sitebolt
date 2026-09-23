@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Session } from "@supabase/supabase-js";
 import { HardHat, Loader2 } from "lucide-react";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -10,93 +9,25 @@ import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
-import { hasAuthHashFragment } from "@/lib/public-auth-paths";
 
 export default function ResetPasswordForm() {
   const searchParams = useSearchParams();
+  const token = searchParams.get("token")?.trim() || "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
-  const [hasRecoverySession, setHasRecoverySession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, showSuccess, dismissToast } = useFormToast();
-
-  useEffect(() => {
-    const errorParam = searchParams.get("error");
-    if (errorParam && !hasAuthHashFragment()) setError(errorParam);
-
-    let cancelled = false;
-    const supabase = createSupabaseBrowserClient();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (event: string, session: Session | null) => {
-        if (cancelled) return;
-        if (event === "PASSWORD_RECOVERY") {
-          setIsRecoveryMode(true);
-          setHasRecoverySession(true);
-          setChecking(false);
-          return;
-        }
-        if (session) {
-          setHasRecoverySession(true);
-          setChecking(false);
-        }
-      }
-    );
-
-    async function captureSessionFromUrl() {
-      const code = searchParams.get("code");
-      if (code) {
-        await supabase.auth.exchangeCodeForSession(code);
-      }
-
-      const hash = typeof window !== "undefined" ? window.location.hash : "";
-      if (hash.includes("access_token") && hash.includes("refresh_token")) {
-        const params = new URLSearchParams(hash.replace(/^#/, ""));
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-        if (accessToken && refreshToken) {
-          const { data } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (!cancelled && data.session?.user) {
-            window.history.replaceState(
-              null,
-              "",
-              `${window.location.pathname}${window.location.search}`
-            );
-          }
-        }
-      }
-
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      if (data.session) {
-        setHasRecoverySession(true);
-      }
-      setChecking(false);
-    }
-
-    void captureSessionFromUrl();
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, [searchParams]);
-
-  const showPasswordForm = isRecoveryMode || hasRecoverySession;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+
+    if (!token) {
+      setError("This reset link is missing or expired. Request a new one from the login page.");
+      return;
+    }
 
     const passwordError = validatePassword(password);
     if (passwordError) {
@@ -112,18 +43,22 @@ export default function ResetPasswordForm() {
     setSubmitting(true);
 
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, newPassword: password }),
       });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+      };
 
-      if (updateError) {
-        setError(updateError.message);
+      if (!response.ok || !payload.success) {
+        setError(payload.error || "Failed to update password.");
         return;
       }
 
       showSuccess("Password updated successfully. Please log in.");
-      await supabase.auth.signOut();
       window.location.assign("/login?reset=success");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to update password.");
@@ -147,14 +82,9 @@ export default function ResetPasswordForm() {
           </div>
         </div>
 
-        {checking ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-          </div>
-        ) : !showPasswordForm ? (
+        {!token ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Open the password reset link from your email to continue. Invitation
-            setup tokens are not used on this page.
+            This reset link is missing or expired. Request a new one from the login page.
           </p>
         ) : (
           <>
