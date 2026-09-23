@@ -6,7 +6,6 @@ import {
   hasAuthCodeQuery,
   hasAuthHashFragment,
   isExemptFromAuthRedirect,
-  resetPasswordLocationWithHash,
   shouldSkipAuthRedirect,
 } from "@/lib/public-auth-paths";
 
@@ -47,7 +46,9 @@ export default function HashAuthCapture() {
     if (!hasAuthHashFragment()) return;
     if (path === "/setyourpassword" || path === "/reset-password" || path === "/set-password") return;
 
-    window.location.replace(resetPasswordLocationWithHash());
+    window.location.replace(
+      `/reset-password${window.location.search}${window.location.hash}`
+    );
   }, [pathname]);
 
   return null;

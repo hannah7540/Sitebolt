@@ -16,7 +16,6 @@ import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
   hasAuthHashFragment,
-  resetPasswordLocationWithHash,
   hasAuthCodeQuery,
   isExemptFromAuthRedirect,
   shouldSkipAuthRedirect,
@@ -144,7 +143,9 @@ function LoginPageContent() {
     }
 
     if (hasAuthHashFragment()) {
-      window.location.replace(resetPasswordLocationWithHash());
+      window.location.replace(
+        `/reset-password${window.location.search}${window.location.hash}`
+      );
       return;
     }
 
@@ -165,7 +166,7 @@ function LoginPageContent() {
         }
       }
       if (event === "PASSWORD_RECOVERY") {
-        window.location.replace("/setyourpassword");
+        window.location.replace("/reset-password");
       }
     });
 
@@ -179,7 +180,7 @@ function LoginPageContent() {
       }
 
       if (isPasswordRecoverySession(data.session)) {
-        window.location.replace("/setyourpassword");
+        window.location.replace("/reset-password");
         return;
       }
 

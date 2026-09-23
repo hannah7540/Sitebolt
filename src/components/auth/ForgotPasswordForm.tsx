@@ -3,29 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HardHat, Loader2 } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface ForgotPasswordFormProps {
   initialEmail?: string;
   onBackToSignIn: () => void;
-}
-
-function parseApiError(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-
-  const error = (payload as { error?: unknown }).error;
-  if (typeof error === "string" && error.trim()) {
-    return error.trim();
-  }
-
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) {
-      return message.trim();
-    }
-  }
-
-  return null;
 }
 
 export default function ForgotPasswordForm({
@@ -50,16 +33,16 @@ export default function ForgotPasswordForm({
     setSubmitting(true);
 
     try {
-      const response = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmedEmail }),
-      });
+      const supabase = createSupabaseBrowserClient();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        trimmedEmail,
+        {
+          redirectTo: `${window.location.origin}/reset-password`,
+        }
+      );
 
-      const payload: unknown = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        setError(parseApiError(payload) ?? "Failed to send reset email.");
+      if (resetError) {
+        setError(resetError.message);
         return;
       }
 

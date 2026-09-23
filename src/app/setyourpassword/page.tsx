@@ -5,21 +5,39 @@
 // ============================================================================
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
+import { hasAuthHashFragment } from "@/lib/public-auth-paths";
+
+function isSupabaseRecoveryArrival(searchParams: { get: (key: string) => string | null }): boolean {
+  const type = (searchParams.get("type") ?? "").toLowerCase();
+  if (type === "recovery") return true;
+  if (searchParams.get("token_hash") || searchParams.get("code")) return true;
+  return hasAuthHashFragment();
+}
 
 function SetPasswordForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token")?.trim() || "";
+  const [redirectingRecovery, setRedirectingRecovery] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    if (token) return;
+    if (!isSupabaseRecoveryArrival(searchParams)) return;
+    setRedirectingRecovery(true);
+    window.location.replace(
+      `/reset-password${window.location.search}${window.location.hash}`
+    );
+  }, [searchParams, token]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -66,6 +84,14 @@ function SetPasswordForm() {
       setSubmitting(false);
     }
   };
+
+  if (!token && (redirectingRecovery || isSupabaseRecoveryArrival(searchParams))) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+        <p className="text-sm text-slate-600">Redirecting to password reset…</p>
+      </div>
+    );
+  }
 
   if (!token) {
     return (
