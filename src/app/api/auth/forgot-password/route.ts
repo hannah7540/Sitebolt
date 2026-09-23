@@ -1,147 +1,96 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
   assertActionUrl,
   buildWorkerInviteEmailContent,
 } from "@/lib/worker-invite-email-template";
 
-function siteOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "https://www.site-bolt.com.au"
-  ).replace(/\/$/, "");
-}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-async function findAuthUserByEmail(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  email: string
-): Promise<User | null> {
-  const target = email.trim().toLowerCase();
-  let page = 1;
-
-  while (page <= 20) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) {
-      throw new Error(`Failed to list auth users: ${error.message}`);
-    }
-
-    const match = data.users.find(
-      (user) => user.email?.trim().toLowerCase() === target
-    );
-    if (match) return match;
-
-    if (data.users.length < 200) break;
-    page += 1;
-  }
-
-  return null;
-}
-
-export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{ error: string | null }> {
+function getResendClient(): Resend | null {
   const apiKey =
     process.env.RESEND_API_KEY?.trim() ||
     process.env.NEXT_PUBLIC_RESEND_API_KEY?.trim();
-  if (!apiKey) {
-    return { error: "Server error: RESEND_API_KEY is not configured." };
-  }
-  if (!isSupabaseAdminConfigured()) {
-    return { error: "Server error: SUPABASE_SERVICE_ROLE_KEY is not configured." };
-  }
+  if (!apiKey) return null;
+  return new Resend(apiKey);
+}
 
+export async function POST(req: Request) {
   try {
+    const body = await req.json();
+    const email = body?.email ? String(body.email).trim().toLowerCase() : "";
+
+    if (!email) {
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    }
+
+    const resend = getResendClient();
+    if (!resend) {
+      console.error("[forgot-password] RESEND_API_KEY is missing");
+      return NextResponse.json({ error: "Resend API key missing on server" }, { status: 500 });
+    }
+
     const supabaseAdmin = createSupabaseAdminClient();
-    const { data: worker, error: workerError } = await supabaseAdmin
+
+    // Check workers table first
+    const { data: worker } = await supabaseAdmin
       .from("workers")
-      .select("id, email")
-      .ilike("email", normalizedEmail)
-      .limit(1)
+      .select("id, email, invite_token")
+      .ilike("email", email)
       .maybeSingle();
 
-    if (workerError) {
-      console.error("[/api/auth/forgot-password] worker lookup failed:", workerError.message);
+    // Check auth.users if not found in workers
+    let token = worker?.invite_token;
+    if (!token) {
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
+      const authUser = authData?.users?.find(
+        (u) => u.email?.trim().toLowerCase() === email
+      );
+
+      if (!worker && !authUser) {
+        console.warn("[forgot-password] No account located for:", email);
+        return NextResponse.json({ error: "No account found matching this email address" }, { status: 404 });
+      }
+
+      token = "reset";
     }
 
-    const workerFound = Boolean(worker?.id);
-    const authUser = workerFound ? null : await findAuthUserByEmail(supabaseAdmin, normalizedEmail);
+    const origin = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.site-bolt.com.au").replace(/\/$/, "");
+    const actionUrl = `${origin}/setyourpassword?token=${token}`;
+    const safeUrl = assertActionUrl(actionUrl);
 
-    if (!workerFound && !authUser) {
-      return { error: "No account found matching this email." };
-    }
-
-    const base = siteOrigin();
-    const resetLink = `${base}/reset-password?email=${encodeURIComponent(normalizedEmail)}`;
-    const safeUrl = assertActionUrl(resetLink);
     const { html, text } = buildWorkerInviteEmailContent(safeUrl);
     const resetHtml = html
       .replace(/Set Your Password/g, "Reset Password")
       .replace("Welcome to SiteBolt.", "Reset your SiteBolt password.")
-      .replace(
-        "Please click the link below to set your password and access your account:",
-        "Tap the button below to reset your password:"
-      );
-    const resetText = text
-      .replace(/Set Your Password/g, "Reset Password")
-      .replace("Welcome to SiteBolt.", "Reset your SiteBolt password.")
-      .replace(
-        "Please click the link below to set your password and access your account:",
-        "Tap the button below to reset your password:"
-      );
+      .replace("Please click the link below to set your password and access your account:", "Tap the button below to set a new password:");
 
-    const resend = new Resend(apiKey);
+    const resetText = `Reset your SiteBolt password\n\nPlease click the link below to set a new password:\n${safeUrl}\n\nIf you did not request this, you can ignore this email.`;
+
+    console.log(`[forgot-password] Attempting Resend dispatch to ${email} from ${DEFAULT_SYSTEM_FROM_EMAIL}`);
+
     const resendResult = await resend.emails.send({
       from: DEFAULT_SYSTEM_FROM_EMAIL,
-      to: [normalizedEmail],
+      to: [email],
       subject: "Reset your SiteBolt password",
       html: resetHtml,
       text: resetText,
     });
 
     if (resendResult.error) {
-      console.error("[forgot-password] Resend API error:", resendResult.error);
-      return { error: resendResult.error.message };
+      console.error("[forgot-password] Resend returned API error:", resendResult.error);
+      return NextResponse.json({ error: resendResult.error.message }, { status: 400 });
     }
 
-    return { error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Internal server error";
-    console.error("[/api/auth/forgot-password] unexpected error:", message);
-    return { error: message };
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => null);
-    const normalizedEmail =
-      typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-
-    if (!normalizedEmail) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
-
-    const result = await sendPasswordResetEmail(normalizedEmail);
-    if (result.error?.includes("not configured")) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
-    }
-    if (result.error === "No account found matching this email.") {
-      return NextResponse.json({ error: result.error }, { status: 404 });
-    }
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
-
-    return NextResponse.json({ success: true }, { status: 200 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to send reset email.";
+    console.log("[forgot-password] Dispatch successful, Resend ID:", resendResult.data?.id);
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal server error";
+    console.error("[forgot-password] Unhandled exception:", err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
