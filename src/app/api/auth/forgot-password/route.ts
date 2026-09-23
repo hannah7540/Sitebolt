@@ -85,7 +85,7 @@ function resetEmailHtml(resetLink: string): string {
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <title>Reset your SiteBolt password</title>
   </head>
-  <body style="margin:0;padding:24px;background-color:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <body style="margin:0;padding:24px;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;margin:0 auto;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:8px;">
       <tr>
         <td align="center" style="background-color:#1e242b;padding:24px;">
@@ -95,23 +95,21 @@ function resetEmailHtml(resetLink: string): string {
       <tr>
         <td style="padding:32px 28px;color:#334155;">
           <h2 style="margin:0 0 16px 0;color:#0f172a;font-size:20px;">Reset your password</h2>
-          <p style="margin:0 0 8px 0;font-size:15px;line-height:1.6;color:#475569;">
-            We received a request to reset your password for your SiteBolt account. Tap the button below to choose a new password:
+          <p style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#475569;">
+            We received a request to reset your password for your SiteBolt account. Tap the button below to set a new password:
           </p>
-          <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0;">
+          <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 28px auto;">
             <tr>
-              <td align="center" style="border-radius: 6px; background-color: #0F172A;">
-                <a href="${href}"
-                   target="_blank"
-                   style="display: inline-block; padding: 14px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #FFFFFF; text-decoration: none; border-radius: 6px; background-color: #0F172A;">
+              <td align="center" bgcolor="#f97316" style="border-radius: 6px; background-color: #f97316;">
+                <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color: #f97316; color: #ffffff !important; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; line-height: 48px; text-align: center; text-decoration: none; width: 220px; border-radius: 6px;">
                   Reset Password
                 </a>
               </td>
             </tr>
           </table>
-          <p style="font-size: 13px; color: #64748B; margin-top: 20px; word-break: break-all;">
+          <p style="text-align: center; font-size: 12px; margin-top: 16px;">
             If the button above does not work, copy and paste this link into your browser:<br />
-            <a href="${href}" style="color: #2563EB; text-decoration: underline;">${href}</a>
+            <a href="${href}" style="color: #f97316; text-decoration: underline;">${href}</a>
           </p>
         </td>
       </tr>
