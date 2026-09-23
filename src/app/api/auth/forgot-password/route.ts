@@ -80,17 +80,29 @@ export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{
     const base = siteOrigin();
     const resetLink = `${base}/reset-password?email=${encodeURIComponent(normalizedEmail)}`;
     const safeUrl = assertActionUrl(resetLink);
-    const { html } = buildWorkerInviteEmailContent(safeUrl);
+    const { html, text } = buildWorkerInviteEmailContent(safeUrl);
+    const resetHtml = html
+      .replace(/Set Your Password/g, "Reset Password")
+      .replace("Welcome to SiteBolt.", "Reset your SiteBolt password.")
+      .replace(
+        "Please click the link below to set your password and access your account:",
+        "Tap the button below to reset your password:"
+      );
+    const resetText = text
+      .replace(/Set Your Password/g, "Reset Password")
+      .replace("Welcome to SiteBolt.", "Reset your SiteBolt password.")
+      .replace(
+        "Please click the link below to set your password and access your account:",
+        "Tap the button below to reset your password:"
+      );
 
     const resend = new Resend(apiKey);
     const resendResult = await resend.emails.send({
       from: DEFAULT_SYSTEM_FROM_EMAIL,
       to: [normalizedEmail],
       subject: "Reset your SiteBolt password",
-      html: html
-        .replace("Set Your Password", "Reset Password")
-        .replace("Welcome to SiteBolt.", "Reset your SiteBolt password."),
-      text: `Reset your SiteBolt password\n\nPlease click the link below to set a new password:\n${safeUrl}\n\nIf you did not request this, you can ignore this email.`,
+      html: resetHtml,
+      text: resetText,
     });
 
     if (resendResult.error) {
