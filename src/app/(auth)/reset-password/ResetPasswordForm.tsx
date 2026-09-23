@@ -11,9 +11,11 @@ import {
 } from "@/lib/password-validation";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
+const SUCCESS_MESSAGE = "Password updated successfully. Please log in.";
+
 export default function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token")?.trim() || "";
+  const email = searchParams.get("email")?.trim().toLowerCase() || "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -24,8 +26,8 @@ export default function ResetPasswordForm() {
     event.preventDefault();
     setError(null);
 
-    if (!token) {
-      setError("This reset link is missing or expired. Request a new one from the login page.");
+    if (!email) {
+      setError("This reset link is missing an email address. Request a new one from the login page.");
       return;
     }
 
@@ -46,7 +48,7 @@ export default function ResetPasswordForm() {
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, newPassword: password }),
+        body: JSON.stringify({ email, newPassword: password }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
@@ -58,8 +60,10 @@ export default function ResetPasswordForm() {
         return;
       }
 
-      showSuccess("Password updated successfully. Please log in.");
-      window.location.assign("/login?reset=success");
+      showSuccess(SUCCESS_MESSAGE);
+      window.location.assign(
+        `/login?reset=success&message=${encodeURIComponent(SUCCESS_MESSAGE)}`
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to update password.");
     } finally {
@@ -82,15 +86,14 @@ export default function ResetPasswordForm() {
           </div>
         </div>
 
-        {!token ? (
+        {!email ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            This reset link is missing or expired. Request a new one from the login page.
+            This reset link is missing an email address. Request a new one from the login page.
           </p>
         ) : (
           <>
             <p className="mb-6 text-sm text-slate-600">
-              Enter a new password for your SiteBolt account. You will be asked to
-              log in after it is saved.
+              Resetting password for: {email}
             </p>
 
             <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
@@ -113,7 +116,7 @@ export default function ResetPasswordForm() {
 
               <div className="space-y-1">
                 <label htmlFor="reset-confirm-password" className={labelClass}>
-                  Confirm Password
+                  Confirm New Password
                 </label>
                 <input
                   id="reset-confirm-password"

@@ -2,69 +2,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { DEFAULT_SYSTEM_FROM_EMAIL } from "@/lib/email-config";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
-const TOKEN_TTL_MS = 60 * 60 * 1000;
-
-type ResetTokenPayload = {
-  sub: string;
-  email: string;
-  exp: number;
-};
+const RESET_FROM_EMAIL = "SiteBolt <admin@site-bolt.com.au>";
 
 function siteOrigin(): string {
   return (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "") ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
     "https://www.site-bolt.com.au"
-  );
-}
-
-function tokenSecret(): string {
-  return (
-    process.env.PASSWORD_RESET_TOKEN_SECRET?.trim() ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    ""
-  );
-}
-
-export function signPasswordResetToken(userId: string, email: string): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: userId,
-      email,
-      exp: Date.now() + TOKEN_TTL_MS,
-    } satisfies ResetTokenPayload),
-    "utf8"
-  ).toString("base64url");
-  const signature = createHmac("sha256", tokenSecret()).update(payload).digest("base64url");
-  return `${payload}.${signature}`;
-}
-
-export function readPasswordResetToken(token: string): ResetTokenPayload | null {
-  const [payload, signature] = token.split(".");
-  if (!payload || !signature) return null;
-
-  const expected = createHmac("sha256", tokenSecret()).update(payload).digest("base64url");
-  const left = Buffer.from(signature);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length || !timingSafeEqual(left, right)) {
-    return null;
-  }
-
-  try {
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as ResetTokenPayload;
-    if (!data.sub || !data.email || typeof data.exp !== "number") return null;
-    if (data.exp < Date.now()) return null;
-    return data;
-  } catch {
-    return null;
-  }
+  ).replace(/\/$/, "");
 }
 
 function escapeHtml(value: string): string {
@@ -143,6 +94,31 @@ function resetEmailHtml(resetLink: string): string {
 </html>`;
 }
 
+async function findAuthUserByEmail(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  email: string
+): Promise<User | null> {
+  const target = email.trim().toLowerCase();
+  let page = 1;
+
+  while (page <= 20) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) {
+      throw new Error(`Failed to list auth users: ${error.message}`);
+    }
+
+    const match = data.users.find(
+      (user) => user.email?.trim().toLowerCase() === target
+    );
+    if (match) return match;
+
+    if (data.users.length < 200) break;
+    page += 1;
+  }
+
+  return null;
+}
+
 export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{ error: string | null }> {
   const apiKey = process.env.RESEND_API_KEY || process.env.NEXT_PUBLIC_RESEND_API_KEY;
   if (!apiKey) {
@@ -156,40 +132,29 @@ export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{
     const supabaseAdmin = createSupabaseAdminClient();
     const { data: worker, error: workerError } = await supabaseAdmin
       .from("workers")
-      .select("id, email, invite_token")
+      .select("id, email")
       .ilike("email", normalizedEmail)
       .limit(1)
       .maybeSingle();
 
     if (workerError) {
       console.error("[/api/auth/forgot-password] worker lookup failed:", workerError.message);
-      return { error: null };
     }
 
-    if (!worker?.id) {
-      return { error: null };
+    const workerFound = Boolean(worker?.id);
+    const authUser = workerFound ? null : await findAuthUserByEmail(supabaseAdmin, normalizedEmail);
+
+    if (!workerFound && !authUser) {
+      return { error: "No account found matching this email." };
     }
 
-    const existingToken =
-      typeof worker.invite_token === "string" ? worker.invite_token.trim() : "";
-    const token = existingToken || randomUUID();
-
-    if (!existingToken) {
-      const { error: tokenError } = await supabaseAdmin
-        .from("workers")
-        .update({ invite_token: token })
-        .eq("id", worker.id);
-      if (tokenError) {
-        console.error("[/api/auth/forgot-password] token persist failed:", tokenError.message);
-        return { error: null };
-      }
-    }
-
-    const safeUrl = assertResetLink(`${siteOrigin()}/setyourpassword?token=${token}`);
+    const base = siteOrigin();
+    const resetLink = `${base}/reset-password?email=${encodeURIComponent(normalizedEmail)}`;
+    const safeUrl = assertResetLink(resetLink);
 
     const resend = new Resend(apiKey);
     const resendResult = await resend.emails.send({
-      from: DEFAULT_SYSTEM_FROM_EMAIL,
+      from: RESET_FROM_EMAIL,
       to: [normalizedEmail],
       subject: "Reset your SiteBolt password",
       html: resetEmailHtml(safeUrl),
@@ -205,7 +170,7 @@ export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal server error";
     console.error("[/api/auth/forgot-password] unexpected error:", message);
-    return { error: null };
+    return { error: message };
   }
 }
 
@@ -223,9 +188,16 @@ export async function POST(req: Request) {
     if (result.error?.includes("not configured")) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
+    if (result.error === "No account found matching this email.") {
+      return NextResponse.json({ error: result.error }, { status: 404 });
+    }
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch {
-    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to send reset email.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
