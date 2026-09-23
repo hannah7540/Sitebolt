@@ -66,58 +66,64 @@ export function readPasswordResetToken(token: string): ResetTokenPayload | null 
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function resetEmailHtml(resetLink: string): string {
-  return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8fafc; padding: 40px 16px;">
+  const href = escapeHtml(resetLink);
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <title>Reset your SiteBolt password</title>
+  </head>
+  <body style="margin:0;padding:24px;background-color:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;margin:0 auto;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:8px;">
+      <tr>
+        <td align="center" style="background-color:#1e242b;padding:24px;">
+          <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:1.5px;">SITEBOLT</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:32px 28px;color:#334155;">
+          <h2 style="margin:0 0 16px 0;color:#0f172a;font-size:20px;">Reset your password</h2>
+          <p style="margin:0 0 8px 0;font-size:15px;line-height:1.6;color:#475569;">
+            We received a request to reset your password for your SiteBolt account. Tap the button below to choose a new password:
+          </p>
+          <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0;">
             <tr>
-              <td align="center">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;">
-                  <tr>
-                    <td style="padding: 32px 32px 20px 32px; text-align: left;">
-                      <h1 style="margin: 0; font-size: 22px; font-weight: 700; color: #0f172a;">Reset your password</h1>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 0 32px 28px 32px; font-size: 15px; line-height: 24px; color: #475569;">
-                      <p style="margin: 0 0 20px 0;">We received a request to reset your password for your SiteBolt account. Click the button below to set a new password.</p>
-                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 28px 0;">
-                        <tr>
-                          <td align="center" style="border-radius: 8px; background-color: #f97316;">
-                            <a href="${resetLink}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 14px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; border-radius: 8px; background-color: #f97316;">
-                              Reset Password
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-                      <p style="margin: 0 0 12px 0; font-size: 13px; color: #64748b;">If the button above does not work, copy and paste this link into your browser:</p>
-                      <p style="margin: 0; word-break: break-all; font-size: 13px; color: #f97316;">
-                        <a href="${resetLink}" target="_blank" rel="noopener noreferrer" style="color: #f97316; text-decoration: underline;">${resetLink}</a>
-                      </p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 0 32px;"><div style="border-top: 1px solid #e2e8f0;"></div></td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 24px 32px 32px 32px; font-size: 12px; line-height: 18px; color: #94a3b8;">
-                      <p style="margin: 0 0 8px 0;">If you didn't request this email, you can safely ignore it. Your account remains secure.</p>
-                      <p style="margin: 0;">&copy; SiteBolt Australia &bull; support@site-bolt.com.au</p>
-                    </td>
-                  </tr>
-                </table>
+              <td align="center" style="border-radius: 6px; background-color: #0F172A;">
+                <a href="${href}"
+                   target="_blank"
+                   style="display: inline-block; padding: 14px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #FFFFFF; text-decoration: none; border-radius: 6px; background-color: #0F172A;">
+                  Reset Password
+                </a>
               </td>
             </tr>
           </table>
-        </body>
-      </html>
-    `.trim();
+          <p style="font-size: 13px; color: #64748B; margin-top: 20px; word-break: break-all;">
+            If the button above does not work, copy and paste this link into your browser:<br />
+            <a href="${href}" style="color: #2563EB; text-decoration: underline;">${href}</a>
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td align="center" style="padding:16px;background-color:#f8fafc;border-top:1px solid #f1f5f9;font-size:12px;color:#94a3b8;">
+          If you didn't request this email, you can safely ignore it.<br />
+          &copy; 2026 SiteBolt Management Software. All rights reserved.
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 export async function sendPasswordResetEmail(normalizedEmail: string): Promise<{ error: string | null }> {
