@@ -143,7 +143,7 @@ export default function AdminReportingTab({
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-700"
           >
             <Plus className="h-4 w-4" />
-            Export New Report
+            Generate New Report
           </button>
         </div>
       </div>
@@ -162,7 +162,7 @@ export default function AdminReportingTab({
           </div>
         ) : filteredReports.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-slate-500">
-            No generated reports yet. Use Export New Report to create your first export.
+            No generated reports yet. Use Generate New Report to create your first export.
           </div>
         ) : (
           <div className="overflow-x-auto">

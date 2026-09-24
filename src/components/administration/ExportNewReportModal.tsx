@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { FileSpreadsheet, FileText, Loader2, X } from "lucide-react";
-import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
 import {
   REPORT_MODULE_OPTIONS,
   saveGeneratedReport,
@@ -12,8 +11,7 @@ import {
 import { generateReportPdfFromCsv, downloadReportBlob } from "@/lib/pdf/report-pdf";
 import { generateReportExport } from "@/lib/report-export-engine";
 import type { DbProject } from "@/lib/project-resolver";
-import { ACCOUNTS_TIMESHEET_STATE_OPTIONS } from "@/lib/accounts-timesheets";
-import type { WorkerStateRegion } from "@/lib/worker-state-region";
+import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
 import { inputClass, labelClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -34,14 +32,14 @@ const EXPORT_FORMAT_OPTIONS: {
 }[] = [
   {
     id: "pdf",
-    label: "PDF Document",
+    label: "Export as PDF",
     description:
       "Formatted PDF summary with site headers, module tables, and export metadata.",
     icon: FileText,
   },
   {
     id: "excel",
-    label: "Excel Spreadsheet (.csv)",
+    label: "Export as CSV",
     description: "Full raw data export for spreadsheets and further analysis.",
     icon: FileSpreadsheet,
   },
@@ -65,37 +63,38 @@ export default function ExportNewReportModal({
   onGenerated,
   onError,
 }: ExportNewReportModalProps) {
-  const [allProjects, setAllProjects] = useState(true);
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState("ALL");
   const [startDate, setStartDate] = useState(monthAgoIso());
   const [endDate, setEndDate] = useState(todayIso());
   const [selectedModules, setSelectedModules] = useState<ReportModuleId[]>([]);
-  const [selectedStates, setSelectedStates] = useState<WorkerStateRegion[]>([]);
+  const [selectedState, setSelectedState] = useState("ALL");
   const [exportFormat, setExportFormat] = useState<ReportExportFormat>("excel");
   const [generating, setGenerating] = useState(false);
 
+  const projectOptions = useMemo(
+    () =>
+      [...projects]
+        .map((project) => ({
+          id: project.id,
+          name: project.name || project.project_name || "Unknown Project",
+        }))
+        .filter((project) => project.id)
+        .sort((left, right) =>
+          left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+        ),
+    [projects]
+  );
+
   const effectiveProjectIds = useMemo(() => {
-    if (allProjects) return [];
-    return selectedProjectIds;
-  }, [allProjects, selectedProjectIds]);
+    if (selectedProject === "ALL") return [];
+    return [selectedProject];
+  }, [selectedProject]);
 
   const projectNames = useMemo(() => {
-    if (allProjects) return [] as string[];
-    return projects
-      .filter((project) => selectedProjectIds.includes(project.id))
-      .map((project) => project.project_name)
-      .filter((name): name is string => Boolean(name));
-  }, [allProjects, projects, selectedProjectIds]);
-
-  const includesTimesheetHours = selectedModules.includes("timesheets_hours");
-
-  const toggleState = (state: WorkerStateRegion) => {
-    setSelectedStates((current) =>
-      current.includes(state)
-        ? current.filter((value) => value !== state)
-        : [...current, state]
-    );
-  };
+    if (selectedProject === "ALL") return [] as string[];
+    const match = projectOptions.find((project) => project.id === selectedProject);
+    return match ? [match.name] : [];
+  }, [projectOptions, selectedProject]);
 
   const toggleModule = (moduleId: ReportModuleId) => {
     setSelectedModules((current) =>
@@ -118,27 +117,26 @@ export default function ExportNewReportModal({
       onError("Select at least one module to include.");
       return;
     }
-    if (!allProjects && selectedProjectIds.length === 0) {
-      onError("Select at least one project or choose All Projects.");
-      return;
-    }
-
     setGenerating(true);
     try {
+      const stateFilters =
+        selectedState === "ALL"
+          ? undefined
+          : ([selectedState] as Array<(typeof WORKER_STATE_REGION_OPTIONS)[number]>);
+
       const exportResult = await generateReportExport({
         startDate,
         endDate,
         projectIds: effectiveProjectIds,
         modules: selectedModules,
         projects,
-        stateFilters: includesTimesheetHours ? selectedStates : undefined,
+        stateFilters,
       });
 
-      const resolvedProjectNames = allProjects
-        ? ["All Projects"]
-        : projectNames.length > 0
-          ? projectNames
-          : ["All Projects"];
+      const resolvedProjectNames =
+        selectedProject === "ALL" || projectNames.length === 0
+          ? ["All Projects"]
+          : projectNames;
 
       let fileName = exportResult.fileName;
 
@@ -148,8 +146,10 @@ export default function ExportNewReportModal({
           startDate,
           endDate,
           projectNames: resolvedProjectNames,
+          stateLabel: selectedState === "ALL" ? "All States" : selectedState,
           modules: selectedModules,
           actionedByName,
+          fileName: `SiteBolt_Report_${todayIso()}.pdf`,
         });
         downloadReportBlob(pdfResult.fileName, pdfResult.blob);
         fileName = pdfResult.fileName;
@@ -190,9 +190,10 @@ export default function ExportNewReportModal({
       <div className={cn(modalClass, "max-w-3xl")}>
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Export New Report</h2>
+            <h2 className="text-xl font-bold text-slate-900">Generate New Report</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Configure project filters, date range, modules, and export format.
+              Filter by project or state, choose entities, then download CSV or PDF.
+              Worker financial details are never included.
             </p>
           </div>
           <button
@@ -206,31 +207,47 @@ export default function ExportNewReportModal({
         </div>
 
         <div className="space-y-6">
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900">1. Project Filter</h3>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={allProjects}
-                onChange={(event) => {
-                  setAllProjects(event.target.checked);
-                  if (event.target.checked) setSelectedProjectIds([]);
-                }}
-                className="rounded border-slate-300 text-orange-500"
-              />
-              All Projects
-            </label>
-            {!allProjects ? (
-              <ProjectMultiSelect
-                projects={projects}
-                selectedProjectIds={selectedProjectIds}
-                onChange={setSelectedProjectIds}
-              />
-            ) : null}
+          <section className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="report-project-filter" className={labelClass}>
+                Project
+              </label>
+              <select
+                id="report-project-filter"
+                value={selectedProject}
+                onChange={(event) => setSelectedProject(event.target.value)}
+                className={inputClass}
+              >
+                <option value="ALL">All Projects</option>
+                {projectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="report-state-filter" className={labelClass}>
+                State
+              </label>
+              <select
+                id="report-state-filter"
+                value={selectedState}
+                onChange={(event) => setSelectedState(event.target.value)}
+                className={inputClass}
+              >
+                <option value="ALL">All States</option>
+                {WORKER_STATE_REGION_OPTIONS.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+              </select>
+            </div>
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900">2. Date Range</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Date Range</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="report-start-date" className={labelClass}>
@@ -260,7 +277,27 @@ export default function ExportNewReportModal({
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900">3. Modules</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">Entities</h3>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedModules(REPORT_MODULE_OPTIONS.map((option) => option.id))
+                  }
+                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-orange-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedModules([])}
+                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-orange-50"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {REPORT_MODULE_OPTIONS.map((option) => (
                 <label
@@ -279,51 +316,8 @@ export default function ExportNewReportModal({
             </div>
           </section>
 
-          {includesTimesheetHours ? (
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-slate-900">
-                4. State Filter (Timesheets & Daily Hours)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Optional. Filter attendance and hours by worker state or project location.
-                No pay rates are included in this module.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedStates([])}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
-                    selectedStates.length === 0
-                      ? "bg-orange-100 text-orange-800 ring-orange-200"
-                      : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                  )}
-                >
-                  All States
-                </button>
-                {ACCOUNTS_TIMESHEET_STATE_OPTIONS.map((state) => (
-                  <button
-                    key={state}
-                    type="button"
-                    onClick={() => toggleState(state)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
-                      selectedStates.includes(state)
-                        ? "bg-orange-100 text-orange-800 ring-orange-200"
-                        : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                    )}
-                  >
-                    {state}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900">
-              {includesTimesheetHours ? "5. Export Format" : "4. Export Format"}
-            </h3>
+            <h3 className="text-sm font-semibold text-slate-900">Export Format</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               {EXPORT_FORMAT_OPTIONS.map((option) => {
                 const Icon = option.icon;
@@ -380,15 +374,14 @@ export default function ExportNewReportModal({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Generating…
               </>
-            ) : exportFormat === "pdf" ? (
-              <>
-                <FileText className="h-4 w-4" />
-                Generate PDF Report
-              </>
             ) : (
               <>
-                <FileSpreadsheet className="h-4 w-4" />
-                Generate Spreadsheet Export
+                {exportFormat === "pdf" ? (
+                  <FileText className="h-4 w-4" />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4" />
+                )}
+                Generate & Download
               </>
             )}
           </button>

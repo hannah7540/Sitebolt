@@ -9,6 +9,7 @@ export type ReportModuleId =
   | "workers"
   | "competencies"
   | "inductions"
+  | "forms_completed"
   | "leave_requests"
   | "assets"
   | "safety_walks"
@@ -21,24 +22,23 @@ export const REPORT_MODULE_OPTIONS: {
   id: ReportModuleId;
   label: string;
 }[] = [
-  { id: "itps_itcs", label: "ITPs & ITCs (Full submission data)" },
-  { id: "fleet", label: "Fleet (Unit #, Rego expiry, current hours)" },
-  {
-    id: "plant",
-    label:
-      "Plant (Unit #, current hours, next service due hours, last pre-start date)",
-  },
   {
     id: "workers",
-    label:
-      "Workers (Worker name, current project/s, outstanding profile items/unsigned SWMS)",
+    label: "Workers (no financial or bank details)",
   },
+  { id: "inductions", label: "Inductions" },
+  { id: "forms_completed", label: "Forms Completed" },
+  { id: "itps_itcs", label: "ITPs & ITCs" },
+  {
+    id: "plant",
+    label: "Plant & Equipment",
+  },
+  { id: "fleet", label: "Fleet (Unit #, Rego expiry, current hours)" },
   {
     id: "competencies",
     label:
       "Competencies (Matrix layout: Worker name, current project, competencies + expiry dates)",
   },
-  { id: "inductions", label: "Inductions (Assigned vs Completed status list)" },
   { id: "leave_requests", label: "Leave Requests (Pending/unapproved leave requests)" },
   {
     id: "assets",

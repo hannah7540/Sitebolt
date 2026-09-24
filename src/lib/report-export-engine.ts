@@ -34,7 +34,11 @@ import {
 } from "./worker-profile-lookup";
 import type { ReportModuleId } from "./generated-reports-service";
 import { buildTimesheetHoursReportSection } from "./timesheet-hours-report";
-import type { WorkerStateRegion } from "./worker-state-region";
+import {
+  normalizeWorkerStateRegion,
+  type WorkerStateRegion,
+} from "./worker-state-region";
+import { fetchCustomFormSubmissions } from "./custom-forms";
 
 export interface ReportExportInput {
   startDate: string;
@@ -102,6 +106,87 @@ function matchesProjectFilter(
   return projectIds.includes(projectId);
 }
 
+function matchesStateFilter(
+  recordState: string | null | undefined,
+  stateFilters?: WorkerStateRegion[]
+): boolean {
+  if (!stateFilters || stateFilters.length === 0) return true;
+  const normalized = normalizeWorkerStateRegion(recordState);
+  return normalized != null && stateFilters.includes(normalized);
+}
+
+function projectState(
+  projectId: string | null | undefined,
+  projects: DbProject[]
+): string | null {
+  if (!projectId) return null;
+  return projects.find((project) => project.id === projectId)?.state ?? null;
+}
+
+function workerMatchesReportFilters(
+  worker: Worker,
+  input: ReportExportInput
+): boolean {
+  const projectIds = [
+    worker.assigned_project_id,
+    ...(worker.assigned_project_ids ?? []),
+    worker.project_id,
+  ].filter((value): value is string => Boolean(value));
+
+  const matchesProject =
+    allProjectsSelected(input.projectIds, input.projects) ||
+    projectIds.some((projectId) => input.projectIds.includes(projectId));
+  if (!matchesProject) return false;
+
+  if (!input.stateFilters || input.stateFilters.length === 0) return true;
+  if (matchesStateFilter(worker.state, input.stateFilters)) return true;
+  return projectIds.some((projectId) =>
+    matchesStateFilter(projectState(projectId, input.projects), input.stateFilters)
+  );
+}
+
+const FINANCIAL_KEY_PATTERN =
+  /(^|_)(bank|bsb|tfn|tax|super|usi|pay|rate|salary|wage|account_number|redundancy)(_|$)/i;
+
+function isFinancialWorkerKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return (
+    FINANCIAL_KEY_PATTERN.test(normalized) ||
+    normalized.includes("bank") ||
+    normalized.includes("bsb") ||
+    normalized.includes("tfn") ||
+    normalized.includes("tax") ||
+    normalized.includes("super") ||
+    normalized.includes("usi") ||
+    normalized.includes("salary") ||
+    normalized.includes("wage") ||
+    normalized.includes("account_number") ||
+    normalized.includes("hourly_rate") ||
+    normalized.includes("pay_rate") ||
+    normalized.includes("pay_rule") ||
+    normalized.includes("redundancy") ||
+    /(^|_)rate(_|$)/.test(normalized)
+  );
+}
+
+function sanitizeWorkerForReport(worker: Worker): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(worker)) {
+    if (isFinancialWorkerKey(key)) continue;
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+function resolveProjectLabel(
+  projectId: string | null | undefined,
+  projects: DbProject[]
+): string {
+  if (!projectId) return "";
+  const project = projects.find((row) => row.id === projectId);
+  return project?.name || project?.project_name || "";
+}
+
 function sectionCsv(title: string, headers: string[], rows: string[][]): string {
   const headerLine = headers.map(escapeCsvValue).join(",");
   const body = rows
@@ -110,16 +195,18 @@ function sectionCsv(title: string, headers: string[], rows: string[][]): string 
   return [`### ${title}`, headerLine, body].filter(Boolean).join("\n");
 }
 
-function buildFileName(startDate: string, endDate: string): string {
-  return `sitebolt-report-${startDate}-to-${endDate}.csv`;
+function buildFileName(): string {
+  return `SiteBolt_Report_${new Date().toISOString().slice(0, 10)}.csv`;
 }
 
 async function buildItpsItcsSection(
   input: ReportExportInput
 ): Promise<string> {
-  const targetProjects = allProjectsSelected(input.projectIds, input.projects)
-    ? input.projects
-    : input.projects.filter((project) => input.projectIds.includes(project.id));
+  const targetProjects = (
+    allProjectsSelected(input.projectIds, input.projects)
+      ? input.projects
+      : input.projects.filter((project) => input.projectIds.includes(project.id))
+  ).filter((project) => matchesStateFilter(project.state, input.stateFilters));
 
   const itpRows: string[][] = [];
   const itcRows: string[][] = [];
@@ -191,9 +278,24 @@ async function buildItpsItcsSection(
   ].join("\n\n");
 }
 
-async function buildFleetSection(): Promise<string> {
+async function buildFleetSection(input: ReportExportInput): Promise<string> {
   const fleet = await fetchOrganizationFleet();
-  const rows = fleet.map((vehicle) => [
+  const rows = fleet
+    .filter((vehicle) => {
+      const projectId =
+        vehicle.assigned_project_id ??
+        input.projects.find(
+          (project) =>
+            project.name === vehicle.assigned_project_name ||
+            project.project_name === vehicle.assigned_project_name
+        )?.id ??
+        null;
+      return (
+        matchesProjectFilter(projectId, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(projectId, input.projects), input.stateFilters)
+      );
+    })
+    .map((vehicle) => [
     vehicle.unit_number,
     vehicle.registration ?? "",
     vehicle.rego_expiry_date ?? "",
@@ -239,39 +341,68 @@ async function buildPlantSection(input: ReportExportInput): Promise<string> {
     }
   }
 
-  const rows = plant
-    .filter((item) =>
-      matchesProjectFilter(
-        resolvePlantAssignedProjectId(item),
-        input.projectIds,
-        input.projects
-      )
-    )
+  const plantRows = plant
+    .filter((item) => {
+      const assignedProjectId = resolvePlantAssignedProjectId(item);
+      return (
+        matchesProjectFilter(assignedProjectId, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(assignedProjectId, input.projects), input.stateFilters)
+      );
+    })
     .map((item: PlantAsset) => [
       item.unit_number,
       String(item.current_hours ?? ""),
       String(item.next_service_hours ?? ""),
       lastPrestartByPlant.get(item.id) ?? "",
-      resolvePlantAssignedProjectId(item)
-        ? input.projects.find(
-            (project) => project.id === resolvePlantAssignedProjectId(item)
-          )?.project_name ?? ""
-        : "",
+      resolveProjectLabel(resolvePlantAssignedProjectId(item), input.projects),
       String(item.status ?? ""),
     ]);
 
-  return sectionCsv(
-    "Plant",
-    [
-      "Unit #",
-      "Current Hours",
-      "Next Service Due Hours",
-      "Last Pre-Start Date",
-      "Project",
-      "Status",
-    ],
-    rows
-  );
+  const assets = await fetchAssets();
+  const assetRows = assets
+    .filter(
+      (asset) =>
+        matchesProjectFilter(asset.assigned_project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(
+          projectState(asset.assigned_project_id, input.projects),
+          input.stateFilters
+        )
+    )
+    .map((asset) => [
+      asset.asset_number,
+      asset.name,
+      asset.status,
+      asset.next_service_due_date ?? "",
+      asset.next_calibration_due_date ?? "",
+      resolveProjectLabel(asset.assigned_project_id, input.projects),
+    ]);
+
+  return [
+    sectionCsv(
+      "Plant",
+      [
+        "Unit #",
+        "Current Hours",
+        "Next Service Due Hours",
+        "Last Pre-Start Date",
+        "Project",
+        "Status",
+      ],
+      plantRows
+    ),
+    sectionCsv(
+      "Equipment",
+      [
+        "Asset #",
+        "Name",
+        "Status",
+        "Next Service Due",
+        "Next Calibration Due",
+        "Project",
+      ],
+      assetRows
+    ),
+  ].join("\n\n");
 }
 
 function computeOutstandingProfileItems(worker: Worker): string {
@@ -302,34 +433,34 @@ async function buildWorkersSection(input: ReportExportInput): Promise<string> {
 
   const rows = workers
     .filter((worker) => !isWorkerDeleted(worker) && !worker.is_archived && !worker.is_revoked)
-    .filter((worker) => {
-      const projectIds = [
-        worker.assigned_project_id,
-        ...(worker.assigned_project_ids ?? []),
-        worker.project_id,
-      ].filter(Boolean) as string[];
-      if (allProjectsSelected(input.projectIds, input.projects)) return true;
-      return projectIds.some((projectId) => input.projectIds.includes(projectId));
-    })
-    .map((worker) => [
-      getWorkerDisplayName(worker),
-      resolveWorkerAssignedProjectName(worker),
-      (worker.assigned_project_ids ?? [])
-        .map(
-          (projectId) =>
-            input.projects.find((project) => project.id === projectId)
-              ?.project_name ?? projectId
-        )
-        .join("; "),
-      String(worker.status ?? ""),
-      computeOutstandingProfileItems(worker),
-      String(unsignedByWorker.get(worker.id) ?? 0),
-    ]);
+    .filter((worker) => workerMatchesReportFilters(worker, input))
+    .map((worker) => {
+      const safe = sanitizeWorkerForReport(worker);
+      return [
+        getWorkerDisplayName(worker),
+        String(safe.email ?? ""),
+        String(safe.phone ?? ""),
+        String(safe.trade ?? safe.worker_type ?? ""),
+        String(safe.state ?? ""),
+        resolveWorkerAssignedProjectName(worker),
+        (worker.assigned_project_ids ?? [])
+          .map((projectId) => resolveProjectLabel(projectId, input.projects))
+          .filter(Boolean)
+          .join("; "),
+        String(safe.status ?? ""),
+        computeOutstandingProfileItems(worker),
+        String(unsignedByWorker.get(worker.id) ?? 0),
+      ];
+    });
 
   return sectionCsv(
     "Workers",
     [
       "Worker Name",
+      "Email",
+      "Phone",
+      "Role",
+      "State",
       "Primary Project",
       "Assigned Projects",
       "Status",
@@ -348,15 +479,9 @@ async function buildCompetenciesSection(
     fetchAllWorkerVocs(),
   ]);
 
-  const filteredWorkers = workers.filter((worker) => {
-    const projectIds = [
-      worker.assigned_project_id,
-      ...(worker.assigned_project_ids ?? []),
-      worker.project_id,
-    ].filter(Boolean) as string[];
-    if (allProjectsSelected(input.projectIds, input.projects)) return true;
-    return projectIds.some((projectId) => input.projectIds.includes(projectId));
-  });
+  const filteredWorkers = workers.filter((worker) =>
+    workerMatchesReportFilters(worker, input)
+  );
 
   const matrixRows = buildCompetencyMatrix(filteredWorkers, vocs);
   return `### Competencies\n${buildCompetencyMatrixCsv(matrixRows)}`;
@@ -367,7 +492,10 @@ async function buildInductionsSection(input: ReportExportInput): Promise<string>
   const filtered = assignments.filter((row) => {
     const stamp = row.completed_at ?? row.assigned_at;
     if (!isWithinRange(stamp, input.startDate, input.endDate)) return false;
-    return matchesProjectFilter(row.project_id, input.projectIds, input.projects);
+    return (
+      matchesProjectFilter(row.project_id, input.projectIds, input.projects) &&
+      matchesStateFilter(projectState(row.project_id, input.projects), input.stateFilters)
+    );
   });
 
   const workerIds = [...new Set(filtered.map((row) => row.worker_id).filter(Boolean))];
@@ -393,8 +521,13 @@ async function buildLeaveRequestsSection(
         input.endDate
       )
     )
-    .filter((request) =>
-      matchesProjectFilter(request.project_id, input.projectIds, input.projects)
+    .filter(
+      (request) =>
+        matchesProjectFilter(request.project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(
+          projectState(request.project_id, input.projects),
+          input.stateFilters
+        )
     )
     .map((request) => [
       request.worker_name?.trim() ||
@@ -426,8 +559,13 @@ async function buildLeaveRequestsSection(
 async function buildAssetsSection(input: ReportExportInput): Promise<string> {
   const assets = await fetchAssets();
   const rows = assets
-    .filter((asset) =>
-      matchesProjectFilter(asset.assigned_project_id, input.projectIds, input.projects)
+    .filter(
+      (asset) =>
+        matchesProjectFilter(asset.assigned_project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(
+          projectState(asset.assigned_project_id, input.projects),
+          input.stateFilters
+        )
     )
     .map((asset) => [
       asset.asset_number,
@@ -465,8 +603,10 @@ async function buildSiteFormSection(
     .filter((form) =>
       isWithinRange(form.submitted_at ?? form.form_date, input.startDate, input.endDate)
     )
-    .filter((form) =>
-      matchesProjectFilter(form.project_id, input.projectIds, input.projects)
+    .filter(
+      (form) =>
+        matchesProjectFilter(form.project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(form.project_id, input.projects), input.stateFilters)
     );
 
   const workerIds = [
@@ -497,8 +637,10 @@ async function buildRfisSection(input: ReportExportInput): Promise<string> {
   const { rfis } = await fetchRfis({ filter: "all" });
   const rows = rfis
     .filter((row) => isWithinRange(row.created_at, input.startDate, input.endDate))
-    .filter((row) =>
-      matchesProjectFilter(row.project_id, input.projectIds, input.projects)
+    .filter(
+      (row) =>
+        matchesProjectFilter(row.project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(row.project_id, input.projects), input.stateFilters)
     )
     .map((row) => [
       row.rfi_number,
@@ -545,13 +687,78 @@ async function buildRfisSection(input: ReportExportInput): Promise<string> {
   );
 }
 
+async function buildFormsCompletedSection(
+  input: ReportExportInput
+): Promise<string> {
+  const [siteForms, customResult] = await Promise.all([
+    fetchSiteForms({
+      startDate: input.startDate,
+      endDate: input.endDate,
+      limit: 2000,
+    }),
+    fetchCustomFormSubmissions({}),
+  ]);
+
+  const siteRows = siteForms
+    .filter((form) =>
+      isWithinRange(form.submitted_at ?? form.form_date, input.startDate, input.endDate)
+    )
+    .filter(
+      (form) =>
+        matchesProjectFilter(form.project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(form.project_id, input.projects), input.stateFilters)
+    )
+    .map((form) => [
+      form.form_type,
+      form.form_date,
+      form.submitted_at ?? "",
+      resolveProjectLabel(form.project_id, input.projects),
+      form.worker_id,
+      String(form.attendees?.length ?? 0),
+      form.status ?? "Completed",
+    ]);
+
+  const customRows = (customResult.data ?? [])
+    .filter((form) => isWithinRange(form.submitted_at, input.startDate, input.endDate))
+    .filter(
+      (form) =>
+        matchesProjectFilter(form.project_id, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(form.project_id, input.projects), input.stateFilters)
+    )
+    .map((form) => [
+      form.template_title || "Custom Form",
+      form.submitted_at.slice(0, 10),
+      form.submitted_at,
+      resolveProjectLabel(form.project_id, input.projects),
+      form.submitted_by_name ?? form.worker_id ?? "",
+      "",
+      "Completed",
+    ]);
+
+  return [
+    sectionCsv(
+      "Forms Completed — Site Forms",
+      ["Form Type", "Form Date", "Submitted At", "Project", "Submitted By", "Attendees", "Status"],
+      siteRows
+    ),
+    sectionCsv(
+      "Forms Completed — Custom Forms",
+      ["Form Type", "Form Date", "Submitted At", "Project", "Submitted By", "Attendees", "Status"],
+      customRows
+    ),
+  ].join("\n\n");
+}
+
 async function buildSwmsSection(input: ReportExportInput): Promise<string> {
   const documents = await fetchSwmsDocuments();
   const rows = documents
     .filter((doc) => {
       const stamp = doc.document_date ?? doc.created_at ?? "";
       if (stamp && !isWithinRange(stamp, input.startDate, input.endDate)) return false;
-      return matchesProjectFilter(doc.project_id ?? null, input.projectIds, input.projects);
+      return (
+        matchesProjectFilter(doc.project_id ?? null, input.projectIds, input.projects) &&
+        matchesStateFilter(projectState(doc.project_id, input.projects), input.stateFilters)
+      );
     })
     .map((doc) => [
       doc.title,
@@ -591,6 +798,7 @@ const MODULE_BUILDERS: Record<
   workers: buildWorkersSection,
   competencies: buildCompetenciesSection,
   inductions: buildInductionsSection,
+  forms_completed: buildFormsCompletedSection,
   leave_requests: buildLeaveRequestsSection,
   assets: buildAssetsSection,
   safety_walks: (input) => buildSiteFormSection(input, "safety_walk", "Safety Walks"),
@@ -611,23 +819,101 @@ export async function generateReportExport(
   const sections: string[] = [];
   for (const moduleId of input.modules) {
     const builder = MODULE_BUILDERS[moduleId];
-    sections.push(await builder(input));
+    try {
+      sections.push(await builder(input));
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to load this entity.";
+      sections.push(
+        sectionCsv(moduleId, ["Status"], [[`Skipped: ${message}`]])
+      );
+    }
   }
 
-  const csvContent = [
-    `# SiteBolt Report Export`,
-    `# Date Range: ${input.startDate} to ${input.endDate}`,
-    `# Projects: ${
-      allProjectsSelected(input.projectIds, input.projects)
-        ? "All Projects"
-        : input.projectIds.join(", ")
-    }`,
-    "",
-    sections.join("\n\n"),
-  ].join("\n");
+  const projectLabel = allProjectsSelected(input.projectIds, input.projects)
+    ? "All Projects"
+    : input.projectIds
+        .map((projectId) => resolveProjectLabel(projectId, input.projects) || projectId)
+        .join(", ");
+  const stateLabel =
+    !input.stateFilters || input.stateFilters.length === 0
+      ? "All States"
+      : input.stateFilters.join(", ");
+
+  const csvContent = stripFinancialCsvColumns(
+    [
+      `# SiteBolt Report Export`,
+      `# Date Range: ${input.startDate} to ${input.endDate}`,
+      `# Projects: ${projectLabel}`,
+      `# States: ${stateLabel}`,
+      "",
+      sections.join("\n\n"),
+    ].join("\n")
+  );
 
   return {
-    fileName: buildFileName(input.startDate, input.endDate),
+    fileName: buildFileName(),
     csvContent,
   };
+}
+
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (inQuotes) {
+      if (char === '"' && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      result.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function stripFinancialCsvColumns(csv: string): string {
+  const output: string[] = [];
+  let dropIndexes: Set<number> | null = null;
+
+  for (const rawLine of csv.split(/\r?\n/)) {
+    if (!rawLine || rawLine.startsWith("#")) {
+      dropIndexes = rawLine.startsWith("### ") ? null : dropIndexes;
+      output.push(rawLine);
+      continue;
+    }
+
+    const cells = parseCsvLine(rawLine);
+    if (dropIndexes == null) {
+      dropIndexes = new Set(
+        cells
+          .map((header, index) =>
+            isFinancialWorkerKey(header.replace(/\s+/g, "_")) ? index : -1
+          )
+          .filter((index) => index >= 0)
+      );
+    }
+
+    output.push(
+      cells
+        .filter((_, index) => !dropIndexes?.has(index))
+        .map(escapeCsvValue)
+        .join(",")
+    );
+  }
+
+  return output.join("\n");
 }
