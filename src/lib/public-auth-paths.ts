@@ -54,6 +54,7 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/auth/callback") ||
     path.startsWith("/auth/confirm") ||
     path.startsWith("/privacy") ||
+    path.startsWith("/download") ||
     path.startsWith("/support") ||
     path.startsWith("/scan/") ||
     isPlantPrestartPath(path)

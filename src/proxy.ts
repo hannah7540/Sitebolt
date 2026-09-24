@@ -22,6 +22,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/privacy") ||
+    pathname.startsWith("/download") ||
     pathname.startsWith("/support") ||
     isPlantPrestartPath(pathname)
   ) {

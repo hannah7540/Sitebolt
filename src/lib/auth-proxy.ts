@@ -30,6 +30,7 @@ import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/privacy",
+  "/download",
   "/support",
   "/auth/",
   "/auth/callback",

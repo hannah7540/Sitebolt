@@ -28,6 +28,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/privacy") ||
+    pathname.startsWith("/download") ||
     pathname.startsWith("/support") ||
     pathname.startsWith("/scan/") ||
     isPlantPrestartPath(pathname)

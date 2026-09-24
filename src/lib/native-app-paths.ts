@@ -8,6 +8,7 @@ export const NATIVE_ALLOWED_PATH_PREFIXES = [
   "/worker-dashboard",
   "/login",
   "/privacy",
+  "/download",
   "/support",
   "/auth/",
   "/accept-invite",
