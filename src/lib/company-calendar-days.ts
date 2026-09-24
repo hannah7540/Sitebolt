@@ -241,23 +241,138 @@ export function companyCalendarDaysToWorkerEvents(
   return events;
 }
 
+function companyCalendarMergeKey(event: WorkerCalendarEvent): string {
+  const displayCode = String(event.display_code ?? "").trim().toUpperCase();
+  const kind =
+    event.leave_kind ||
+    (displayCode === "PH" ? "public_holiday" : event.event_type);
+  return `${event.worker_id}|${event.start_date}|${kind}`;
+}
+
 export function mergeCompanyCalendarIntoEvents(
   events: WorkerCalendarEvent[],
   companyEvents: WorkerCalendarEvent[]
 ): WorkerCalendarEvent[] {
-  const seen = new Set(
-    events.map(
-      (event) =>
-        `${event.worker_id}|${event.start_date}|${event.leave_kind ?? event.event_type}`
-    )
-  );
+  const seen = new Set(events.map((event) => companyCalendarMergeKey(event)));
 
   const merged = [...events];
   for (const event of companyEvents) {
-    const key = `${event.worker_id}|${event.start_date}|${event.leave_kind ?? event.event_type}`;
+    const key = companyCalendarMergeKey(event);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(event);
   }
   return merged;
+}
+
+export type AssignPublicHolidaysWorkerInput = Pick<
+  Worker,
+  "id" | "state" | "trade" | "worker_type" | "employment_type"
+> &
+  Partial<
+    Pick<
+      Worker,
+      | "first_name"
+      | "last_name"
+      | "full_name"
+      | "worker_name"
+      | "email"
+      | "assigned_project_id"
+      | "assigned_project_name"
+    >
+  >;
+
+function isPersistedPublicHolidayRow(row: {
+  display_code?: unknown;
+  leave_kind?: unknown;
+}): boolean {
+  const displayCode = String(row.display_code ?? "").trim().toUpperCase();
+  const leaveKind = String(row.leave_kind ?? "").trim().toLowerCase();
+  return displayCode === "PH" || leaveKind === "public_holiday";
+}
+
+/**
+ * Persist upcoming company public holidays onto a newly created worker using the
+ * same Add Leave → Public Holiday (PH) insert path (`insertBulkLeaveEvents`).
+ * Never throws; caller should still wrap in try/catch.
+ */
+export async function assignUpcomingPublicHolidaysToWorker(
+  worker: AssignPublicHolidaysWorkerInput
+): Promise<void> {
+  if (!isSupabaseConfigured() || !worker.id?.trim()) return;
+
+  const today = formatDateOnly(new Date().toISOString());
+  const holidays = (
+    await fetchCompanyCalendarDays({
+      startDate: today,
+      dayType: "public_holiday",
+    })
+  ).filter((day) => calendarDayAppliesToWorker(day, worker));
+
+  if (holidays.length === 0) return;
+
+  const existingDates = new Set<string>();
+  try {
+    const { data, error } = await supabase
+      .from("worker_calendar_events")
+      .select("start_date, display_code")
+      .eq("worker_id", worker.id)
+      .gte("start_date", today);
+
+    if (!error) {
+      for (const row of data ?? []) {
+        if (!isPersistedPublicHolidayRow(row as Record<string, unknown>)) continue;
+        const date = formatDateOnly(
+          (row as { start_date?: unknown }).start_date as string
+        );
+        if (date) existingDates.add(date);
+      }
+    }
+  } catch (cause) {
+    console.warn("[company-calendar] existing PH lookup skipped:", cause);
+  }
+
+  const pending = holidays.filter((day) => !existingDates.has(day.date));
+  if (pending.length === 0) return;
+
+  const { insertBulkLeaveEvents } = await import("./worker-calendar-events");
+  const leaveWorker = {
+    id: worker.id,
+    first_name: worker.first_name ?? null,
+    last_name: worker.last_name ?? null,
+    full_name:
+      worker.full_name ??
+      [worker.first_name, worker.last_name].filter(Boolean).join(" ").trim(),
+    worker_name: worker.worker_name ?? null,
+    email: worker.email ?? "",
+    trade: worker.trade ?? null,
+    state: worker.state ?? null,
+    worker_type: worker.worker_type ?? null,
+    employment_type: worker.employment_type ?? null,
+    assigned_project_id: worker.assigned_project_id ?? null,
+    assigned_project_name: worker.assigned_project_name ?? null,
+  } as Worker;
+
+  for (const day of pending) {
+    try {
+      const result = await insertBulkLeaveEvents({
+        startDate: day.date,
+        endDate: day.date,
+        leaveKind: "public_holiday",
+        workers: [leaveWorker],
+        notes: day.title,
+      });
+      if (result.error) {
+        console.warn(
+          `[company-calendar] PH assign skipped for ${day.date}:`,
+          result.error
+        );
+      }
+    } catch (cause) {
+      console.warn(
+        `[company-calendar] PH assign failed for ${day.date}:`,
+        cause
+      );
+    }
+  }
 }
