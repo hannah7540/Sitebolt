@@ -15,6 +15,7 @@ import {
 } from "@/lib/competency-matrix";
 import type { Worker } from "@/lib/supabase";
 import { fetchAllWorkerVocs } from "@/lib/supabase";
+import type { DbProject } from "@/lib/project-resolver";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,20 @@ const BASE_STATE_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
 
 interface CompetencyMatrixTabProps {
   workers: Worker[];
+  projects?: DbProject[];
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isRawProjectId(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+function humanProjectName(value: string | null | undefined): string {
+  const name = normalizeFilterValue(value);
+  if (!name || isRawProjectId(name)) return "";
+  return name;
 }
 
 function normalizeFilterValue(value: string | null | undefined): string {
@@ -60,7 +75,10 @@ function workerMatchesProject(worker: Worker, selectedProject: string): boolean 
   );
 }
 
-export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProps) {
+export default function CompetencyMatrixTab({
+  workers,
+  projects = [],
+}: CompetencyMatrixTabProps) {
   const { toast, showError, dismissToast } = useFormToast();
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -111,34 +129,46 @@ export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProp
     ];
   }, [workers]);
 
+  const projectMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const project of projects) {
+      const name = humanProjectName(project.name || project.project_name);
+      if (!name) continue;
+      if (project.id) map.set(project.id, name);
+      if (project.slug) map.set(project.slug, name);
+    }
+    return map;
+  }, [projects]);
+
   const projectOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>();
     for (const worker of workers) {
-      const name = normalizeFilterValue(
+      const fallbackName = humanProjectName(
         worker.assigned_project_name || worker.project_name
       );
       const ids = workerProjectIds(worker);
       if (ids.length > 0) {
         for (const id of ids) {
-          const existing = options.get(id);
-          options.set(id, {
-            value: id,
-            label: name || existing?.label || id,
-          });
+          const label =
+            projectMap.get(id) ||
+            fallbackName ||
+            options.get(id)?.label ||
+            "Unknown Project";
+          options.set(id, { value: id, label });
         }
         continue;
       }
-      if (name) {
-        const key = `name:${name.toLowerCase()}`;
+      if (fallbackName) {
+        const key = `name:${fallbackName.toLowerCase()}`;
         if (!options.has(key)) {
-          options.set(key, { value: name, label: name });
+          options.set(key, { value: fallbackName, label: fallbackName });
         }
       }
     }
     return [...options.values()].sort((left, right) =>
       left.label.localeCompare(right.label, undefined, { sensitivity: "base" })
     );
-  }, [workers]);
+  }, [projectMap, workers]);
 
   const filteredRows = useMemo(() => {
     const searched = filterCompetencyMatrixRows(matrixRows, search);

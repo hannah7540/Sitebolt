@@ -5,7 +5,7 @@ import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import CompetencyMatrixTab from "@/components/administration/forms/CompetencyMatrixTab";
 
 export default function CompetenciesPage() {
-  const { workers, sessionReady, loading, accessDenied } = useAdminConsole();
+  const { workers, projects, sessionReady, loading, accessDenied } = useAdminConsole();
 
   if (loading || !sessionReady) {
     return (
@@ -24,5 +24,5 @@ export default function CompetenciesPage() {
     );
   }
 
-  return <CompetencyMatrixTab workers={workers} />;
+  return <CompetencyMatrixTab workers={workers} projects={projects} />;
 }
