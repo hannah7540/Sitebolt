@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import SiteFooter from "@/components/layout/SiteFooter";
@@ -38,11 +38,8 @@ async function waitForAuthSession(
   return Boolean(refreshed.session);
 }
 
-function redirectAfterLogin(path: string): void {
-  window.location.assign(path);
-}
-
 function LoginPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = readLoginReturnPath(searchParams);
   const resetSuccess = searchParams.get("reset") === "success";
@@ -55,6 +52,29 @@ function LoginPageContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, showError, dismissToast } = useFormToast();
+
+  const navigateAfterLogin = useCallback(
+    (path: string) => {
+      const target = path.trim();
+      if (!target.startsWith("/")) {
+        const message = "Sign in succeeded but the destination was invalid.";
+        setError(message);
+        showError(message);
+        return;
+      }
+
+      try {
+        router.replace(target);
+      } catch (cause) {
+        const message =
+          cause instanceof Error ? cause.message : "Unable to open the app after sign in.";
+        console.error("Post-login navigation failed:", cause);
+        setError(message);
+        showError(message);
+      }
+    },
+    [router, showError]
+  );
 
   const handleLogin = useCallback(async () => {
     const cleanEmail = email.trim().toLowerCase();
@@ -106,7 +126,7 @@ function LoginPageContent() {
         defaultPath: await resolvePostAuthPathForUser(data.user),
       });
 
-      redirectAfterLogin(targetPath);
+      navigateAfterLogin(targetPath);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Sign in failed.";
       console.error("Login error:", cause);
@@ -115,7 +135,7 @@ function LoginPageContent() {
     } finally {
       setSubmitting(false);
     }
-  }, [email, password, returnPath, showError]);
+  }, [email, password, navigateAfterLogin, returnPath, showError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,24 +169,36 @@ function LoginPageContent() {
       return;
     }
 
-    const supabase = createSupabaseBrowserClient();
+    let supabase: ReturnType<typeof createSupabaseBrowserClient>;
+    try {
+      supabase = createSupabaseBrowserClient();
+    } catch (cause) {
+      console.error("Login client init failed:", cause);
+      setCheckingSession(false);
+      return;
+    }
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: string) => {
-      if (isExemptFromAuthRedirect()) return;
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
-        const path = window.location.pathname;
-        if (
-          path.startsWith("/setyourpassword") ||
-          path.startsWith("/reset-password") ||
-          path.startsWith("/set-password") ||
-          path.startsWith("/onboarding")
-        ) {
-          return;
+      try {
+        if (isExemptFromAuthRedirect()) return;
+        if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+          const path = window.location.pathname;
+          if (
+            path.startsWith("/setyourpassword") ||
+            path.startsWith("/reset-password") ||
+            path.startsWith("/set-password") ||
+            path.startsWith("/onboarding")
+          ) {
+            return;
+          }
         }
-      }
-      if (event === "PASSWORD_RECOVERY") {
-        window.location.replace("/reset-password");
+        if (event === "PASSWORD_RECOVERY") {
+          router.replace("/reset-password");
+        }
+      } catch (cause) {
+        console.error("Login auth state handler failed:", cause);
       }
     });
 
@@ -180,7 +212,7 @@ function LoginPageContent() {
       }
 
       if (isPasswordRecoverySession(data.session)) {
-        window.location.replace("/reset-password");
+        router.replace("/reset-password");
         return;
       }
 
@@ -188,7 +220,7 @@ function LoginPageContent() {
       if (cancelled) return;
 
       if (bound.ok) {
-        redirectAfterLogin(
+        navigateAfterLogin(
           resolvePostLoginPath(bound.role, bound.workerId, {
             returnPath,
             defaultPath: await resolvePostAuthPathForUser(user),
@@ -199,23 +231,32 @@ function LoginPageContent() {
 
       if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
         await supabase.auth.signOut();
-        redirectAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
+        navigateAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
         return;
       }
 
-      window.location.replace("/setyourpassword");
+      navigateAfterLogin("/setyourpassword");
     }
 
-    void redirectIfSignedIn();
+    void redirectIfSignedIn().catch((cause) => {
+      console.error("Login session restore failed:", cause);
+      if (!cancelled) setCheckingSession(false);
+    });
     return () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [returnPath]);
+  }, [navigateAfterLogin, returnPath, router]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void handleLogin();
+    void handleLogin().catch((cause) => {
+      const message = cause instanceof Error ? cause.message : "Sign in failed.";
+      console.error("Login submission failed:", cause);
+      setError(message);
+      showError(message);
+      setSubmitting(false);
+    });
   };
 
   if (checkingSession) {

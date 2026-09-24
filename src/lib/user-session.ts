@@ -20,22 +20,38 @@ export const DASHBOARD_LOADING_TIMEOUT_MS = 3000;
 
 export function getStoredWorkerId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(WORKER_ID_KEY);
+  try {
+    return localStorage.getItem(WORKER_ID_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setStoredWorkerId(id: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(WORKER_ID_KEY, id);
+  try {
+    localStorage.setItem(WORKER_ID_KEY, id);
+  } catch {
+    // WebView storage can be unavailable; session bind still continues.
+  }
 }
 
 export function getAdminWorkerId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(ADMIN_WORKER_ID_KEY);
+  try {
+    return localStorage.getItem(ADMIN_WORKER_ID_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setAdminWorkerId(id: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(ADMIN_WORKER_ID_KEY, id);
+  try {
+    localStorage.setItem(ADMIN_WORKER_ID_KEY, id);
+  } catch {
+    // WebView storage can be unavailable; session bind still continues.
+  }
 }
 
 export function workerDashboardUrl(

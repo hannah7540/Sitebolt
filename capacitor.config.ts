@@ -5,10 +5,11 @@ const config: CapacitorConfig = {
   appName: "SiteBolt",
   webDir: "public",
   server: {
-    // Points the native mobile wrapper directly to your live production server
-    // so web and mobile app updates stay live simultaneously:
+    // Live production origin: APK loads this URL on launch, so main/Vercel
+    // deploys reach workers without a new store or sideload install.
     url: "https://www.site-bolt.com.au",
-    cleartext: true,
+    androidScheme: "https",
+    cleartext: false,
   },
   plugins: {
     SplashScreen: {

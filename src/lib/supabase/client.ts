@@ -4,6 +4,55 @@ import { supabaseAnonKey, supabaseUrl } from "./env";
 
 let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
+function createSafeAuthStorage() {
+  const memory = new Map<string, string>();
+
+  const webStore = (() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const probe = "__sitebolt_auth_probe__";
+      window.localStorage.setItem(probe, "1");
+      window.localStorage.removeItem(probe);
+      return window.localStorage;
+    } catch {
+      try {
+        const probe = "__sitebolt_auth_probe__";
+        window.sessionStorage.setItem(probe, "1");
+        window.sessionStorage.removeItem(probe);
+        return window.sessionStorage;
+      } catch {
+        return null;
+      }
+    }
+  })();
+
+  return {
+    getItem(key: string) {
+      try {
+        return webStore?.getItem(key) ?? memory.get(key) ?? null;
+      } catch {
+        return memory.get(key) ?? null;
+      }
+    },
+    setItem(key: string, value: string) {
+      memory.set(key, value);
+      try {
+        webStore?.setItem(key, value);
+      } catch {
+        // WebView storage can be blocked; keep the in-memory copy.
+      }
+    },
+    removeItem(key: string) {
+      memory.delete(key);
+      try {
+        webStore?.removeItem(key);
+      } catch {
+        // Ignore sandbox storage failures.
+      }
+    },
+  };
+}
+
 function createServerFallbackClient(): SupabaseClient {
   return createClient(supabaseUrl, supabaseAnonKey, {
     db: { schema: "public" },
@@ -21,14 +70,20 @@ export function createSupabaseBrowserClient() {
   }
 
   if (!browserClient) {
-    browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: "public" },
-      auth: {
-        detectSessionInUrl: true,
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    });
+    try {
+      browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+        db: { schema: "public" },
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+          storage: createSafeAuthStorage(),
+        },
+      });
+    } catch (cause) {
+      console.error("Supabase browser client init failed:", cause);
+      return createServerFallbackClient();
+    }
   }
 
   return browserClient;
