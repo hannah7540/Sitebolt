@@ -18,14 +18,54 @@ import { fetchAllWorkerVocs } from "@/lib/supabase";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
+const BASE_STATE_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
+
 interface CompetencyMatrixTabProps {
   workers: Worker[];
+}
+
+function normalizeFilterValue(value: string | null | undefined): string {
+  return String(value ?? "").trim();
+}
+
+function workerMatchesState(worker: Worker, selectedState: string): boolean {
+  if (selectedState === "ALL") return true;
+  const workerState = normalizeFilterValue(worker.state);
+  if (!workerState) return false;
+  return workerState.toLowerCase() === selectedState.toLowerCase();
+}
+
+function workerProjectIds(worker: Worker): string[] {
+  return [
+    worker.assigned_project_id,
+    worker.project_id,
+    ...(Array.isArray(worker.assigned_project_ids) ? worker.assigned_project_ids : []),
+  ]
+    .map((value) => normalizeFilterValue(value))
+    .filter(Boolean);
+}
+
+function workerProjectNames(worker: Worker): string[] {
+  return [worker.assigned_project_name, worker.project_name]
+    .map((value) => normalizeFilterValue(value))
+    .filter(Boolean);
+}
+
+function workerMatchesProject(worker: Worker, selectedProject: string): boolean {
+  if (selectedProject === "ALL") return true;
+  const needle = selectedProject.toLowerCase();
+  return (
+    workerProjectIds(worker).some((id) => id.toLowerCase() === needle) ||
+    workerProjectNames(worker).some((name) => name.toLowerCase() === needle)
+  );
 }
 
 export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProps) {
   const { toast, showError, dismissToast } = useFormToast();
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedState, setSelectedState] = useState("ALL");
+  const [selectedProject, setSelectedProject] = useState("ALL");
   const [matrixRows, setMatrixRows] = useState<CompetencyMatrixRow[]>([]);
 
   const loadMatrix = useCallback(async () => {
@@ -49,10 +89,70 @@ export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProp
     void loadMatrix();
   }, [loadMatrix]);
 
-  const filteredRows = useMemo(
-    () => filterCompetencyMatrixRows(matrixRows, search),
-    [matrixRows, search]
+  const workersById = useMemo(
+    () => new Map(workers.map((worker) => [worker.id, worker])),
+    [workers]
   );
+
+  const stateOptions = useMemo(() => {
+    const extras = new Set<string>();
+    for (const worker of workers) {
+      const state = normalizeFilterValue(worker.state).toUpperCase();
+      if (!state || state === "ALL") continue;
+      if (!(BASE_STATE_OPTIONS as readonly string[]).includes(state)) {
+        extras.add(state);
+      }
+    }
+    return [
+      ...BASE_STATE_OPTIONS,
+      ...[...extras].sort((left, right) =>
+        left.localeCompare(right, undefined, { sensitivity: "base" })
+      ),
+    ];
+  }, [workers]);
+
+  const projectOptions = useMemo(() => {
+    const options = new Map<string, { value: string; label: string }>();
+    for (const worker of workers) {
+      const name = normalizeFilterValue(
+        worker.assigned_project_name || worker.project_name
+      );
+      const ids = workerProjectIds(worker);
+      if (ids.length > 0) {
+        for (const id of ids) {
+          const existing = options.get(id);
+          options.set(id, {
+            value: id,
+            label: name || existing?.label || id,
+          });
+        }
+        continue;
+      }
+      if (name) {
+        const key = `name:${name.toLowerCase()}`;
+        if (!options.has(key)) {
+          options.set(key, { value: name, label: name });
+        }
+      }
+    }
+    return [...options.values()].sort((left, right) =>
+      left.label.localeCompare(right.label, undefined, { sensitivity: "base" })
+    );
+  }, [workers]);
+
+  const filteredRows = useMemo(() => {
+    const searched = filterCompetencyMatrixRows(matrixRows, search);
+    if (selectedState === "ALL" && selectedProject === "ALL") return searched;
+
+    return searched.filter((row) => {
+      const worker = workersById.get(row.workerId);
+      if (!worker) return false;
+      return (
+        workerMatchesState(worker, selectedState) &&
+        workerMatchesProject(worker, selectedProject)
+      );
+    });
+  }, [matrixRows, search, selectedProject, selectedState, workersById]);
 
   const handleExport = () => {
     downloadCompetencyMatrixCsv(filteredRows);
@@ -73,7 +173,45 @@ export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProp
             </p>
           </div>
 
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end lg:w-auto">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto">
+            <div className="min-w-[180px] flex-1">
+              <label htmlFor="competency-state-filter" className={labelClass}>
+                State
+              </label>
+              <select
+                id="competency-state-filter"
+                value={selectedState}
+                onChange={(event) => setSelectedState(event.target.value)}
+                className={inputClass}
+              >
+                <option value="ALL">All States</option>
+                {stateOptions.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="min-w-[200px] flex-1">
+              <label htmlFor="competency-project-filter" className={labelClass}>
+                Project
+              </label>
+              <select
+                id="competency-project-filter"
+                value={selectedProject}
+                onChange={(event) => setSelectedProject(event.target.value)}
+                className={inputClass}
+              >
+                <option value="ALL">All Projects</option>
+                {projectOptions.map((project) => (
+                  <option key={project.value} value={project.value}>
+                    {project.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="min-w-[240px] flex-1">
               <label htmlFor="competency-search" className={labelClass}>
                 Search workers
@@ -109,7 +247,7 @@ export default function CompetencyMatrixTab({ workers }: CompetencyMatrixTabProp
           </div>
         ) : filteredRows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
-            No workers match your search.
+            No workers match your filters.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200">
