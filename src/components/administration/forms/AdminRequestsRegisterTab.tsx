@@ -23,7 +23,7 @@ const STATUS_FILTERS: { id: WorkerRequestStatus | "all"; label: string }[] = [
   { id: "all", label: "All" },
   { id: "Pending", label: "Pending" },
   { id: "In Progress", label: "In Progress" },
-  { id: "Fulfilled", label: "Fulfilled" },
+  { id: "Fulfilled", label: "Completed / Fulfilled" },
 ];
 
 export default function AdminRequestsRegisterTab() {
@@ -223,7 +223,7 @@ export default function AdminRequestsRegisterTab() {
                               ) : (
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                               )}
-                              Mark as Fulfilled
+                              Mark as Completed
                             </button>
                           ) : null}
                         </div>

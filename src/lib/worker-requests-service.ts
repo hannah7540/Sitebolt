@@ -5,6 +5,7 @@ import {
   insertWithFormMetadataFallback,
 } from "./form-metadata-consolidation";
 import {
+  isSupabaseMissingColumnError,
   isSupabaseSchemaOrConstraintError,
   toSupabaseRequestError,
   type SupabaseRequestError,
@@ -116,10 +117,21 @@ function formatRequestCode(sequence: number): string {
 }
 
 function normalizeRequestStatus(value: unknown): WorkerRequestStatus {
-  const status = String(value ?? "Pending").trim();
-  if (status === "In Progress") return "In Progress";
-  if (status === "Fulfilled") return "Fulfilled";
+  const status = String(value ?? "Pending").trim().toLowerCase();
+  if (status === "in progress") return "In Progress";
+  if (status === "fulfilled" || status === "completed") return "Fulfilled";
   return "Pending";
+}
+
+function readAdminComment(row: Record<string, unknown>): string | null {
+  const value =
+    row.admin_comment ??
+    row.admin_comments ??
+    row.admin_notes ??
+    row.admin_response ??
+    row.notes;
+  const text = String(value ?? "").trim();
+  return text || null;
 }
 
 function normalizeRequestType(value: unknown): WorkerRequestType {
@@ -222,7 +234,7 @@ function mapWorkerRequestRow(row: Record<string, unknown>): WorkerRequestRecord 
     uniform_items: uniformItems,
     description: row.description ? String(row.description) : null,
     status: normalizeRequestStatus(row.status),
-    admin_comments: row.admin_comments ? String(row.admin_comments) : null,
+    admin_comments: readAdminComment(row),
     fulfilled_at: row.fulfilled_at ? String(row.fulfilled_at) : null,
     fulfilled_by: row.fulfilled_by ? String(row.fulfilled_by) : null,
     created_at: createdAt,
@@ -601,17 +613,37 @@ export async function submitWorkerRequest(
   }
 }
 
+function buildWorkerRequestUpdatePayloads(
+  input: UpdateWorkerRequestInput,
+  now: string
+): Record<string, unknown>[] {
+  const resolvedStatus = input.status
+    ? normalizeRequestStatus(input.status)
+    : undefined;
+  const base = stripUndefinedFields({
+    status: resolvedStatus,
+    fulfilled_by: input.fulfilledBy?.trim() || null,
+    fulfilled_at: resolvedStatus === "Fulfilled" ? now : undefined,
+    updated_at: now,
+  });
+
+  const comment = input.adminComments?.trim() || "";
+  if (!comment) {
+    return [base];
+  }
+
+  return [
+    { ...base, admin_comment: comment },
+    { ...base, admin_comments: comment },
+    base,
+  ];
+}
+
 export async function updateWorkerRequest(
   input: UpdateWorkerRequestInput
 ): Promise<{ request: WorkerRequestRecord | null; error: string | null }> {
   const now = new Date().toISOString();
-  const payload = stripUndefinedFields({
-    status: input.status,
-    admin_comments: input.adminComments?.trim() || null,
-    fulfilled_by: input.fulfilledBy?.trim() || null,
-    fulfilled_at: input.status === "Fulfilled" ? now : undefined,
-    updated_at: now,
-  });
+  const payloads = buildWorkerRequestUpdatePayloads(input, now);
 
   if (!isSupabaseConfigured()) {
     const rows = readLocalRequests();
@@ -622,12 +654,17 @@ export async function updateWorkerRequest(
     const current = rows[index]!;
     const updated: WorkerRequestRecord = {
       ...current,
-      status: input.status ?? current.status,
+      status: input.status ? normalizeRequestStatus(input.status) : current.status,
       admin_comments:
-        input.adminComments !== undefined ? input.adminComments : current.admin_comments,
+        input.adminComments !== undefined
+          ? input.adminComments?.trim() || null
+          : current.admin_comments,
       fulfilled_by:
         input.fulfilledBy !== undefined ? input.fulfilledBy : current.fulfilled_by,
-      fulfilled_at: input.status === "Fulfilled" ? now : current.fulfilled_at,
+      fulfilled_at:
+        input.status && normalizeRequestStatus(input.status) === "Fulfilled"
+          ? now
+          : current.fulfilled_at,
       updated_at: now,
     };
     rows[index] = updated;
@@ -636,21 +673,33 @@ export async function updateWorkerRequest(
   }
 
   try {
-    const { data, error } = await supabase
-      .from(WORKER_REQUESTS_TABLE)
-      .update(payload)
-      .eq("id", input.requestId)
-      .select("*")
-      .single();
+    let lastError: string | null = null;
 
-    if (error) {
-      return { request: null, error: error.message };
+    for (const payload of payloads) {
+      const { data, error } = await supabase
+        .from(WORKER_REQUESTS_TABLE)
+        .update(payload)
+        .eq("id", input.requestId)
+        .select("*")
+        .single();
+
+      if (!error) {
+        return {
+          request: mapWorkerRequestRow(data as Record<string, unknown>),
+          error: null,
+        };
+      }
+
+      lastError = error.message;
+      if (
+        !isSupabaseMissingColumnError(error) &&
+        !isSupabaseSchemaOrConstraintError(error)
+      ) {
+        break;
+      }
     }
 
-    return {
-      request: mapWorkerRequestRow(data as Record<string, unknown>),
-      error: null,
-    };
+    return { request: null, error: lastError ?? "Failed to update request." };
   } catch (cause) {
     return {
       request: null,
@@ -681,6 +730,14 @@ export async function markWorkerRequestInProgress(
     status: "In Progress",
     adminComments,
   });
+}
+
+export async function markWorkerRequestCompleted(
+  requestId: string,
+  fulfilledBy?: string | null,
+  adminComments?: string | null
+): Promise<{ request: WorkerRequestRecord | null; error: string | null }> {
+  return markWorkerRequestFulfilled(requestId, fulfilledBy, adminComments);
 }
 
 export function resolveWorkerRequestName(

@@ -184,7 +184,7 @@ export default function WorkerRequestDetailModal({
             >
               <option value="Pending">Pending</option>
               <option value="In Progress">In Progress</option>
-              <option value="Fulfilled">Fulfilled</option>
+              <option value="Fulfilled">Completed / Fulfilled</option>
             </select>
           </div>
 
@@ -242,6 +242,15 @@ export default function WorkerRequestDetailModal({
                 Mark In Progress
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save Update
+            </button>
             {request.status !== "Fulfilled" ? (
               <button
                 type="button"
@@ -254,19 +263,9 @@ export default function WorkerRequestDetailModal({
                 ) : (
                   <CheckCircle2 className="h-4 w-4" />
                 )}
-                Mark as Fulfilled
+                Mark as Completed
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Save Comments
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
         </div>

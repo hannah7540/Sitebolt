@@ -47,6 +47,7 @@ export const TABLE_KNOWN_COLUMNS: Record<string, ReadonlySet<string>> = {
     "description",
     "status",
     "admin_comments",
+    "admin_comment",
     "fulfilled_at",
     "fulfilled_by",
     "created_at",
