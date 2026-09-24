@@ -1,9 +1,12 @@
 -- Automatically copy existing company public holidays onto newly created workers.
+-- Holiday category column on worker_calendar_events is event_type (see 051/053).
 -- Does not update company_calendar_days or existing worker calendar rows.
+
+DROP INDEX IF EXISTS public.worker_calendar_events_public_holiday_uidx;
 
 CREATE UNIQUE INDEX IF NOT EXISTS worker_calendar_events_public_holiday_uidx
   ON public.worker_calendar_events (worker_id, start_date)
-  WHERE leave_kind = 'public_holiday';
+  WHERE event_type = 'Leave' AND display_code = 'PH';
 
 CREATE OR REPLACE FUNCTION public.handle_new_worker_public_holidays()
 RETURNS trigger
@@ -31,7 +34,6 @@ BEGIN
     display_code,
     bg_color,
     text_color,
-    leave_kind,
     leave_status
   )
   SELECT
@@ -57,7 +59,6 @@ BEGIN
     'PH',
     '#6366f1',
     '#ffffff',
-    'public_holiday',
     'Approved'
   FROM public.company_calendar_days d
   WHERE d.day_type = 'public_holiday'
@@ -87,7 +88,7 @@ BEGIN
         )
       )
     )
-  ON CONFLICT (worker_id, start_date) WHERE (leave_kind = 'public_holiday')
+  ON CONFLICT (worker_id, start_date) WHERE (event_type = 'Leave' AND display_code = 'PH')
   DO NOTHING;
 
   RETURN NEW;
@@ -109,6 +110,6 @@ CREATE TRIGGER trg_auto_assign_public_holidays
   EXECUTE FUNCTION public.handle_new_worker_public_holidays();
 
 COMMENT ON FUNCTION public.handle_new_worker_public_holidays() IS
-  'After a worker is created, assign current/future company public holidays. Idempotent; never mutates existing holiday rows.';
+  'After a worker is created, assign current/future company public holidays using event_type. Idempotent; never mutates existing holiday rows.';
 
 NOTIFY pgrst, 'reload schema';
