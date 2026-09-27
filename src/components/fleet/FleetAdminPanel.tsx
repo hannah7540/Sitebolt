@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Loader2, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Loader2, Plus, Printer, QrCode, Search, Trash2 } from "lucide-react";
 import {
   fetchOrganizationFleet,
   FLEET_STATUSES,
@@ -21,10 +21,12 @@ import {
 import {
   fleetStatusMeta,
   formatFleetAssignedWorker,
+  formatFleetAssignment,
   getFleetRegoExpiryStatus,
   matchesFleetSearch,
 } from "@/lib/fleet-utils";
 import AddFleetModal from "@/components/fleet/AddFleetModal";
+import FleetQRModal from "@/components/fleet/FleetQRModal";
 import FleetDocumentsModal from "@/components/fleet/FleetDocumentsModal";
 import FleetArchiveModal from "@/components/fleet/FleetArchiveModal";
 import FleetDeleteConfirmModal from "@/components/fleet/FleetDeleteConfirmModal";
@@ -61,6 +63,8 @@ export default function FleetAdminPanel() {
     null
   );
   const [deleteTarget, setDeleteTarget] = useState<OrganizationFleetVehicle | null>(null);
+  const [qrVehicle, setQrVehicle] = useState<OrganizationFleetVehicle | null>(null);
+  const [qrAutoPrint, setQrAutoPrint] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
   const loadFleet = useCallback(async () => {
@@ -288,6 +292,7 @@ export default function FleetAdminPanel() {
                 <th className="px-4 py-3">Warranty Fitness</th>
                 <th className="px-4 py-3">Current Hours</th>
                 <th className="px-4 py-3">Assigned Worker</th>
+                <th className="px-4 py-3">Assignment</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -295,7 +300,7 @@ export default function FleetAdminPanel() {
             <tbody>
               {filteredVehicles.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     {searchQuery.trim()
                       ? "No fleet vehicles match your search."
                       : listTab === "archived"
@@ -372,6 +377,9 @@ export default function FleetAdminPanel() {
                       <td className="px-4 py-3 text-slate-600">
                         {formatFleetAssignedWorker(vehicle)}
                       </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatFleetAssignment(vehicle)}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={cn(
@@ -390,6 +398,28 @@ export default function FleetAdminPanel() {
                             className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                           >
                             Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQrAutoPrint(false);
+                              setQrVehicle(vehicle);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            View QR Code
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQrAutoPrint(true);
+                              setQrVehicle(vehicle);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-orange-200 px-2.5 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            Print QR Code
                           </button>
                           <button
                             type="button"
@@ -449,6 +479,17 @@ export default function FleetAdminPanel() {
           vehicle={editVehicle}
           onClose={closeEditModal}
           onSaved={() => void loadFleet()}
+        />
+      ) : null}
+
+      {qrVehicle ? (
+        <FleetQRModal
+          vehicle={qrVehicle}
+          autoPrint={qrAutoPrint}
+          onClose={() => {
+            setQrVehicle(null);
+            setQrAutoPrint(false);
+          }}
         />
       ) : null}
 

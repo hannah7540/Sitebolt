@@ -61,6 +61,7 @@ import MasterDashboardInfoModal from "@/components/administration/MasterDashboar
 import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
 import type { IncidentReportRecord } from "@/lib/incident-reports";
 import type { PlantPrestart } from "@/lib/supabase";
+import { FLEET_ASSIGNMENT_STATES } from "@/lib/fleet-prestart";
 import type { SiteFormSubmission } from "@/lib/site-forms";
 import type { FormWorkerAssignment } from "@/lib/induction-form-builder";
 import type { SwmsAssignmentRecord } from "@/lib/supabase";
@@ -210,6 +211,7 @@ export default function MasterProjectDashboard() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedState, setSelectedState] = useState("");
   const [projectFilterOpen, setProjectFilterOpen] = useState(false);
   const projectFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const [loading, setLoading] = useState(true);
@@ -250,8 +252,12 @@ export default function MasterProjectDashboard() {
   }, [projects.length, selectedProjectIds]);
   const allProjectsSelected = effectiveProjectIds.length === 0;
   const filteredSnapshot = useMemo(
-    () => filterMasterDashboardSnapshot(snapshot, effectiveProjectIds),
-    [snapshot, effectiveProjectIds]
+    () =>
+      filterMasterDashboardSnapshot(snapshot, effectiveProjectIds, {
+        state: selectedState || null,
+        projects,
+      }),
+    [snapshot, effectiveProjectIds, selectedState, projects]
   );
   const data = useMemo(
     () => toMasterDashboardWidgetData(filteredSnapshot, workers),
@@ -472,9 +478,27 @@ export default function MasterProjectDashboard() {
               </div>
             </DropdownPanel>
           </div>
+          <select
+            className={cn(inputClass, "w-full max-w-[160px]")}
+            value={selectedState}
+            onChange={(event) => setSelectedState(event.target.value)}
+            aria-label="Filter by state"
+          >
+            <option value="">All States</option>
+            {FLEET_ASSIGNMENT_STATES.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </select>
           <PastSubmissionsTrigger
             label="Past Site Daily Logs"
             onClick={() => setPastSubmissionsType("daily_prestarts")}
+            className="self-end"
+          />
+          <PastSubmissionsTrigger
+            label="Past Pre-Starts"
+            onClick={() => setPastSubmissionsType("plant_prestarts")}
             className="self-end"
           />
         </div>

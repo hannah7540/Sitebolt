@@ -1529,6 +1529,10 @@ export interface PlantPrestart {
   created_at: string;
   is_read?: boolean | null;
   read_at?: string | null;
+  vehicle_type?: string | null;
+  fleet_id?: string | null;
+  assigned_state?: string | null;
+  fleet_unit_number?: string | null;
 }
 
 export async function fetchWorkers(): Promise<Worker[]> {
@@ -2888,6 +2892,10 @@ export async function resolvePlantPrestartDefect(input: {
 
   if (lastError) {
     return { error: lastError };
+  }
+
+  if (!input.plantId?.trim()) {
+    return { error: null };
   }
 
   const { error: plantError } = await supabase

@@ -91,11 +91,13 @@ export function fleetStatusMeta(status: FleetStatus | "archived" | string): {
 }
 
 export function formatFleetAssignment(vehicle: OrganizationFleetVehicle): string {
-  const parts = [
-    vehicle.assigned_worker_name,
-    vehicle.assigned_project_name,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Unassigned";
+  if (vehicle.assigned_project_name?.trim()) {
+    return `Project · ${vehicle.assigned_project_name.trim()}`;
+  }
+  if (vehicle.state?.trim()) {
+    return `State · ${vehicle.state.trim()}`;
+  }
+  return "Unassigned";
 }
 
 export function formatFleetAssignedWorker(
@@ -186,6 +188,7 @@ export function matchesFleetSearch(
     vehicle.archived_reason,
     vehicle.assigned_worker_name,
     vehicle.assigned_project_name,
+    vehicle.state,
   ]
     .filter(Boolean)
     .join(" ")

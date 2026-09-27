@@ -5,6 +5,13 @@ export function getPlantPrestartDisplayTitle(
   prestart: PlantPrestart,
   plant: PlantAsset[]
 ): string {
+  if (
+    String(prestart.vehicle_type ?? "").toLowerCase() === "fleet" ||
+    prestart.fleet_id
+  ) {
+    const unit = prestart.fleet_unit_number?.trim() || "Fleet vehicle";
+    return `${unit} · Fleet Pre-Start`;
+  }
   const asset = plant.find((row) => row.id === prestart.plant_id);
   const unit = asset?.unit_number ?? "Unknown unit";
   const descriptor = [asset?.make, asset?.model].filter(Boolean).join(" ");

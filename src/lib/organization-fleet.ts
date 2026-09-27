@@ -35,6 +35,8 @@ const OPTIONAL_FLEET_COLUMNS = [
   "assigned_worker_name",
   "assigned_project_id",
   "assigned_project_name",
+  "state",
+  "current_kms",
   "status",
   "updated_at",
 ] as const;
@@ -71,6 +73,8 @@ export interface OrganizationFleetVehicle {
   assigned_worker_name: string | null;
   assigned_project_id: string | null;
   assigned_project_name: string | null;
+  state: string | null;
+  current_kms?: number | null;
   status: FleetStatus | "archived";
   archived_at?: string | null;
   archived_reason?: string | null;
@@ -99,6 +103,8 @@ export interface FleetVehicleInput {
   assignedWorkerName?: string | null;
   assignedProjectId?: string | null;
   assignedProjectName?: string | null;
+  state?: string | null;
+  currentKms?: number | null;
   status?: FleetStatus;
 }
 
@@ -141,6 +147,11 @@ function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehic
     assigned_project_name: row.assigned_project_name
       ? String(row.assigned_project_name)
       : null,
+    state: firstNonEmptyText(row.state),
+    current_kms:
+      row.current_kms == null || row.current_kms === ""
+        ? null
+        : Number(row.current_kms),
     status: normalizeFleetStatus(row.status),
     archived_at: row.archived_at ? String(row.archived_at) : null,
     archived_reason: row.archived_reason ? String(row.archived_reason) : null,
@@ -270,6 +281,8 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
     current_hours: input.currentHours ?? 0,
     assigned_project_id: nullIfBlankUuid(input.assignedProjectId),
     assigned_project_name: input.assignedProjectName?.trim() || null,
+    state: input.state?.trim() || null,
+    current_kms: input.currentKms ?? null,
     status: input.status ?? "Active",
     updated_at: new Date().toISOString(),
   };
@@ -360,6 +373,13 @@ async function writeFleetVehicle(input: {
   }
 
   return { error: "Failed to save fleet vehicle.", data: null };
+}
+
+export async function fetchOrganizationFleetById(
+  id: string
+): Promise<OrganizationFleetVehicle | null> {
+  if (!isSupabaseConfigured() || !id.trim()) return null;
+  return fetchFleetVehicleById(id.trim());
 }
 
 export async function fetchOrganizationFleet(): Promise<OrganizationFleetVehicle[]> {

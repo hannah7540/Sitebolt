@@ -13,6 +13,15 @@ import {
   type FleetStatus,
   type OrganizationFleetVehicle,
 } from "@/lib/organization-fleet";
+import {
+  FLEET_ASSIGNMENT_STATES,
+  type FleetAssignmentKind,
+} from "@/lib/fleet-prestart";
+import {
+  fetchProjects,
+  filterActiveProjects,
+  type DbProject,
+} from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import { uploadFleetDocument } from "@/lib/fleet-upload";
@@ -72,7 +81,15 @@ export default function AddFleetModal({
   const [assignedWorkerId, setAssignedWorkerId] = useState<string | null>(
     vehicle?.assigned_worker_id ?? null
   );
+  const [assignmentKind, setAssignmentKind] = useState<FleetAssignmentKind>(
+    vehicle?.assigned_project_id ? "project" : "state"
+  );
+  const [assignedState, setAssignedState] = useState(vehicle?.state ?? "");
+  const [assignedProjectId, setAssignedProjectId] = useState(
+    vehicle?.assigned_project_id ?? ""
+  );
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [projects, setProjects] = useState<DbProject[]>([]);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
   const initialAssignedWorkerId = vehicle?.assigned_worker_id ?? null;
 
@@ -81,9 +98,13 @@ export default function AddFleetModal({
 
     void (async () => {
       setLoadingWorkers(true);
-      const rows = await fetchActiveWorkersForFleetAssignment();
+      const [rows, projectRows] = await Promise.all([
+        fetchActiveWorkersForFleetAssignment(),
+        fetchProjects(),
+      ]);
       if (!cancelled) {
         setWorkers(rows);
+        setProjects(filterActiveProjects(projectRows));
         setLoadingWorkers(false);
       }
     })();
@@ -139,6 +160,9 @@ export default function AddFleetModal({
     setWarrantyFitnessDocumentUrl(vehicle.warranty_fitness_document_url ?? "");
     setInsuranceDocumentUrl(vehicle.insurance_document_url ?? "");
     setAssignedWorkerId(vehicle.assigned_worker_id ?? null);
+    setAssignmentKind(vehicle.assigned_project_id ? "project" : "state");
+    setAssignedState(vehicle.state ?? "");
+    setAssignedProjectId(vehicle.assigned_project_id ?? "");
   }, [vehicle]);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -150,12 +174,23 @@ export default function AddFleetModal({
       setError(FLEET_REGO_REQUIRED_MESSAGE);
       return;
     }
+    if (assignmentKind === "state" && !assignedState) {
+      setActiveTab("basic");
+      setError("Select a state assignment.");
+      return;
+    }
+    if (assignmentKind === "project" && !assignedProjectId) {
+      setActiveTab("basic");
+      setError("Select a project assignment.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
     setRegoError(null);
 
     try {
+      const selectedProject = projects.find((row) => row.id === assignedProjectId);
       const payload = {
         unitNumber,
         make,
@@ -165,6 +200,10 @@ export default function AddFleetModal({
         serial_number: serialNumber.trim() || null,
         currentHours: Number(currentHours) || 0,
         status,
+        state: assignmentKind === "state" ? assignedState || null : null,
+        assignedProjectId: assignmentKind === "project" ? assignedProjectId || null : null,
+        assignedProjectName:
+          assignmentKind === "project" ? selectedProject?.name ?? null : null,
         regoExpiryDate: regoExpiryDate || null,
         warrantyFitnessExpiryDate: warrantyFitnessExpiryDate || null,
         insuranceExpiryDate: insuranceExpiryDate || null,
@@ -401,6 +440,78 @@ export default function AddFleetModal({
                 placeholder="12450"
               />
             </label>
+            <div className="sm:col-span-2 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className={labelClass}>Location assignment</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignmentKind("state");
+                    setAssignedProjectId("");
+                  }}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                    assignmentKind === "state"
+                      ? "bg-orange-500 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  )}
+                >
+                  State
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignmentKind("project");
+                    setAssignedState("");
+                  }}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                    assignmentKind === "project"
+                      ? "bg-orange-500 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  )}
+                >
+                  Project
+                </button>
+              </div>
+              {assignmentKind === "state" ? (
+                <label className="block">
+                  <span className={labelClass}>State</span>
+                  <select
+                    className={inputClass}
+                    value={assignedState}
+                    onChange={(event) => setAssignedState(event.target.value)}
+                    required
+                  >
+                    <option value="">Select state</option>
+                    {FLEET_ASSIGNMENT_STATES.map((state) => (
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="block">
+                  <span className={labelClass}>Project</span>
+                  <select
+                    className={inputClass}
+                    value={assignedProjectId}
+                    onChange={(event) => setAssignedProjectId(event.target.value)}
+                    required
+                  >
+                    <option value="">Select project</option>
+                    {[...projects]
+                      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+                      .map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+            </div>
             <div className="sm:col-span-2">
               <WorkerSearchSelect
                 mode="single"

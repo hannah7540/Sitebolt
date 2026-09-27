@@ -209,6 +209,12 @@ export function getPlantPrestartUnitLabel(
   prestart: PlantPrestart,
   plant: PlantAsset[]
 ): string {
+  if (
+    String(prestart.vehicle_type ?? "").toLowerCase() === "fleet" ||
+    prestart.fleet_id
+  ) {
+    return prestart.fleet_unit_number?.trim() || "Fleet vehicle";
+  }
   const match = plant.find((asset) => asset.id === prestart.plant_id);
   return match?.unit_number ?? "Unknown unit";
 }

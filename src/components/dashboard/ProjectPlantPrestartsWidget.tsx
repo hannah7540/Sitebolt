@@ -84,7 +84,7 @@ export default function ProjectPlantPrestartsWidget({
               className="text-left"
             >
               <h2 className="text-2xl font-bold text-slate-900 hover:text-orange-700">
-                Plant Pre-Starts
+                Pre-Starts
               </h2>
             </button>
             <button
@@ -116,7 +116,7 @@ export default function ProjectPlantPrestartsWidget({
               onClick={onOpenList}
               className="mt-1 text-xs font-semibold text-orange-600 hover:text-orange-700"
             >
-              View all plant pre-starts ({prestarts.length})
+              View all pre-starts ({prestarts.length})
             </button>
           ) : null}
         </div>

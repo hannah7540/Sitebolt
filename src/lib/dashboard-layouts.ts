@@ -60,7 +60,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   pending_requests: "Pending Requests",
   daily_prestarts: "Daily Pre-Starts",
   toolbox_talks: "Toolbox Talks",
-  plant_prestarts: "Plant Pre-Starts",
+  plant_prestarts: "Pre-Starts",
   safety_walks: "Safety Walks",
   submitted_forms: "Submitted Forms",
   company_profile: "Company Profile",

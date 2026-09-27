@@ -25,6 +25,7 @@ import { getWorkerDisplayName } from "./worker-utils";
 import { getProjectDisplayName } from "./project-resolver";
 import { isActiveDashboardDefect } from "./plant-prestart-utils";
 import { getPlantPrestartDisplayTitle } from "./plant-prestart-utils";
+import { isFleetVehiclePrestart } from "./fleet-prestart";
 import { fetchSwmsDocuments, type SwmsDocumentSummary } from "./swms";
 
 export interface MasterDashboardItem {
@@ -123,45 +124,83 @@ export function matchesDashboardProject(
   return filterProjectIds.includes(recordId);
 }
 
+function matchesDashboardState(
+  record: { project_id?: string | null; assigned_state?: string | null },
+  state: string | null | undefined,
+  projectStateById: Map<string, string | null>
+): boolean {
+  if (!state) return true;
+  if (record.assigned_state) return record.assigned_state === state;
+  const projectId = (record.project_id ?? "").trim();
+  if (!projectId) return false;
+  return projectStateById.get(projectId) === state;
+}
+
+function isVisibleMasterPrestart(row: PlantPrestart): boolean {
+  return isActiveDashboardDefect(row) || isFleetVehiclePrestart(row);
+}
+
 export function filterMasterDashboardSnapshot(
   snapshot: MasterProjectDashboardSnapshot,
-  projectIds: readonly string[] | null | undefined
+  projectIds: readonly string[] | null | undefined,
+  options?: {
+    state?: string | null;
+    projects?: Array<{ id: string; state?: string | null }>;
+  }
 ): MasterProjectDashboardSnapshot {
   const swmsProjectById = new Map(
     snapshot.swmsDocuments.map((doc) => [doc.id, doc.project_id ?? null])
   );
+  const projectStateById = new Map(
+    (options?.projects ?? []).map((project) => [project.id, project.state ?? null])
+  );
+  const state = options?.state?.trim() || null;
 
   return {
     ...snapshot,
     incidents: snapshot.incidents.filter(
-      (row) => isOpenIncident(row) && matchesDashboardProject(row.project_id, projectIds)
+      (row) =>
+        isOpenIncident(row) &&
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     safetyWalks: snapshot.safetyWalks.filter(
       (row) =>
-        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectIds)
+        !isSiteFormViewed(row) &&
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     toolboxTalks: snapshot.toolboxTalks.filter(
       (row) =>
-        !isSiteFormViewed(row) && matchesDashboardProject(row.project_id, projectIds)
+        !isSiteFormViewed(row) &&
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     plantPrestarts: snapshot.plantPrestarts.filter(
       (row) =>
-        isActiveDashboardDefect(row) &&
-        matchesDashboardProject(row.project_id, projectIds)
+        isVisibleMasterPrestart(row) &&
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     leaveRequests: snapshot.leaveRequests.filter(
       (row) =>
         isLeaveRequestPending(row.status) &&
-        matchesDashboardProject(row.project_id, projectIds)
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     incompleteInductions: snapshot.incompleteInductions.filter(
       (row) =>
         row.status !== "completed" &&
-        matchesDashboardProject(row.project_id, projectIds)
+        matchesDashboardProject(row.project_id, projectIds) &&
+        matchesDashboardState(row, state, projectStateById)
     ),
     swmsWaitingSignOff: snapshot.swmsWaitingSignOff.filter((row) => {
       if (!isPendingSwmsAssignment(row)) return false;
-      return matchesDashboardProject(swmsProjectById.get(row.swms_id) ?? null, projectIds);
+      const projectId = swmsProjectById.get(row.swms_id) ?? null;
+      return (
+        matchesDashboardProject(projectId, projectIds) &&
+        matchesDashboardState({ project_id: projectId }, state, projectStateById)
+      );
     }),
   };
 }
@@ -303,9 +342,7 @@ export async function fetchMasterProjectDashboardSnapshot(): Promise<MasterProje
   const toolboxTalks = (siteForms ?? []).filter(
     (form) => form?.form_type === "toolbox_talk" && !isSiteFormViewed(form)
   );
-  const plantPrestarts = (prestarts ?? []).filter((row) =>
-    isActiveDashboardDefect(row)
-  );
+  const plantPrestarts = (prestarts ?? []).filter((row) => isVisibleMasterPrestart(row));
   const pendingLeave = (leaveRows ?? []).filter((row) =>
     isLeaveRequestPending(row?.status)
   );

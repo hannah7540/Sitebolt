@@ -72,6 +72,10 @@ export const TABLE_KNOWN_COLUMNS: Record<string, ReadonlySet<string>> = {
     "signature_url",
     "submitted_at",
     "created_at",
+    "vehicle_type",
+    "fleet_id",
+    "assigned_state",
+    "fleet_unit_number",
     "form_metadata",
   ]),
   rfis: new Set([
