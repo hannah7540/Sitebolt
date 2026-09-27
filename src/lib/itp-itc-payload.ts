@@ -25,6 +25,8 @@ const UI_ONLY_KEYS = new Set([
 ]);
 
 const PHOTO_KEYS = new Set(["photos", "photo_urls", "attachments", "evidence_urls"]);
+const PHOTO_SLOT_CONTAINER_KEYS = new Set(["photo_slot", "photo_slots"]);
+const PHOTO_SLOT_KEY_RE = /^(photo_slots?|photo_slot[_-].+)$/i;
 const CHECKLIST_KEYS = new Set(["checklist", "items"]);
 const SIGNATURE_KEYS = new Set(["signatures", "signoffs"]);
 
@@ -74,6 +76,12 @@ export function hydrateItpItcRow(row: Record<string, unknown>): Record<string, u
   }
   if (!Array.isArray(next.signoffs) && Array.isArray(formData.signoffs)) {
     next.signoffs = formData.signoffs;
+  }
+  if (next.photo_slots == null && formData.photo_slots != null) {
+    next.photo_slots = formData.photo_slots;
+  }
+  if (next.photo_slot == null && formData.photo_slot != null) {
+    next.photo_slot = formData.photo_slot;
   }
 
   return next;
@@ -296,6 +304,102 @@ function asStringArray(value: unknown): string[] | null {
   return null;
 }
 
+export function isItcPhotoSlotKey(key: string): boolean {
+  return PHOTO_SLOT_KEY_RE.test(key);
+}
+
+function photoSlotIdFromKey(key: string): string | null {
+  if (PHOTO_SLOT_CONTAINER_KEYS.has(key)) return null;
+  const match = key.match(/^photo_slot[_-](.+)$/i);
+  return match?.[1] ?? null;
+}
+
+function serializePhotoSlotEntry(value: unknown): unknown {
+  if (value === undefined || value === "") return null;
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const url = value.trim();
+    return url ? { url, path: url } : null;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map(serializePhotoSlotEntry).filter((item) => item != null);
+    return items.length ? items : null;
+  }
+  if (typeof value === "object") {
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry === undefined) continue;
+      next[key] = entry;
+    }
+    return Object.keys(next).length ? next : null;
+  }
+  return null;
+}
+
+export function collectItcPhotoSlots(
+  raw: Record<string, unknown>
+): Record<string, unknown> | null {
+  const slots: Record<string, unknown> = {};
+
+  const mergeSlots = (source: unknown) => {
+    if (source == null || source === "") return;
+    if (Array.isArray(source)) {
+      source.forEach((item, index) => {
+        const cleaned = serializePhotoSlotEntry(item);
+        if (cleaned == null) return;
+        const record =
+          cleaned && typeof cleaned === "object" && !Array.isArray(cleaned)
+            ? (cleaned as Record<string, unknown>)
+            : { url: cleaned };
+        const id = typeof record.id === "string" && record.id.trim() ? record.id : String(index);
+        slots[id] = record;
+      });
+      return;
+    }
+    if (typeof source === "object") {
+      for (const [id, item] of Object.entries(source as Record<string, unknown>)) {
+        const cleaned = serializePhotoSlotEntry(item);
+        if (cleaned != null) slots[id] = cleaned;
+      }
+    }
+  };
+
+  mergeSlots(raw.photo_slots);
+  mergeSlots(raw.photo_slot);
+  for (const [key, value] of Object.entries(raw)) {
+    const slotId = photoSlotIdFromKey(key);
+    if (!slotId) continue;
+    const cleaned = serializePhotoSlotEntry(value);
+    if (cleaned != null) slots[slotId] = cleaned;
+  }
+
+  const form = asRecord(raw.form_data);
+  if (!Object.keys(slots).length) {
+    mergeSlots(form.photo_slots);
+    mergeSlots(form.photo_slot);
+  }
+
+  return Object.keys(slots).length ? slots : null;
+}
+
+function photoUrlsFromSlots(slots: Record<string, unknown> | null): string[] {
+  if (!slots) return [];
+  const urls: string[] = [];
+  for (const value of Object.values(slots)) {
+    if (typeof value === "string" && value.trim()) {
+      urls.push(value.trim());
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      if (record.not_required === true) continue;
+      const url = record.url ?? record.photo_url ?? record.path ?? record.src;
+      if (typeof url === "string" && url.trim()) urls.push(url.trim());
+    }
+  }
+  return urls;
+}
+
 function mergeFormData(
   existing: unknown,
   extra: Record<string, unknown>
@@ -341,10 +445,13 @@ export function sanitizeItpItcWritePayload(
   const allowed = new Set(allowedColumns);
   const overflow: Record<string, unknown> = {};
   const next: Record<string, unknown> = {};
+  const photoSlots = collectItcPhotoSlots(raw);
+  const slotUrls = photoUrlsFromSlots(photoSlots);
 
   for (const [key, value] of Object.entries(raw)) {
     if (value === undefined) continue;
     if (UI_ONLY_KEYS.has(key)) continue;
+    if (isItcPhotoSlotKey(key)) continue;
 
     let mappedKey = key;
     let mappedValue: unknown = value;
@@ -382,6 +489,25 @@ export function sanitizeItpItcWritePayload(
     }
 
     overflow[key] = mappedValue;
+  }
+
+  if (photoSlots) {
+    if (allowed.has("photo_slots")) {
+      next.photo_slots = photoSlots;
+    } else {
+      overflow.photo_slots = photoSlots;
+    }
+    if (slotUrls.length) {
+      if (allowed.has("photos")) {
+        const existing = asStringArray(next.photos) ?? [];
+        next.photos = Array.from(new Set([...existing, ...slotUrls]));
+      } else if (allowed.has("photo_urls")) {
+        const existing = asStringArray(next.photo_urls) ?? [];
+        next.photo_urls = Array.from(new Set([...existing, ...slotUrls]));
+      } else {
+        overflow.photos = slotUrls;
+      }
+    }
   }
 
   if (allowed.has("form_data")) {

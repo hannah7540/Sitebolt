@@ -29,8 +29,12 @@ import {
   type ProjectItc,
 } from "@/lib/itc-service";
 import { formatItcAutoName } from "@/lib/itc-naming";
-import { PROJECT_ITCS_TABLE, retryItpItcWrite } from "@/lib/itp-itc-payload";
-import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
+import {
+  PROJECT_ITC_COLUMNS,
+  PROJECT_ITCS_TABLE,
+  retryItpItcWrite,
+  sanitizeItpItcWritePayload,
+} from "@/lib/itp-itc-payload";
 import { fetchItcMasterSpecs } from "@/lib/itc-master-spec-service";
 import { fetchCompactionTests, type ItcCompactionTest } from "@/lib/itc-compaction-service";
 import {
@@ -1232,36 +1236,18 @@ export async function listFormVersions(): Promise<FieldFormVersion[]> {
 }
 
 async function writeProjectItcIgnoringUnknownColumns(payload: Record<string, unknown>) {
-  const form =
-    payload.form_data && typeof payload.form_data === "object" && !Array.isArray(payload.form_data)
-      ? (payload.form_data as Record<string, unknown>)
-      : {};
-  const next: Record<string, unknown> = { ...payload };
-  delete next.form_data;
-  next.checklist_answers = payload.checklist_answers ?? payload.data ?? form.checklist_answers ?? form.checklist ?? {};
-
-  let lastError: string | null = null;
-  for (let attempt = 0; attempt < 14; attempt += 1) {
-    const { data, error } = await supabase
-      .from(PROJECT_ITCS_TABLE)
-      .insert(next)
-      .select("*")
-      .maybeSingle();
-    if (!error) return { data, error: null };
-    lastError = error.message;
-    const missing = parseMissingColumnFromError(lastError);
-    if (missing && missing in next) {
-      delete next[missing];
-      continue;
+  return retryItpItcWrite(
+    "project_itcs.pin_drop",
+    sanitizeItpItcWritePayload(payload, PROJECT_ITC_COLUMNS),
+    async (next) => {
+      const { data, error } = await supabase
+        .from(PROJECT_ITCS_TABLE)
+        .insert(next)
+        .select("*")
+        .maybeSingle();
+      return { data, error };
     }
-    const lower = lastError.toLowerCase();
-    if (lower.includes("form_data") && "form_data" in next) {
-      delete next.form_data;
-      continue;
-    }
-    return { data: undefined, error: lastError };
-  }
-  return { data: undefined, error: lastError };
+  );
 }
 
 export async function createItcFromPin(

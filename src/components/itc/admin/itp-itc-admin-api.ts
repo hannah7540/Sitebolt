@@ -7,11 +7,14 @@ import {
   uploadToStorageBucket,
 } from "@/lib/itp-itc-storage";
 import {
+  PROJECT_ITC_COLUMNS,
   PROJECT_ITCS_TABLE,
+  PROJECT_ITP_COLUMNS,
   PROJECT_ITPS_TABLE,
   hydrateItpItcRow,
   packColumnIntoFormData,
   retryItpItcWrite,
+  sanitizeItpItcWritePayload,
 } from "@/lib/itp-itc-payload";
 import { fetchProjectItcs } from "@/lib/itc-service";
 import { fetchProjectItps } from "@/lib/itp-service";
@@ -896,6 +899,38 @@ export async function createAdminItcFromPin(input: {
   };
 }
 
+const LEGACY_ITC_WRITE_COLUMNS = [
+  ...PROJECT_ITC_COLUMNS,
+  "checklist_answers",
+  "data",
+  "zone",
+  "stage",
+  "from_pit",
+  "to_pit",
+  "itp_id",
+  "form_version_id",
+  "service_id",
+  "signature_url",
+  "signed_at",
+  "contractor_sign",
+  "client_sign",
+  "reviewed_by",
+  "reviewed_signature_url",
+  "reviewed_at",
+  "completed_by",
+] as const;
+
+const ITC_CORE_WRITE_KEYS = new Set([
+  "id",
+  "project_id",
+  "itp_id",
+  "itc_id",
+  "itc_number",
+  "status",
+  "updated_at",
+  "form_data",
+]);
+
 async function writeItcMutation<T>(input: {
   table: string;
   payload: Record<string, unknown>;
@@ -911,11 +946,8 @@ async function writeItcMutation<T>(input: {
     }
     lastError = result.error.message;
     const missing = parseMissingColumnFromError(lastError);
-    if (missing && missing in payload) {
+    if (missing && missing in payload && missing !== "form_data") {
       payload = packColumnIntoFormData(payload, missing);
-      const next = { ...payload };
-      delete next[missing];
-      payload = next;
       continue;
     }
     if (isFormDataColumnError(lastError) && "form_data" in payload) {
@@ -923,6 +955,27 @@ async function writeItcMutation<T>(input: {
       delete next.form_data;
       payload = next;
       continue;
+    }
+    if ("form_data" in payload) {
+      const extras: Record<string, unknown> = {};
+      const slim: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(payload)) {
+        if (ITC_CORE_WRITE_KEYS.has(key)) {
+          slim[key] = value;
+        } else {
+          extras[key] = value;
+        }
+      }
+      if (Object.keys(extras).length > 0) {
+        payload = {
+          ...slim,
+          form_data: {
+            ...asFormRecord(slim.form_data),
+            ...extras,
+          },
+        };
+        continue;
+      }
     }
     return { data: undefined, error: lastError };
   }
@@ -949,20 +1002,19 @@ function payloadForItcTable(table: string, payload: Record<string, unknown>): Re
     form.checklist ??
     form.data ??
     {};
-  if (table === PROJECT_ITCS_TABLE) {
-    const next = { ...payload };
-    next.checklist_answers = checklist;
-    next.form_data = {
+  const next: Record<string, unknown> = {
+    ...payload,
+    checklist_answers: checklist,
+    form_data: {
       ...form,
       ...asFormRecord(payload.form_data),
-    };
-    return next;
-  }
-  return {
-    ...payload,
-    form_data: payload.form_data ?? payload.data ?? checklist ?? {},
-    checklist_answers: checklist,
+      checklist_answers: checklist,
+    },
   };
+  return sanitizeItpItcWritePayload(
+    next,
+    table === PROJECT_ITCS_TABLE ? PROJECT_ITC_COLUMNS : LEGACY_ITC_WRITE_COLUMNS
+  );
 }
 
 async function updateAdminItcRow(
@@ -1122,10 +1174,14 @@ export async function saveAdminItpRecord(itp: AdminItpRecord): Promise<{ error: 
       service_run_coordinates: itp.service_run_coordinates,
     },
   };
-  return retryItpItcWrite("project_itps.admin_save", payload, async (next) => {
-    const { error } = await supabase.from(PROJECT_ITPS_TABLE).update(next).eq("id", itp.id);
-    return { error };
-  });
+  return retryItpItcWrite(
+    "project_itps.admin_save",
+    sanitizeItpItcWritePayload(payload, PROJECT_ITP_COLUMNS),
+    async (next) => {
+      const { error } = await supabase.from(PROJECT_ITPS_TABLE).update(next).eq("id", itp.id);
+      return { error };
+    }
+  );
 }
 
 export async function uploadAdminItcPhoto(input: {
