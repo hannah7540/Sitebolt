@@ -10,6 +10,7 @@ import {
   PROJECT_ITCS_TABLE,
   PROJECT_ITPS_TABLE,
   hydrateItpItcRow,
+  packColumnIntoFormData,
   retryItpItcWrite,
 } from "@/lib/itp-itc-payload";
 import { fetchProjectItcs } from "@/lib/itc-service";
@@ -41,7 +42,10 @@ import {
   formatAdminItcNumber,
   maxAdminItcSequence,
   parseAdminItcSequence,
+  parseLinesCount,
+  parseServiceRunCoordinates,
   sanitizeAdminItcPart,
+  type ServiceRunPoint,
 } from "@/components/itc/admin/itp-itc-admin-numbering";
 
 export const ITP_PLANS_BUCKET = "itp-plans";
@@ -75,8 +79,10 @@ export interface AdminItpRecord {
   managing_contractor: string | null;
   subcontractor: string | null;
   drawing_ref: string | null;
+  drawing_name: string | null;
   plan_url: string | null;
   template_key: string | null;
+  service_run_coordinates: ServiceRunPoint[];
   status: AdminStatusBadge;
   created_at: string | null;
 }
@@ -87,10 +93,14 @@ export interface AdminItcRecord {
   itp_id: string | null;
   number: string;
   run_number: string | null;
+  service: string | null;
+  lines_count: number | null;
   area: string | null;
   drawing_ref: string | null;
+  drawing_name: string | null;
   pipe_size: string | null;
   pipe_material: string | null;
+  service_run_coordinates: ServiceRunPoint[];
   template_key: string | null;
   pin_x: number | null;
   pin_y: number | null;
@@ -312,9 +322,13 @@ export function mapItpRow(row: Record<string, unknown>): AdminItpRecord {
     client: str(form, "client"),
     managing_contractor: str(form, "managing_contractor"),
     subcontractor: str(hydrated, "subcontractor_name") ?? str(form, "subcontractor"),
-    drawing_ref: str(form, "drawing_ref") ?? str(hydrated, "revision"),
+    drawing_ref: str(form, "drawing_ref") ?? str(hydrated, "revision") ?? str(hydrated, "drawing_name"),
+    drawing_name: str(hydrated, "drawing_name") ?? str(form, "drawing_name") ?? str(form, "drawing_ref"),
     plan_url: str(form, "plan_url"),
     template_key: str(hydrated, "template_key") ?? str(form, "template_key"),
+    service_run_coordinates: parseServiceRunCoordinates(
+      hydrated.service_run_coordinates ?? form.service_run_coordinates
+    ),
     status: mapStatus(str(hydrated, "status")),
     created_at: str(hydrated, "created_at"),
   };
@@ -368,10 +382,23 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
       str(form, "run_number") ??
       str(hydrated, "start_location") ??
       str(hydrated, "upstream_pit_number"),
+    service:
+      str(hydrated, "service") ??
+      str(form, "service") ??
+      str(hydrated, "service_type") ??
+      str(form, "service_type"),
+    lines_count:
+      num(hydrated, "lines_count") ??
+      num(form, "lines_count") ??
+      (parseLinesCount(str(form, "run_number") ?? str(hydrated, "start_location")) || null),
     area: str(hydrated, "building") ?? str(form, "area"),
-    drawing_ref: str(hydrated, "drawing_rev") ?? str(form, "drawing_ref"),
-    pipe_size: pipeSize,
-    pipe_material: pipeMaterial,
+    drawing_ref: str(hydrated, "drawing_rev") ?? str(form, "drawing_ref") ?? str(hydrated, "drawing_name"),
+    drawing_name: str(hydrated, "drawing_name") ?? str(form, "drawing_name") ?? str(form, "drawing_ref"),
+    pipe_size: str(hydrated, "pipe_size") ?? pipeSize,
+    pipe_material: str(hydrated, "pipe_material") ?? pipeMaterial,
+    service_run_coordinates: parseServiceRunCoordinates(
+      hydrated.service_run_coordinates ?? form.service_run_coordinates
+    ),
     template_key: templateKey,
     pin_x: num(hydrated, "pin_x") ?? num(hydrated, "map_x") ?? num(form, "pin_x"),
     pin_y: num(hydrated, "pin_y") ?? num(hydrated, "map_y") ?? num(form, "pin_y"),
@@ -571,6 +598,7 @@ export async function createAdminItp(input: {
     itp_number: itpNumber,
     title: input.title,
     revision: input.drawingRef || "A",
+    drawing_name: input.drawingRef || null,
     trade_category: template?.trade ?? "General",
     subcontractor_name: input.subcontractor,
     location_area: input.area,
@@ -581,6 +609,7 @@ export async function createAdminItp(input: {
       managing_contractor: input.managingContractor,
       subcontractor: input.subcontractor,
       drawing_ref: input.drawingRef,
+      drawing_name: input.drawingRef,
       plan_url: input.planUrl,
       template_key: input.templateKey,
       area: input.area,
@@ -649,7 +678,8 @@ function parseRpcItcResult(data: unknown): { number?: string; sequence?: number 
 export async function allocateAdminItcNumber(input: {
   projectId: string;
   projectName: string;
-  area: string;
+  service: string;
+  area?: string;
   preferredNumber?: string | null;
   reservedNumbers?: string[];
 }): Promise<{ number: string; sequence: number }> {
@@ -657,26 +687,27 @@ export async function allocateAdminItcNumber(input: {
     (input.reservedNumbers ?? []).map((value) => value.trim()).filter(Boolean)
   );
   let rpcCandidate: { number: string; sequence: number } | null = null;
+  const service = input.service.trim() || "SVC";
 
   if (isSupabaseConfigured()) {
     const existing = await listItcNumbersForPrefix(
       input.projectId,
-      adminItcNumberPrefix(input.projectName, input.area)
+      adminItcNumberPrefix(input.projectName, service)
     );
     for (const value of existing) taken.add(value);
 
     const rpc = await supabase.rpc("get_next_itc_no", {
-      project_name: sanitizeAdminItcPart(input.projectName, "Project"),
-      area: sanitizeAdminItcPart(input.area, "AREA"),
+      project_name: sanitizeAdminItcPart(input.projectName, "JOB"),
+      area: sanitizeAdminItcPart(input.area, service),
     });
     const parsed = rpc.error ? {} : parseRpcItcResult(rpc.data);
-    if (parsed.number && !taken.has(parsed.number)) {
+    if (parsed.number && !parsed.number.includes("/") && !taken.has(parsed.number)) {
       rpcCandidate = {
         number: parsed.number,
         sequence: parseAdminItcSequence(parsed.number) ?? parsed.sequence ?? 1,
       };
     } else if (parsed.sequence && parsed.sequence > 0) {
-      const candidate = formatAdminItcNumber(input.projectName, input.area, parsed.sequence);
+      const candidate = formatAdminItcNumber(input.projectName, service, parsed.sequence);
       if (!taken.has(candidate)) {
         rpcCandidate = { number: candidate, sequence: parsed.sequence };
       }
@@ -691,10 +722,10 @@ export async function allocateAdminItcNumber(input: {
   if (rpcCandidate) return rpcCandidate;
 
   let sequence = maxAdminItcSequence([...taken]) + 1;
-  let next = formatAdminItcNumber(input.projectName, input.area, sequence);
+  let next = formatAdminItcNumber(input.projectName, service, sequence);
   while (taken.has(next)) {
     sequence += 1;
-    next = formatAdminItcNumber(input.projectName, input.area, sequence);
+    next = formatAdminItcNumber(input.projectName, service, sequence);
   }
   return { number: next, sequence };
 }
@@ -705,9 +736,13 @@ export async function createAdminItcFromPin(input: {
   itp: AdminItpRecord;
   pinX: number;
   pinY: number;
-  runNumber: string;
+  runNumber?: string;
+  service: string;
+  linesCount: number;
   pipeSize: string;
   pipeMaterial: string;
+  drawingName?: string | null;
+  serviceRunCoordinates?: ServiceRunPoint[];
   specValues?: AdminItcSpecValues | null;
   preferredNumber?: string | null;
   reservedNumbers?: string[];
@@ -716,11 +751,15 @@ export async function createAdminItcFromPin(input: {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
   const template = getAdminItpTemplate(input.itp.template_key);
-  const service = template?.trade ?? "General";
+  const service = input.service.trim() || template?.trade || "SVC";
   const zone = input.itp.area?.trim() || "SITE";
+  const linesCount = parseLinesCount(input.linesCount) || 1;
+  const drawingName = input.drawingName?.trim() || input.itp.drawing_name || input.itp.drawing_ref || null;
+  const serviceRun = parseServiceRunCoordinates(input.serviceRunCoordinates);
   const allocated = await allocateAdminItcNumber({
     projectId: input.projectId,
     projectName: input.projectName,
+    service,
     area: input.itp.area || zone,
     preferredNumber: input.preferredNumber,
     reservedNumbers: input.reservedNumbers,
@@ -743,9 +782,12 @@ export async function createAdminItcFromPin(input: {
     building: input.itp.area,
     service_discipline: service,
     service_type: service,
-    trade_discipline: service,
-    start_location: input.runNumber,
-    end_location: input.runNumber,
+    service,
+    trade_discipline: template?.trade ?? service,
+    start_location: String(linesCount),
+    end_location: String(linesCount),
+    run_number: String(linesCount),
+    lines_count: linesCount,
     material_and_size: [input.pipeSize, input.pipeMaterial].filter(Boolean).join(" "),
     pipe_size: input.pipeSize,
     pipe_material: input.pipeMaterial,
@@ -753,7 +795,9 @@ export async function createAdminItcFromPin(input: {
     pin_y: input.pinY,
     map_x: input.pinX,
     map_y: input.pinY,
-    drawing_rev: input.itp.drawing_ref,
+    drawing_rev: drawingName,
+    drawing_name: drawingName,
+    service_run_coordinates: serviceRun,
     status: input.status ?? "in_progress",
     progress_percent: 0,
     spec_values: specValues,
@@ -764,12 +808,17 @@ export async function createAdminItcFromPin(input: {
     form_data: {
       itp_id: input.itp.id,
       template_key: input.itp.template_key,
-      run_number: input.runNumber,
+      run_number: String(linesCount),
+      lines_count: linesCount,
+      service,
+      service_type: service,
       pipe_size: input.pipeSize,
       pipe_material: input.pipeMaterial,
       pin_x: input.pinX,
       pin_y: input.pinY,
-      drawing_ref: input.itp.drawing_ref,
+      drawing_ref: drawingName,
+      drawing_name: drawingName,
+      service_run_coordinates: serviceRun,
       area: input.itp.area,
       itc_number: itcNumber,
       status: input.status ?? "in_progress",
@@ -802,6 +851,10 @@ export async function createAdminItcFromPin(input: {
         template_key: input.itp.template_key,
         spec_values: specValues,
         photo_slots: photoSlots,
+        service,
+        lines_count: linesCount,
+        drawing_name: drawingName,
+        service_run_coordinates: serviceRun,
         status: input.status === "not_started" ? "active" : "in_progress",
       },
     };
@@ -834,6 +887,10 @@ export async function createAdminItcFromPin(input: {
       spec_values: specValues,
       photo_slots: photoSlots,
       checklist,
+      service,
+      lines_count: linesCount,
+      drawing_name: drawingName,
+      service_run_coordinates: serviceRun,
       status: input.status === "not_started" ? "active" : "in_progress",
     },
   };
@@ -855,13 +912,16 @@ async function writeItcMutation<T>(input: {
     lastError = result.error.message;
     const missing = parseMissingColumnFromError(lastError);
     if (missing && missing in payload) {
+      payload = packColumnIntoFormData(payload, missing);
       const next = { ...payload };
       delete next[missing];
       payload = next;
       continue;
     }
     if (isFormDataColumnError(lastError) && "form_data" in payload) {
-      payload = payloadForItcTable("project_itcs", payload);
+      const next = { ...payload };
+      delete next.form_data;
+      payload = next;
       continue;
     }
     return { data: undefined, error: lastError };
@@ -891,8 +951,11 @@ function payloadForItcTable(table: string, payload: Record<string, unknown>): Re
     {};
   if (table === PROJECT_ITCS_TABLE) {
     const next = { ...payload };
-    delete next.form_data;
     next.checklist_answers = checklist;
+    next.form_data = {
+      ...form,
+      ...asFormRecord(payload.form_data),
+    };
     return next;
   }
   return {
@@ -932,11 +995,16 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     itp_id: itc.itp_id,
     template_key: itc.template_key,
     run_number: itc.run_number,
+    lines_count: itc.lines_count,
+    service: itc.service,
+    service_type: itc.service,
     pipe_size: itc.pipe_size,
     pipe_material: itc.pipe_material,
     pin_x: itc.pin_x,
     pin_y: itc.pin_y,
     drawing_ref: itc.drawing_ref,
+    drawing_name: itc.drawing_name ?? itc.drawing_ref,
+    service_run_coordinates: itc.service_run_coordinates,
     area: itc.area,
     line_location: itc.area,
     checklist: itc.checklist,
@@ -977,7 +1045,13 @@ export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: 
     end_location: itc.run_number,
     building: itc.area,
     line_location: itc.area,
-    drawing_rev: itc.drawing_ref,
+    drawing_rev: itc.drawing_name ?? itc.drawing_ref,
+    drawing_name: itc.drawing_name ?? itc.drawing_ref,
+    service: itc.service,
+    service_type: itc.service,
+    lines_count: itc.lines_count,
+    run_number: itc.run_number,
+    service_run_coordinates: itc.service_run_coordinates,
     pipe_size: itc.pipe_size,
     pipe_material: itc.pipe_material,
     material_and_size: [itc.pipe_size, itc.pipe_material].filter(Boolean).join(" "),
@@ -1032,6 +1106,8 @@ export async function saveAdminItpRecord(itp: AdminItpRecord): Promise<{ error: 
     location_area: itp.area,
     subcontractor_name: itp.subcontractor,
     revision: itp.drawing_ref || "A",
+    drawing_name: itp.drawing_name ?? itp.drawing_ref,
+    service_run_coordinates: itp.service_run_coordinates,
     status: toDbItcStatus(itp.status),
     updated_at: new Date().toISOString(),
     form_data: {
@@ -1039,9 +1115,11 @@ export async function saveAdminItpRecord(itp: AdminItpRecord): Promise<{ error: 
       managing_contractor: itp.managing_contractor,
       subcontractor: itp.subcontractor,
       drawing_ref: itp.drawing_ref,
+      drawing_name: itp.drawing_name ?? itp.drawing_ref,
       plan_url: itp.plan_url,
       template_key: itp.template_key,
       area: itp.area,
+      service_run_coordinates: itp.service_run_coordinates,
     },
   };
   return retryItpItcWrite("project_itps.admin_save", payload, async (next) => {

@@ -28,6 +28,10 @@ import {
   requiredPressureKpaForItc,
 } from "@/components/itc/admin/itp-itc-admin-specs";
 import {
+  blockNonIntegerKey,
+  parseLinesCount,
+} from "@/components/itc/admin/itp-itc-admin-numbering";
+import {
   DEFAULT_ITC_CLIENT,
   DEFAULT_MANAGING_CONTRACTOR,
   DEFAULT_SUBCONTRACTOR,
@@ -63,10 +67,13 @@ export default function ItcChecklistDrawer({
   onSaved,
   onRequestDelete,
 }: ItcChecklistDrawerProps) {
-  const [runNumber, setRunNumber] = useState(itc.run_number ?? "");
+  const [runNumber, setRunNumber] = useState(
+    String(itc.lines_count ?? itc.run_number ?? "1")
+  );
+  const [service, setService] = useState(itc.service ?? "");
   const [pipeSize, setPipeSize] = useState(itc.pipe_size ?? "");
   const [pipeMaterial, setPipeMaterial] = useState(itc.pipe_material ?? "");
-  const [drawingRef, setDrawingRef] = useState(itc.drawing_ref ?? "");
+  const [drawingRef, setDrawingRef] = useState(itc.drawing_name ?? itc.drawing_ref ?? "");
   const [area, setArea] = useState(itc.area ?? "");
   const [checklist, setChecklist] = useState<AdminChecklistItem[]>(itc.checklist);
   const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(itc.spec_values);
@@ -116,10 +123,13 @@ export default function ItcChecklistDrawer({
   const currentItc = useMemo<AdminItcRecord>(() => {
     const next: AdminItcRecord = {
       ...itc,
-      run_number: runNumber.trim() || null,
+      run_number: parseLinesCount(runNumber) ? String(parseLinesCount(runNumber)) : null,
+      lines_count: parseLinesCount(runNumber) || null,
+      service: service.trim() || null,
       pipe_size: pipeSize.trim() || null,
       pipe_material: pipeMaterial.trim() || null,
       drawing_ref: drawingRef.trim() || null,
+      drawing_name: drawingRef.trim() || null,
       area: area.trim() || null,
       checklist,
       spec_values: specValues,
@@ -151,6 +161,7 @@ export default function ItcChecklistDrawer({
   }, [
     itc,
     runNumber,
+    service,
     pipeSize,
     pipeMaterial,
     drawingRef,
@@ -242,13 +253,25 @@ export default function ItcChecklistDrawer({
           <div className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
             <label>
               <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Run / Line number
+                Number of Lines in ITC
               </span>
               <input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
                 value={runNumber}
-                onChange={(event) => setRunNumber(event.target.value)}
+                onKeyDown={blockNonIntegerKey}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (next === "") {
+                    setRunNumber("");
+                    return;
+                  }
+                  const parsed = parseLinesCount(next);
+                  if (parsed > 0) setRunNumber(String(parsed));
+                }}
                 className={inputClass}
-                placeholder='e.g. "SW11-01 to SW11-02"'
               />
             </label>
             <label>
@@ -264,10 +287,12 @@ export default function ItcChecklistDrawer({
             </label>
             <div className="sm:col-span-2">
               <AdminItcServiceSpecFields
+                service={service}
                 pipeSize={pipeSize}
                 pipeMaterial={pipeMaterial}
                 templateKey={itc.template_key}
                 specValues={specValues}
+                onServiceChange={setService}
                 onPipeSizeChange={setPipeSize}
                 onPipeMaterialChange={setPipeMaterial}
                 onSpecValuesChange={setSpecValues}
@@ -275,7 +300,7 @@ export default function ItcChecklistDrawer({
             </div>
             <label>
               <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Drawing ref & rev
+                Drawing Name
               </span>
               <input
                 value={drawingRef}

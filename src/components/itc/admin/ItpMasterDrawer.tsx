@@ -6,8 +6,12 @@ import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
 import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
 import {
   adminItcPinMarker,
+  blockNonIntegerKey,
+  drawingNameFromUploadFile,
   formatAdminItcNumber,
   parseAdminItcSequence,
+  parseLinesCount,
+  type ServiceRunPoint,
 } from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
   ADMIN_STATUS_CLASSES,
@@ -22,6 +26,7 @@ import {
   type AdminStatusBadge,
 } from "@/components/itc/admin/itp-itc-admin-api";
 import {
+  ADMIN_ITC_SERVICES,
   getAdminItpTemplate,
   type AdminItcSpecValues,
 } from "@/components/itc/admin/itp-itc-admin-types";
@@ -78,9 +83,12 @@ export default function ItpMasterDrawer({
   const [planUrl, setPlanUrl] = useState(itp.plan_url);
   const [localItcs, setLocalItcs] = useState(itcs);
   const [dropMode, setDropMode] = useState(false);
+  const [canvasMode, setCanvasMode] = useState<"pin" | "line">("pin");
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null);
   const [pendingNumber, setPendingNumber] = useState("");
-  const [runNumber, setRunNumber] = useState("");
+  const [linesCount, setLinesCount] = useState("1");
+  const [service, setService] = useState<string>(ADMIN_ITC_SERVICES[0] ?? "HV");
+  const [serviceRunPoints, setServiceRunPoints] = useState<ServiceRunPoint[]>([]);
   const [pipeSize, setPipeSize] = useState("100mm");
   const [pipeMaterial, setPipeMaterial] = useState("PVC");
   const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(null);
@@ -122,6 +130,7 @@ export default function ItpMasterDrawer({
     managing_contractor: managingContractor.trim() || null,
     subcontractor: subcontractor.trim() || null,
     drawing_ref: drawingRef.trim() || null,
+    drawing_name: drawingRef.trim() || null,
     status,
     plan_url: planUrl,
   });
@@ -136,6 +145,7 @@ export default function ItpMasterDrawer({
       return;
     }
     setPlanUrl(uploaded.url);
+    setDrawingRef((current) => current.trim() || drawingNameFromUploadFile(file.name));
   };
 
   const handleSave = async () => {
@@ -157,6 +167,7 @@ export default function ItpMasterDrawer({
       setMessage("Upload a plan drawing before dropping pins.");
       return;
     }
+    setCanvasMode("pin");
     setDropMode((current) => !current);
     setMessage(null);
   };
@@ -164,11 +175,12 @@ export default function ItpMasterDrawer({
   const handleDrop = async (x: number, y: number) => {
     setDropMode(false);
     setPendingPin({ x, y });
-    setRunNumber("");
+    setLinesCount("1");
     setMessage(null);
     const allocated = await allocateAdminItcNumber({
       projectId: itp.project_id,
       projectName,
+      service,
       area: area.trim() || itp.area || "AREA",
       reservedNumbers: localItcs.map((row) => row.number),
     });
@@ -177,8 +189,12 @@ export default function ItpMasterDrawer({
 
   const savePin = async () => {
     if (!pendingPin) return;
-    if (!runNumber.trim()) {
-      setMessage("Enter a run / line number.");
+    if (!service.trim()) {
+      setMessage("Select a service.");
+      return;
+    }
+    if (parseLinesCount(linesCount) < 1) {
+      setMessage("Enter the number of lines in this ITC.");
       return;
     }
     setSavingPin(true);
@@ -190,9 +206,12 @@ export default function ItpMasterDrawer({
       itp: parent,
       pinX: pendingPin.x,
       pinY: pendingPin.y,
-      runNumber: runNumber.trim(),
+      service,
+      linesCount: parseLinesCount(linesCount),
       pipeSize,
       pipeMaterial,
+      drawingName: drawingRef.trim(),
+      serviceRunCoordinates: serviceRunPoints,
       specValues,
       preferredNumber: pendingNumber,
       reservedNumbers: localItcs.map((row) => row.number),
@@ -207,7 +226,8 @@ export default function ItpMasterDrawer({
     setLocalItcs((current) => [...current, created]);
     setPendingPin(null);
     setPendingNumber("");
-    setRunNumber("");
+    setLinesCount("1");
+    setServiceRunPoints([]);
     setToast(`Created ITC ${created.number}`);
     onCreatedItc?.(created);
   };
@@ -302,13 +322,13 @@ export default function ItpMasterDrawer({
                 </label>
                 <label>
                   <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                    Drawing ref & rev
+                    Drawing Name
                   </span>
                   <input
                     value={drawingRef}
                     onChange={(event) => setDrawingRef(event.target.value)}
                     className={inputClass}
-                    placeholder='e.g. "C0604 Rev B"'
+                    placeholder="Auto-filled from uploaded PDF name"
                   />
                 </label>
                 <label>
@@ -346,24 +366,54 @@ export default function ItpMasterDrawer({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-slate-600">
-                  Interactive plan — click a pin to edit that ITC, or drop a new pin to create one.
+                  Interactive plan — drop a pin, or draw a red service run before creating the ITC.
                 </p>
-                <button
-                  type="button"
-                  onClick={startDropMode}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
-                    dropMode ? "bg-orange-500 text-white" : "bg-slate-900 text-white"
-                  )}
-                >
-                  <Plus className="h-4 w-4" />
-                  {dropMode ? "Click plan to drop pin" : "+ Drop Pin to Add ITC"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasMode("line");
+                      setDropMode(false);
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
+                      canvasMode === "line" ? "bg-red-500 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
+                    )}
+                  >
+                    Draw service run
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startDropMode}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
+                      dropMode ? "bg-orange-500 text-white" : "bg-slate-900 text-white"
+                    )}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {dropMode ? "Click plan to drop pin" : "+ Drop Pin to Add ITC"}
+                  </button>
+                  {serviceRunPoints.length ? (
+                    <button
+                      type="button"
+                      onClick={() => setServiceRunPoints((current) => current.slice(0, -1))}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Undo point
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <ItpItcPlanCanvas
                 planUrl={planUrl}
                 pins={pins}
                 dropEnabled={dropMode}
+                mode={canvasMode}
+                serviceRunPoints={serviceRunPoints}
+                serviceRuns={localItcs
+                  .filter((row) => row.service_run_coordinates?.length)
+                  .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
+                onServiceRunChange={setServiceRunPoints}
                 emptyHint="No plan drawing uploaded for this ITP."
                 onDrop={(x, y) => void handleDrop(x, y)}
                 onPinClick={(pin) => onOpenItc(pin.id)}
@@ -465,7 +515,7 @@ export default function ItpMasterDrawer({
                 </span>
                 <p className="inline-flex items-center rounded-full bg-orange-100 px-3 py-1.5 font-mono text-sm font-bold text-orange-800">
                   {pendingNumber ||
-                    formatAdminItcNumber(projectName, area || itp.area || "AREA", localItcs.length + 1)}
+                    formatAdminItcNumber(projectName, service, localItcs.length + 1)}
                 </p>
               </div>
               <dl className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
@@ -488,20 +538,34 @@ export default function ItpMasterDrawer({
               </dl>
               <label>
                 <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Run / Line number
+                  Number of Lines in ITC
                 </span>
                 <input
-                  value={runNumber}
-                  onChange={(event) => setRunNumber(event.target.value)}
-                  placeholder='e.g. "SW11-01 to SW11-02"'
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={linesCount}
+                  onKeyDown={blockNonIntegerKey}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (next === "") {
+                      setLinesCount("");
+                      return;
+                    }
+                    const parsed = parseLinesCount(next);
+                    if (parsed > 0) setLinesCount(String(parsed));
+                  }}
                   className={inputClass}
                 />
               </label>
               <AdminItcServiceSpecFields
+                service={service}
                 pipeSize={pipeSize}
                 pipeMaterial={pipeMaterial}
                 templateKey={itp.template_key}
                 specValues={specValues}
+                onServiceChange={setService}
                 onPipeSizeChange={setPipeSize}
                 onPipeMaterialChange={setPipeMaterial}
                 onSpecValuesChange={setSpecValues}

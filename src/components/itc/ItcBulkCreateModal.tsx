@@ -85,7 +85,9 @@ export default function ItcBulkCreateModal({
           <label className="block sm:col-span-2">
             <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Zone</span>
             <select value={zoneCode} onChange={(e) => setZoneCode(e.target.value)} className={inputClass}>
-              {zones.map((zone) => (
+              {[...zones]
+                .sort((a, b) => a.zone_name.localeCompare(b.zone_name, undefined, { sensitivity: "base" }))
+                .map((zone) => (
                 <option key={zone.id} value={zone.zone_code}>
                   {zone.zone_name}
                 </option>

@@ -252,7 +252,14 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
               className={inputClass}
             >
               <option value="">Select ITC</option>
-              {filteredItcs.map((itc) => (
+              {[...filteredItcs]
+                .sort((a, b) =>
+                  String(a.itc_number ?? "").localeCompare(String(b.itc_number ?? ""), undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                  })
+                )
+                .map((itc) => (
                 <option key={itc.id} value={itc.id}>
                   {itc.itc_number} — {itc.zone_code ?? "No zone"}
                 </option>
@@ -291,7 +298,9 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
               className={inputClass}
             >
               <option value="">Select zone</option>
-              {zones.map((zone) => (
+              {[...zones]
+                .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+                .map((zone) => (
                 <option key={zone} value={zone}>
                   {zone}
                 </option>
@@ -310,7 +319,9 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
                 className={inputClass}
               >
                 <option value="">Select service type</option>
-                {serviceTypes.map((type) => (
+                {[...serviceTypes]
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+                  .map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
@@ -329,7 +340,9 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
               className={inputClass}
             >
               <option value="">Select material/size</option>
-              {filteredMaterials.map((material) => (
+              {[...filteredMaterials]
+                .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+                .map((material) => (
                 <option key={material} value={material}>
                   {material}
                 </option>

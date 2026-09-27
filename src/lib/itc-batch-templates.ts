@@ -5,9 +5,12 @@ export const ITC_SERVICE_TYPES = [
   "HV",
   "LV",
   "Comms",
-  "Sewer",
+  "Comms Mains",
+  "Fire Hydrant",
+  "Water",
+  "Gas",
   "Stormwater",
-  "Potable Water",
+  "Sewer",
 ] as const;
 
 export type ItcServiceType = (typeof ITC_SERVICE_TYPES)[number];
@@ -16,6 +19,10 @@ export const ITC_SERVICE_TYPE_COLORS: Record<string, string> = {
   HV: "#ea580c",
   LV: "#2563eb",
   Comms: "#9333ea",
+  "Comms Mains": "#7c3aed",
+  "Fire Hydrant": "#dc2626",
+  Water: "#0284c7",
+  Gas: "#f59e0b",
   Sewer: "#78350f",
   Stormwater: "#0891b2",
   "Potable Water": "#0284c7",
@@ -23,11 +30,15 @@ export const ITC_SERVICE_TYPE_COLORS: Record<string, string> = {
 
 export const ITC_SERVICE_TYPE_CODES: Record<string, string> = {
   HV: "HV",
-  LV: "ELEC",
-  Comms: "COMM",
-  Sewer: "SEWR",
-  Stormwater: "STM",
-  "Potable Water": "POTW",
+  LV: "LV",
+  Comms: "COMMS",
+  "Comms Mains": "COMMS-MAINS",
+  "Fire Hydrant": "FIRE-HYDRANT",
+  Water: "WATER",
+  Gas: "GAS",
+  Sewer: "SEWER",
+  Stormwater: "STORMWATER",
+  "Potable Water": "WATER",
 };
 
 export interface ItcServiceSpecRule {

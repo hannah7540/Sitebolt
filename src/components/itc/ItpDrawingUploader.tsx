@@ -12,6 +12,7 @@ import {
   sanitizeRelativeCoordinate,
   uploadItcDrawingFile,
 } from "@/lib/itc-drawing-upload";
+import { drawingNameFromUploadFile } from "@/components/itc/admin/itp-itc-admin-numbering";
 import { cardClass } from "@/lib/ui-classes";
 
 export interface ItpDrawingUploaderProps {
@@ -73,7 +74,7 @@ export default function ItpDrawingUploader({
       if (upload.url) {
         const saved = await uploadProjectDrawing({
           projectId,
-          fileName: file.name,
+          fileName: drawingNameFromUploadFile(file.name) || file.name,
           fileUrl: upload.url,
           fileType: file.type || "image/png",
           uploadedBy,
@@ -82,7 +83,7 @@ export default function ItpDrawingUploader({
         if (saved.error || !saved.drawing) {
           const localDrawing = buildLocalDrawingRecord({
             projectId,
-            fileName: file.name,
+            fileName: drawingNameFromUploadFile(file.name) || file.name,
             fileType: file.type,
             previewUrl: localPreview,
             uploadedBy,
@@ -104,7 +105,7 @@ export default function ItpDrawingUploader({
 
       const localDrawing = buildLocalDrawingRecord({
         projectId,
-        fileName: file.name,
+        fileName: drawingNameFromUploadFile(file.name) || file.name,
         fileType: file.type,
         previewUrl: upload.localDataUrl ?? localPreview,
         uploadedBy,

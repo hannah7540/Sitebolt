@@ -14,10 +14,15 @@ import {
 } from "@/components/itc/admin/itp-itc-admin-api";
 import {
   adminItcPinMarker,
+  blockNonIntegerKey,
+  drawingNameFromUploadFile,
   formatAdminItcNumber,
   parseAdminItcSequence,
+  parseLinesCount,
+  type ServiceRunPoint,
 } from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
+  ADMIN_ITC_SERVICES,
   ADMIN_ITP_TEMPLATES,
   DEFAULT_ITC_CLIENT,
   DEFAULT_MANAGING_CONTRACTOR,
@@ -53,10 +58,13 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
   const [createdItp, setCreatedItp] = useState<AdminItpRecord | null>(null);
   const [pins, setPins] = useState<AdminItcRecord[]>([]);
   const [pendingPin, setPendingPin] = useState<PinDraft | null>(null);
-  const [runNumber, setRunNumber] = useState("");
+  const [linesCount, setLinesCount] = useState("1");
+  const [service, setService] = useState<string>(ADMIN_ITC_SERVICES[0] ?? "HV");
   const [pipeSize, setPipeSize] = useState("100mm");
   const [pipeMaterial, setPipeMaterial] = useState("PVC");
   const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(null);
+  const [serviceRunPoints, setServiceRunPoints] = useState<ServiceRunPoint[]>([]);
+  const [canvasMode, setCanvasMode] = useState<"pin" | "line">("pin");
   const [nextSequence, setNextSequence] = useState(1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -64,7 +72,15 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
 
   const template = getAdminItpTemplate(templateKey);
   const projectName = projects.find((row) => row.id === projectId)?.name ?? "Project";
-  const pendingItcNumber = formatAdminItcNumber(projectName, area, nextSequence);
+  const pendingItcNumber = formatAdminItcNumber(projectName, service, nextSequence);
+  const sortedProjects = useMemo(
+    () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [projects]
+  );
+  const sortedTemplates = useMemo(
+    () => [...ADMIN_ITP_TEMPLATES].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+    []
+  );
 
   const canvasPins = useMemo(
     () =>
@@ -90,6 +106,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     void allocateAdminItcNumber({
       projectId,
       projectName,
+      service,
       area,
       reservedNumbers: pins.map((row) => row.number),
     }).then((allocated) => {
@@ -98,7 +115,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     return () => {
       cancelled = true;
     };
-  }, [step, projectId, projectName, area, pins]);
+  }, [step, projectId, projectName, service, area, pins]);
 
   const acceptPlan = async (file: File) => {
     const allowed = ["application/pdf", "image/png", "image/jpeg", "image/jpg"];
@@ -109,6 +126,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     setBusy(true);
     setMessage(null);
     setPlanFile(file);
+    setDrawingRef((current) => current.trim() || drawingNameFromUploadFile(file.name));
     const uploaded = await uploadItpPlan({
       projectId: projectId || "unassigned",
       file,
@@ -178,8 +196,12 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
 
   const savePin = async () => {
     if (!createdItp || !pendingPin) return;
-    if (!runNumber.trim()) {
-      setMessage("Enter a run / line number.");
+    if (!service.trim()) {
+      setMessage("Select a service.");
+      return;
+    }
+    if (parseLinesCount(linesCount) < 1) {
+      setMessage("Enter the number of lines in this ITC.");
       return;
     }
     setBusy(true);
@@ -190,9 +212,12 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       itp: createdItp,
       pinX: pendingPin.x,
       pinY: pendingPin.y,
-      runNumber: runNumber.trim(),
+      service,
+      linesCount: parseLinesCount(linesCount),
       pipeSize,
       pipeMaterial,
+      drawingName: drawingRef.trim(),
+      serviceRunCoordinates: serviceRunPoints,
       specValues,
       preferredNumber: pendingItcNumber,
       reservedNumbers: pins.map((row) => row.number),
@@ -205,7 +230,8 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     setPins((current) => [...current, result.itc!]);
     setNextSequence((current) => (parseAdminItcSequence(result.itc?.number) ?? current) + 1);
     setPendingPin(null);
-    setRunNumber("");
+    setLinesCount("1");
+    setServiceRunPoints([]);
   };
 
   return (
@@ -242,8 +268,8 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
                 onChange={(event) => setProjectId(event.target.value)}
                 className={inputClass}
               >
-                {projects.length === 0 ? <option value="">No projects</option> : null}
-                {projects.map((project) => (
+                {sortedProjects.length === 0 ? <option value="">No projects</option> : null}
+                {sortedProjects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
                   </option>
@@ -293,12 +319,12 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
             </label>
             <label>
               <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Drawing ref & rev
+                Drawing Name
               </span>
               <input
                 value={drawingRef}
                 onChange={(event) => setDrawingRef(event.target.value)}
-                placeholder='e.g. "C0604 Rev B"'
+                placeholder="Auto-filled from uploaded PDF name"
                 className={inputClass}
               />
             </label>
@@ -359,7 +385,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
               onChange={(event) => setTemplateKey(event.target.value)}
               className={inputClass}
             >
-              {ADMIN_ITP_TEMPLATES.map((row) => (
+              {sortedTemplates.map((row) => (
                 <option key={row.key} value={row.key}>
                   {row.title}
                 </option>
@@ -398,17 +424,63 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       {step === 3 ? (
         <div className={`${cardClass} space-y-4 p-5`}>
           <p className="text-sm text-slate-600">
-            Click the plan to drop a numbered pin. ITC numbers are assigned automatically as{" "}
-            <span className="font-semibold">{formatAdminItcNumber(projectName, area, 1)}</span>,{" "}
-            then 00002, 00003, and so on, linked to{" "}
+            Click the plan to drop a numbered pin, or draw a red service run. ITC numbers follow{" "}
+            <span className="font-semibold">{formatAdminItcNumber(projectName, service, 1)}</span>,{" "}
+            then ITC002, ITC003, linked to{" "}
             <span className="font-semibold">{createdItp?.number}</span>.
           </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCanvasMode("pin")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                canvasMode === "pin" ? "bg-orange-500 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
+              )}
+            >
+              Drop pin
+            </button>
+            <button
+              type="button"
+              onClick={() => setCanvasMode("line")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                canvasMode === "line" ? "bg-red-500 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
+              )}
+            >
+              Draw service run
+            </button>
+            {serviceRunPoints.length ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setServiceRunPoints((current) => current.slice(0, -1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700"
+                >
+                  Undo point
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setServiceRunPoints([])}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700"
+                >
+                  Clear line
+                </button>
+              </>
+            ) : null}
+          </div>
           <ItpItcPlanCanvas
             planUrl={planUrl}
             planPreview={planPreview}
             mimeType={planFile?.type}
             pins={canvasPins}
-            dropEnabled
+            dropEnabled={canvasMode === "pin"}
+            mode={canvasMode}
+            serviceRunPoints={serviceRunPoints}
+            serviceRuns={pins
+              .filter((row) => row.service_run_coordinates?.length)
+              .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
+            onServiceRunChange={setServiceRunPoints}
             onDrop={(x, y) => {
               setPendingPin({ x, y });
               setMessage(null);
@@ -454,20 +526,34 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
               </div>
               <label>
                 <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Run / Line number
+                  Number of Lines in ITC
                 </span>
                 <input
-                  value={runNumber}
-                  onChange={(event) => setRunNumber(event.target.value)}
-                  placeholder='e.g. "SW11-01 to SW11-02", "Pit 07-04", or "Stack 1"'
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={linesCount}
+                  onKeyDown={blockNonIntegerKey}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (next === "") {
+                      setLinesCount("");
+                      return;
+                    }
+                    const parsed = parseLinesCount(next);
+                    if (parsed > 0) setLinesCount(String(parsed));
+                  }}
                   className={inputClass}
                 />
               </label>
               <AdminItcServiceSpecFields
+                service={service}
                 pipeSize={pipeSize}
                 pipeMaterial={pipeMaterial}
                 templateKey={templateKey}
                 specValues={specValues}
+                onServiceChange={setService}
                 onPipeSizeChange={setPipeSize}
                 onPipeMaterialChange={setPipeMaterial}
                 onSpecValuesChange={setSpecValues}

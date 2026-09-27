@@ -70,6 +70,23 @@ export default function FieldItcCreateModal({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const sortedZones = useMemo(
+    () => [...data.zones].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [data.zones]
+  );
+  const sortedServices = useMemo(
+    () => [...data.services].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [data.services]
+  );
+  const sortedDrawings = useMemo(
+    () => [...drawings].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+    [drawings]
+  );
+  const sortedFormVersions = useMemo(
+    () => [...formVersions].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [formVersions]
+  );
+
   const selectedZone = data.zones.find((zone) => zone.id === zoneId) ?? nearest;
   const selectedService =
     data.services.find((service) => service.id === serviceId) ?? data.services[0];
@@ -146,7 +163,7 @@ export default function FieldItcCreateModal({
                 onChange={(event) => setZoneId(event.target.value)}
                 className={inputClass}
               >
-                {data.zones.map((zone) => (
+                {sortedZones.map((zone) => (
                   <option key={zone.id} value={zone.id}>
                     {zone.name}
                   </option>
@@ -160,7 +177,7 @@ export default function FieldItcCreateModal({
                 onChange={(event) => setServiceId(event.target.value)}
                 className={inputClass}
               >
-                {data.services.map((service) => (
+                {sortedServices.map((service) => (
                   <option key={service.id} value={service.id}>
                     {service.name}
                   </option>
@@ -175,7 +192,7 @@ export default function FieldItcCreateModal({
                 className={inputClass}
               >
                 {drawings.length === 0 ? <option value="">No drawings</option> : null}
-                {drawings.map((drawing) => (
+                {sortedDrawings.map((drawing) => (
                   <option key={drawing.id} value={drawing.id}>
                     {drawing.title}
                     {drawing.current_rev ? ` · rev ${drawing.current_rev}` : ""}
@@ -191,7 +208,7 @@ export default function FieldItcCreateModal({
                   onChange={(event) => setFormVersionId(event.target.value)}
                   className={inputClass}
                 >
-                  {formVersions.map((version) => (
+                  {sortedFormVersions.map((version) => (
                     <option key={version.id} value={version.id}>
                       {version.name}
                       {version.is_current ? " (current)" : ""}

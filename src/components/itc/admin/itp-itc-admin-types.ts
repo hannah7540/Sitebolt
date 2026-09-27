@@ -46,6 +46,33 @@ export const ADMIN_PIPE_MATERIALS = [
   "Copper",
 ] as const;
 
+export const ADMIN_ITC_SERVICES = [
+  "HV",
+  "LV",
+  "Comms",
+  "Comms Mains",
+  "Fire Hydrant",
+  "Water",
+  "Gas",
+  "Stormwater",
+  "Sewer",
+] as const;
+
+export function sortAlphaLabels(values: string[]): string[] {
+  return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+export function sortPipeSizeLabels(values: string[]): string[] {
+  return [...values].sort((a, b) => {
+    const left = Number.parseInt(a, 10);
+    const right = Number.parseInt(b, 10);
+    if (Number.isFinite(left) && Number.isFinite(right) && left !== right) {
+      return left - right;
+    }
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
 export const ADMIN_PIPE_SERVICES = [
   { label: "225mm Blackmax", size: "225mm", material: "Blackmax" },
   { label: "150mm HV", size: "150mm", material: "HV" },

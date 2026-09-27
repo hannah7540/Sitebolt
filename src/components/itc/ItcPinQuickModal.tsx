@@ -39,7 +39,9 @@ export default function ItcPinQuickModal({ onClose, onSave }: ItcPinQuickModalPr
               Service Type
             </span>
             <select name="serviceType" defaultValue="LV" className={inputClass}>
-              {ITC_SERVICE_TYPES.map((type) => (
+              {[...ITC_SERVICE_TYPES]
+                .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+                .map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>

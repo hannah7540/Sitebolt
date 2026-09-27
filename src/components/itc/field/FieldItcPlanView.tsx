@@ -133,7 +133,9 @@ export default function FieldItcPlanView({
               className={inputClass}
             >
               {drawings.length === 0 ? <option value="">Fallback site plan</option> : null}
-              {drawings.map((drawing) => (
+              {[...drawings]
+                .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
+                .map((drawing) => (
                 <option key={drawing.id} value={drawing.id}>
                   {drawing.title}
                   {drawing.current_rev ? ` · ${drawing.current_rev}` : ""}
@@ -150,7 +152,9 @@ export default function FieldItcPlanView({
               onChange={(event) => setServiceId(event.target.value)}
               className={inputClass}
             >
-              {data.services.map((service) => (
+              {[...data.services]
+                .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+                .map((service) => (
                 <option key={service.id} value={service.id}>
                   {service.name}
                 </option>
@@ -167,7 +171,9 @@ export default function FieldItcPlanView({
                 onChange={(event) => setFormVersionId(event.target.value)}
                 className={inputClass}
               >
-                {formVersions.map((version) => (
+                {[...formVersions]
+                  .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+                  .map((version) => (
                   <option key={version.id} value={version.id}>
                     {version.name}
                     {version.is_current ? " (current)" : ""}

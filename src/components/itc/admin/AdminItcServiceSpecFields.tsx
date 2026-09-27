@@ -2,29 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ADMIN_ITC_SERVICES,
   ADMIN_PIPE_MATERIALS,
-  ADMIN_PIPE_SERVICES,
   ADMIN_PIPE_SIZES,
+  sortAlphaLabels,
+  sortPipeSizeLabels,
   type AdminItcSpecValues,
 } from "@/components/itc/admin/itp-itc-admin-types";
 import { lookupAdminItcSpecs } from "@/components/itc/admin/itp-itc-admin-specs";
 import { inputClass } from "@/lib/ui-classes";
 
 interface AdminItcServiceSpecFieldsProps {
+  service: string;
   pipeSize: string;
   pipeMaterial: string;
   templateKey?: string | null;
   specValues: AdminItcSpecValues | null;
+  onServiceChange: (value: string) => void;
   onPipeSizeChange: (value: string) => void;
   onPipeMaterialChange: (value: string) => void;
   onSpecValuesChange: (value: AdminItcSpecValues | null) => void;
-}
-
-function specServiceKey(size: string, material: string): string {
-  const match = ADMIN_PIPE_SERVICES.find(
-    (row) => row.size === size && row.material === material
-  );
-  return match ? `${match.size}|${match.material}` : size && material ? "custom" : "";
 }
 
 function specDisplay(value: number | null | undefined, suffix = " mm"): string {
@@ -33,27 +30,36 @@ function specDisplay(value: number | null | undefined, suffix = " mm"): string {
 }
 
 export default function AdminItcServiceSpecFields({
+  service,
   pipeSize,
   pipeMaterial,
   templateKey,
   specValues,
+  onServiceChange,
   onPipeSizeChange,
   onPipeMaterialChange,
   onSpecValuesChange,
 }: AdminItcServiceSpecFieldsProps) {
   const [lookingUp, setLookingUp] = useState(false);
+  const [customService, setCustomService] = useState(
+    service && !ADMIN_ITC_SERVICES.includes(service as (typeof ADMIN_ITC_SERVICES)[number])
+  );
   const lookupKey = `${pipeSize}|${pipeMaterial}|${templateKey ?? ""}`;
   const lastLookupKey = useRef("");
-  const serviceKey = specServiceKey(pipeSize, pipeMaterial);
+  const serviceOptions = useMemo(() => {
+    const extra =
+      service && !ADMIN_ITC_SERVICES.includes(service as (typeof ADMIN_ITC_SERVICES)[number]);
+    return sortAlphaLabels(extra ? [service, ...ADMIN_ITC_SERVICES] : [...ADMIN_ITC_SERVICES]);
+  }, [service]);
   const sizeOptions = useMemo(() => {
     const extra = pipeSize && !ADMIN_PIPE_SIZES.includes(pipeSize as (typeof ADMIN_PIPE_SIZES)[number]);
-    return extra ? [pipeSize, ...ADMIN_PIPE_SIZES] : [...ADMIN_PIPE_SIZES];
+    return sortPipeSizeLabels(extra ? [pipeSize, ...ADMIN_PIPE_SIZES] : [...ADMIN_PIPE_SIZES]);
   }, [pipeSize]);
   const materialOptions = useMemo(() => {
     const extra =
       pipeMaterial &&
       !ADMIN_PIPE_MATERIALS.includes(pipeMaterial as (typeof ADMIN_PIPE_MATERIALS)[number]);
-    return extra ? [pipeMaterial, ...ADMIN_PIPE_MATERIALS] : [...ADMIN_PIPE_MATERIALS];
+    return sortAlphaLabels(extra ? [pipeMaterial, ...ADMIN_PIPE_MATERIALS] : [...ADMIN_PIPE_MATERIALS]);
   }, [pipeMaterial]);
 
   useEffect(() => {
@@ -91,28 +97,43 @@ export default function AdminItcServiceSpecFields({
     <div className="space-y-3">
       <label>
         <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-          Pipe size / Service
+          Service
         </span>
         <select
-          value={serviceKey === "custom" ? "custom" : serviceKey}
+          value={customService ? "custom" : service}
           onChange={(event) => {
             const value = event.target.value;
-            if (!value || value === "custom") return;
-            const [size, material] = value.split("|");
-            onPipeSizeChange(size ?? "");
-            onPipeMaterialChange(material ?? "");
+            if (value === "custom") {
+              setCustomService(true);
+              return;
+            }
+            setCustomService(false);
+            onServiceChange(value);
           }}
           className={inputClass}
         >
-          <option value="">Select size / service</option>
-          {ADMIN_PIPE_SERVICES.map((row) => (
-            <option key={`${row.size}|${row.material}`} value={`${row.size}|${row.material}`}>
-              {row.label}
+          <option value="">Select service</option>
+          {serviceOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
             </option>
           ))}
-          <option value="custom">Custom size / material</option>
+          <option value="custom">Custom service</option>
         </select>
       </label>
+      {customService ? (
+        <label>
+          <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+            Custom service
+          </span>
+          <input
+            value={service}
+            onChange={(event) => onServiceChange(event.target.value)}
+            placeholder="Enter service type"
+            className={inputClass}
+          />
+        </label>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
           <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">

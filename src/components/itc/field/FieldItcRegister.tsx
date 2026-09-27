@@ -73,7 +73,9 @@ export default function FieldItcRegister({
             className={inputClass}
           >
             <option value="all">All zones</option>
-            {data.zones.map((zone) => (
+            {[...data.zones]
+              .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+              .map((zone) => (
               <option key={zone.id} value={zone.code}>
                 {zone.name}
               </option>
@@ -87,7 +89,9 @@ export default function FieldItcRegister({
             className={inputClass}
           >
             <option value="all">All services</option>
-            {data.services.map((service) => (
+            {[...data.services]
+              .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+              .map((service) => (
               <option key={service.id} value={service.code}>
                 {service.name}
               </option>

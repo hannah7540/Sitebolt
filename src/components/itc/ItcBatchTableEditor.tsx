@@ -133,7 +133,14 @@ export default function ItcBatchTableEditor({
                             className={inputClass}
                           >
                             <option value="">Select material & size</option>
-                            {materialOptionsFor(item.service_type).map((rule) => (
+                            {[...materialOptionsFor(item.service_type)]
+                              .sort((a, b) =>
+                                a.material_and_size.localeCompare(b.material_and_size, undefined, {
+                                  numeric: true,
+                                  sensitivity: "base",
+                                })
+                              )
+                              .map((rule) => (
                               <option key={rule.id} value={rule.material_and_size}>
                                 {rule.material_and_size}
                               </option>

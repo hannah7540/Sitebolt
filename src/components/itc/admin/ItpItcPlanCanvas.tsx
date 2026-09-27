@@ -4,6 +4,7 @@ import { useMemo, useRef, type MouseEvent } from "react";
 import { MapPin } from "lucide-react";
 import { getRelativeCanvasCoordinates } from "@/lib/itc-drawing-upload";
 import { isPlanPdf } from "@/components/itc/admin/itp-itc-admin-api";
+import type { ServiceRunPoint } from "@/components/itc/admin/itp-itc-admin-numbering";
 import { cn } from "@/lib/utils";
 
 export interface PlanCanvasPin {
@@ -16,6 +17,11 @@ export interface PlanCanvasPin {
   selected?: boolean;
 }
 
+export interface PlanCanvasServiceRun {
+  id: string;
+  points: ServiceRunPoint[];
+}
+
 interface ItpItcPlanCanvasProps {
   planUrl: string | null;
   planPreview?: string | null;
@@ -23,8 +29,16 @@ interface ItpItcPlanCanvasProps {
   pins: PlanCanvasPin[];
   dropEnabled?: boolean;
   emptyHint?: string;
+  mode?: "pin" | "line";
+  serviceRunPoints?: ServiceRunPoint[];
+  serviceRuns?: PlanCanvasServiceRun[];
   onDrop?: (x: number, y: number) => void;
   onPinClick?: (pin: PlanCanvasPin) => void;
+  onServiceRunChange?: (points: ServiceRunPoint[]) => void;
+}
+
+function pointsToSvg(points: ServiceRunPoint[]): string {
+  return points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ");
 }
 
 export default function ItpItcPlanCanvas({
@@ -34,12 +48,17 @@ export default function ItpItcPlanCanvas({
   pins,
   dropEnabled = false,
   emptyHint = "Upload a plan drawing to drop pins.",
+  mode = "pin",
+  serviceRunPoints = [],
+  serviceRuns = [],
   onDrop,
   onPinClick,
+  onServiceRunChange,
 }: ItpItcPlanCanvasProps) {
   const planRef = useRef<HTMLDivElement>(null);
   const src = planPreview || planUrl;
   const pdf = isPlanPdf(src, mimeType);
+  const interactive = dropEnabled || mode === "line";
 
   const orderedPins = useMemo(
     () => [...pins].sort((a, b) => a.number - b.number),
@@ -47,7 +66,7 @@ export default function ItpItcPlanCanvas({
   );
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!dropEnabled || !planRef.current || !src) return;
+    if (!interactive || !planRef.current || !src) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-pin]")) return;
     const coords = getRelativeCanvasCoordinates(
@@ -55,6 +74,10 @@ export default function ItpItcPlanCanvas({
       event.clientY,
       planRef.current
     );
+    if (mode === "line") {
+      onServiceRunChange?.([...serviceRunPoints, { x: coords.x, y: coords.y }]);
+      return;
+    }
     onDrop?.(coords.x, coords.y);
   };
 
@@ -72,7 +95,7 @@ export default function ItpItcPlanCanvas({
       onClick={handleClick}
       className={cn(
         "relative min-h-[360px] overflow-hidden rounded-xl border border-slate-200 bg-slate-100",
-        dropEnabled && "cursor-crosshair"
+        interactive && "cursor-crosshair"
       )}
     >
       {pdf ? (
@@ -81,7 +104,7 @@ export default function ItpItcPlanCanvas({
           type="application/pdf"
           className="pointer-events-none h-[min(70vh,720px)] w-full"
         >
-          <p className="p-4 text-sm text-slate-500">PDF plan loaded. Pin drop is active on this canvas.</p>
+          <p className="p-4 text-sm text-slate-500">PDF plan loaded. Markup is active on this canvas.</p>
         </object>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
@@ -91,6 +114,46 @@ export default function ItpItcPlanCanvas({
           className="pointer-events-none block h-auto w-full select-none"
         />
       )}
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
+      >
+        {serviceRuns.map((run) =>
+          run.points.length > 1 ? (
+            <polyline
+              key={run.id}
+              points={pointsToSvg(run.points)}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : null
+        )}
+        {serviceRunPoints.length > 1 ? (
+          <polyline
+            points={pointsToSvg(serviceRunPoints)}
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+        {serviceRunPoints.map((point, index) => (
+          <circle
+            key={`draft-${index}`}
+            cx={point.x * 100}
+            cy={point.y * 100}
+            r="1.1"
+            fill="#ef4444"
+          />
+        ))}
+      </svg>
       {orderedPins.map((pin) => (
         <button
           key={pin.id}
