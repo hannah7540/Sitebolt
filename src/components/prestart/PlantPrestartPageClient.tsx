@@ -4,16 +4,13 @@ import { useEffect, useState } from "react";
 import { Loader2, AlertCircle } from "lucide-react";
 import { fetchPlantById, type PlantAsset } from "@/lib/supabase";
 import PrestartForm from "@/components/prestart/PrestartForm";
+import PrestartAuthGate from "@/components/prestart/PrestartAuthGate";
 import TagOutWarning from "@/components/prestart/TagOutWarning";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { isTaggedOut } from "@/lib/plant-utils";
 import { sanitizePlantPrestartId } from "@/lib/plant-prestart-url";
 
-export default function PlantPrestartPageClient({
-  plantId,
-}: {
-  plantId: string;
-}) {
+function PlantPrestartAuthenticated({ plantId }: { plantId: string }) {
   const id = sanitizePlantPrestartId(plantId);
   const [plant, setPlant] = useState<PlantAsset | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,5 +66,17 @@ export default function PlantPrestartPageClient({
 
       {plant && !loading && !isTaggedOut(plant) && <PrestartForm plant={plant} />}
     </div>
+  );
+}
+
+export default function PlantPrestartPageClient({
+  plantId,
+}: {
+  plantId: string;
+}) {
+  return (
+    <PrestartAuthGate>
+      <PlantPrestartAuthenticated plantId={plantId} />
+    </PrestartAuthGate>
   );
 }

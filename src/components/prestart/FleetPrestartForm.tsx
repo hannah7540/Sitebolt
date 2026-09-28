@@ -9,7 +9,14 @@ import {
   submitFleetPrestart,
 } from "@/lib/fleet-prestart";
 import type { OrganizationFleetVehicle } from "@/lib/organization-fleet";
-import { resolvePrestartOperatorIdentity } from "@/lib/prestart-operator";
+import {
+  prestartLoginHref,
+  resolvePrestartOperatorIdentity,
+} from "@/lib/prestart-operator";
+import {
+  PrestartWorkerIdentityBadge,
+  usePrestartIdentity,
+} from "@/components/prestart/PrestartAuthGate";
 import { uploadSignature } from "@/lib/prestart-upload";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -26,12 +33,9 @@ const STEPS = [
 ] as const;
 
 export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
+  const sessionIdentity = usePrestartIdentity();
   const [step, setStep] = useState(1);
-  const [operatorName, setOperatorName] = useState("");
-  const [operatorLoading, setOperatorLoading] = useState(true);
-  const [operatorLocked, setOperatorLocked] = useState(false);
-  const [operatorWorkerId, setOperatorWorkerId] = useState<string | null>(null);
-  const [operatorUserId, setOperatorUserId] = useState<string | null>(null);
+  const [operatorName, setOperatorName] = useState(sessionIdentity.operatorName);
   const [workingOrder, setWorkingOrder] = useState<"" | "Yes" | "No">("");
   const [workingOrderNotes, setWorkingOrderNotes] = useState("");
   const [defectsReported, setDefectsReported] = useState<"" | "Yes" | "No">("");
@@ -45,19 +49,8 @@ export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    void resolvePrestartOperatorIdentity().then((identity) => {
-      if (cancelled) return;
-      setOperatorLocked(identity.hasSession && Boolean(identity.operatorName));
-      setOperatorWorkerId(identity.workerId);
-      setOperatorUserId(identity.userId);
-      if (identity.operatorName) setOperatorName(identity.operatorName);
-      setOperatorLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setOperatorName(sessionIdentity.operatorName);
+  }, [sessionIdentity]);
 
   const assignmentLabel = vehicle.assigned_project_name
     ? `Project · ${vehicle.assigned_project_name}`
@@ -66,7 +59,7 @@ export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
       : "Unassigned";
 
   const validateStep = (current: number): string | null => {
-    if (!operatorName.trim()) return "Operator name is required.";
+    if (!operatorName.trim()) return "Your signed-in worker profile is missing a name.";
     if (current === 1) {
       if (!workingOrder) return "Select whether the fleet is in good working order.";
       if (workingOrder === "No" && !workingOrderNotes.trim()) {
@@ -110,9 +103,21 @@ export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
     if (workingOrder !== "Yes" && workingOrder !== "No") return;
     if (defectsReported !== "Yes" && defectsReported !== "No") return;
 
+    const identity = await resolvePrestartOperatorIdentity();
+    if (!identity.hasSession) {
+      window.location.assign(prestartLoginHref());
+      return;
+    }
+    const verifiedName = identity.operatorName.trim();
+    if (!verifiedName) {
+      setError("Your signed-in worker profile is missing a name. Contact your administrator.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
+      setOperatorName(verifiedName);
       const signatureUrl = signatureDataUrl
         ? await uploadSignature(
             signatureDataUrl,
@@ -121,9 +126,9 @@ export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
         : null;
       const result = await submitFleetPrestart({
         fleet: vehicle,
-        operatorName: operatorName.trim(),
-        operatorWorkerId,
-        userId: operatorUserId,
+        operatorName: verifiedName,
+        operatorWorkerId: identity.workerId,
+        userId: identity.userId,
         workingOrder,
         workingOrderNotes,
         defectsReported,
@@ -195,16 +200,7 @@ export default function FleetPrestartForm({ vehicle }: FleetPrestartFormProps) {
         ))}
       </ol>
 
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-slate-700">Operator name</span>
-        <input
-          className={inputClass}
-          value={operatorName}
-          onChange={(event) => setOperatorName(event.target.value)}
-          disabled={operatorLoading || operatorLocked}
-          required
-        />
-      </label>
+      <PrestartWorkerIdentityBadge name={operatorName} />
 
       {step === 1 ? (
         <section className={cn("space-y-3 p-4", cardClass)}>

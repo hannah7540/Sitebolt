@@ -54,6 +54,9 @@ export async function submitFleetPrestart(input: {
     defects_reported: input.defectsReported,
     defect_details: input.defectDetails?.trim() || null,
     current_kms: input.currentKms,
+    worker_id: input.operatorWorkerId ?? null,
+    worker_name: input.operatorName.trim(),
+    user_id: input.userId ?? null,
   };
 
   const payload: Record<string, unknown> = {
@@ -63,6 +66,8 @@ export async function submitFleetPrestart(input: {
     fleet_unit_number: input.fleet.unit_number,
     operator_name: input.operatorName.trim(),
     operator_worker_id: input.operatorWorkerId ?? null,
+    worker_id: input.operatorWorkerId ?? null,
+    worker_name: input.operatorName.trim(),
     user_id: input.userId ?? null,
     project_id: projectId,
     site_id: projectId,

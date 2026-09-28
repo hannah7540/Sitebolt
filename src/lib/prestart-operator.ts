@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { buildLoginRedirectPath } from "@/lib/auth-guard";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { buildWorkerFullName, getWorkerDisplayName } from "@/lib/worker-utils";
 
@@ -9,6 +10,15 @@ export type PrestartOperatorIdentity = {
   workerId: string | null;
   userId: string | null;
 };
+
+export function currentPrestartReturnPath(): string {
+  if (typeof window === "undefined") return "/pre-start";
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+export function prestartLoginHref(returnPath?: string | null): string {
+  return buildLoginRedirectPath(returnPath?.trim() || currentPrestartReturnPath());
+}
 
 function nameFromAuthMetadata(user: User): string {
   const metadata = user.user_metadata ?? {};
@@ -43,17 +53,21 @@ export async function resolvePrestartOperatorIdentity(): Promise<
 
   const metadataName = nameFromAuthMetadata(user);
   const selects = [
+    "id, first_name, last_name, full_name, worker_name, name, email",
     "id, first_name, last_name, full_name, worker_name, email",
     "id, first_name, last_name, full_name, email",
     "id, first_name, last_name, email",
   ];
 
   for (const select of selects) {
-    const { data: worker, error } = await supabase
+    const byAuth = await supabase
       .from("workers")
       .select(select)
       .eq("auth_user_id", user.id)
       .maybeSingle();
+    const { data: worker, error } = byAuth.data
+      ? byAuth
+      : await supabase.from("workers").select(select).eq("id", user.id).maybeSingle();
 
     if (error) {
       if (!error.message.toLowerCase().includes("column")) {
@@ -69,6 +83,7 @@ export async function resolvePrestartOperatorIdentity(): Promise<
         last_name?: string | null;
         full_name?: string | null;
         worker_name?: string | null;
+        name?: string | null;
         email?: string | null;
       };
       return {

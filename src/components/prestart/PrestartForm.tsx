@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, AlertTriangle, Camera, BadgeCheck } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, Camera } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
 import {
   submitPlantPrestart,
@@ -14,7 +14,14 @@ import {
   type PrestartTemplate,
   type PrestartField,
 } from "@/lib/prestart-templates";
-import { resolvePrestartOperatorIdentity } from "@/lib/prestart-operator";
+import {
+  prestartLoginHref,
+  resolvePrestartOperatorIdentity,
+} from "@/lib/prestart-operator";
+import {
+  PrestartWorkerIdentityBadge,
+  usePrestartIdentity,
+} from "@/components/prestart/PrestartAuthGate";
 import SignatureCanvas from "./SignatureCanvas";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
@@ -105,11 +112,8 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
   const template = (plant.prestart_template ?? "excavator") as PrestartTemplate;
   const fields = PRESTART_TEMPLATES[template];
 
-  const [operatorName, setOperatorName] = useState("");
-  const [operatorLoading, setOperatorLoading] = useState(true);
-  const [operatorLocked, setOperatorLocked] = useState(false);
-  const [operatorWorkerId, setOperatorWorkerId] = useState<string | null>(null);
-  const [operatorUserId, setOperatorUserId] = useState<string | null>(null);
+  const sessionIdentity = usePrestartIdentity();
+  const [operatorName, setOperatorName] = useState(sessionIdentity.operatorName);
   const [checkData, setCheckData] = useState<Record<string, string>>({});
   const [defectComments, setDefectComments] = useState("");
   const [hasDefectManual, setHasDefectManual] = useState(false);
@@ -153,26 +157,8 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
   }, [plant, template]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadOperator() {
-      const identity = await resolvePrestartOperatorIdentity();
-      if (cancelled) return;
-
-      setOperatorLocked(identity.hasSession && Boolean(identity.operatorName));
-      setOperatorWorkerId(identity.workerId);
-      setOperatorUserId(identity.userId);
-      if (identity.operatorName) {
-        setOperatorName(identity.operatorName);
-      }
-      setOperatorLoading(false);
-    }
-
-    void loadOperator();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setOperatorName(sessionIdentity.operatorName);
+  }, [sessionIdentity]);
 
   const autoDefect = detectDefectsInCheckData(checkData);
   const hasDefect = hasDefectManual || autoDefect || defectComments.length > 0;
@@ -187,8 +173,14 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
       setError("Please sign off before submitting.");
       return;
     }
-    if (!operatorName.trim()) {
-      setError("Operator name is required.");
+    const identity = await resolvePrestartOperatorIdentity();
+    if (!identity.hasSession) {
+      window.location.assign(prestartLoginHref());
+      return;
+    }
+    const verifiedName = identity.operatorName.trim();
+    if (!verifiedName) {
+      setError("Your signed-in worker profile is missing a name. Contact your administrator.");
       return;
     }
 
@@ -196,6 +188,7 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
     setError(null);
 
     try {
+      setOperatorName(verifiedName);
       const timestamp = Date.now();
       let defectPhotoUrl: string | undefined;
 
@@ -215,12 +208,17 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
 
       const { error: submitErr } = await submitPlantPrestart({
         plantId: plant.id,
-        operatorName: operatorName.trim(),
-        operatorWorkerId,
-        operatorId: operatorWorkerId,
-        userId: operatorUserId,
+        operatorName: verifiedName,
+        operatorWorkerId: identity.workerId,
+        operatorId: identity.workerId,
+        userId: identity.userId,
         projectId: plant.assigned_project_id,
-        checkData,
+        checkData: {
+          ...checkData,
+          worker_id: identity.workerId,
+          worker_name: verifiedName,
+          user_id: identity.userId,
+        },
         template,
         hasDefect,
         defectComments: defectComments || undefined,
@@ -289,42 +287,7 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
         </div>
       )}
 
-      <label className="block space-y-1.5">
-        <span className="flex items-center justify-between gap-2 text-sm text-slate-600">
-          <span>
-            Operator Name <span className="text-orange-500">*</span>
-          </span>
-          {operatorLocked ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              <BadgeCheck className="h-3.5 w-3.5" />
-              Verified
-            </span>
-          ) : null}
-        </span>
-        {operatorLoading ? (
-          <div
-            className="h-10 animate-pulse rounded-lg border border-slate-200 bg-slate-100"
-            aria-hidden
-          />
-        ) : (
-          <input
-            type="text"
-            value={operatorName}
-            onChange={
-              operatorLocked ? undefined : (e) => setOperatorName(e.target.value)
-            }
-            required
-            readOnly={operatorLocked}
-            disabled={operatorLocked}
-            placeholder="Your full name"
-            className={cn(
-              inputClass,
-              operatorLocked &&
-                "cursor-not-allowed bg-slate-100 text-slate-800 focus:border-slate-300 focus:ring-0"
-            )}
-          />
-        )}
-      </label>
+      <PrestartWorkerIdentityBadge name={operatorName} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         {fields.map((field) =>
@@ -392,7 +355,7 @@ export default function PrestartForm({ plant }: PrestartFormProps) {
 
       <button
         type="submit"
-        disabled={submitting || operatorLoading}
+        disabled={submitting}
         className={cn(
           "flex w-full items-center justify-center gap-2 rounded-xl py-4 text-lg font-bold transition",
           hasDefect

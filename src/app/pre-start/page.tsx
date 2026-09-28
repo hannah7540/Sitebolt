@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
 import FleetPrestartForm from "@/components/prestart/FleetPrestartForm";
 import PlantPrestartPageClient from "@/components/prestart/PlantPrestartPageClient";
+import PrestartAuthGate from "@/components/prestart/PrestartAuthGate";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { loadFleetVehicleForPrestart } from "@/lib/fleet-prestart";
 import { isFleetPrestartSearchParams } from "@/lib/fleet-prestart-url";
@@ -93,7 +94,9 @@ export default function PreStartQueryPage() {
         </div>
       }
     >
-      <PreStartQueryContent />
+      <PrestartAuthGate>
+        <PreStartQueryContent />
+      </PrestartAuthGate>
     </Suspense>
   );
 }
