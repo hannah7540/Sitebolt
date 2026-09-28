@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CompanyLogo from "@/components/ui/CompanyLogo";
@@ -296,13 +296,15 @@ function RouteNavLink({
 
 function ProjectAccordion({
   project,
-  defaultExpanded = false,
+  open,
+  onToggle,
   activeView,
   selectedProjectId,
   onNavigate,
 }: {
   project: NestedGroup;
-  defaultExpanded?: boolean;
+  open: boolean;
+  onToggle: () => void;
   activeView: ActiveView;
   selectedProjectId?: string | null;
   onNavigate: SidebarProps["onNavigate"];
@@ -311,16 +313,12 @@ function ProjectAccordion({
   const isSelectedProject =
     project.id === selectedProjectId ||
     Boolean(project.id && extractProjectIdFromPathname(pathname) === project.id);
-  const [open, toggleOpen] = usePersistedSidebarSection(
-    `projects:${project.id ?? project.label}`,
-    defaultExpanded || isSelectedProject
-  );
 
   return (
     <div>
       <button
         type="button"
-        onClick={toggleOpen}
+        onClick={onToggle}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
           open || isSelectedProject
@@ -412,16 +410,13 @@ function NestedAccordion({
     (sub) =>
       !isNestedGroup(sub) && sub.view === activeView && isSelectedProject
   );
-  const [open, toggleOpen] = usePersistedSidebarSection(
-    `projects:${projectId ?? "none"}:${group.id ?? group.label}`,
-    hasActiveChild
-  );
+  const [open, setOpen] = useState(false);
 
   return (
     <div>
       <button
         type="button"
-        onClick={toggleOpen}
+        onClick={() => setOpen((current) => !current)}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
           hasActiveChild
@@ -749,17 +744,14 @@ function ProjectsSection({
   selectedProjectId?: string | null;
   onNavigate: SidebarProps["onNavigate"];
 }) {
-  const pathname = usePathname();
-  const [open, toggleOpen] = usePersistedSidebarSection(
-    "projects",
-    Boolean(selectedProjectId) || Boolean(pathname?.startsWith("/projects"))
-  );
+  const [open, setOpen] = useState(false);
+  const [expandedProjectKey, setExpandedProjectKey] = useState<string | null>(null);
 
   return (
     <div className="border-b border-slate-200 pb-3">
       <button
         type="button"
-        onClick={toggleOpen}
+        onClick={() => setOpen((current) => !current)}
         className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
         aria-expanded={open}
       >
@@ -771,16 +763,24 @@ function ProjectsSection({
       </button>
       {open && (
         <div className="space-y-1 px-2">
-          {projects.map((project) => (
-            <ProjectAccordion
-              key={project.id ?? project.label}
-              project={project}
-              defaultExpanded={project.id === selectedProjectId}
-              activeView={activeView}
-              selectedProjectId={selectedProjectId}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {projects.map((project) => {
+            const projectKey = project.id ?? project.label;
+            return (
+              <ProjectAccordion
+                key={projectKey}
+                project={project}
+                open={expandedProjectKey === projectKey}
+                onToggle={() =>
+                  setExpandedProjectKey((current) =>
+                    current === projectKey ? null : projectKey
+                  )
+                }
+                activeView={activeView}
+                selectedProjectId={selectedProjectId}
+                onNavigate={onNavigate}
+              />
+            );
+          })}
         </div>
       )}
     </div>
