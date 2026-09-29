@@ -117,3 +117,34 @@ body {
     padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
   }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .qr-label-print-root {
+    width: 100%;
+  }
+
+  .qr-label-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    height: 138mm;
+  }
+
+  .qr-label-card:nth-child(2n) {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .qr-label-card:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}

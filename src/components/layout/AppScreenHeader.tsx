@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { Search } from "lucide-react";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
+import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 import { cn } from "@/lib/utils";
 
 interface AppScreenHeaderProps {
@@ -22,6 +24,8 @@ export default function AppScreenHeader({
   showAdminLoginLink = true,
   className,
 }: AppScreenHeaderProps) {
+  const commandPalette = useCommandPalette();
+
   return (
     <header
       className={cn(
@@ -31,6 +35,19 @@ export default function AppScreenHeader({
     >
       <CompanyLogo size="md" showFallback />
       <div className="flex items-center gap-3">
+        {commandPalette ? (
+          <button
+            type="button"
+            onClick={commandPalette.openPalette}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+            aria-label="Open command palette"
+          >
+            <Search className="h-4 w-4" />
+            <kbd className="hidden rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 sm:inline">
+              Ctrl+K
+            </kbd>
+          </button>
+        ) : null}
         {showAdminLoginLink ? (
           <Link
             href="/login"

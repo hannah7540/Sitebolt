@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import PlantAdminPanel from "@/components/plant/PlantAdminPanel";
 import { fetchPlant, type PlantAsset } from "@/lib/supabase";
+import { readConsoleOpenAdd } from "@/lib/console-nav-routes";
 
 export default function OrganisationPlantPage() {
+  const searchParams = useSearchParams();
   const [plant, setPlant] = useState<PlantAsset[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,6 +29,11 @@ export default function OrganisationPlantPage() {
   }, [loadPlant]);
 
   return (
-    <PlantAdminPanel plant={plant} loading={loading} onRefresh={() => void loadPlant()} />
+    <PlantAdminPanel
+      plant={plant}
+      loading={loading}
+      onRefresh={() => void loadPlant()}
+      initialShowAdd={readConsoleOpenAdd(searchParams)}
+    />
   );
 }

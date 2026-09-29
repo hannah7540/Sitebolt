@@ -85,15 +85,18 @@ import {
   Menu,
   X,
   Loader2,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
+import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 
 function HomeConsole() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const commandPalette = useCommandPalette();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workerVocs, setWorkerVocs] = useState<WorkerVoc[]>([]);
@@ -415,6 +418,16 @@ function HomeConsole() {
                 {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
               <CompanyLogo size="sm" showFallback className="flex-1" />
+              {commandPalette ? (
+                <button
+                  type="button"
+                  onClick={commandPalette.openPalette}
+                  className="rounded-md p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600"
+                  aria-label="Open command palette"
+                >
+                  <Search className="h-5 w-5" />
+                </button>
+              ) : null}
             </div>
           )}
 

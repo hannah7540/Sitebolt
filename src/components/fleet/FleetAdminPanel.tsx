@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Archive, ArchiveRestore, Loader2, Plus, Printer, QrCode, Search, Trash2 } from "lucide-react";
 import {
   fetchOrganizationFleet,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/fleet-utils";
 import AddFleetModal from "@/components/fleet/AddFleetModal";
 import FleetQRModal from "@/components/fleet/FleetQRModal";
+import QrLabelSheet from "@/components/labels/QrLabelSheet";
 import FleetDocumentsModal from "@/components/fleet/FleetDocumentsModal";
 import FleetArchiveModal from "@/components/fleet/FleetArchiveModal";
 import FleetDeleteConfirmModal from "@/components/fleet/FleetDeleteConfirmModal";
@@ -40,11 +42,14 @@ import { useFormToast } from "@/hooks/useFormToast";
 import Toast from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
+import { getFleetPrestartUrl } from "@/lib/fleet-prestart-url";
+import { readConsoleOpenAdd } from "@/lib/console-nav-routes";
 
 type FleetListTab = "active" | "archived";
 
 export default function FleetAdminPanel() {
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
+  const searchParams = useSearchParams();
   const { target, hasDeepLink, clearDeepLink } = useOrganisationEntityDeepLink();
   const deepLinkHandledRef = useRef<string | null>(null);
   const [vehicles, setVehicles] = useState<OrganizationFleetVehicle[]>([]);
@@ -65,6 +70,7 @@ export default function FleetAdminPanel() {
   const [deleteTarget, setDeleteTarget] = useState<OrganizationFleetVehicle | null>(null);
   const [qrVehicle, setQrVehicle] = useState<OrganizationFleetVehicle | null>(null);
   const [qrAutoPrint, setQrAutoPrint] = useState(false);
+  const [showQrSheet, setShowQrSheet] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
   const loadFleet = useCallback(async () => {
@@ -77,6 +83,12 @@ export default function FleetAdminPanel() {
   useEffect(() => {
     void loadFleet();
   }, [loadFleet]);
+
+  useEffect(() => {
+    if (readConsoleOpenAdd(searchParams)) {
+      setShowAddModal(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!hasDeepLink || !target.id || loading) return;
@@ -151,6 +163,28 @@ export default function FleetAdminPanel() {
     });
   }, [vehicles, searchQuery, statusFilter, listTab]);
 
+  const qrSheetItems = useMemo(
+    () =>
+      filteredVehicles
+        .filter((vehicle) => !isFleetArchived(vehicle))
+        .map((vehicle) => ({
+          id: vehicle.id,
+          qrUrl: getFleetPrestartUrl(vehicle.id),
+          title: vehicle.unit_number,
+          identity: [
+            vehicle.registration ? `Rego ${vehicle.registration}` : null,
+            `ID ${vehicle.unit_number}`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          makeModel: [vehicle.make, vehicle.model].filter(Boolean).join(" ") || "—",
+          category: "Fleet Vehicle",
+          project: vehicle.assigned_project_name,
+          state: vehicle.state,
+        })),
+    [filteredVehicles]
+  );
+
   const patchVehicle = useCallback((updated: OrganizationFleetVehicle) => {
     setVehicles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
   }, []);
@@ -213,14 +247,24 @@ export default function FleetAdminPanel() {
             Manage company vehicles, registration compliance, and insurance documents.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
-        >
-          <Plus className="h-4 w-4" />
-          Add Vehicle
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowQrSheet(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-orange-300 hover:text-orange-700"
+          >
+            <Printer className="h-4 w-4" />
+            Print QR Labels (2 per page)
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" />
+            Add Vehicle
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -490,6 +534,14 @@ export default function FleetAdminPanel() {
             setQrVehicle(null);
             setQrAutoPrint(false);
           }}
+        />
+      ) : null}
+
+      {showQrSheet ? (
+        <QrLabelSheet
+          heading="Fleet QR Labels"
+          items={qrSheetItems}
+          onClose={() => setShowQrSheet(false)}
         />
       ) : null}
 

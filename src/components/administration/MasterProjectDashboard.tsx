@@ -59,6 +59,7 @@ import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewMo
 import SubmittedFormsWidget from "@/components/dashboard/SubmittedFormsWidget";
 import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
 import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
+import ExecutiveMetricBar from "@/components/dashboard/ExecutiveMetricBar";
 import type { IncidentReportRecord } from "@/lib/incident-reports";
 import type { PlantPrestart } from "@/lib/supabase";
 import { FLEET_ASSIGNMENT_STATES } from "@/lib/fleet-prestart";
@@ -503,6 +504,8 @@ export default function MasterProjectDashboard() {
           />
         </div>
       </div>
+
+      <ExecutiveMetricBar />
 
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-sm text-slate-500">

@@ -2,10 +2,11 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Loader2, Menu, X } from "lucide-react";
+import { Loader2, Menu, Search, X } from "lucide-react";
 import Sidebar, { type ActiveView } from "@/components/Sidebar";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
+import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 import {
   AdminConsoleProvider,
   type AdminConsoleContextValue,
@@ -93,6 +94,7 @@ export default function AdminConsoleShell({
 }: AdminConsoleShellProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const commandPalette = useCommandPalette();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [sidebarProjects, setSidebarProjects] = useState<DbProject[]>([]);
@@ -481,6 +483,16 @@ export default function AdminConsoleShell({
             ) : (
               <CompanyLogo size="sm" showFallback className="flex-1" />
             )}
+            {commandPalette ? (
+              <button
+                type="button"
+                onClick={commandPalette.openPalette}
+                className="rounded-md p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600"
+                aria-label="Open command palette"
+              >
+                <Search className="h-5 w-5" />
+              </button>
+            ) : null}
           </div>
 
           <div

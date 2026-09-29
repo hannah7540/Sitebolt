@@ -14,6 +14,7 @@ import {
   Archive,
   ArchiveRestore,
   Trash2,
+  Printer,
 } from "lucide-react";
 import type { PlantAsset } from "@/lib/supabase";
 import {
@@ -44,6 +45,7 @@ import {
 } from "@/lib/plant-archive";
 import AddPlantModal from "./AddPlantModal";
 import PlantQRModal from "./PlantQRModal";
+import QrLabelSheet from "@/components/labels/QrLabelSheet";
 import PlantDefectModal from "./PlantDefectModal";
 import PlantArchiveModal from "./PlantArchiveModal";
 import PlantDeleteConfirmModal from "./PlantDeleteConfirmModal";
@@ -59,6 +61,7 @@ import Toast from "@/components/ui/Toast";
 import { parsePlantCategories } from "@/lib/plant-categories";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
+import { getPrestartUrl } from "@/lib/plant-prestart-url";
 
 function PlantCategoryBadges({ category }: { category: string }) {
   const selected = parsePlantCategories(category);
@@ -172,6 +175,7 @@ export default function PlantAdminPanel({
   const deepLinkHandledRef = useRef<string | null>(null);
   const [showAddPlant, setShowAddPlant] = useState(initialShowAdd);
   const [qrPlant, setQrPlant] = useState<PlantAsset | null>(null);
+  const [showQrSheet, setShowQrSheet] = useState(false);
   const [defectPlant, setDefectPlant] = useState<PlantAsset | null>(null);
   const [assignPlant, setAssignPlant] = useState<PlantAsset | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<PlantAsset | null>(null);
@@ -280,6 +284,41 @@ export default function PlantAdminPanel({
     });
   }, [plantList, searchQuery, listTab]);
 
+  const qrSheetItems = useMemo(
+    () =>
+      filteredPlantList
+        .filter((item) => !isPlantArchived(item))
+        .map((item) => {
+          const assignedIds = getPlantAssignedProjectIds(
+            item,
+            plantProjectMap.get(item.id) ?? []
+          );
+          const project =
+            projects.find((row) => assignedIds.includes(row.id)) ??
+            projects.find((row) => row.id === item.assigned_project_id) ??
+            null;
+          return {
+            id: item.id,
+            qrUrl: getPrestartUrl(item.id),
+            title: item.name?.trim() || item.unit_number,
+            identity: [
+              `ID ${item.unit_number}`,
+              item.registration_code ? `Rego ${item.registration_code}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            makeModel: [item.make, item.model].filter(Boolean).join(" ") || "—",
+            category: item.category || "Plant",
+            project:
+              resolvePlantAssignedProjectName(item) !== "Unassigned"
+                ? resolvePlantAssignedProjectName(item)
+                : project?.name ?? null,
+            state: project?.state ?? null,
+          };
+        }),
+    [filteredPlantList, plantProjectMap, projects]
+  );
+
   const handleArchive = async (reason: string) => {
     if (!archiveTarget) return;
     setActionBusy(true);
@@ -357,20 +396,29 @@ export default function PlantAdminPanel({
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-orange-500">Plant &amp; Machinery</h1>
           <p className="text-sm text-slate-500">
             Organisation master registry · register equipment and assign to projects
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddPlant(true)}
-          className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold hover:bg-orange-500"
-        >
-          <Plus className="h-5 w-5" /> Add Plant
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowQrSheet(true)}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-700"
+          >
+            <Printer className="h-5 w-5" /> Print QR Labels (2 per page)
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddPlant(true)}
+            className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold hover:bg-orange-500"
+          >
+            <Plus className="h-5 w-5" /> Add Plant
+          </button>
+        </div>
       </div>
 
       <div className="relative mb-6">
@@ -625,6 +673,14 @@ export default function PlantAdminPanel({
       {qrPlant && (
         <PlantQRModal plant={qrPlant} onClose={() => setQrPlant(null)} />
       )}
+
+      {showQrSheet ? (
+        <QrLabelSheet
+          heading="Plant QR Labels"
+          items={qrSheetItems}
+          onClose={() => setShowQrSheet(false)}
+        />
+      ) : null}
 
       {defectPlant && (
         <PlantDefectModal
