@@ -1,5 +1,9 @@
 import { supabase, isSupabaseConfigured, type WorkerTimesheet } from "./supabase";
-import type { PayRateRule } from "./pay-rates-and-rules";
+import {
+  NSW_SITE_WORKER_PRESET_KEY,
+  NSW_SITE_WORKER_RULE_NAME,
+  type PayRateRule,
+} from "./pay-rates-and-rules";
 import type { DbProject } from "./project-resolver";
 import { isSupabaseMissingColumnError } from "./supabase-errors";
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
@@ -23,6 +27,7 @@ import {
 } from "./meal-allowance";
 import { resolveTravelPayrollCategory } from "./worker-pay-rule-assignment";
 import { splitWorkerFullName } from "./worker-utils";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
 
 /** MYOB AccountRight timesheet import headers (tab-delimited, no leading empty column). */
 export const MYOB_TIMESHEET_HEADERS = [
@@ -239,6 +244,83 @@ export interface PayrollCategoryNames {
 export const PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY = "Annual Leave Pay";
 export const PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY = "Annual Leave Loading";
 
+/** Live MYOB payroll category labels for NSW Site Worker exports only. */
+export const NSW_MYOB_PAYROLL_CATEGORIES = {
+  baseHourly: "Base Hourly",
+  overtime: "Overtime (2x)",
+  siteAllowance: "Site Allowance 2026",
+  productivity: "Site Allowance 2026",
+  aac: "AAC",
+  travel: "Travel NSW",
+  meal: "Meal Allowance NSW 2025",
+  leadingHand: "Leading Hand 1-10",
+  safety: "Safety on site",
+} as const;
+
+const NSW_MYOB_CATEGORY_ALIASES: Record<string, string> = {
+  "base hours": NSW_MYOB_PAYROLL_CATEGORIES.baseHourly,
+  "base hourly": NSW_MYOB_PAYROLL_CATEGORIES.baseHourly,
+  "overtime (2x)": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "overtime nsw (2x)": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "overtime (1.5x)": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "overtime 1.5x": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "overtime 2x": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "double time": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  overtime: NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+  "aac productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  productivity: NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "site allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "site allowance 2026": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "all-purpose": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "all purpose": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "all purpose allowance": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  aac: NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "travel allowance": NSW_MYOB_PAYROLL_CATEGORIES.travel,
+  "travel allowance nsw": NSW_MYOB_PAYROLL_CATEGORIES.travel,
+  "travel nsw": NSW_MYOB_PAYROLL_CATEGORIES.travel,
+  "travel nsw apprentice": NSW_MYOB_PAYROLL_CATEGORIES.travel,
+  "meal allowance": NSW_MYOB_PAYROLL_CATEGORIES.meal,
+  "meal allowance nsw": NSW_MYOB_PAYROLL_CATEGORIES.meal,
+  "meal allowance nsw 2025": NSW_MYOB_PAYROLL_CATEGORIES.meal,
+  "leading hand": NSW_MYOB_PAYROLL_CATEGORIES.leadingHand,
+  "leading hand 1-10": NSW_MYOB_PAYROLL_CATEGORIES.leadingHand,
+  "hsr allowance": NSW_MYOB_PAYROLL_CATEGORIES.safety,
+  safety: NSW_MYOB_PAYROLL_CATEGORIES.safety,
+  "safety on site": NSW_MYOB_PAYROLL_CATEGORIES.safety,
+};
+
+function normalizePayrollCategoryKey(category: string): string {
+  return category.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function isNswPayrollExportContext(
+  payRule: PayRateRule | null | undefined,
+  workerState?: string | null
+): boolean {
+  const state = normalizeWorkerStateRegion(workerState);
+  if (state === "NSW") return true;
+  if (state) return false;
+
+  const ruleName = payRule?.rule_name?.trim() ?? "";
+  if (ruleName === NSW_SITE_WORKER_RULE_NAME || /\bnsw\b/i.test(ruleName)) {
+    return true;
+  }
+  return payRule?.preset_key === NSW_SITE_WORKER_PRESET_KEY;
+}
+
+/** NSW-only MYOB label translation. Other states keep their existing export strings. */
+export function mapNswMyobPayrollCategory(category: string): string {
+  const trimmed = category.trim();
+  if (!trimmed) return trimmed;
+  return NSW_MYOB_CATEGORY_ALIASES[normalizePayrollCategoryKey(trimmed)] ?? trimmed;
+}
+
+function finalizeExportPayrollCategory(category: string, isNsw: boolean): string {
+  const trimmed = category.trim();
+  return isNsw ? mapNswMyobPayrollCategory(trimmed) : trimmed;
+}
+
 const LEAVE_LINE_TO_PAYROLL_CATEGORY: Record<TimesheetLineCategory, string> = {
   work: "Base Hourly",
   sick_leave: "Personal Leave Pay",
@@ -266,7 +348,8 @@ export function formatPayrollExportDate(isoDate: string): string {
 }
 
 export function formatPayrollExportUnitsValue(units: number): string {
-  return roundUnits(units).toFixed(1);
+  const numeric = Number.isFinite(units) ? roundUnits(units) : 0;
+  return numeric.toFixed(1);
 }
 
 function payrollExportDateStamp(rows: PayrollExportTimesheetRow[]): string {
@@ -297,6 +380,21 @@ export function resolvePayrollCategoryNames(
     options?.isApprentice ??
     payRule?.rule_name?.toLowerCase().includes("apprentice") ??
     false;
+  const isNsw = isNswPayrollExportContext(payRule, options?.workerState);
+
+  if (isNsw) {
+    return {
+      baseHourly: NSW_MYOB_PAYROLL_CATEGORIES.baseHourly,
+      overtime: NSW_MYOB_PAYROLL_CATEGORIES.overtime,
+      siteAllowance: NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+      productivity: NSW_MYOB_PAYROLL_CATEGORIES.productivity,
+      travel: NSW_MYOB_PAYROLL_CATEGORIES.travel,
+      meal: NSW_MYOB_PAYROLL_CATEGORIES.meal,
+      hsr: NSW_MYOB_PAYROLL_CATEGORIES.safety,
+      annualLeavePay: PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY,
+      annualLeaveLoading: PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY,
+    };
+  }
 
   return {
     baseHourly: "Base Hourly",
@@ -406,34 +504,43 @@ function injectDailyAllowanceRows(
   row: PayrollExportTimesheetRow,
   lookups: PayrollCsvProjectLookups,
   shiftHours: number,
-  travelCategory: string,
-  mealCategory: string,
-  mealThreshold: number
+  categories: Pick<PayrollCategoryNames, "travel" | "meal" | "siteAllowance" | "productivity">,
+  mealThreshold: number,
+  isNsw: boolean
 ): void {
   if (shiftHours <= 0) return;
 
   if (!row.worker_has_company_vehicle) {
-    pushLine(lines, row, lookups, travelCategory, 1);
+    pushLine(lines, row, lookups, categories.travel, 1, isNsw);
   }
-  pushLine(lines, row, lookups, "Site Allowance 2026", shiftHours);
-  pushLine(lines, row, lookups, "AAC Productivity Allowance", shiftHours);
+  pushLine(lines, row, lookups, categories.siteAllowance, shiftHours, isNsw);
+  if (
+    finalizeExportPayrollCategory(categories.productivity, isNsw) !==
+    finalizeExportPayrollCategory(categories.siteAllowance, isNsw)
+  ) {
+    pushLine(lines, row, lookups, categories.productivity, shiftHours, isNsw);
+  }
 
   if (isMealAllowanceEligible(
     resolveNetWorkedHoursForMealAllowance(row),
     mealThreshold
   )) {
-    pushLine(lines, row, lookups, mealCategory, 1);
+    pushLine(lines, row, lookups, categories.meal, 1, isNsw);
   }
 }
 
 const PAYROLL_CATEGORY_SORT_ORDER: Record<string, number> = {
   "Base Hourly": 10,
+  "Overtime (2x)": 20,
   "Overtime NSW (2x)": 20,
   "Travel NSW": 30,
   "Travel NSW Apprentice": 30,
   "Meal Allowance NSW 2025": 40,
   "Site Allowance 2026": 50,
+  AAC: 55,
   "AAC Productivity Allowance": 60,
+  "Leading Hand 1-10": 65,
+  "Safety on site": 70,
   "HSR allowance": 70,
   "Personal Leave Pay": 110,
   "Annual Leave Pay": 120,
@@ -497,9 +604,10 @@ function pushLine(
   row: PayrollExportTimesheetRow,
   lookups: PayrollCsvProjectLookups,
   payrollCategory: string,
-  units: number
+  units: number,
+  isNsw = false
 ): void {
-  if (units <= 0) return;
+  if (units <= 0 || !Number.isFinite(units)) return;
 
   const { firstName, lastName } = resolveEmployeeNames(row);
   const { jobName, job } = resolveJobFields(row, lookups);
@@ -507,7 +615,7 @@ function pushLine(
   lines.push({
     employeeFirstName: firstName,
     employeeLastName: lastName,
-    payrollCategory,
+    payrollCategory: finalizeExportPayrollCategory(payrollCategory, isNsw),
     date: formatPayrollExportDate(row.work_date),
     jobName,
     job,
@@ -585,6 +693,7 @@ function buildWorkAndAllowanceExportLines(
     isApprentice: row.worker_is_apprentice ?? false,
     workerState: row.worker_state,
   });
+  const isNsw = isNswPayrollExportContext(payRule, row.worker_state);
   const shiftHours = resolveWorkedShiftHours(row, breakdown);
   const workedDay = hasWorkedPayLines(breakdown);
 
@@ -593,11 +702,11 @@ function buildWorkAndAllowanceExportLines(
   }
 
   if (breakdown.base_hours > 0) {
-    pushLine(lines, row, lookups, categories.baseHourly, breakdown.base_hours);
+    pushLine(lines, row, lookups, categories.baseHourly, breakdown.base_hours, isNsw);
   }
 
   if (breakdown.overtime_hours > 0) {
-    pushLine(lines, row, lookups, categories.overtime, breakdown.overtime_hours);
+    pushLine(lines, row, lookups, categories.overtime, breakdown.overtime_hours, isNsw);
   }
 
   injectDailyAllowanceRows(
@@ -605,13 +714,13 @@ function buildWorkAndAllowanceExportLines(
     row,
     lookups,
     shiftHours,
-    categories.travel,
-    categories.meal,
-    resolveMealAllowanceThreshold(payRule.meal_allowance_threshold)
+    categories,
+    resolveMealAllowanceThreshold(payRule.meal_allowance_threshold),
+    isNsw
   );
 
   if (breakdown.hsr_allowance_pay > 0 && shiftHours > 0) {
-    pushLine(lines, row, lookups, categories.hsr, shiftHours);
+    pushLine(lines, row, lookups, categories.hsr, shiftHours, isNsw);
   }
 
   return lines;
@@ -626,6 +735,7 @@ function buildFallbackWorkExportLines(
     isApprentice: row.worker_is_apprentice ?? false,
     workerState: row.worker_state,
   });
+  const isNsw = isNswPayrollExportContext(null, row.worker_state);
   const totals = resolveTimesheetDisplayTotals(row);
   const shiftHours = Math.max(0, roundUnits(totals.workHours - totals.breakHours));
 
@@ -635,10 +745,10 @@ function buildFallbackWorkExportLines(
   const overtimeHours = Math.max(0, roundUnits(shiftHours - 8));
 
   if (baseHours > 0) {
-    pushLine(lines, row, lookups, categories.baseHourly, baseHours);
+    pushLine(lines, row, lookups, categories.baseHourly, baseHours, isNsw);
   }
   if (overtimeHours > 0) {
-    pushLine(lines, row, lookups, categories.overtime, overtimeHours);
+    pushLine(lines, row, lookups, categories.overtime, overtimeHours, isNsw);
   }
 
   if (baseHours > 0 || overtimeHours > 0) {
@@ -647,9 +757,9 @@ function buildFallbackWorkExportLines(
       row,
       lookups,
       shiftHours,
-      categories.travel,
-      categories.meal,
-      MEAL_ALLOWANCE_HOURS_THRESHOLD
+      categories,
+      MEAL_ALLOWANCE_HOURS_THRESHOLD,
+      isNsw
     );
   }
 
@@ -696,7 +806,8 @@ export function buildPayrollExportLinesForTimesheet(
         isApprentice: row.worker_is_apprentice ?? false,
         workerState: row.worker_state,
       }).baseHourly,
-      totals.dailyTotalHours
+      totals.dailyTotalHours,
+      isNswPayrollExportContext(payRule, row.worker_state)
     );
     return fallback;
   }
@@ -722,11 +833,11 @@ export function escapePayrollTxtValue(value: string | number | null | undefined)
 
 export function payrollExportLineToMyobCells(line: PayrollCsvExportLine): string[] {
   return [
-    line.employeeLastName,
-    line.employeeFirstName,
-    line.payrollCategory,
-    line.job || line.jobName,
-    line.date,
+    line.employeeLastName.trim(),
+    line.employeeFirstName.trim(),
+    line.payrollCategory.trim(),
+    (line.job || line.jobName).trim(),
+    line.date.trim(),
     formatPayrollExportUnitsValue(line.units),
   ];
 }
