@@ -249,7 +249,7 @@ export const NSW_MYOB_PAYROLL_CATEGORIES = {
   baseHourly: "Base Hourly",
   overtime: "Overtime (2x)",
   siteAllowance: "Site Allowance 2026",
-  productivity: "Site Allowance 2026",
+  productivity: "AAC",
   aac: "AAC",
   travel: "Travel NSW",
   meal: "Meal Allowance NSW 2025",
@@ -267,15 +267,16 @@ const NSW_MYOB_CATEGORY_ALIASES: Record<string, string> = {
   "overtime 2x": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
   "double time": NSW_MYOB_PAYROLL_CATEGORIES.overtime,
   overtime: NSW_MYOB_PAYROLL_CATEGORIES.overtime,
-  "aac productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
-  "productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
-  productivity: NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
-  "site allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
-  "site allowance 2026": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "aac productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "aac allowance": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  aac: NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "productivity allowance": NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  productivity: NSW_MYOB_PAYROLL_CATEGORIES.aac,
   "all-purpose": NSW_MYOB_PAYROLL_CATEGORIES.aac,
   "all purpose": NSW_MYOB_PAYROLL_CATEGORIES.aac,
   "all purpose allowance": NSW_MYOB_PAYROLL_CATEGORIES.aac,
-  aac: NSW_MYOB_PAYROLL_CATEGORIES.aac,
+  "site allowance": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
+  "site allowance 2026": NSW_MYOB_PAYROLL_CATEGORIES.siteAllowance,
   "travel allowance": NSW_MYOB_PAYROLL_CATEGORIES.travel,
   "travel allowance nsw": NSW_MYOB_PAYROLL_CATEGORIES.travel,
   "travel nsw": NSW_MYOB_PAYROLL_CATEGORIES.travel,
@@ -341,15 +342,31 @@ function roundUnits(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function roundAacUnits(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function isAacPayrollCategory(category: string): boolean {
+  return category.trim() === NSW_MYOB_PAYROLL_CATEGORIES.aac;
+}
+
 export function formatPayrollExportDate(isoDate: string): string {
   const [year, month, day] = isoDate.split("-").map(Number);
   if (!year || !month || !day) return isoDate;
   return `${day}/${String(month).padStart(2, "0")}/${year}`;
 }
 
-export function formatPayrollExportUnitsValue(units: number): string {
-  const numeric = Number.isFinite(units) ? roundUnits(units) : 0;
-  return numeric.toFixed(1);
+export function formatPayrollExportUnitsValue(
+  units: number,
+  payrollCategory?: string
+): string {
+  if (!Number.isFinite(units)) return payrollCategory && isAacPayrollCategory(payrollCategory)
+    ? "0.00"
+    : "0.0";
+  if (payrollCategory && isAacPayrollCategory(payrollCategory)) {
+    return roundAacUnits(units).toFixed(2);
+  }
+  return roundUnits(units).toFixed(1);
 }
 
 function payrollExportDateStamp(rows: PayrollExportTimesheetRow[]): string {
@@ -490,6 +507,18 @@ function resolveWorkedShiftHours(
   return Math.max(0, roundUnits(totals.workHours - totals.breakHours));
 }
 
+/** AAC is paid on every hour worked (base + overtime). */
+function resolveAacExportHours(
+  row: PayrollExportTimesheetRow,
+  breakdown: TimesheetPayBreakdown | null
+): number {
+  if (breakdown) {
+    const allWorkedHours = breakdown.base_hours + breakdown.overtime_hours;
+    return Math.max(0, roundAacUnits(allWorkedHours > 0 ? allWorkedHours : breakdown.work_hours));
+  }
+  return Math.max(0, roundAacUnits(resolveWorkedShiftHours(row, null)));
+}
+
 function hasWorkedPayLines(breakdown: TimesheetPayBreakdown | null): boolean {
   if (!breakdown) return false;
   return breakdown.base_hours > 0 || breakdown.overtime_hours > 0;
@@ -506,7 +535,8 @@ function injectDailyAllowanceRows(
   shiftHours: number,
   categories: Pick<PayrollCategoryNames, "travel" | "meal" | "siteAllowance" | "productivity">,
   mealThreshold: number,
-  isNsw: boolean
+  isNsw: boolean,
+  options?: { includeAac?: boolean; aacHours?: number }
 ): void {
   if (shiftHours <= 0) return;
 
@@ -514,9 +544,14 @@ function injectDailyAllowanceRows(
     pushLine(lines, row, lookups, categories.travel, 1, isNsw);
   }
   pushLine(lines, row, lookups, categories.siteAllowance, shiftHours, isNsw);
-  if (
+
+  const aacHours = options?.aacHours ?? shiftHours;
+  if (isNsw && options?.includeAac !== false && aacHours > 0) {
+    pushLine(lines, row, lookups, NSW_MYOB_PAYROLL_CATEGORIES.aac, aacHours, true);
+  } else if (
+    !isNsw &&
     finalizeExportPayrollCategory(categories.productivity, isNsw) !==
-    finalizeExportPayrollCategory(categories.siteAllowance, isNsw)
+      finalizeExportPayrollCategory(categories.siteAllowance, isNsw)
   ) {
     pushLine(lines, row, lookups, categories.productivity, shiftHours, isNsw);
   }
@@ -612,14 +647,15 @@ function pushLine(
   const { firstName, lastName } = resolveEmployeeNames(row);
   const { jobName, job } = resolveJobFields(row, lookups);
 
+  const category = finalizeExportPayrollCategory(payrollCategory, isNsw);
   lines.push({
     employeeFirstName: firstName,
     employeeLastName: lastName,
-    payrollCategory: finalizeExportPayrollCategory(payrollCategory, isNsw),
+    payrollCategory: category,
     date: formatPayrollExportDate(row.work_date),
     jobName,
     job,
-    units: roundUnits(units),
+    units: isAacPayrollCategory(category) ? roundAacUnits(units) : roundUnits(units),
   });
 }
 
@@ -716,7 +752,11 @@ function buildWorkAndAllowanceExportLines(
     shiftHours,
     categories,
     resolveMealAllowanceThreshold(payRule.meal_allowance_threshold),
-    isNsw
+    isNsw,
+    {
+      includeAac: (payRule.productivity_allowance_hourly ?? 0) > 0,
+      aacHours: resolveAacExportHours(row, breakdown),
+    }
   );
 
   if (breakdown.hsr_allowance_pay > 0 && shiftHours > 0) {
@@ -759,7 +799,11 @@ function buildFallbackWorkExportLines(
       shiftHours,
       categories,
       MEAL_ALLOWANCE_HOURS_THRESHOLD,
-      isNsw
+      isNsw,
+      {
+        includeAac: isNsw,
+        aacHours: resolveAacExportHours(row, null),
+      }
     );
   }
 
@@ -838,7 +882,7 @@ export function payrollExportLineToMyobCells(line: PayrollCsvExportLine): string
     line.payrollCategory.trim(),
     (line.job || line.jobName).trim(),
     line.date.trim(),
-    formatPayrollExportUnitsValue(line.units),
+    formatPayrollExportUnitsValue(line.units, line.payrollCategory),
   ];
 }
 
