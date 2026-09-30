@@ -619,7 +619,10 @@ export async function createAdminItp(input: {
     },
   };
 
-  const result = await retryItpItcWrite("project_itps.admin_create", payload, async (next) => {
+  const result = await retryItpItcWrite(
+    "project_itps.admin_create",
+    sanitizeItpItcWritePayload(payload, PROJECT_ITP_COLUMNS),
+    async (next) => {
     const { data, error } = await supabase
       .from(PROJECT_ITPS_TABLE)
       .insert(next)

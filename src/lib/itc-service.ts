@@ -257,11 +257,13 @@ function normalizeItc(row: Record<string, unknown>): ProjectItc {
   return {
     id: String(row.id),
     project_id: String(row.project_id ?? ""),
-    itc_number: String(row.itc_number ?? ""),
+    itc_number: String(row.itc_number ?? row.activity_number ?? row.title ?? ""),
     zone_id: row.zone_id ? String(row.zone_id) : null,
     zone_code: row.zone_code ? String(row.zone_code) : null,
     building: row.building ? String(row.building) : null,
-    service_discipline: String(row.service_discipline ?? "Electrical"),
+    service_discipline: String(
+      row.service_discipline ?? row.service ?? row.service_type ?? "Electrical"
+    ),
     trade_discipline: row.trade_discipline ? String(row.trade_discipline) : null,
     service_type: row.service_type ? String(row.service_type) : null,
     material_colour: row.material_colour ? String(row.material_colour) : null,
@@ -271,7 +273,11 @@ function normalizeItc(row: Record<string, unknown>): ProjectItc {
     length_m: row.length_m == null ? null : Number(row.length_m),
     length_of_run_m: row.length_of_run_m == null ? null : Number(row.length_of_run_m),
     number_of_tees: row.number_of_tees == null ? null : Number(row.number_of_tees),
-    redline_markup_url: row.redline_markup_url ? String(row.redline_markup_url) : null,
+    redline_markup_url: row.redline_markup_url
+      ? String(row.redline_markup_url)
+      : row.redline_image_url
+        ? String(row.redline_image_url)
+        : null,
     gps_lat: row.gps_lat == null ? null : Number(row.gps_lat),
     gps_lng: row.gps_lng == null ? null : Number(row.gps_lng),
     form_data:
@@ -381,13 +387,17 @@ function normalizePhoto(row: Record<string, unknown>): ItcPhoto {
     itc_id: String(row.itc_id),
     slot_key: String(row.slot_key),
     photo_url: row.photo_url ? String(row.photo_url) : null,
-    not_required: row.not_required === true,
+    not_required: row.not_required === true || row.is_not_required === true,
     not_required_reason: row.not_required_reason
       ? String(row.not_required_reason)
       : null,
     gps_lat: row.gps_lat == null ? null : Number(row.gps_lat),
     gps_lng: row.gps_lng == null ? null : Number(row.gps_lng),
-    captured_at: row.captured_at ? String(row.captured_at) : null,
+    captured_at: row.captured_at
+      ? String(row.captured_at)
+      : row.taken_at
+        ? String(row.taken_at)
+        : null,
     uploaded_by: row.uploaded_by ? String(row.uploaded_by) : null,
   };
 }
@@ -443,7 +453,7 @@ function normalizeChangeRequest(row: Record<string, unknown>): ItcChangeRequest 
     itc_id: String(row.itc_id),
     signoff_id: row.signoff_id ? String(row.signoff_id) : null,
     requested_by: String(row.requested_by ?? ""),
-    requested_by_name: String(row.requested_by_name ?? ""),
+    requested_by_name: String(row.requested_by_name ?? row.requester_name ?? ""),
     reason: String(row.reason ?? ""),
     status: (row.status as ItcChangeRequestStatus) ?? "pending",
     reviewed_by: row.reviewed_by ? String(row.reviewed_by) : null,
@@ -491,7 +501,16 @@ export async function fetchProjectItcs(
     if (zoneCode && zoneCode !== "ALL") {
       query = query.eq("zone_code", zoneCode);
     }
-    const { data, error } = await query.order("itc_number");
+    let { data, error } = await query.order("itc_number");
+
+    if (error && /zone_code|activity_number|itc_number/i.test(error.message)) {
+      const fallback = await supabase
+        .from(PROJECT_ITCS_TABLE)
+        .select("*")
+        .eq("project_id", resolved);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       if (!isMissingTableError(error.message, "project_itcs")) {
@@ -500,9 +519,11 @@ export async function fetchProjectItcs(
       return [];
     }
 
-    if (!data?.length) return [];
-
-    return data.map((row) => normalizeItc(row as Record<string, unknown>));
+    const rows = (data ?? []).map((row) => normalizeItc(row as Record<string, unknown>));
+    if (zoneCode && zoneCode !== "ALL") {
+      return rows.filter((row) => (row.zone_code ?? "").toUpperCase() === zoneCode.toUpperCase());
+    }
+    return rows;
   } catch {
     return [];
   }
@@ -520,12 +541,7 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
 
   if (error || !itcRow) return null;
 
-  const [
-    { data: photoRows },
-    { data: stepPhotoRows },
-    { data: signoffRows },
-    { data: crRows },
-  ] = await Promise.all([
+  const [photosResult, stepPhotosResult, signoffsResult, crResult] = await Promise.all([
     supabase.from("itc_photos").select("*").eq("itc_id", itcId),
     supabase.from("itc_step_photos").select("*").eq("itc_id", itcId).order("created_at"),
     supabase.from("itc_signoffs").select("*").eq("itc_id", itcId).order("step_index"),
@@ -535,6 +551,20 @@ export async function fetchItcDetail(itcId: string): Promise<ItcDetailBundle | n
       .eq("itc_id", itcId)
       .order("created_at", { ascending: false }),
   ]);
+
+  let signoffRows = signoffsResult.data;
+  if (signoffsResult.error) {
+    const fallback = await supabase
+      .from("signoffs")
+      .select("*")
+      .eq("itc_id", itcId)
+      .order("step_index");
+    signoffRows = fallback.error ? [] : fallback.data;
+  }
+
+  const photoRows = photosResult.error ? [] : photosResult.data;
+  const stepPhotoRows = stepPhotosResult.error ? [] : stepPhotosResult.data;
+  const crRows = crResult.error ? [] : crResult.data;
 
   return {
     itc: normalizeItc(itcRow as Record<string, unknown>),
@@ -931,16 +961,36 @@ export async function createItcChangeRequest(input: {
 }): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const { error } = await supabase.from("itc_change_requests").insert({
-    itc_id: input.itcId,
-    signoff_id: input.signoffId ?? null,
-    requested_by: input.requestedBy,
-    requested_by_name: input.requestedByName.trim(),
-    reason: input.reason.trim(),
-    status: "pending",
-  });
-
-  if (error) return { error: error.message };
+  const crInsert = await retryItpItcWrite(
+    "itc_change_requests.insert",
+    sanitizeItpItcWritePayload(
+      {
+        itc_id: input.itcId,
+        signoff_id: input.signoffId ?? null,
+        requested_by: input.requestedBy,
+        requested_by_name: input.requestedByName.trim(),
+        requester_name: input.requestedByName.trim(),
+        requester_worker_id: input.requestedBy,
+        reason: input.reason.trim(),
+        status: "pending",
+      },
+      [
+        "itc_id",
+        "signoff_id",
+        "requested_by",
+        "requested_by_name",
+        "requester_name",
+        "requester_worker_id",
+        "reason",
+        "status",
+      ]
+    ),
+    async (next) => {
+      const { error } = await supabase.from("itc_change_requests").insert(next);
+      return { error };
+    }
+  );
+  if (crInsert.error) return { error: crInsert.error };
 
   const crUpdate = await retryItpItcWrite(
     "project_itcs.open_cr",
@@ -1238,14 +1288,22 @@ export async function getNextItcSequence(
   try {
   const { data } = await supabase
     .from(PROJECT_ITCS_TABLE)
-    .select("itc_number")
-    .eq("project_id", projectId)
-    .ilike("itc_number", `${prefix}%`);
+    .select("activity_number, itc_id, title, itc_number")
+    .eq("project_id", projectId);
 
   let maxSeq = 0;
   for (const row of data ?? []) {
-    const seq = parseItcAutoNameSequence(String(row.itc_number ?? ""));
-    if (seq != null) maxSeq = Math.max(maxSeq, seq);
+    const record = row as Record<string, unknown>;
+    const label = String(
+      record.activity_number ?? record.itc_id ?? record.title ?? record.itc_number ?? ""
+    );
+    if (prefix && label && !label.toUpperCase().startsWith(prefix.toUpperCase())) {
+      const seqFromInt = Number(record.itc_number);
+      if (Number.isFinite(seqFromInt)) maxSeq = Math.max(maxSeq, Math.floor(seqFromInt));
+      continue;
+    }
+    const seq = parseItcAutoNameSequence(label) ?? Number(record.itc_number);
+    if (Number.isFinite(seq) && seq > 0) maxSeq = Math.max(maxSeq, Math.floor(seq));
   }
   return maxSeq + 1;
   } catch (error) {
@@ -1277,6 +1335,8 @@ export async function createItcDraft(input: {
     stripItcPayload({
       project_id: resolved,
       itc_number: itcNumber,
+      activity_number: itcNumber,
+      title: itcNumber,
       zone_code: zone,
       service_discipline: service,
       service_type: service,

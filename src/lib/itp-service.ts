@@ -228,16 +228,16 @@ export async function fetchItpById(itpId: string): Promise<ProjectItp | null> {
     if (error || !itpRow) return null;
 
     const hydrated = hydrateItpItcRow(itpRow as Record<string, unknown>);
-    const { data: itemRows } = await supabase
+    const { data: itemRows, error: itemError } = await supabase
       .from(PROJECT_ITP_ITEMS_TABLE)
       .select("*")
       .eq("itp_id", itpId)
       .order("sort_order")
       .order("item_number");
 
-    const storedItems = (itemRows ?? []).map((row) =>
-      normalizeItem(row as Record<string, unknown>)
-    );
+    const storedItems = itemError
+      ? []
+      : (itemRows ?? []).map((row) => normalizeItem(row as Record<string, unknown>));
     const fallbackItems = asUnknownArray(hydrated.items ?? hydrated.checklist).map((item, index) =>
       normalizeItem({
         ...(typeof item === "object" && item ? (item as Record<string, unknown>) : {}),
@@ -526,15 +526,30 @@ export async function appendItpItemPhoto(
 ): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  const { data, error: readError } = await supabase
+  let { data, error: readError } = await supabase
     .from(PROJECT_ITP_ITEMS_TABLE)
-    .select("photo_urls")
+    .select("photo_urls, photos, form_data")
     .eq("id", itemId)
     .maybeSingle();
 
+  if (readError) {
+    const fallback = await supabase
+      .from(PROJECT_ITP_ITEMS_TABLE)
+      .select("*")
+      .eq("id", itemId)
+      .maybeSingle();
+    data = fallback.data;
+    readError = fallback.error;
+  }
+
   if (readError || !data) return { error: readError?.message ?? "Item not found" };
 
-  const photos = Array.isArray(data.photo_urls) ? [...(data.photo_urls as string[])] : [];
+  const record = hydrateItpItcRow(data as Record<string, unknown>);
+  const photos = Array.isArray(record.photo_urls)
+    ? [...(record.photo_urls as string[])]
+    : Array.isArray(record.photos)
+      ? [...(record.photos as string[])]
+      : [];
   photos.push(photoUrl);
 
   const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {

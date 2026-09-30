@@ -178,8 +178,8 @@ export async function fetchWorkerItcPlanAdmin(
         plan: {
           id: String(record.id),
           project_id: String(record.project_id),
-          plan_name: String(record.plan_name ?? "Floorplan"),
-          image_url: String(record.image_url),
+          plan_name: String(record.plan_name ?? record.title ?? "Floorplan"),
+          image_url: String(record.image_url ?? record.plan_image_url ?? ""),
           is_active: record.is_active !== false,
         },
         error: null,
@@ -248,8 +248,10 @@ export async function fetchWorkerItcRegisterAdmin(
     return {
       id: String(record.id),
       project_id: String(record.project_id),
-      itc_number: String(record.itc_number),
-      title: record.title ? String(record.title) : String(record.itc_number),
+      itc_number: String(record.itc_number ?? record.activity_number ?? record.title ?? ""),
+      title: record.title
+        ? String(record.title)
+        : String(record.activity_number ?? record.itc_number ?? ""),
       description: record.description
         ? String(record.description)
         : scope,
@@ -260,7 +262,9 @@ export async function fetchWorkerItcRegisterAdmin(
       map_y: record.map_y == null ? null : Number(record.map_y),
       redline_markup_url: record.redline_markup_url
         ? String(record.redline_markup_url)
-        : null,
+        : record.redline_image_url
+          ? String(record.redline_image_url)
+          : null,
       start_location: start || null,
       end_location: end || null,
       service_discipline: record.service_discipline
@@ -331,8 +335,10 @@ export async function fetchWorkerItcDetailAdmin(
   const itc: WorkerItcRegisterRow = {
     id: String(record.id),
     project_id: String(record.project_id),
-    itc_number: String(record.itc_number),
-    title: record.title ? String(record.title) : String(record.itc_number),
+    itc_number: String(record.itc_number ?? record.activity_number ?? record.title ?? ""),
+    title: record.title
+      ? String(record.title)
+      : String(record.activity_number ?? record.itc_number ?? ""),
     description: record.description ? String(record.description) : scope,
     status: String(record.status ?? "not_started"),
     pin_x: resolvePinX(record),
@@ -341,7 +347,9 @@ export async function fetchWorkerItcDetailAdmin(
     map_y: record.map_y == null ? null : Number(record.map_y),
     redline_markup_url: record.redline_markup_url
       ? String(record.redline_markup_url)
-      : null,
+      : record.redline_image_url
+        ? String(record.redline_image_url)
+        : null,
     start_location: start || null,
     end_location: end || null,
     service_discipline: record.service_discipline
@@ -373,9 +381,13 @@ export async function fetchWorkerItcDetailAdmin(
           item_key: template.item_key,
           item_label: String(existing.item_label ?? template.item_label),
           is_mandatory: existing.is_mandatory !== false,
-          is_checked: existing.is_checked === true,
+          is_checked: existing.is_checked === true || existing.passed === true,
           notes: existing.notes ? String(existing.notes) : null,
-          photo_url: existing.photo_url ? String(existing.photo_url) : null,
+          photo_url: existing.photo_url
+            ? String(existing.photo_url)
+            : Array.isArray(existing.photos)
+              ? String(existing.photos[0] ?? "")
+              : null,
           worker_id: existing.worker_id ? String(existing.worker_id) : null,
           worker_name: existing.worker_name ? String(existing.worker_name) : null,
           sort_order: Number(existing.sort_order ?? template.sort_order),

@@ -47,10 +47,145 @@ export function asUnknownArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function isUuidValue(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  );
+}
+
+function parseItcSequence(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  const match = raw.match(/ITC(\d+)\s*$/i) ?? raw.match(/[/ -](\d+)\s*$/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function firstNonEmpty(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+/** Map live-schema aliases onto the names the UI already reads. */
+export function applyItpItcReadAliases(row: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...row };
+  const displayNumber = firstNonEmpty(
+    next.activity_number,
+    next.itc_id,
+    next.itc_code,
+    typeof next.itc_number === "string" ? next.itc_number : null,
+    next.title,
+    next.itc_number
+  );
+  if (displayNumber) next.itc_number = displayNumber;
+
+  if (next.redline_markup_url == null && next.redline_image_url != null) {
+    next.redline_markup_url = next.redline_image_url;
+  }
+  if (next.service_discipline == null) {
+    next.service_discipline = next.service ?? next.service_type ?? next.trade_discipline;
+  }
+  if (next.zone_code == null && next.zone != null) next.zone_code = next.zone;
+  if (next.map_x == null && next.pin_x != null) next.map_x = next.pin_x;
+  if (next.map_y == null && next.pin_y != null) next.map_y = next.pin_y;
+  if (next.image_url == null && next.plan_image_url != null) next.image_url = next.plan_image_url;
+  if (next.plan_name == null && next.plan_image_url != null) {
+    next.plan_name = firstNonEmpty(next.plan_name, next.title, "Floorplan");
+  }
+  if (next.is_checked == null && next.passed != null) next.is_checked = next.passed === true;
+  if (next.attachments == null && next.attachment_urls != null) {
+    next.attachments = next.attachment_urls;
+  }
+  if (next.captured_at == null && next.taken_at != null) next.captured_at = next.taken_at;
+  if (next.not_required == null && next.is_not_required != null) {
+    next.not_required = next.is_not_required === true;
+  }
+  if (next.requested_by_name == null && next.requester_name != null) {
+    next.requested_by_name = next.requester_name;
+  }
+  return next;
+}
+
+/** Coerce writes onto verified live columns so integer/uuid fields do not 400. */
+export function alignItpItcWriteAliases(raw: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...raw };
+
+  if (typeof next.itc_number === "string" && next.itc_number.trim() && !/^\d+$/.test(next.itc_number.trim())) {
+    const label = next.itc_number.trim();
+    if (next.activity_number == null) next.activity_number = label;
+    if (next.itc_id == null) next.itc_id = label;
+    if (!firstNonEmpty(next.title)) next.title = label;
+    next.itc_number = parseItcSequence(label) ?? 1;
+  } else if (next.itc_number != null && next.itc_number !== "") {
+    const sequence = parseItcSequence(next.itc_number);
+    if (sequence != null) next.itc_number = sequence;
+  }
+
+  if (!firstNonEmpty(next.title)) {
+    next.title = firstNonEmpty(next.activity_number, next.itc_id, next.itp_number) ?? next.title;
+  }
+
+  if (next.pin_x == null) next.pin_x = next.map_x ?? 0;
+  if (next.pin_y == null) next.pin_y = next.map_y ?? 0;
+  if (next.map_x == null && next.pin_x != null) next.map_x = next.pin_x;
+  if (next.map_y == null && next.pin_y != null) next.map_y = next.pin_y;
+
+  if (next.redline_markup_url != null && next.redline_image_url == null) {
+    next.redline_image_url = next.redline_markup_url;
+  }
+  if (next.redline_image_url != null && next.redline_markup_url == null) {
+    next.redline_markup_url = next.redline_image_url;
+  }
+
+  if (next.service_discipline != null && next.service == null) next.service = next.service_discipline;
+  if (next.service != null && next.service_discipline == null) next.service_discipline = next.service;
+  if (next.service_discipline != null && next.service_type == null) {
+    next.service_type = next.service_discipline;
+  }
+  if (next.zone_code != null && next.zone == null) next.zone = next.zone_code;
+
+  if (typeof next.completed_by === "string" && next.completed_by.trim() && !isUuidValue(next.completed_by)) {
+    if (next.completed_by_name == null) next.completed_by_name = next.completed_by.trim();
+    if (next.uploaded_by_name == null) next.uploaded_by_name = next.completed_by.trim();
+    delete next.completed_by;
+  }
+
+  if (next.plan_name != null && !firstNonEmpty(next.title)) next.title = next.plan_name;
+  if (next.image_url != null && next.plan_image_url == null) next.plan_image_url = next.image_url;
+  if (next.plan_image_url != null && next.image_url == null) next.image_url = next.plan_image_url;
+
+  if (next.is_checked != null && next.passed == null) next.passed = next.is_checked === true;
+  if (next.attachments != null && next.attachment_urls == null) next.attachment_urls = next.attachments;
+  if (next.captured_at != null && next.taken_at == null) next.taken_at = next.captured_at;
+  if (next.slot_key != null && next.slot_title == null) next.slot_title = next.slot_key;
+  if (next.not_required != null && next.is_not_required == null) {
+    next.is_not_required = next.not_required === true;
+  }
+  if (next.requested_by_name != null && next.requester_name == null) {
+    next.requester_name = next.requested_by_name;
+  }
+
+  return next;
+}
+
 /** Merge catch-all JSON onto a fetched row and drop transient UI keys. */
 export function hydrateItpItcRow(row: Record<string, unknown>): Record<string, unknown> {
   const formData = asRecord(row.form_data);
-  const next: Record<string, unknown> = { ...row };
+  const next: Record<string, unknown> = applyItpItcReadAliases({ ...row });
 
   for (const key of UI_ONLY_KEYS) {
     delete next[key];
@@ -84,7 +219,7 @@ export function hydrateItpItcRow(row: Record<string, unknown>): Record<string, u
     next.photo_slot = formData.photo_slot;
   }
 
-  return next;
+  return applyItpItcReadAliases(next);
 }
 
 export const PROJECT_ITP_COLUMNS = [
@@ -98,9 +233,24 @@ export const PROJECT_ITP_COLUMNS = [
   "location_area",
   "status",
   "template_key",
+  "template_id",
   "drawing_name",
+  "drawing_url",
+  "service",
+  "service_type",
   "service_run_coordinates",
   "form_data",
+  "checklist",
+  "checklist_answers",
+  "items",
+  "photos",
+  "attachments",
+  "signatures",
+  "signoffs",
+  "notes",
+  "inspector_id",
+  "inspector_name",
+  "spec_reference",
   "completed_at",
   "created_at",
   "updated_at",
@@ -109,9 +259,11 @@ export const PROJECT_ITP_COLUMNS = [
 export const PROJECT_ITP_ITEM_COLUMNS = [
   "id",
   "itp_id",
+  "project_id",
   "item_number",
   "description",
   "acceptance_criteria",
+  "spec_reference",
   "point_type",
   "status",
   "photo_urls",
@@ -122,9 +274,12 @@ export const PROJECT_ITP_ITEM_COLUMNS = [
   "items",
   "signatures",
   "signoffs",
+  "inspector_id",
   "inspector_name",
   "signed_off_at",
+  "signoff_date",
   "signature_url",
+  "notes",
   "form_data",
   "sort_order",
   "created_at",
@@ -135,8 +290,12 @@ export const PROJECT_ITC_COLUMNS = [
   "id",
   "project_id",
   "itc_number",
+  "activity_number",
+  "itc_id",
+  "itp_id",
   "zone_id",
   "zone_code",
+  "zone",
   "building",
   "service_discipline",
   "trade_discipline",
@@ -146,6 +305,7 @@ export const PROJECT_ITC_COLUMNS = [
   "pipe_material",
   "lines_count",
   "drawing_name",
+  "drawing_markup",
   "service_run_coordinates",
   "run_number",
   "material_colour",
@@ -156,15 +316,24 @@ export const PROJECT_ITC_COLUMNS = [
   "length_of_run_m",
   "number_of_tees",
   "redline_markup_url",
+  "redline_image_url",
   "gps_lat",
   "gps_lng",
   "form_data",
   "checklist",
+  "checklist_answers",
   "items",
   "photos",
+  "photo_url",
+  "photo_slot",
+  "photo_slots",
+  "photos_data",
   "attachments",
   "signatures",
   "signoffs",
+  "spec_values",
+  "spec_reference",
+  "notes",
   "status",
   "progress_percent",
   "map_x",
@@ -192,9 +361,20 @@ export const PROJECT_ITC_COLUMNS = [
   "bedding_and_overlay_material",
   "cover_material",
   "batch_item_id",
+  "plan_id",
+  "form_version_id",
+  "service_id",
   "title",
   "description",
+  "inspector_id",
+  "inspector_name",
+  "signoff_date",
+  "is_active",
+  "step_key",
+  "uploaded_by",
+  "uploaded_by_name",
   "completed_by",
+  "completed_by_name",
   "completed_at",
   "created_at",
   "updated_at",
@@ -203,6 +383,7 @@ export const PROJECT_ITC_COLUMNS = [
 export const ITC_SIGNOFF_COLUMNS = [
   "id",
   "itc_id",
+  "project_id",
   "step_key",
   "step_index",
   "author_id",
@@ -217,6 +398,8 @@ export const ITC_SIGNOFF_COLUMNS = [
   "submitted_at",
   "signed_at",
   "signed_by_worker_id",
+  "signoff_date",
+  "notes",
   "verified_by",
   "verified_by_name",
   "verified_at",
@@ -231,10 +414,13 @@ export const ITC_CHECKLIST_ENTRY_COLUMNS = [
   "item_label",
   "is_mandatory",
   "is_checked",
+  "passed",
   "notes",
   "photo_url",
   "photos",
   "attachments",
+  "attachment_urls",
+  "value",
   "worker_id",
   "worker_name",
   "sort_order",
@@ -247,17 +433,38 @@ export const ITC_PHOTO_COLUMNS = [
   "id",
   "itc_id",
   "slot_key",
+  "slot_title",
   "photo_url",
   "photos",
   "not_required",
+  "is_not_required",
   "not_required_reason",
   "gps_lat",
   "gps_lng",
   "captured_at",
+  "taken_at",
   "uploaded_by",
+  "uploaded_by_name",
   "form_data",
   "created_at",
   "updated_at",
+] as const;
+
+export const ITC_CHANGE_REQUEST_COLUMNS = [
+  "id",
+  "itc_id",
+  "signoff_id",
+  "requested_by",
+  "requested_by_name",
+  "requester_name",
+  "requester_worker_id",
+  "reason",
+  "status",
+  "reviewed_by",
+  "reviewed_by_name",
+  "reviewed_at",
+  "resolution_notes",
+  "created_at",
 ] as const;
 
 export const ITC_STEP_PHOTO_COLUMNS = [
@@ -445,6 +652,7 @@ export function sanitizeItpItcWritePayload(
   const allowed = new Set(allowedColumns);
   const overflow: Record<string, unknown> = {};
   const next: Record<string, unknown> = {};
+  raw = alignItpItcWriteAliases(raw);
   const photoSlots = collectItcPhotoSlots(raw);
   const slotUrls = photoUrlsFromSlots(photoSlots);
 
@@ -586,8 +794,10 @@ export async function retryItpItcWrite<T>(
 
       lastError = result.error;
       const message = result.error.message;
+      const typeMismatch =
+        /invalid input syntax|violates .* constraint|could not parse/i.test(message);
 
-      if (!isItpItcSchemaError(result.error)) {
+      if (!isItpItcSchemaError(result.error) && !typeMismatch) {
         return { error: message };
       }
 

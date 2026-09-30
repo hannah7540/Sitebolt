@@ -30,6 +30,7 @@ import {
 } from "@/lib/itc-service";
 import { formatItcAutoName } from "@/lib/itc-naming";
 import {
+  ITC_PHOTO_COLUMNS,
   PROJECT_ITC_COLUMNS,
   PROJECT_ITCS_TABLE,
   retryItpItcWrite,
@@ -996,14 +997,23 @@ export async function uploadFieldItcPhoto(input: {
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
-    .from("itc_photos")
-    .upsert(payload, { onConflict: "itc_id,slot_key" })
-    .select("*")
-    .maybeSingle();
-
-  if (error) return { error: error.message };
-  return { error: null, photo: data ? mapPhoto(asRecord(data)) : mapPhoto(payload) };
+  const saved = await retryItpItcWrite(
+    "itc_photos.upsert",
+    sanitizeItpItcWritePayload(payload, ITC_PHOTO_COLUMNS),
+    async (next) => {
+      const { data, error } = await supabase
+        .from("itc_photos")
+        .upsert(next, { onConflict: "itc_id,slot_key" })
+        .select("*")
+        .maybeSingle();
+      return { data, error };
+    }
+  );
+  if (saved.error) return { error: saved.error };
+  return {
+    error: null,
+    photo: saved.data ? mapPhoto(asRecord(saved.data)) : mapPhoto(payload),
+  };
 }
 
 export async function markPhotoSlotNotRequired(input: {
@@ -1011,18 +1021,27 @@ export async function markPhotoSlotNotRequired(input: {
   slotKey: FieldItcPhotoSlotKey;
   uploadedBy?: string | null;
 }): Promise<{ error: string | null }> {
-  const { error } = await supabase.from("itc_photos").upsert(
-    {
-      itc_id: input.itcId,
-      slot_key: input.slotKey,
-      photo_url: null,
-      not_required: true,
-      uploaded_by: input.uploadedBy ?? null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "itc_id,slot_key" }
+  const saved = await retryItpItcWrite(
+    "itc_photos.not_required",
+    sanitizeItpItcWritePayload(
+      {
+        itc_id: input.itcId,
+        slot_key: input.slotKey,
+        photo_url: null,
+        not_required: true,
+        uploaded_by: input.uploadedBy ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      ITC_PHOTO_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase.from("itc_photos").upsert(next, {
+        onConflict: "itc_id,slot_key",
+      });
+      return { error };
+    }
   );
-  return { error: error?.message ?? null };
+  return { error: saved.error };
 }
 
 export async function listProgressLog(itcId: string): Promise<FieldProgressLog[]> {
@@ -1285,32 +1304,28 @@ export async function createItcFromPin(
     stage: "Not Started",
   };
 
-  const prototypeInsert = await supabase.from("itcs").insert(prototypePayload).select("*").maybeSingle();
+  const prototypeInsert = await retryItpItcWrite(
+    "itcs.pin_drop",
+    sanitizeItpItcWritePayload(prototypePayload, [
+      ...PROJECT_ITC_COLUMNS,
+      "zone",
+      "stage",
+      "from_pit",
+      "to_pit",
+      "form_version_id",
+      "service_id",
+      "itp_id",
+    ]),
+    async (next) => {
+      const { data, error } = await supabase.from("itcs").insert(next).select("*").maybeSingle();
+      return { data, error };
+    }
+  );
   if (!prototypeInsert.error && prototypeInsert.data) {
     return {
       error: null,
       itc: { ...mapPrototypeItc(asRecord(prototypeInsert.data)), pin_x: pinX, pin_y: pinY },
     };
-  }
-
-  if (
-    prototypeInsert.error &&
-    !isMissingRelation(prototypeInsert.error.message, "itcs") &&
-    !isSupabaseMissingColumnError(toSupabaseRequestError(prototypeInsert.error))
-  ) {
-    // Continue to SiteBolt table if prototype insert is a schema miss; otherwise report.
-    if (prototypeInsert.error.code !== "PGRST204") {
-      const retry = await retryItpItcWrite("itcs.pin_drop", prototypePayload, async (next) => {
-        const { data, error } = await supabase.from("itcs").insert(next).select("*").maybeSingle();
-        return { data, error };
-      });
-      if (!retry.error && retry.data) {
-        return {
-          error: null,
-          itc: { ...mapPrototypeItc(asRecord(retry.data)), pin_x: pinX, pin_y: pinY },
-        };
-      }
-    }
   }
 
   const siteboltPayload: Record<string, unknown> = {

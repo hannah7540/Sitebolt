@@ -265,15 +265,25 @@ async function searchItps(
   try {
     const primary = await supabase
       .from("project_itps")
-      .select("id, itp_number, project_id")
-      .ilike("itp_number", `%${term}%`)
+      .select("id, itp_number, title, project_id")
+      .or(`itp_number.ilike.%${term}%,title.ilike.%${term}%`)
       .limit(LIMIT);
 
     if (!primary.error) {
       return (primary.data ?? []).map((row) => mapItp(asRecord(row)));
     }
     logTableError("project_itps", primary.error);
-    return [];
+
+    const fallback = await supabase
+      .from("project_itps")
+      .select("id, title, project_id")
+      .ilike("title", `%${term}%`)
+      .limit(LIMIT);
+    if (fallback.error) {
+      logTableError("project_itps", fallback.error);
+      return [];
+    }
+    return (fallback.data ?? []).map((row) => mapItp(asRecord(row)));
   } catch (error) {
     logTableError("project_itps", error as { message?: string });
     return [];
@@ -287,8 +297,8 @@ async function searchItcs(
   try {
     const primary = await supabase
       .from("project_itcs")
-      .select("id, activity_number, project_id")
-      .ilike("activity_number", `%${term}%`)
+      .select("id, activity_number, title, notes, project_id")
+      .or(`activity_number.ilike.%${term}%,title.ilike.%${term}%,notes.ilike.%${term}%`)
       .limit(LIMIT);
 
     if (!primary.error) {
@@ -298,8 +308,8 @@ async function searchItcs(
 
     const fallback = await supabase
       .from("project_itcs")
-      .select("id, itc_number, project_id")
-      .ilike("itc_number", `%${term}%`)
+      .select("id, title, project_id")
+      .ilike("title", `%${term}%`)
       .limit(LIMIT);
 
     if (fallback.error) {
@@ -368,7 +378,7 @@ function mapItp(row: SearchRow): SearchApiHit {
   const projectId = str(row, "project_id");
   return {
     id: `itp-${id}`,
-    title: str(row, "itp_number") || "ITP",
+    title: str(row, "itp_number", "title") || "ITP",
     subtitle: "ITP",
     badge: "ITP",
     href: projectId ? `/projects/${projectId}` : "/admin/itc",
@@ -379,7 +389,7 @@ function mapItc(row: SearchRow): SearchApiHit {
   const id = str(row, "id");
   return {
     id: `itc-${id}`,
-    title: str(row, "activity_number", "itc_number") || "ITC",
+    title: str(row, "activity_number", "title", "itc_number") || "ITC",
     subtitle: "ITC",
     badge: "ITC",
     href: getAdminItcPath(id),
