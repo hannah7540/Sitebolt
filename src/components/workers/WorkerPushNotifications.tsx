@@ -43,6 +43,31 @@ function resolveTargetFromNotification(
   return parseWorkerDeepLink(payloadToParams(data));
 }
 
+function isNativeCapacitorPlatform(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const capacitor = (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } })
+      .Capacitor;
+    if (typeof capacitor?.isNativePlatform === "function") {
+      return capacitor.isNativePlatform();
+    }
+  } catch {
+    return false;
+  }
+  return isNativeMobileApp();
+}
+
+/** Load the native plugin only inside Capacitor; skip on web / Vercel. */
+async function loadPushNotificationsApi() {
+  if (!isNativeCapacitorPlatform()) return null;
+  try {
+    const loaded = await import("@capacitor/push-notifications");
+    return loaded.PushNotifications;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Registers for native push notifications and deep-links taps into the
  * worker dashboard (SWMS, inductions, forms, etc.).
@@ -52,7 +77,7 @@ export default function WorkerPushNotifications() {
   const registeredRef = useRef(false);
 
   useEffect(() => {
-    if (!isNativeMobileApp() || registeredRef.current) return;
+    if (!isNativeCapacitorPlatform() || registeredRef.current) return;
     registeredRef.current = true;
 
     let cancelled = false;
@@ -60,8 +85,12 @@ export default function WorkerPushNotifications() {
 
     void (async () => {
       try {
-        const { PushNotifications } = await import("@capacitor/push-notifications");
+        const PushNotifications = await loadPushNotificationsApi();
         if (cancelled) return;
+        if (!PushNotifications) {
+          console.info("[WorkerPush] Plugin not available; skipping registration");
+          return;
+        }
 
         const permission = await PushNotifications.requestPermissions();
         if (permission.receive !== "granted") {
@@ -74,10 +103,11 @@ export default function WorkerPushNotifications() {
         const registration = await PushNotifications.addListener(
           "registration",
           (token) => {
-            console.info("[WorkerPush] Device token registered", token.value.slice(0, 12));
-            // Token persistence / server sync can be wired to Supabase when ready.
+            const value = token.value?.trim();
+            if (!value) return;
+            console.info("[WorkerPush] Device token registered", value.slice(0, 12));
             try {
-              window.localStorage.setItem("sitebolt_push_token", token.value);
+              window.localStorage.setItem("sitebolt_push_token", value);
             } catch {
               /* ignore storage failures */
             }
@@ -119,7 +149,7 @@ export default function WorkerPushNotifications() {
             const target = resolveTargetFromNotification(event.notification);
             if (!target) return;
             const workerId =
-              (event.notification.data as PushPayload | undefined)?.worker_id ??
+              (event.notification?.data as PushPayload | undefined)?.worker_id ??
               getStoredWorkerId();
             router.push(buildWorkerDeepLinkPath(target, workerId));
           }
