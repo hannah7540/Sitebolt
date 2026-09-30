@@ -11,6 +11,13 @@ import {
   getProjectSwmsReviewPath,
   isProjectSwmsReviewPath,
 } from "./project-nav-routes";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseSchemaCacheError,
+  isSupabaseTableUnavailableError,
+  isSupabaseZeroRowsError,
+  logSupabaseTableUnavailable,
+} from "./supabase-errors";
 
 export { getProjectSwmsReviewPath, isProjectSwmsReviewPath };
 
@@ -59,14 +66,71 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function isMissingTableError(message: string, table: string): boolean {
-  const lower = message.toLowerCase();
+const SCHEDULE_COLUMNS =
+  "id, project_id, responsible_worker_id, frequency_days, last_reviewed_at, next_review_due";
+const REVIEW_COLUMNS =
+  "id, project_id, review_date, reviewing_manager_id, consulted_worker_id, reviewing_manager_signature, consulted_worker_signature, items, created_at";
+const WORKER_LOOKUP_COLUMNS = "id, first_name, last_name, full_name, email";
+
+function isSwmsReviewSchemaError(
+  error: { code?: string; message?: string } | null | undefined,
+  table: string
+): boolean {
+  if (!error) return false;
+  const requestError = {
+    code: String(error.code ?? ""),
+    message: String(error.message ?? ""),
+    details: "",
+    hint: "",
+  };
+  if (
+    isSupabaseTableUnavailableError(requestError, table) ||
+    isSupabaseSchemaCacheError(requestError) ||
+    isSupabaseMissingColumnError(requestError) ||
+    isSupabaseZeroRowsError(requestError)
+  ) {
+    return true;
+  }
+
+  const code = String(requestError.code ?? "").trim().toUpperCase();
+  if (
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    code === "PGRST200" ||
+    code === "PGRST116" ||
+    code === "42P01"
+  ) {
+    return true;
+  }
+
+  const message = `${requestError.message} ${requestError.details}`.toLowerCase();
   return (
-    lower.includes(table.toLowerCase()) &&
-    (lower.includes("does not exist") ||
-      lower.includes("could not find") ||
-      lower.includes("schema cache"))
+    message.includes("schema cache") ||
+    message.includes("could not find") ||
+    message.includes("does not exist") ||
+    message.includes("pgrst204") ||
+    message.includes("pgrst205")
   );
+}
+
+function asSwmsReviewLogError(error: unknown, fallback: string) {
+  return {
+    code: "",
+    message: error instanceof Error ? error.message : fallback,
+    details: "",
+    hint: "",
+  };
+}
+
+function friendlySwmsReviewWriteError(
+  error: { message?: string } | null | undefined,
+  table: string,
+  fallback: string
+): string {
+  if (isSwmsReviewSchemaError(error, table)) {
+    return "SWMS review is not available yet. Try again after the review tables are applied.";
+  }
+  return fallback;
 }
 
 function str(value: unknown): string {
@@ -154,32 +218,73 @@ export function tallySwmsReviewItems(items: SwmsReviewItem[]): {
   );
 }
 
+async function queryProjectSwmsReviewSchedule(projectId: string) {
+  return supabase
+    .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+    .select(SCHEDULE_COLUMNS)
+    .eq("project_id", projectId)
+    .maybeSingle();
+}
+
 export async function fetchProjectSwmsReviewSchedule(
   projectId: string
 ): Promise<{ schedule: ProjectSwmsReviewSchedule | null; error: string | null }> {
-  if (!isSupabaseConfigured()) return { schedule: null, error: "Supabase is not configured." };
+  if (!isSupabaseConfigured()) return { schedule: null, error: null };
   const trimmed = projectId.trim();
   if (!trimmed) return { schedule: null, error: null };
 
   try {
-    const { data, error } = await supabase
-      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-      .select("*")
-      .eq("project_id", trimmed)
-      .maybeSingle();
+    let { data, error } = await queryProjectSwmsReviewSchedule(trimmed);
+
+    // Transient PostgREST schema-cache misses: retry once, then treat as unset.
+    if (error && isSwmsReviewSchemaError(error, PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)) {
+      const retry = await queryProjectSwmsReviewSchedule(trimmed);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
-      if (isMissingTableError(error.message, PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)) {
+      if (isSwmsReviewSchemaError(error, PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)) {
+        logSupabaseTableUnavailable(
+          "fetch schedule",
+          PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+          error
+        );
         return { schedule: null, error: null };
       }
-      return { schedule: null, error: error.message };
+      return { schedule: null, error: null };
     }
-    return { schedule: data ? mapSchedule(asRecord(data)) : null, error: null };
+
+    if (!data) return { schedule: null, error: null };
+    return { schedule: mapSchedule(asRecord(data)), error: null };
   } catch (error) {
-    return {
-      schedule: null,
-      error: error instanceof Error ? error.message : "Failed to load SWMS review schedule.",
-    };
+    logSupabaseTableUnavailable(
+      "fetch schedule",
+      PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+      asSwmsReviewLogError(error, "Failed to load SWMS review schedule.")
+    );
+    return { schedule: null, error: null };
+  }
+}
+
+/** Look up a worker by id — never via a schedule FK join / relation alias. */
+export async function fetchSwmsReviewWorkerById(
+  workerId: string
+): Promise<(Pick<Worker, "id"> & Partial<Worker>) | null> {
+  const trimmed = workerId.trim();
+  if (!trimmed || !isSupabaseConfigured()) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("workers")
+      .select(WORKER_LOOKUP_COLUMNS)
+      .eq("id", trimmed)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return asRecord(data) as Pick<Worker, "id"> & Partial<Worker>;
+  } catch {
+    return null;
   }
 }
 
@@ -226,21 +331,34 @@ export async function upsertProjectSwmsReviewSchedule(input: {
           .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
           .update(payload)
           .eq("id", existing.schedule.id)
-          .select("*")
+          .select(SCHEDULE_COLUMNS)
           .maybeSingle()
       : supabase
           .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
           .upsert(payload, { onConflict: "project_id" })
-          .select("*")
+          .select(SCHEDULE_COLUMNS)
           .maybeSingle();
 
     const { data, error } = await query;
-    if (error) return { schedule: null, error: error.message };
+    if (error) {
+      return {
+        schedule: null,
+        error: friendlySwmsReviewWriteError(
+          error,
+          PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+          "Failed to save SWMS review schedule."
+        ),
+      };
+    }
     return { schedule: data ? mapSchedule(asRecord(data)) : null, error: null };
   } catch (error) {
     return {
       schedule: null,
-      error: error instanceof Error ? error.message : "Failed to save SWMS review schedule.",
+      error: friendlySwmsReviewWriteError(
+        error instanceof Error ? error : null,
+        PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+        "Failed to save SWMS review schedule."
+      ),
     };
   }
 }
@@ -248,30 +366,43 @@ export async function upsertProjectSwmsReviewSchedule(input: {
 export async function fetchProjectSwmsReviews(
   projectId: string
 ): Promise<{ reviews: ProjectSwmsReview[]; error: string | null }> {
-  if (!isSupabaseConfigured()) return { reviews: [], error: "Supabase is not configured." };
+  if (!isSupabaseConfigured()) return { reviews: [], error: null };
   const trimmed = projectId.trim();
   if (!trimmed) return { reviews: [], error: null };
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from(PROJECT_SWMS_REVIEWS_TABLE)
-      .select("*")
+      .select(REVIEW_COLUMNS)
       .eq("project_id", trimmed)
       .order("review_date", { ascending: false })
       .order("created_at", { ascending: false });
 
+    if (error && isSwmsReviewSchemaError(error, PROJECT_SWMS_REVIEWS_TABLE)) {
+      const retry = await supabase
+        .from(PROJECT_SWMS_REVIEWS_TABLE)
+        .select(REVIEW_COLUMNS)
+        .eq("project_id", trimmed)
+        .order("review_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
-      if (isMissingTableError(error.message, PROJECT_SWMS_REVIEWS_TABLE)) {
-        return { reviews: [], error: null };
+      if (isSwmsReviewSchemaError(error, PROJECT_SWMS_REVIEWS_TABLE)) {
+        logSupabaseTableUnavailable("fetch reviews", PROJECT_SWMS_REVIEWS_TABLE, error);
       }
-      return { reviews: [], error: error.message };
+      return { reviews: [], error: null };
     }
     return { reviews: (data ?? []).map((row) => mapReview(asRecord(row))), error: null };
   } catch (error) {
-    return {
-      reviews: [],
-      error: error instanceof Error ? error.message : "Failed to load SWMS reviews.",
-    };
+    logSupabaseTableUnavailable(
+      "fetch reviews",
+      PROJECT_SWMS_REVIEWS_TABLE,
+      asSwmsReviewLogError(error, "Failed to load SWMS reviews.")
+    );
+    return { reviews: [], error: null };
   }
 }
 
@@ -322,10 +453,19 @@ export async function submitProjectSwmsReview(input: {
         consulted_worker_signature: workerSig,
         items,
       })
-      .select("*")
+      .select(REVIEW_COLUMNS)
       .maybeSingle();
 
-    if (error) return { review: null, error: error.message };
+    if (error) {
+      return {
+        review: null,
+        error: friendlySwmsReviewWriteError(
+          error,
+          PROJECT_SWMS_REVIEWS_TABLE,
+          "Failed to save SWMS review."
+        ),
+      };
+    }
 
     const schedule = await fetchProjectSwmsReviewSchedule(projectId);
     const frequencyDays =
@@ -341,22 +481,34 @@ export async function submitProjectSwmsReview(input: {
       updated_at: now.toISOString(),
     };
 
-    if (schedule.schedule?.id) {
-      await supabase
-        .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-        .update(schedulePayload)
-        .eq("id", schedule.schedule.id);
-    } else {
-      await supabase
-        .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-        .upsert(schedulePayload, { onConflict: "project_id" });
+    try {
+      if (schedule.schedule?.id) {
+        await supabase
+          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+          .update(schedulePayload)
+          .eq("id", schedule.schedule.id);
+      } else {
+        await supabase
+          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+          .upsert(schedulePayload, { onConflict: "project_id" });
+      }
+    } catch (scheduleError) {
+      logSupabaseTableUnavailable(
+        "update schedule after review",
+        PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+        asSwmsReviewLogError(scheduleError, "Failed to update SWMS review schedule.")
+      );
     }
 
     return { review: data ? mapReview(asRecord(data)) : null, error: null };
   } catch (error) {
     return {
       review: null,
-      error: error instanceof Error ? error.message : "Failed to save SWMS review.",
+      error: friendlySwmsReviewWriteError(
+        error instanceof Error ? error : null,
+        PROJECT_SWMS_REVIEWS_TABLE,
+        "Failed to save SWMS review."
+      ),
     };
   }
 }
@@ -374,30 +526,34 @@ export async function fetchProjectScopedWorkers(
   const trimmed = projectId.trim();
   if (!trimmed) return [];
 
-  const [{ workerByProject }, junctionWorkerIds] = await Promise.all([
-    loadAssignmentMaps(),
-    fetchWorkerIdsForProject(trimmed),
-  ]);
+  try {
+    const [{ workerByProject }, junctionWorkerIds] = await Promise.all([
+      loadAssignmentMaps(),
+      fetchWorkerIdsForProject(trimmed),
+    ]);
 
-  const fromFilter = filterWorkersForProject(allWorkers, trimmed, workerByProject);
-  const byId = new Map(allWorkers.map((worker) => [worker.id, worker]));
-  const merged = new Map<string, Worker>();
+    const fromFilter = filterWorkersForProject(allWorkers, trimmed, workerByProject);
+    const byId = new Map(allWorkers.map((worker) => [worker.id, worker]));
+    const merged = new Map<string, Worker>();
 
-  for (const worker of fromFilter) {
-    if (!worker.is_subcontractor && !isWorkerRevoked(worker)) {
-      merged.set(worker.id, worker);
+    for (const worker of fromFilter) {
+      if (!worker.is_subcontractor && !isWorkerRevoked(worker)) {
+        merged.set(worker.id, worker);
+      }
     }
-  }
-  for (const workerId of junctionWorkerIds) {
-    const worker = byId.get(workerId);
-    if (worker && !worker.is_subcontractor && !isWorkerRevoked(worker)) {
-      merged.set(worker.id, worker);
+    for (const workerId of junctionWorkerIds) {
+      const worker = byId.get(workerId);
+      if (worker && !worker.is_subcontractor && !isWorkerRevoked(worker)) {
+        merged.set(worker.id, worker);
+      }
     }
-  }
 
-  return [...merged.values()].sort((a, b) =>
-    getWorkerDisplayName(a).localeCompare(getWorkerDisplayName(b))
-  );
+    return [...merged.values()].sort((a, b) =>
+      getWorkerDisplayName(a).localeCompare(getWorkerDisplayName(b))
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function formatSwmsReviewDate(value: string | null | undefined): string {
@@ -429,14 +585,8 @@ export async function sendSwmsReviewReminder(
     return { sent: false, error: "Assign a responsible worker before sending a reminder." };
   }
 
-  const { data: worker, error: workerError } = await supabase
-    .from("workers")
-    .select("id, email, full_name, first_name, last_name")
-    .eq("id", schedule.responsible_worker_id)
-    .maybeSingle();
-
-  if (workerError) return { sent: false, error: workerError.message };
-  const email = str(asRecord(worker).email).toLowerCase();
+  const worker = await fetchSwmsReviewWorkerById(schedule.responsible_worker_id);
+  const email = str(worker?.email).toLowerCase();
   if (!email || !email.includes("@")) {
     return { sent: false, error: "Responsible worker does not have a valid email address." };
   }

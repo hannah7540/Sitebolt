@@ -90,24 +90,37 @@ export default function ProjectSwmsReviewPanel({
     setLoading(true);
     setError(null);
     try {
-      const [scoped, docs, scheduleResult, reviewsResult] = await Promise.all([
+      const [scopedResult, docsResult, scheduleResult, reviewsResult] = await Promise.allSettled([
         fetchProjectScopedWorkers(projectId, workers),
         fetchProjectSwmsDocuments(projectId),
         fetchProjectSwmsReviewSchedule(projectId),
         fetchProjectSwmsReviews(projectId),
       ]);
+
+      const scoped = scopedResult.status === "fulfilled" ? scopedResult.value : [];
+      const docs = docsResult.status === "fulfilled" ? docsResult.value : [];
+      const schedulePayload =
+        scheduleResult.status === "fulfilled"
+          ? scheduleResult.value
+          : { schedule: null, error: null };
+      const reviewsPayload =
+        reviewsResult.status === "fulfilled"
+          ? reviewsResult.value
+          : { reviews: [], error: null };
+
       setProjectWorkers(scoped);
       setDocuments(docs);
-      if (scheduleResult.error) setError(scheduleResult.error);
-      if (reviewsResult.error) setError(reviewsResult.error);
-      setSchedule(scheduleResult.schedule);
-      setReviews(reviewsResult.reviews);
-      setResponsibleWorkerId(scheduleResult.schedule?.responsible_worker_id ?? "");
+      setSchedule(schedulePayload.schedule);
+      setReviews(reviewsPayload.reviews);
+      setResponsibleWorkerId(schedulePayload.schedule?.responsible_worker_id ?? "");
       setFrequencyDays(
-        scheduleResult.schedule?.frequency_days ?? DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS
+        schedulePayload.schedule?.frequency_days ?? DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS
       );
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load SWMS review.");
+    } catch {
+      setSchedule(null);
+      setReviews([]);
+      setResponsibleWorkerId("");
+      setFrequencyDays(DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS);
     } finally {
       setLoading(false);
     }
@@ -511,11 +524,20 @@ export default function ProjectSwmsReviewPanel({
             </div>
 
             <p className="mt-4 text-sm text-slate-600">
-              Every {frequencyDays || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS} days · Next due{" "}
-              <strong>{formatSwmsReviewDate(schedule?.next_review_due)}</strong>
-              {schedule?.last_reviewed_at
-                ? ` · Last reviewed ${formatSwmsReviewDate(schedule.last_reviewed_at)}`
-                : ""}
+              {schedule ? (
+                <>
+                  Every {frequencyDays || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS} days · Next due{" "}
+                  <strong>{formatSwmsReviewDate(schedule.next_review_due)}</strong>
+                  {schedule.last_reviewed_at
+                    ? ` · Last reviewed ${formatSwmsReviewDate(schedule.last_reviewed_at)}`
+                    : ""}
+                </>
+              ) : (
+                <>
+                  No schedule yet. Choose a responsible worker and save to start the{" "}
+                  {frequencyDays || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS}-day review cycle.
+                </>
+              )}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-3">
