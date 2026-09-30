@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
   CheckCircle2,
@@ -32,6 +33,12 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
 import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
+import ProjectSwmsReviewPanel from "@/components/swms/ProjectSwmsReviewPanel";
+import {
+  getProjectSwmsReviewPath,
+  getProjectViewPath,
+  isProjectSwmsReviewPath,
+} from "@/lib/project-nav-routes";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +78,9 @@ export default function ProjectSwmsPanel({
     (SwmsAssignment & { swms?: SwmsDocument }) | null
   >(null);
   const [signSwmsTitle, setSignSwmsTitle] = useState("");
+  const pathname = usePathname();
+  const router = useRouter();
+  const reviewTabActive = isProjectSwmsReviewPath(pathname);
 
   const loadData = useCallback(async () => {
     if (!projectId?.trim()) {
@@ -192,8 +202,42 @@ export default function ProjectSwmsPanel({
         <p className="mt-1 text-sm text-slate-500">
           Site-specific SWMS assigned to this project with worker sign-off tracking.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => router.push(getProjectViewPath(projectId, "swms"))}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-sm font-medium",
+              !reviewTabActive
+                ? "border-orange-500 bg-orange-50 text-orange-700"
+                : "border-slate-200 bg-white text-slate-600 hover:border-orange-200"
+            )}
+          >
+            Active SWMS
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push(getProjectSwmsReviewPath(projectId))}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-sm font-medium",
+              reviewTabActive
+                ? "border-orange-500 bg-orange-50 text-orange-700"
+                : "border-slate-200 bg-white text-slate-600 hover:border-orange-200"
+            )}
+          >
+            Review SWMS
+          </button>
+        </div>
       </div>
 
+      {reviewTabActive ? (
+        <ProjectSwmsReviewPanel
+          projectId={projectId}
+          projectName={projectName}
+          workers={workers}
+        />
+      ) : (
+        <>
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className={cn("p-4", cardClass)}>
           <p className="text-sm text-slate-500">Active SWMS</p>
@@ -427,6 +471,8 @@ export default function ProjectSwmsPanel({
           }}
         />
       ) : null}
+        </>
+      )}
     </div>
   );
 }

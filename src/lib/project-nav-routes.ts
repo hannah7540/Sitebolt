@@ -37,6 +37,24 @@ export function getProjectViewPath(projectId: string, view: ActiveView): string 
   return `/projects/${projectId}/${segment}`;
 }
 
+export function getProjectSwmsReviewPath(projectId: string): string {
+  return `/projects/${projectId}/swms/review`;
+}
+
+export function isProjectSwmsReviewPath(pathname: string | null | undefined): boolean {
+  return /^\/projects\/[^/]+\/swms\/review\/?$/.test(pathname ?? "");
+}
+
+export function isProjectNavHrefActive(
+  pathname: string | null | undefined,
+  href: string
+): boolean {
+  if (!pathname) return false;
+  if (pathname === href || pathname === `${href}/`) return true;
+  if (href.endsWith("/swms") && isProjectSwmsReviewPath(pathname)) return false;
+  return pathname.startsWith(`${href}/`);
+}
+
 export function extractProjectIdFromPathname(
   pathname: string | null | undefined
 ): string | null {
@@ -61,6 +79,9 @@ export function parseProjectRoute(
   if (segment === "itc" || segment === "itps-itcs") {
     return { projectId, view: "dashboard" };
   }
+  if (segment === "swms") {
+    return { projectId, view: "swms" };
+  }
 
   const view = SEGMENT_TO_VIEW[segment];
   if (view) return { projectId, view };
@@ -72,6 +93,9 @@ export function resolveProjectNavHref(
   item: { view?: string; href?: string },
   projectId?: string
 ): string | undefined {
+  if (item.href === "swms/review" && projectId) {
+    return getProjectSwmsReviewPath(projectId);
+  }
   if (item.href) return item.href;
   if (!projectId || !item.view) return undefined;
   if (item.view in PROJECT_VIEW_SEGMENTS) {

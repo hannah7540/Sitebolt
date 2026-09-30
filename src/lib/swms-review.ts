@@ -1,0 +1,496 @@
+import { isWorkerRevoked, supabase, isSupabaseConfigured, type Worker } from "./supabase";
+import { sendEmail } from "./email-service";
+import { getSiteUrl } from "./supabase/env";
+import { getWorkerDisplayName } from "./worker-utils";
+import {
+  fetchWorkerIdsForProject,
+  filterWorkersForProject,
+  loadAssignmentMaps,
+} from "./project-assignments";
+import {
+  getProjectSwmsReviewPath,
+  isProjectSwmsReviewPath,
+} from "./project-nav-routes";
+
+export { getProjectSwmsReviewPath, isProjectSwmsReviewPath };
+
+export const PROJECT_SWMS_REVIEW_SCHEDULES_TABLE = "project_swms_review_schedules";
+export const PROJECT_SWMS_REVIEWS_TABLE = "project_swms_reviews";
+export const DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS = 31;
+
+export type SwmsReviewItemStatus = "accepted" | "requires_update";
+
+export interface SwmsReviewItem {
+  swms_id: string;
+  title: string;
+  status: SwmsReviewItemStatus;
+  notes: string;
+}
+
+export interface ProjectSwmsReviewSchedule {
+  id: string;
+  project_id: string;
+  responsible_worker_id: string;
+  frequency_days: number;
+  last_reviewed_at: string | null;
+  next_review_due: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProjectSwmsReview {
+  id: string;
+  project_id: string;
+  review_date: string;
+  reviewing_manager_id: string;
+  consulted_worker_id: string;
+  reviewing_manager_signature: string;
+  consulted_worker_signature: string;
+  items: SwmsReviewItem[];
+  created_at: string;
+}
+
+export type SwmsReviewDueKind = "good" | "due_soon" | "overdue" | "unset";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function isMissingTableError(message: string, table: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes(table.toLowerCase()) &&
+    (lower.includes("does not exist") ||
+      lower.includes("could not find") ||
+      lower.includes("schema cache"))
+  );
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+export function addDaysIso(from: Date, days: number): string {
+  const next = new Date(from.getTime());
+  next.setUTCDate(next.getUTCDate() + Math.max(1, Math.floor(days)));
+  return next.toISOString();
+}
+
+export function resolveNextSwmsReviewDue(
+  frequencyDays = DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS,
+  from = new Date()
+): string {
+  return addDaysIso(from, frequencyDays || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS);
+}
+
+export function classifySwmsReviewDue(nextDue: string | null | undefined): SwmsReviewDueKind {
+  if (!nextDue) return "unset";
+  const due = new Date(nextDue).getTime();
+  if (!Number.isFinite(due)) return "unset";
+  const days = (due - Date.now()) / (1000 * 60 * 60 * 24);
+  if (days < 0) return "overdue";
+  if (days <= 7) return "due_soon";
+  return "good";
+}
+
+function parseReviewItems(value: unknown): SwmsReviewItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const row = asRecord(item);
+      const status: SwmsReviewItemStatus =
+        row.status === "requires_update" ? "requires_update" : "accepted";
+      return {
+        swms_id: str(row.swms_id),
+        title: str(row.title) || "SWMS",
+        status,
+        notes: str(row.notes),
+      };
+    })
+    .filter((item) => item.swms_id);
+}
+
+function mapSchedule(row: Record<string, unknown>): ProjectSwmsReviewSchedule {
+  return {
+    id: str(row.id),
+    project_id: str(row.project_id),
+    responsible_worker_id: str(row.responsible_worker_id),
+    frequency_days: Number(row.frequency_days) || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS,
+    last_reviewed_at: row.last_reviewed_at ? String(row.last_reviewed_at) : null,
+    next_review_due: String(row.next_review_due ?? ""),
+    created_at: row.created_at ? String(row.created_at) : undefined,
+    updated_at: row.updated_at ? String(row.updated_at) : undefined,
+  };
+}
+
+function mapReview(row: Record<string, unknown>): ProjectSwmsReview {
+  return {
+    id: str(row.id),
+    project_id: str(row.project_id),
+    review_date: String(row.review_date ?? "").slice(0, 10),
+    reviewing_manager_id: str(row.reviewing_manager_id),
+    consulted_worker_id: str(row.consulted_worker_id),
+    reviewing_manager_signature: str(row.reviewing_manager_signature),
+    consulted_worker_signature: str(row.consulted_worker_signature),
+    items: parseReviewItems(row.items),
+    created_at: String(row.created_at ?? ""),
+  };
+}
+
+export function tallySwmsReviewItems(items: SwmsReviewItem[]): {
+  accepted: number;
+  requiresUpdate: number;
+} {
+  return items.reduce(
+    (acc, item) => {
+      if (item.status === "requires_update") acc.requiresUpdate += 1;
+      else acc.accepted += 1;
+      return acc;
+    },
+    { accepted: 0, requiresUpdate: 0 }
+  );
+}
+
+export async function fetchProjectSwmsReviewSchedule(
+  projectId: string
+): Promise<{ schedule: ProjectSwmsReviewSchedule | null; error: string | null }> {
+  if (!isSupabaseConfigured()) return { schedule: null, error: "Supabase is not configured." };
+  const trimmed = projectId.trim();
+  if (!trimmed) return { schedule: null, error: null };
+
+  try {
+    const { data, error } = await supabase
+      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+      .select("*")
+      .eq("project_id", trimmed)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingTableError(error.message, PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)) {
+        return { schedule: null, error: null };
+      }
+      return { schedule: null, error: error.message };
+    }
+    return { schedule: data ? mapSchedule(asRecord(data)) : null, error: null };
+  } catch (error) {
+    return {
+      schedule: null,
+      error: error instanceof Error ? error.message : "Failed to load SWMS review schedule.",
+    };
+  }
+}
+
+export async function upsertProjectSwmsReviewSchedule(input: {
+  projectId: string;
+  responsibleWorkerId: string;
+  frequencyDays?: number;
+}): Promise<{ schedule: ProjectSwmsReviewSchedule | null; error: string | null }> {
+  if (!isSupabaseConfigured()) return { schedule: null, error: "Supabase is not configured." };
+
+  const projectId = input.projectId.trim();
+  const responsibleWorkerId = input.responsibleWorkerId.trim();
+  const frequencyDays = Math.max(
+    1,
+    Math.floor(input.frequencyDays ?? DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS)
+  );
+  if (!projectId) return { schedule: null, error: "Project is required." };
+  if (!responsibleWorkerId) return { schedule: null, error: "Select a responsible worker." };
+
+  const existing = await fetchProjectSwmsReviewSchedule(projectId);
+  if (existing.error) return existing;
+
+  const now = new Date();
+  const nextDue = existing.schedule?.last_reviewed_at
+    ? resolveNextSwmsReviewDue(frequencyDays, new Date(existing.schedule.last_reviewed_at))
+    : resolveNextSwmsReviewDue(frequencyDays, now);
+
+  const payload = {
+    project_id: projectId,
+    responsible_worker_id: responsibleWorkerId,
+    frequency_days: frequencyDays,
+    next_review_due: existing.schedule?.last_reviewed_at
+      ? nextDue
+      : existing.schedule?.next_review_due &&
+          new Date(existing.schedule.next_review_due).getTime() > now.getTime()
+        ? existing.schedule.next_review_due
+        : nextDue,
+    updated_at: now.toISOString(),
+  };
+
+  try {
+    const query = existing.schedule?.id
+      ? supabase
+          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+          .update(payload)
+          .eq("id", existing.schedule.id)
+          .select("*")
+          .maybeSingle()
+      : supabase
+          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+          .upsert(payload, { onConflict: "project_id" })
+          .select("*")
+          .maybeSingle();
+
+    const { data, error } = await query;
+    if (error) return { schedule: null, error: error.message };
+    return { schedule: data ? mapSchedule(asRecord(data)) : null, error: null };
+  } catch (error) {
+    return {
+      schedule: null,
+      error: error instanceof Error ? error.message : "Failed to save SWMS review schedule.",
+    };
+  }
+}
+
+export async function fetchProjectSwmsReviews(
+  projectId: string
+): Promise<{ reviews: ProjectSwmsReview[]; error: string | null }> {
+  if (!isSupabaseConfigured()) return { reviews: [], error: "Supabase is not configured." };
+  const trimmed = projectId.trim();
+  if (!trimmed) return { reviews: [], error: null };
+
+  try {
+    const { data, error } = await supabase
+      .from(PROJECT_SWMS_REVIEWS_TABLE)
+      .select("*")
+      .eq("project_id", trimmed)
+      .order("review_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error.message, PROJECT_SWMS_REVIEWS_TABLE)) {
+        return { reviews: [], error: null };
+      }
+      return { reviews: [], error: error.message };
+    }
+    return { reviews: (data ?? []).map((row) => mapReview(asRecord(row))), error: null };
+  } catch (error) {
+    return {
+      reviews: [],
+      error: error instanceof Error ? error.message : "Failed to load SWMS reviews.",
+    };
+  }
+}
+
+export async function submitProjectSwmsReview(input: {
+  projectId: string;
+  reviewDate?: string;
+  reviewingManagerId: string;
+  consultedWorkerId: string;
+  reviewingManagerSignature: string;
+  consultedWorkerSignature: string;
+  items: SwmsReviewItem[];
+  frequencyDays?: number;
+}): Promise<{ review: ProjectSwmsReview | null; error: string | null }> {
+  if (!isSupabaseConfigured()) return { review: null, error: "Supabase is not configured." };
+
+  const projectId = input.projectId.trim();
+  const reviewingManagerId = input.reviewingManagerId.trim();
+  const consultedWorkerId = input.consultedWorkerId.trim();
+  const managerSig = input.reviewingManagerSignature.trim();
+  const workerSig = input.consultedWorkerSignature.trim();
+  const items = input.items.filter((item) => item.swms_id && item.status);
+
+  if (!projectId) return { review: null, error: "Project is required." };
+  if (!reviewingManagerId) return { review: null, error: "Reviewing manager is required." };
+  if (!consultedWorkerId) return { review: null, error: "Select a consulted site worker." };
+  if (consultedWorkerId === reviewingManagerId) {
+    return { review: null, error: "Consulted worker must be a different project worker." };
+  }
+  if (!managerSig) return { review: null, error: "Reviewing manager signature is required." };
+  if (!workerSig) return { review: null, error: "Consulted worker signature is required." };
+  if (items.length === 0) return { review: null, error: "Review at least one active SWMS." };
+  if (items.some((item) => item.status === "requires_update" && !item.notes.trim())) {
+    return { review: null, error: "Add required modifications for each SWMS marked for update." };
+  }
+
+  const reviewDate = (input.reviewDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const now = new Date();
+
+  try {
+    const { data, error } = await supabase
+      .from(PROJECT_SWMS_REVIEWS_TABLE)
+      .insert({
+        project_id: projectId,
+        review_date: reviewDate,
+        reviewing_manager_id: reviewingManagerId,
+        consulted_worker_id: consultedWorkerId,
+        reviewing_manager_signature: managerSig,
+        consulted_worker_signature: workerSig,
+        items,
+      })
+      .select("*")
+      .maybeSingle();
+
+    if (error) return { review: null, error: error.message };
+
+    const schedule = await fetchProjectSwmsReviewSchedule(projectId);
+    const frequencyDays =
+      input.frequencyDays ||
+      schedule.schedule?.frequency_days ||
+      DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS;
+    const schedulePayload = {
+      project_id: projectId,
+      responsible_worker_id: schedule.schedule?.responsible_worker_id || reviewingManagerId,
+      frequency_days: frequencyDays,
+      last_reviewed_at: now.toISOString(),
+      next_review_due: resolveNextSwmsReviewDue(frequencyDays, now),
+      updated_at: now.toISOString(),
+    };
+
+    if (schedule.schedule?.id) {
+      await supabase
+        .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+        .update(schedulePayload)
+        .eq("id", schedule.schedule.id);
+    } else {
+      await supabase
+        .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+        .upsert(schedulePayload, { onConflict: "project_id" });
+    }
+
+    return { review: data ? mapReview(asRecord(data)) : null, error: null };
+  } catch (error) {
+    return {
+      review: null,
+      error: error instanceof Error ? error.message : "Failed to save SWMS review.",
+    };
+  }
+}
+
+export function workerNameFromList(workers: Worker[], workerId: string): string {
+  const match = workers.find((worker) => worker.id === workerId);
+  return match ? getWorkerDisplayName(match) : "Unknown worker";
+}
+
+/** Workers inducted/assigned to this project only — never the full org roster. */
+export async function fetchProjectScopedWorkers(
+  projectId: string,
+  allWorkers: Worker[]
+): Promise<Worker[]> {
+  const trimmed = projectId.trim();
+  if (!trimmed) return [];
+
+  const [{ workerByProject }, junctionWorkerIds] = await Promise.all([
+    loadAssignmentMaps(),
+    fetchWorkerIdsForProject(trimmed),
+  ]);
+
+  const fromFilter = filterWorkersForProject(allWorkers, trimmed, workerByProject);
+  const byId = new Map(allWorkers.map((worker) => [worker.id, worker]));
+  const merged = new Map<string, Worker>();
+
+  for (const worker of fromFilter) {
+    if (!worker.is_subcontractor && !isWorkerRevoked(worker)) {
+      merged.set(worker.id, worker);
+    }
+  }
+  for (const workerId of junctionWorkerIds) {
+    const worker = byId.get(workerId);
+    if (worker && !worker.is_subcontractor && !isWorkerRevoked(worker)) {
+      merged.set(worker.id, worker);
+    }
+  }
+
+  return [...merged.values()].sort((a, b) =>
+    getWorkerDisplayName(a).localeCompare(getWorkerDisplayName(b))
+  );
+}
+
+export function formatSwmsReviewDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Email the project's designated responsible worker that the SWMS review is due.
+ * Deep-links to /projects/[id]/swms/review.
+ */
+export async function sendSwmsReviewReminder(
+  projectId: string,
+  options?: { projectName?: string | null }
+): Promise<{ sent: boolean; error: string | null }> {
+  const trimmed = projectId.trim();
+  if (!trimmed) return { sent: false, error: "Project is required." };
+  if (!isSupabaseConfigured()) return { sent: false, error: "Supabase is not configured." };
+
+  const { schedule, error: scheduleError } = await fetchProjectSwmsReviewSchedule(trimmed);
+  if (scheduleError) return { sent: false, error: scheduleError };
+  if (!schedule?.responsible_worker_id) {
+    return { sent: false, error: "Assign a responsible worker before sending a reminder." };
+  }
+
+  const { data: worker, error: workerError } = await supabase
+    .from("workers")
+    .select("id, email, full_name, first_name, last_name")
+    .eq("id", schedule.responsible_worker_id)
+    .maybeSingle();
+
+  if (workerError) return { sent: false, error: workerError.message };
+  const email = str(asRecord(worker).email).toLowerCase();
+  if (!email || !email.includes("@")) {
+    return { sent: false, error: "Responsible worker does not have a valid email address." };
+  }
+
+  const projectName = options?.projectName?.trim() || "this project";
+  const siteUrl = getSiteUrl().replace(/\/$/, "");
+  const deepLink = `${siteUrl}${getProjectSwmsReviewPath(trimmed)}`;
+  const workerName = worker
+    ? getWorkerDisplayName({
+        first_name: str(asRecord(worker).first_name) || null,
+        last_name: str(asRecord(worker).last_name) || null,
+        full_name: str(asRecord(worker).full_name) || null,
+      } as Worker)
+    : "there";
+
+  const result = await sendEmail({
+    to: [email],
+    subject: `SWMS periodic review due: ${projectName}`,
+    text: [
+      `Hi ${workerName},`,
+      "",
+      `The SWMS periodic review is due for ${projectName}.`,
+      "Complete the dual sign-off review with a consulted site worker.",
+      "",
+      `Open the review: ${deepLink}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+        <h2 style="margin:0 0 12px">SWMS periodic review due</h2>
+        <p style="margin:0 0 16px">
+          Hi ${escapeHtml(workerName)}, the SWMS periodic review is due for
+          <strong>${escapeHtml(projectName)}</strong>.
+        </p>
+        <p style="margin:0 0 16px">
+          Complete the review with a consulted site worker and record both signatures.
+        </p>
+        <p style="margin:0 0 24px">
+          <a href="${deepLink}" style="display:inline-block;background:#f97316;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">
+            Open SWMS Review
+          </a>
+        </p>
+        <p style="margin:0;font-size:12px;color:#64748b">${escapeHtml(deepLink)}</p>
+      </div>
+    `,
+  });
+
+  if (result.sent) return { sent: true, error: null };
+  return { sent: false, error: result.error ?? "Failed to send SWMS review reminder." };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

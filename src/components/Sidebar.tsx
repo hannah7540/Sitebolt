@@ -33,6 +33,7 @@ import { useIncidentUnreadCount } from "@/hooks/useIncidentUnreadCount";
 import { useSmsUnreadCount } from "@/hooks/useSmsUnreadCount";
 import {
   extractProjectIdFromPathname,
+  isProjectNavHrefActive,
   resolveProjectNavHref,
 } from "@/lib/project-nav-routes";
 import { DEFAULT_ADMIN_PROFILE_NAME, workerProfileDashboardPath } from "@/lib/user-session";
@@ -355,9 +356,7 @@ function ProjectAccordion({
                       label={item.label}
                       depth={1}
                       href={href}
-                      active={
-                        pathname === href || Boolean(pathname?.startsWith(`${href}/`))
-                      }
+                      active={isProjectNavHrefActive(pathname, href)}
                     />
                   );
                 }
@@ -406,10 +405,12 @@ function NestedAccordion({
   const isSelectedProject =
     resolvedProjectId != null &&
     (resolvedProjectId === selectedProjectId || resolvedProjectId === routeProjectId);
-  const hasActiveChild = group.items.some(
-    (sub) =>
-      !isNestedGroup(sub) && sub.view === activeView && isSelectedProject
-  );
+  const hasActiveChild = group.items.some((sub) => {
+    if (isNestedGroup(sub)) return false;
+    const href = resolveProjectNavHref(sub, resolvedProjectId);
+    if (href) return isProjectNavHrefActive(pathname, href);
+    return sub.view === activeView && isSelectedProject;
+  });
   const [open, setOpen] = useState(false);
 
   return (
@@ -443,7 +444,7 @@ function NestedAccordion({
                   label={sub.label}
                   depth={2}
                   href={href}
-                  active={pathname === href || Boolean(pathname?.startsWith(`${href}/`))}
+                  active={isProjectNavHrefActive(pathname, href)}
                 />
               );
             }
@@ -489,7 +490,13 @@ function buildStandardProjectNavItems(): (SubItem | NestedGroup)[] {
       ],
     },
     { label: "Assets", view: "assets" as const },
-    { label: "SWMS", view: "swms" as const },
+    {
+      label: "SWMS",
+      items: [
+        { label: "Active SWMS", view: "swms" as const },
+        { label: "Review SWMS", href: "swms/review" },
+      ],
+    },
     { label: "Forms", view: "forms" as const },
   ];
 }
