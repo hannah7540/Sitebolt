@@ -288,6 +288,117 @@ export async function fetchSwmsReviewWorkerById(
   }
 }
 
+type SwmsReviewScheduleWrite = {
+  project_id: string;
+  responsible_worker_id: string;
+  frequency_days: number;
+  next_review_due: string;
+  updated_at: string;
+  last_reviewed_at?: string;
+};
+
+function isOnConflictConstraintError(
+  error: { message?: string; code?: string } | null | undefined
+): boolean {
+  const code = String(error?.code ?? "").toUpperCase();
+  const message = String(error?.message ?? "").toLowerCase();
+  return (
+    code === "42P10" ||
+    code === "23505" ||
+    message.includes("on conflict") ||
+    message.includes("unique or exclusion constraint") ||
+    message.includes("no unique")
+  );
+}
+
+/** Check-then-update-or-insert — never relies on ON CONFLICT / unique constraint names. */
+async function writeProjectSwmsReviewSchedule(
+  payload: SwmsReviewScheduleWrite
+): Promise<{ schedule: ProjectSwmsReviewSchedule | null; error: string | null }> {
+  const existing = await fetchProjectSwmsReviewSchedule(payload.project_id);
+
+  const updateByProject = async () =>
+    supabase
+      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+      .update(payload)
+      .eq("project_id", payload.project_id)
+      .select(SCHEDULE_COLUMNS)
+      .maybeSingle();
+
+  const insertRow = async () =>
+    supabase
+      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+      .insert(payload)
+      .select(SCHEDULE_COLUMNS)
+      .maybeSingle();
+
+  try {
+    if (existing.schedule) {
+      const byId = existing.schedule.id
+        ? await supabase
+            .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+            .update(payload)
+            .eq("id", existing.schedule.id)
+            .select(SCHEDULE_COLUMNS)
+            .maybeSingle()
+        : { data: null, error: null };
+
+      if (!byId.error && byId.data) {
+        return { schedule: mapSchedule(asRecord(byId.data)), error: null };
+      }
+
+      const byProject = await updateByProject();
+      if (!byProject.error && byProject.data) {
+        return { schedule: mapSchedule(asRecord(byProject.data)), error: null };
+      }
+      if (byProject.error && !isOnConflictConstraintError(byProject.error)) {
+        return {
+          schedule: null,
+          error: friendlySwmsReviewWriteError(
+            byProject.error,
+            PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+            "Failed to save SWMS review schedule."
+          ),
+        };
+      }
+    }
+
+    const inserted = await insertRow();
+    if (!inserted.error && inserted.data) {
+      return { schedule: mapSchedule(asRecord(inserted.data)), error: null };
+    }
+
+    if (inserted.error && isOnConflictConstraintError(inserted.error)) {
+      const byProject = await updateByProject();
+      if (!byProject.error && byProject.data) {
+        return { schedule: mapSchedule(asRecord(byProject.data)), error: null };
+      }
+    }
+
+    if (inserted.error) {
+      return {
+        schedule: null,
+        error: friendlySwmsReviewWriteError(
+          inserted.error,
+          PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+          "Failed to save SWMS review schedule."
+        ),
+      };
+    }
+
+    return { schedule: null, error: null };
+  } catch (error) {
+    return {
+      schedule: null,
+      error: friendlySwmsReviewWriteError(
+        error instanceof Error ? error : null,
+        PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+        "Failed to save SWMS review schedule."
+      ),
+    };
+  }
+}
+
 export async function upsertProjectSwmsReviewSchedule(input: {
   projectId: string;
   responsibleWorkerId: string;
@@ -305,14 +416,12 @@ export async function upsertProjectSwmsReviewSchedule(input: {
   if (!responsibleWorkerId) return { schedule: null, error: "Select a responsible worker." };
 
   const existing = await fetchProjectSwmsReviewSchedule(projectId);
-  if (existing.error) return existing;
-
   const now = new Date();
   const nextDue = existing.schedule?.last_reviewed_at
     ? resolveNextSwmsReviewDue(frequencyDays, new Date(existing.schedule.last_reviewed_at))
     : resolveNextSwmsReviewDue(frequencyDays, now);
 
-  const payload = {
+  return writeProjectSwmsReviewSchedule({
     project_id: projectId,
     responsible_worker_id: responsibleWorkerId,
     frequency_days: frequencyDays,
@@ -323,44 +432,7 @@ export async function upsertProjectSwmsReviewSchedule(input: {
         ? existing.schedule.next_review_due
         : nextDue,
     updated_at: now.toISOString(),
-  };
-
-  try {
-    const query = existing.schedule?.id
-      ? supabase
-          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-          .update(payload)
-          .eq("id", existing.schedule.id)
-          .select(SCHEDULE_COLUMNS)
-          .maybeSingle()
-      : supabase
-          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-          .upsert(payload, { onConflict: "project_id" })
-          .select(SCHEDULE_COLUMNS)
-          .maybeSingle();
-
-    const { data, error } = await query;
-    if (error) {
-      return {
-        schedule: null,
-        error: friendlySwmsReviewWriteError(
-          error,
-          PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
-          "Failed to save SWMS review schedule."
-        ),
-      };
-    }
-    return { schedule: data ? mapSchedule(asRecord(data)) : null, error: null };
-  } catch (error) {
-    return {
-      schedule: null,
-      error: friendlySwmsReviewWriteError(
-        error instanceof Error ? error : null,
-        PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
-        "Failed to save SWMS review schedule."
-      ),
-    };
-  }
+  });
 }
 
 export async function fetchProjectSwmsReviews(
@@ -482,15 +554,13 @@ export async function submitProjectSwmsReview(input: {
     };
 
     try {
-      if (schedule.schedule?.id) {
-        await supabase
-          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-          .update(schedulePayload)
-          .eq("id", schedule.schedule.id);
-      } else {
-        await supabase
-          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-          .upsert(schedulePayload, { onConflict: "project_id" });
+      const written = await writeProjectSwmsReviewSchedule(schedulePayload);
+      if (written.error) {
+        logSupabaseTableUnavailable(
+          "update schedule after review",
+          PROJECT_SWMS_REVIEW_SCHEDULES_TABLE,
+          asSwmsReviewLogError(written.error, written.error)
+        );
       }
     } catch (scheduleError) {
       logSupabaseTableUnavailable(
