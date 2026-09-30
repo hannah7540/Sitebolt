@@ -174,11 +174,12 @@ async function drawItpSection(
   doc.addPage();
   let y = writeSectionHeading(doc, "Section 1 — ITPs & ITCs", PAGE_MARGIN + 8);
 
-  if (data.itps.length === 0) {
-    y = writeParagraph(doc, "No completed or signed-off ITPs/ITCs found for this period.", y);
+  if (data.itps.length === 0 && data.itcs.length === 0) {
+    y = writeParagraph(doc, "No ITPs or ITCs found for this project and date range.", y);
     return;
   }
 
+  if (data.itps.length > 0) {
   autoTable(doc, {
     startY: y,
     head: [["ITP #", "Title", "Revision", "Trade", "Status", "Items"]],
@@ -247,6 +248,26 @@ async function drawItpSection(
       (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
       y + 20;
     y += 12;
+  }
+  }
+
+  if (data.itcs.length > 0) {
+    y = ensureSpace(doc, y, 24);
+    y = writeParagraph(doc, "Inspection Test Certificates", y, { bold: true, fontSize: 11 });
+    autoTable(doc, {
+      startY: y,
+      head: [["ITC #", "Title / Activity", "Discipline", "Status", "Created"]],
+      body: data.itcs.map((itc) => [
+        itc.itc_number,
+        itc.title,
+        itc.service_discipline,
+        itc.status,
+        itc.created_at ? formatDisplayDate(itc.created_at) : "—",
+      ]),
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+    });
   }
 }
 

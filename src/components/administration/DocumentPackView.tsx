@@ -26,7 +26,7 @@ const SECTION_OPTIONS: Array<{ id: DocumentPackSection; label: string; descripti
       id: "itps",
       label: "ITPs & ITCs",
       description:
-        "Completed and signed-off inspection test plans/checklists within the date range.",
+        "All ITPs and ITCs for the project in the date range, including draft, open, pending, and completed.",
     },
     {
       id: "swms",

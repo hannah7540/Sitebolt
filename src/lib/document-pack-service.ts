@@ -22,7 +22,7 @@ import {
   type PlantDocumentRecord,
 } from "./plant-documents";
 import type { Worker } from "./supabase";
-import { PROJECT_ITPS_TABLE } from "./itp-itc-payload";
+import { PROJECT_ITCS_TABLE, PROJECT_ITPS_TABLE } from "./itp-itc-payload";
 
 export type DocumentPackSection = "itps" | "swms" | "plant";
 
@@ -65,6 +65,7 @@ export interface DocumentPackData {
   exportTimestamp: string;
   sections: DocumentPackSection[];
   itps: ProjectItp[];
+  itcs: DocumentPackItcRecord[];
   swms: SwmsDocumentSummary[];
   plantRecords: DocumentPackPlantRecord[];
   swmsMatrices: Array<{
@@ -95,14 +96,61 @@ function isMissingTableError(message: string, table: string): boolean {
   );
 }
 
+export interface DocumentPackItcRecord {
+  id: string;
+  project_id: string;
+  itc_number: string;
+  title: string;
+  status: string;
+  service_discipline: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+export function packDateBounds(dateFrom: string, dateTo: string): {
+  startDate: string;
+  endDate: string;
+  start: string;
+  end: string;
+} {
+  const startDate = dateFrom.trim().slice(0, 10);
+  const endDate = dateTo.trim().slice(0, 10);
+  return {
+    startDate,
+    endDate,
+    start: `${startDate}T00:00:00.000`,
+    end: `${endDate}T23:59:59.999`,
+  };
+}
+
 export function isDateInRange(
   value: string | null | undefined,
   dateFrom: string,
   dateTo: string
 ): boolean {
   if (!value?.trim()) return false;
-  const date = value.trim().slice(0, 10);
-  return date >= dateFrom && date <= dateTo;
+  const { startDate, endDate, start, end } = packDateBounds(dateFrom, dateTo);
+  const raw = value.trim();
+  const day = raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day) && day >= startDate && day <= endDate) {
+    return true;
+  }
+  const timestamp = Date.parse(raw.includes("T") ? raw : `${day}T12:00:00.000`);
+  if (!Number.isFinite(timestamp)) return false;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  return timestamp >= startMs && timestamp <= endMs;
 }
 
 function resolveRecordDate(...values: Array<string | null | undefined>): string {
@@ -112,49 +160,144 @@ function resolveRecordDate(...values: Array<string | null | undefined>): string 
   return "";
 }
 
-async function fetchCompletedItpsForPack(
+function rowMatchesPackDateRange(
+  row: Record<string, unknown>,
+  dateFrom: string,
+  dateTo: string
+): boolean {
+  const date = str(row.date);
+  const inspectionDate = str(row.inspection_date);
+  const createdAt = str(row.created_at);
+  const updatedAt = str(row.updated_at);
+  const completedAt = str(row.completed_at);
+
+  const primaryHit =
+    isDateInRange(date, dateFrom, dateTo) ||
+    isDateInRange(inspectionDate, dateFrom, dateTo) ||
+    isDateInRange(completedAt, dateFrom, dateTo);
+  const createdHit = isDateInRange(createdAt, dateFrom, dateTo);
+  const updatedHit = isDateInRange(updatedAt, dateFrom, dateTo);
+
+  if (primaryHit || createdHit || updatedHit) return true;
+  return !date && !inspectionDate && !createdAt && !updatedAt && !completedAt;
+}
+
+function mapPackItpRow(row: Record<string, unknown>): ProjectItp {
+  return {
+    id: str(row.id),
+    project_id: str(row.project_id),
+    itp_number: str(row.itp_number) || str(row.id).slice(0, 8),
+    title: str(row.title) || "ITP",
+    revision: str(row.revision) || "A",
+    trade_category: str(row.trade_category) || "—",
+    subcontractor_name: str(row.subcontractor_name) || null,
+    location_area: str(row.location_area) || null,
+    status: (str(row.status) || "draft") as ProjectItp["status"],
+    template_key: str(row.template_key) || null,
+    created_at: str(row.created_at) || undefined,
+    updated_at: str(row.updated_at) || undefined,
+    items: [],
+  };
+}
+
+function mapPackItcRow(row: Record<string, unknown>): DocumentPackItcRecord {
+  return {
+    id: str(row.id),
+    project_id: str(row.project_id),
+    itc_number: str(row.itc_number) || str(row.activity_number) || str(row.id).slice(0, 8),
+    title: str(row.title) || str(row.activity_number) || "ITC",
+    status: str(row.status) || "draft",
+    service_discipline: str(row.service_discipline) || str(row.trade_discipline) || "—",
+    created_at: str(row.created_at) || null,
+    updated_at: str(row.updated_at) || null,
+  };
+}
+
+async function fetchItpsForPack(
   projectId: string,
   dateFrom: string,
   dateTo: string
-): Promise<ProjectItp[]> {
-  if (!isSupabaseConfigured()) return [];
+): Promise<{ rows: ProjectItp[]; error: string | null }> {
+  const targetProjectId = projectId.trim();
+  if (!isSupabaseConfigured() || !targetProjectId) {
+    return { rows: [], error: null };
+  }
 
   try {
-  const { data, error } = await supabase
-    .from(PROJECT_ITPS_TABLE)
-    .select("*")
-    .eq("project_id", projectId)
-    .in("status", ["approved", "submitted", "completed"])
-    .order("updated_at", { ascending: false });
+    const { data, error } = await supabase
+      .from(PROJECT_ITPS_TABLE)
+      .select("*")
+      .eq("project_id", targetProjectId);
 
-  if (error) {
-    if (!isMissingTableError(error.message, "project_itps")) {
-      console.warn("fetchCompletedItpsForPack failed:", error.message);
+    if (error) {
+      if (!isMissingTableError(error.message, "project_itps")) {
+        console.warn("fetchItpsForPack failed:", error.message);
+      }
+      return { rows: [], error: error.message };
     }
-    return [];
-  }
 
-  const candidates = (data ?? []) as Array<Record<string, unknown>>;
-  const results: ProjectItp[] = [];
+    const results: ProjectItp[] = [];
+    for (const raw of data ?? []) {
+      const row = asRecord(raw);
+      if (str(row.project_id) !== targetProjectId) continue;
 
-  for (const row of candidates) {
-    const itp = await fetchItpById(String(row.id ?? ""));
-    if (!itp) continue;
-
-    const recordDate = resolveRecordDate(itp.updated_at, itp.created_at);
-    const hasSignedItemInRange = (itp.items ?? []).some((item) =>
-      isDateInRange(item.signed_off_at, dateFrom, dateTo)
-    );
-
-    if (isDateInRange(recordDate, dateFrom, dateTo) || hasSignedItemInRange) {
-      results.push(itp);
+      const hydrated = await fetchItpById(str(row.id)).catch(() => null);
+      const itp = hydrated ?? mapPackItpRow(row);
+      const signedInRange = (itp.items ?? []).some((item) =>
+        isDateInRange(item.signed_off_at, dateFrom, dateTo)
+      );
+      if (
+        rowMatchesPackDateRange(row, dateFrom, dateTo) ||
+        isDateInRange(itp.created_at, dateFrom, dateTo) ||
+        isDateInRange(itp.updated_at, dateFrom, dateTo) ||
+        signedInRange
+      ) {
+        results.push(itp);
+      }
     }
-  }
 
-  return results;
+    return { rows: results, error: null };
   } catch (error) {
-    console.warn("fetchCompletedItpsForPack threw:", error);
-    return [];
+    const message = error instanceof Error ? error.message : "Failed to load ITPs.";
+    console.warn("fetchItpsForPack threw:", error);
+    return { rows: [], error: message };
+  }
+}
+
+async function fetchItcsForPack(
+  projectId: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<{ rows: DocumentPackItcRecord[]; error: string | null }> {
+  const targetProjectId = projectId.trim();
+  if (!isSupabaseConfigured() || !targetProjectId) {
+    return { rows: [], error: null };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(PROJECT_ITCS_TABLE)
+      .select("*")
+      .eq("project_id", targetProjectId);
+
+    if (error) {
+      if (!isMissingTableError(error.message, "project_itcs")) {
+        console.warn("fetchItcsForPack failed:", error.message);
+      }
+      return { rows: [], error: error.message };
+    }
+
+    const rows = (data ?? [])
+      .map((raw) => asRecord(raw))
+      .filter((row) => str(row.project_id) === targetProjectId)
+      .filter((row) => rowMatchesPackDateRange(row, dateFrom, dateTo))
+      .map(mapPackItcRow);
+
+    return { rows, error: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load ITCs.";
+    console.warn("fetchItcsForPack threw:", error);
+    return { rows: [], error: message };
   }
 }
 
@@ -324,13 +467,31 @@ export async function fetchDocumentPackData(
   const includeSwms = request.sections.includes("swms");
   const includePlant = request.sections.includes("plant");
 
-  const [itps, swms, assignmentMaps] = await Promise.all([
+  const targetProjectId = request.projectId.trim();
+  const { startDate, endDate } = packDateBounds(request.dateFrom, request.dateTo);
+
+  const [itpResult, itcResult, swms, assignmentMaps] = await Promise.all([
     includeItps
-      ? fetchCompletedItpsForPack(request.projectId, request.dateFrom, request.dateTo)
-      : Promise.resolve([]),
-    includeSwms ? fetchProjectSwmsDocuments(request.projectId) : Promise.resolve([]),
+      ? fetchItpsForPack(targetProjectId, request.dateFrom, request.dateTo)
+      : Promise.resolve({ rows: [], error: null }),
+    includeItps
+      ? fetchItcsForPack(targetProjectId, request.dateFrom, request.dateTo)
+      : Promise.resolve({ rows: [], error: null }),
+    includeSwms ? fetchProjectSwmsDocuments(targetProjectId) : Promise.resolve([]),
     loadAssignmentMaps(),
   ]);
+
+  const itps = itpResult.rows;
+  const itcs = itcResult.rows;
+
+  console.log("[Document Pack Query]:", {
+    projectId: targetProjectId,
+    dateRange: { start: `${startDate}T00:00:00.000`, end: `${endDate}T23:59:59.999` },
+    itpsFound: itps.length || 0,
+    itcsFound: itcs.length || 0,
+    itpError: itpResult.error,
+    itcError: itcResult.error,
+  });
 
   const filteredSwms = includeSwms
     ? swms.filter((doc) => {
@@ -399,6 +560,7 @@ export async function fetchDocumentPackData(
     exportTimestamp,
     sections: request.sections,
     itps,
+    itcs,
     swms: filteredSwms,
     plantRecords,
     swmsMatrices,
