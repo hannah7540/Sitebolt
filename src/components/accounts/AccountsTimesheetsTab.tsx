@@ -476,7 +476,7 @@ export default function AccountsTimesheetsTab({
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            Export CSV
+            Export Timesheets
           </button>
         ) : null}
       </div>

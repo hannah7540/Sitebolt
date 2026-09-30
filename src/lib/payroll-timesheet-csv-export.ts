@@ -24,20 +24,21 @@ import {
 import { resolveTravelPayrollCategory } from "./worker-pay-rule-assignment";
 import { splitWorkerFullName } from "./worker-utils";
 
-/** Exact Payroll V2 NSW header row (leading empty column). */
-export const PAYROLL_CSV_V2_HEADER =
-  ",Employee First Name,Employee Co./Last Name,Payroll Category,Date,JOB NAME,JOB,Units";
-
-export const PAYROLL_CSV_HEADERS = [
-  "",
-  "Employee First Name",
+/** MYOB AccountRight timesheet import headers (tab-delimited, no leading empty column). */
+export const MYOB_TIMESHEET_HEADERS = [
   "Employee Co./Last Name",
+  "Employee First Name",
   "Payroll Category",
+  "Job",
   "Date",
-  "JOB NAME",
-  "JOB",
   "Units",
 ] as const;
+
+export const PAYROLL_CSV_HEADERS = MYOB_TIMESHEET_HEADERS;
+
+export const PAYROLL_CSV_V2_HEADER = MYOB_TIMESHEET_HEADERS.join(",");
+
+export const MYOB_TIMESHEET_TXT_HEADER = MYOB_TIMESHEET_HEADERS.join("\t");
 
 export type PayrollExportTimesheetRow = WorkerTimesheet & {
   worker_name: string;
@@ -268,18 +269,24 @@ export function formatPayrollExportUnitsValue(units: number): string {
   return roundUnits(units).toFixed(1);
 }
 
-export function buildPayrollExportFilename(rows: PayrollExportTimesheetRow[]): string {
-  if (rows.length === 0) return "Payroll V2 - Export.csv";
-
+function payrollExportDateStamp(rows: PayrollExportTimesheetRow[]): string {
+  if (rows.length === 0) return "export";
   const dates = [...new Set(rows.map((row) => row.work_date))].sort();
   const start = dates[0]!;
   const end = dates[dates.length - 1]!;
+  return start === end ? start : `${start}_to_${end}`;
+}
 
-  if (start === end) {
-    return `Payroll V2 - ${formatPayrollExportDate(start)}.csv`;
-  }
+export function buildPayrollExportFilename(rows: PayrollExportTimesheetRow[]): string {
+  return `timesheets_export_${payrollExportDateStamp(rows)}.zip`;
+}
 
-  return `Payroll V2 - ${formatPayrollExportDate(start)} to ${formatPayrollExportDate(end)}.csv`;
+export function buildPayrollMyobTxtFilename(rows: PayrollExportTimesheetRow[]): string {
+  return `timesheets_myob_${payrollExportDateStamp(rows)}.txt`;
+}
+
+export function buildPayrollReviewCsvFilename(rows: PayrollExportTimesheetRow[]): string {
+  return `timesheets_${payrollExportDateStamp(rows)}.csv`;
 }
 
 export function resolvePayrollCategoryNames(
@@ -699,37 +706,58 @@ export function buildPayrollExportLinesForTimesheet(
 
 export function escapePayrollCsvValue(value: string | number | null | undefined): string {
   const text = value == null ? "" : String(value);
-  if (/[",\n]/.test(text)) {
+  if (/[",\n\r]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
 }
 
-export function payrollExportLineToCsvCells(
-  line: PayrollCsvExportLine,
-  rowNumber: number
-): string[] {
+export function escapePayrollTxtValue(value: string | number | null | undefined): string {
+  const text = value == null ? "" : String(value);
+  if (/[\t\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+export function payrollExportLineToMyobCells(line: PayrollCsvExportLine): string[] {
   return [
-    String(rowNumber),
-    line.employeeFirstName,
     line.employeeLastName,
+    line.employeeFirstName,
     line.payrollCategory,
+    line.job || line.jobName,
     line.date,
-    line.jobName,
-    line.job,
     formatPayrollExportUnitsValue(line.units),
   ];
+}
+
+export function payrollExportLineToCsvCells(
+  line: PayrollCsvExportLine,
+  _rowNumber?: number
+): string[] {
+  return payrollExportLineToMyobCells(line);
+}
+
+function joinExportLines(header: string, rows: string[], delimiter: "\n" | "\r\n"): string {
+  return [header, ...rows].join(delimiter) + delimiter;
 }
 
 export function buildPayrollTimesheetExportCsvFromLines(
   lines: PayrollCsvExportLine[]
 ): string {
   const sortedLines = sortPayrollExportLines(lines);
-  const dataRows = sortedLines.map((line, index) =>
-    payrollExportLineToCsvCells(line, index + 1)
-      .map(escapePayrollCsvValue)
-      .join(",")
+  const dataRows = sortedLines.map((line) =>
+    payrollExportLineToMyobCells(line).map(escapePayrollCsvValue).join(",")
   );
+  return joinExportLines(PAYROLL_CSV_V2_HEADER, dataRows, "\r\n");
+}
 
-  return [PAYROLL_CSV_V2_HEADER, ...dataRows].join("\n");
+export function buildPayrollTimesheetExportMyobTxtFromLines(
+  lines: PayrollCsvExportLine[]
+): string {
+  const sortedLines = sortPayrollExportLines(lines);
+  const dataRows = sortedLines.map((line) =>
+    payrollExportLineToMyobCells(line).map(escapePayrollTxtValue).join("\t")
+  );
+  return joinExportLines(MYOB_TIMESHEET_TXT_HEADER, dataRows, "\r\n");
 }

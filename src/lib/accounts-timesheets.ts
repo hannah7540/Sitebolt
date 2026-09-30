@@ -26,7 +26,10 @@ import { resolveTimesheetLineItems } from "./timesheet-line-items";
 import {
   buildPayrollExportFilename,
   buildPayrollExportLinesForTimesheet,
+  buildPayrollMyobTxtFilename,
+  buildPayrollReviewCsvFilename,
   buildPayrollTimesheetExportCsvFromLines,
+  buildPayrollTimesheetExportMyobTxtFromLines,
   fetchPayrollCsvExportProjectLookups,
   resolvePayrollCsvProjectLookups,
   type PayrollCsvProjectLookups,
@@ -687,13 +690,26 @@ export async function downloadPayrollTimesheetCsv(
     (options.projects?.length
       ? resolvePayrollCsvProjectLookups(options.projects)
       : await fetchPayrollCsvExportProjectLookups());
-  const csv = buildPayrollTimesheetExportCsv(rows, payRules, lookups);
-  const filename = options.filename ?? buildPayrollExportFilename(rows);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const exportLines = rows.flatMap((row) => {
+    const payRule = resolveTimesheetPayRule(row, payRules);
+    return buildPayrollExportLinesForTimesheet(row, payRule, lookups);
+  });
+  const csv = buildPayrollTimesheetExportCsvFromLines(exportLines);
+  const txt = buildPayrollTimesheetExportMyobTxtFromLines(exportLines);
+  const zipName = options.filename ?? buildPayrollExportFilename(rows);
+  const txtName = buildPayrollMyobTxtFilename(rows);
+  const csvName = buildPayrollReviewCsvFilename(rows);
+
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  zip.file(txtName, txt);
+  zip.file(csvName, csv);
+
+  const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = zipName.endsWith(".zip") ? zipName : `${zipName.replace(/\.csv$/i, "")}.zip`;
   link.click();
   URL.revokeObjectURL(url);
 }

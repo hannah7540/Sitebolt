@@ -106,12 +106,12 @@ test.describe("Full System E2E", () => {
         await dailyTotalHeader.click();
       }
 
-      const exportButton = page.getByRole("button", { name: /export csv/i });
+      const exportButton = page.getByRole("button", { name: /export timesheets/i });
       if (await exportButton.isEnabled().catch(() => false)) {
         const downloadPromise = page.waitForEvent("download");
         await exportButton.click();
         const download = await downloadPromise;
-        expect(download.suggestedFilename()).toMatch(/\.csv$/i);
+        expect(download.suggestedFilename()).toMatch(/\.zip$/i);
       } else {
         await expect(exportButton).toBeVisible();
       }

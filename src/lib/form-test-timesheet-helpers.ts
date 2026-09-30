@@ -299,7 +299,7 @@ export function validatePayrollCsvExportRow(
     const matchesDate = cells[4] === formattedDate;
     const matchesName =
       (firstName ? cells[1] === firstName : true) &&
-      (lastName ? cells[2] === lastName : true);
+      (lastName ? cells[0] === lastName : true);
     return matchesDate && matchesName;
   });
 
@@ -313,8 +313,8 @@ export function validatePayrollCsvExportRow(
   for (const expected of expectedLines) {
     const match = workerRows.find(
       (cells) =>
-        cells[3] === expected.payrollCategory &&
-        Number(cells[7]) === expected.units
+        cells[2] === expected.payrollCategory &&
+        Number(cells[5]) === expected.units
     );
     if (!match) {
       errors.push(
@@ -330,11 +330,7 @@ export function validatePayrollCsvExportRow(
       );
       break;
     }
-    if (!/^\d+$/.test(cells[0] ?? "")) {
-      errors.push("First column must contain sequential row numbers.");
-      break;
-    }
-    if (Number.isNaN(Number(cells[7]))) {
+    if (Number.isNaN(Number(cells[5]))) {
       errors.push("Units must be numeric.");
       break;
     }
