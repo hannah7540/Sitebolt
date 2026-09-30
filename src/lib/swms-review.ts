@@ -38,6 +38,7 @@ export interface ProjectSwmsReviewSchedule {
   id: string;
   project_id: string;
   responsible_worker_id: string;
+  assigned_worker_id?: string;
   frequency_days: number;
   last_reviewed_at: string | null;
   next_review_due: string;
@@ -67,7 +68,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 const SCHEDULE_COLUMNS =
+  "id, project_id, responsible_worker_id, assigned_worker_id, frequency_days, last_reviewed_at, next_review_due";
+const SCHEDULE_COLUMNS_WITHOUT_ASSIGNED =
   "id, project_id, responsible_worker_id, frequency_days, last_reviewed_at, next_review_due";
+const SCHEDULE_COLUMNS_LEGACY_ASSIGNED =
+  "id, project_id, assigned_worker_id, frequency_days, last_reviewed_at, next_review_due";
 const REVIEW_COLUMNS =
   "id, project_id, review_date, reviewing_manager_id, consulted_worker_id, reviewing_manager_signature, consulted_worker_signature, items, created_at";
 const WORKER_LOOKUP_COLUMNS = "id, first_name, last_name, full_name, email";
@@ -177,11 +182,17 @@ function parseReviewItems(value: unknown): SwmsReviewItem[] {
     .filter((item) => item.swms_id);
 }
 
+function resolveScheduleWorkerId(row: Record<string, unknown>): string {
+  return str(row.responsible_worker_id) || str(row.assigned_worker_id);
+}
+
 function mapSchedule(row: Record<string, unknown>): ProjectSwmsReviewSchedule {
+  const workerId = resolveScheduleWorkerId(row);
   return {
     id: str(row.id),
     project_id: str(row.project_id),
-    responsible_worker_id: str(row.responsible_worker_id),
+    responsible_worker_id: workerId,
+    assigned_worker_id: str(row.assigned_worker_id) || workerId,
     frequency_days: Number(row.frequency_days) || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS,
     last_reviewed_at: row.last_reviewed_at ? String(row.last_reviewed_at) : null,
     next_review_due: String(row.next_review_due ?? ""),
@@ -218,12 +229,42 @@ export function tallySwmsReviewItems(items: SwmsReviewItem[]): {
   );
 }
 
+function errorMentionsColumn(
+  error: { message?: string } | null | undefined,
+  column: string
+): boolean {
+  return String(error?.message ?? "").toLowerCase().includes(column.toLowerCase());
+}
+
 async function queryProjectSwmsReviewSchedule(projectId: string) {
-  return supabase
+  const first = await supabase
     .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
     .select(SCHEDULE_COLUMNS)
     .eq("project_id", projectId)
     .maybeSingle();
+
+  if (
+    first.error &&
+    isSupabaseMissingColumnError({
+      code: first.error.code,
+      message: first.error.message,
+      details: "",
+      hint: "",
+    })
+  ) {
+    const fallbackColumns = errorMentionsColumn(first.error, "assigned_worker_id")
+      ? SCHEDULE_COLUMNS_WITHOUT_ASSIGNED
+      : errorMentionsColumn(first.error, "responsible_worker_id")
+        ? SCHEDULE_COLUMNS_LEGACY_ASSIGNED
+        : SCHEDULE_COLUMNS_WITHOUT_ASSIGNED;
+    return supabase
+      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+      .select(fallbackColumns)
+      .eq("project_id", projectId)
+      .maybeSingle();
+  }
+
+  return first;
 }
 
 export async function fetchProjectSwmsReviewSchedule(
@@ -315,17 +356,21 @@ async function writeProjectSwmsReviewSchedule(
   payload: SwmsReviewScheduleWrite
 ): Promise<{ schedule: ProjectSwmsReviewSchedule | null; error: string | null }> {
   const frequencyDays = payload.frequency_days || DEFAULT_SWMS_REVIEW_FREQUENCY_DAYS;
+  const selectedWorkerId = payload.responsible_worker_id;
   const updateFields: Record<string, string | number> = {
-    responsible_worker_id: payload.responsible_worker_id,
+    responsible_worker_id: selectedWorkerId,
+    assigned_worker_id: selectedWorkerId,
     frequency_days: frequencyDays,
     next_review_due: payload.next_review_due,
     updated_at: payload.updated_at || new Date().toISOString(),
   };
   const insertFields: Record<string, string | number> = {
     project_id: payload.project_id,
-    responsible_worker_id: payload.responsible_worker_id,
+    responsible_worker_id: selectedWorkerId,
+    assigned_worker_id: selectedWorkerId,
     frequency_days: frequencyDays,
     next_review_due: payload.next_review_due,
+    updated_at: payload.updated_at || new Date().toISOString(),
   };
   if (payload.last_reviewed_at) {
     updateFields.last_reviewed_at = payload.last_reviewed_at;
@@ -355,40 +400,57 @@ async function writeProjectSwmsReviewSchedule(
       mapSchedule({
         id,
         project_id: payload.project_id,
-        responsible_worker_id: payload.responsible_worker_id,
+        responsible_worker_id: selectedWorkerId,
+        assigned_worker_id: selectedWorkerId,
         frequency_days: frequencyDays,
         last_reviewed_at: payload.last_reviewed_at ?? null,
         next_review_due: payload.next_review_due,
         updated_at: payload.updated_at,
       });
 
-    if (existingId) {
-      const { error } = await supabase
-        .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-        .update(updateFields)
-        .eq("id", existingId);
+    const writeWithColumnFallback = async (
+      kind: "update" | "insert",
+      fields: Record<string, string | number>
+    ) => {
+      const run = (body: Record<string, string | number>) =>
+        kind === "update"
+          ? supabase
+              .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+              .update(body)
+              .eq("id", existingId)
+          : supabase
+              .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
+              .insert(body)
+              .select("id")
+              .maybeSingle();
 
-      if (error) {
-        const withoutUpdatedAt = { ...updateFields };
-        delete withoutUpdatedAt.updated_at;
-        const retry = await supabase
-          .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-          .update(withoutUpdatedAt)
-          .eq("id", existingId);
-        if (retry.error) {
-          logSwmsScheduleSaveError(error);
-          return { schedule: null, error: error.message };
+      let body = { ...fields };
+      let result = await run(body);
+      for (const column of ["updated_at", "assigned_worker_id", "responsible_worker_id"] as const) {
+        if (
+          result.error &&
+          errorMentionsColumn(result.error, column) &&
+          (errorMentionsColumn(result.error, "could not find") ||
+            errorMentionsColumn(result.error, "schema cache"))
+        ) {
+          delete body[column];
+          result = await run(body);
         }
+      }
+      return result;
+    };
+
+    if (existingId) {
+      const { error } = await writeWithColumnFallback("update", updateFields);
+      if (error) {
+        logSwmsScheduleSaveError(error);
+        return { schedule: null, error: error.message };
       }
 
       return { schedule: toSchedule(existingId), error: null };
     }
 
-    const { data, error } = await supabase
-      .from(PROJECT_SWMS_REVIEW_SCHEDULES_TABLE)
-      .insert(insertFields)
-      .select("id")
-      .maybeSingle();
+    const { data, error } = await writeWithColumnFallback("insert", insertFields);
 
     if (error) {
       const again = await supabase
