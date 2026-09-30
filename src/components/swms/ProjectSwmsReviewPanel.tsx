@@ -193,7 +193,10 @@ export default function ProjectSwmsReviewPanel({
     });
     setSavingSchedule(false);
     if (result.error || !result.schedule) {
-      setError(result.error ?? "Failed to save review schedule.");
+      if (result.error) {
+        console.error("[SWMS Schedule Save Error]:", result.error);
+      }
+      setError(result.error ?? "Schedule write returned no row.");
       return;
     }
     setSchedule(result.schedule);
