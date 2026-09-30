@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
+import GlobalSearchBar from "@/components/search/GlobalSearchBar";
 import { cn } from "@/lib/utils";
 
 interface AppScreenHeaderProps {
@@ -29,12 +30,15 @@ export default function AppScreenHeader({
   return (
     <header
       className={cn(
-        "mobile-safe-area-y sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm lg:px-6",
+        "mobile-safe-area-y sticky top-0 z-30 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm lg:px-6",
         className
       )}
     >
-      <CompanyLogo size="md" showFallback />
-      <div className="flex items-center gap-3">
+      <div className="justify-self-start">
+        <CompanyLogo size="md" showFallback />
+      </div>
+      <GlobalSearchBar />
+      <div className="flex items-center justify-end gap-3 justify-self-end">
         {commandPalette ? (
           <button
             type="button"
