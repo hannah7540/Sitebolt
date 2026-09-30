@@ -33,6 +33,7 @@ import {
 import { getAdminWorkerId, getStoredWorkerId } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import type { Worker } from "@/lib/supabase";
+import { downloadSwmsReviewPdf, generateSwmsReviewPdf } from "@/lib/swms-review-pdf";
 
 type ReviewHubView = "dashboard" | "form" | "history";
 
@@ -85,6 +86,7 @@ export default function ProjectSwmsReviewPanel({
   const [managerSignature, setManagerSignature] = useState<string | null>(null);
   const [consultedSignature, setConsultedSignature] = useState<string | null>(null);
   const [printReview, setPrintReview] = useState<ProjectSwmsReview | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -250,6 +252,27 @@ export default function ProjectSwmsReviewPanel({
   };
 
   const consultedOptions = projectWorkers.filter((worker) => worker.id !== reviewingManagerId);
+
+  const handleDownloadReviewPdf = async (review: ProjectSwmsReview) => {
+    setExportingPdf(true);
+    setError(null);
+    try {
+      const { blob, fileName } = await generateSwmsReviewPdf({
+        review,
+        projectName,
+        reviewingManagerName: workerNameFromList(projectWorkers, review.reviewing_manager_id),
+        consultedWorkerName: workerNameFromList(projectWorkers, review.consulted_worker_id),
+      });
+      downloadSwmsReviewPdf(blob, fileName);
+    } catch (exportError) {
+      const message =
+        exportError instanceof Error ? exportError.message : "Failed to generate SWMS review PDF.";
+      console.error("[SWMS Review PDF Error]:", exportError);
+      setError(message);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -574,17 +597,18 @@ export default function ProjectSwmsReviewPanel({
       )}
 
       {printReview ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 print:static print:bg-white print:p-0">
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl print:max-h-none print:shadow-none">
-            <div className="mb-4 flex items-center justify-between print:hidden">
-              <h3 className="text-lg font-bold text-slate-900">SWMS review record</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">SWMS review document</h3>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white"
+                  onClick={() => void handleDownloadReviewPdf(printReview)}
+                  disabled={exportingPdf}
+                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  Print PDF
+                  {exportingPdf ? "Generating PDF…" : "Download PDF"}
                 </button>
                 <button
                   type="button"
@@ -595,56 +619,115 @@ export default function ProjectSwmsReviewPanel({
                 </button>
               </div>
             </div>
-            <p className="text-sm text-slate-600">{projectName}</p>
-            <p className="text-sm text-slate-600">
-              Date {formatSwmsReviewDate(printReview.review_date)}
-            </p>
-            <p className="text-sm text-slate-600">
-              Reviewing manager: {workerNameFromList(projectWorkers, printReview.reviewing_manager_id)}
-            </p>
-            <p className="mb-4 text-sm text-slate-600">
-              Consulted worker: {workerNameFromList(projectWorkers, printReview.consulted_worker_id)}
-            </p>
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b text-slate-500">
-                  <th className="py-2">SWMS</th>
-                  <th>Status</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {printReview.items.map((item) => (
-                  <tr key={item.swms_id} className="border-b border-slate-100">
-                    <td className="py-2">{item.title}</td>
-                    <td>{item.status === "accepted" ? "Accepted" : "Requires update"}</td>
-                    <td>{item.notes || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+
+            <div className="space-y-5 border border-slate-200 p-5">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Reviewing manager</p>
-                {printReview.reviewing_manager_signature ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={printReview.reviewing_manager_signature}
-                    alt="Reviewing manager signature"
-                    className="mt-2 h-20 object-contain"
-                  />
-                ) : null}
+                <p className="text-xl font-bold text-slate-900">
+                  SWMS Periodic Review - {projectName}
+                </p>
+                <p className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2">
+                  <span>
+                    <strong>Project:</strong> {projectName}
+                  </span>
+                  <span>
+                    <strong>Date of Review:</strong> {formatSwmsReviewDate(printReview.review_date)}
+                  </span>
+                  <span>
+                    <strong>Reviewing Manager:</strong>{" "}
+                    {workerNameFromList(projectWorkers, printReview.reviewing_manager_id)}
+                  </span>
+                  <span>
+                    <strong>Consulted Worker:</strong>{" "}
+                    {workerNameFromList(projectWorkers, printReview.consulted_worker_id)}
+                  </span>
+                </p>
               </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-500">Consulted worker</p>
-                {printReview.consulted_worker_signature ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={printReview.consulted_worker_signature}
-                    alt="Consulted worker signature"
-                    className="mt-2 h-20 object-contain"
-                  />
-                ) : null}
+
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-slate-800 text-white">
+                    <th className="px-2 py-2">#</th>
+                    <th className="px-2 py-2">SWMS Document / Activity Title</th>
+                    <th className="px-2 py-2">Outcome / Status</th>
+                    <th className="px-2 py-2">Comments / Action Required</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printReview.items.map((item, index) => (
+                    <tr key={item.swms_id} className="border-b border-slate-200">
+                      <td className="px-2 py-2">{index + 1}</td>
+                      <td className="px-2 py-2">{item.title}</td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-xs font-semibold",
+                            item.status === "accepted"
+                              ? "bg-emerald-50 text-emerald-800"
+                              : "bg-amber-50 text-amber-800"
+                          )}
+                        >
+                          {item.status === "accepted"
+                            ? "Reviewed and Accepted"
+                            : "Requires Update"}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-slate-600">
+                        {item.notes.trim() ||
+                          (item.status === "requires_update"
+                            ? "Action required"
+                            : "None - Compliant")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="break-inside-avoid space-y-3">
+                <p className="text-sm text-slate-700">
+                  We confirm that the Safe Work Method Statements listed above have been
+                  systematically reviewed in consultation with site workers, are suitable for
+                  current site conditions, and all identified controls remain effective.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Reviewing Manager
+                    </p>
+                    <p className="mt-1 text-sm text-slate-800">
+                      {workerNameFromList(projectWorkers, printReview.reviewing_manager_id)}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {formatSwmsReviewDate(printReview.review_date)}
+                    </p>
+                    {printReview.reviewing_manager_signature ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={printReview.reviewing_manager_signature}
+                        alt="Reviewing manager signature"
+                        className="mt-2 h-16 object-contain"
+                      />
+                    ) : null}
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Consulted Worker
+                    </p>
+                    <p className="mt-1 text-sm text-slate-800">
+                      {workerNameFromList(projectWorkers, printReview.consulted_worker_id)}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {formatSwmsReviewDate(printReview.review_date)}
+                    </p>
+                    {printReview.consulted_worker_signature ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={printReview.consulted_worker_signature}
+                        alt="Consulted worker signature"
+                        className="mt-2 h-16 object-contain"
+                      />
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
