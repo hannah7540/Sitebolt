@@ -457,10 +457,10 @@ export default function AccountsTimesheetReportsPanel() {
                           <img
                             src={row.signatureUrl}
                             alt="Worker signature"
-                            className="h-12 max-w-[9rem] rounded border border-slate-200 bg-white object-contain p-1"
+                            className="max-h-12 w-auto rounded border border-slate-200 bg-white object-contain p-1"
                           />
                         ) : (
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs font-medium text-slate-500">
                             {row.signatureLabel}
                           </span>
                         )}

@@ -10,7 +10,7 @@ import {
 import { handleSupabaseNetworkFetchError } from "./project-resolver";
 import { mapTimesheetRow } from "./timesheet-entries";
 import { getPayWeekRange, shiftPayWeekStart } from "./pay-week-utils";
-import { localIsoDate, formatTimesheetHours } from "./timesheet-utils";
+import { localIsoDate, formatTimesheetHours, toTimesheetDateKey } from "./timesheet-utils";
 import {
   calculateTimesheetPay,
   isLeaveTimesheet,
@@ -66,6 +66,7 @@ export interface TimesheetAuditRow {
   allowances: TimesheetAuditAllowances;
   signatureUrl: string | null;
   signatureLabel: string;
+  leaveRequestId?: string | null;
   notes: string | null;
   status: string;
 }
@@ -339,18 +340,241 @@ function resolveSubmissionMethod(
   return "Worker (Self)";
 }
 
+function asSignatureString(value: unknown, depth = 0): string | null {
+  if (depth > 4 || value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "[object Object]") return null;
+    return trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = asSignatureString(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of [
+      "signature_url",
+      "signatureUrl",
+      "signature_data",
+      "signatureData",
+      "signature_data_url",
+      "data_url",
+      "dataUrl",
+      "worker_signature",
+      "workerSignature",
+      "url",
+      "src",
+      "data",
+      "signature",
+    ]) {
+      const found = asSignatureString(record[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+const TIMESHEET_SIGNATURE_KEYS = [
+  "signature_url",
+  "signatureUrl",
+  "signature_data",
+  "signatureData",
+  "signature_data_url",
+  "worker_signature",
+  "workerSignature",
+  "worker_signature_url",
+  "signoff_signature",
+  "sign_off_signature",
+  "signature",
+] as const;
+
+export function pickSignatureFromRecord(
+  row: Record<string, unknown> | null | undefined
+): string | null {
+  if (!row) return null;
+  for (const key of TIMESHEET_SIGNATURE_KEYS) {
+    const found = asSignatureString(row[key]);
+    if (found) return found;
+  }
+  const metadata = readFormMetadata(row);
+  if (metadata) {
+    for (const key of TIMESHEET_SIGNATURE_KEYS) {
+      const found = asSignatureString(metadata[key]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function resolveSignatureLabel(
   method: TimesheetSubmissionMethod,
   signatureUrl: string | null
 ): string {
   if (method === "System Auto-Entry (Leave)") {
-    return "Auto Approved / Leave";
+    return "[System Verified - Approved Leave]";
+  }
+  if (method === "Admin (on behalf of worker)") {
+    return signatureUrl?.trim()
+      ? "Signed"
+      : "[Admin Approved - Submitted on Behalf]";
   }
   if (signatureUrl?.trim()) return "Signed";
-  if (method === "Admin (on behalf of worker)") {
-    return "Admin (on behalf of worker)";
+  return "No signature captured";
+}
+
+interface StorageObjectRef {
+  bucket: string;
+  path: string;
+}
+
+export function extractStorageObjectRef(src: string): StorageObjectRef | null {
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("data:")) return null;
+
+  const objectMatch = trimmed.match(
+    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?]+)\/([^?]+)/i
+  );
+  if (objectMatch?.[1] && objectMatch[2]) {
+    return {
+      bucket: decodeURIComponent(objectMatch[1]),
+      path: decodeURIComponent(objectMatch[2]),
+    };
   }
-  return "Not captured";
+
+  if (/^https?:\/\//i.test(trimmed)) return null;
+
+  const stripped = trimmed.replace(/^\/+/, "");
+  const knownBuckets = ["worker-docs", "signatures", "timesheet-signatures"];
+  for (const bucket of knownBuckets) {
+    if (stripped === bucket || stripped.startsWith(`${bucket}/`)) {
+      return {
+        bucket,
+        path: stripped.slice(bucket.length).replace(/^\/+/, ""),
+      };
+    }
+  }
+
+  if (stripped.startsWith("timesheets/")) {
+    return { bucket: "worker-docs", path: stripped };
+  }
+
+  return null;
+}
+
+export async function hydrateTimesheetSignatureUrl(
+  src: string | null | undefined
+): Promise<string | null> {
+  const trimmed = src?.trim() || "";
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:")) return trimmed;
+
+  const ref = extractStorageObjectRef(trimmed);
+  if (!ref?.path) return trimmed;
+
+  try {
+    const signed = await supabase.storage
+      .from(ref.bucket)
+      .createSignedUrl(ref.path, 60 * 60 * 24);
+    if (signed.data?.signedUrl) return signed.data.signedUrl;
+  } catch {
+    /* fall through to public URL */
+  }
+
+  const { data } = supabase.storage.from(ref.bucket).getPublicUrl(ref.path);
+  return data.publicUrl || trimmed;
+}
+
+async function fetchLeaveRequestSignatures(
+  leaveRequestIds: string[]
+): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(leaveRequestIds.filter(Boolean))];
+  const signatures = new Map<string, string>();
+  if (!isSupabaseConfigured() || uniqueIds.length === 0) return signatures;
+
+  const { data, error } = await supabase
+    .from("leave_requests")
+    .select("id, signature_url")
+    .in("id", uniqueIds);
+
+  if (error || !data) return signatures;
+
+  for (const row of data as Record<string, unknown>[]) {
+    const id = String(row.id ?? "");
+    const signature = pickSignatureFromRecord(row);
+    if (id && signature) signatures.set(id, signature);
+  }
+  return signatures;
+}
+
+async function fetchPayWeekBatchSignatures(
+  workerId: string,
+  rows: TimesheetAuditRow[]
+): Promise<Map<string, string>> {
+  const signatures = new Map<string, string>();
+  const missing = rows.filter(
+    (row) =>
+      !row.signatureUrl && row.submissionMethod === "Worker (Self)" && row.workDate
+  );
+  if (!isSupabaseConfigured() || missing.length === 0) return signatures;
+
+  const weekBounds = missing.map((row) =>
+    getPayWeekRange(new Date(`${row.workDate}T12:00:00`))
+  );
+  const startDate = weekBounds.map((week) => week.startIso).sort()[0];
+  const endDates = weekBounds.map((week) => week.endIso).sort();
+  const endDate = endDates[endDates.length - 1];
+  if (!startDate || !endDate) return signatures;
+
+  const { rows: batchRows } = await fetchTimesheetRowsForRange(
+    workerId,
+    startDate,
+    endDate
+  );
+  for (const raw of batchRows) {
+    const signature = pickSignatureFromRecord(raw);
+    if (!signature) continue;
+    const workDate = toTimesheetDateKey(String(raw.work_date ?? "")) || "";
+    if (!workDate) continue;
+    const week = getPayWeekRange(new Date(`${workDate}T12:00:00`));
+    if (!signatures.has(week.startIso)) signatures.set(week.startIso, signature);
+  }
+  return signatures;
+}
+
+function applySignatureFallbacks(
+  rows: TimesheetAuditRow[],
+  options: {
+    payWeekSignatures: Map<string, string>;
+    leaveSignatures: Map<string, string>;
+    workerSignature: string | null;
+  }
+): TimesheetAuditRow[] {
+  return rows.map((row) => {
+    let signatureUrl = row.signatureUrl;
+    if (!signatureUrl && row.submissionMethod === "Worker (Self)") {
+      const week = getPayWeekRange(new Date(`${row.workDate}T12:00:00`));
+      signatureUrl = options.payWeekSignatures.get(week.startIso) ?? null;
+    }
+    if (!signatureUrl && row.leaveRequestId) {
+      signatureUrl = options.leaveSignatures.get(row.leaveRequestId) ?? null;
+    }
+    if (
+      !signatureUrl &&
+      row.submissionMethod === "Worker (Self)" &&
+      options.workerSignature
+    ) {
+      signatureUrl = options.workerSignature;
+    }
+    return {
+      ...row,
+      signatureUrl,
+      signatureLabel: resolveSignatureLabel(row.submissionMethod, signatureUrl),
+    };
+  });
 }
 
 function findPayRuleById(
@@ -464,7 +688,8 @@ function mapAuditRow(
       : split.baseHours + split.overtime15Hours + split.overtime20Hours + leaveHours
   );
 
-  const signatureUrl = timesheet.signature_url?.trim() || null;
+  const signatureUrl =
+    pickSignatureFromRecord(raw) || timesheet.signature_url?.trim() || null;
 
   return {
     id: timesheet.id,
@@ -491,6 +716,7 @@ function mapAuditRow(
     },
     signatureUrl,
     signatureLabel: resolveSignatureLabel(method, signatureUrl),
+    leaveRequestId: timesheet.leave_request_id ?? null,
     notes: timesheet.notes,
     status: timesheet.status,
   };
@@ -668,14 +894,54 @@ export async function generateTimesheetAuditReport(input: {
       );
     });
 
+  const [payWeekSignatures, leaveSignatures] = await Promise.all([
+    fetchPayWeekBatchSignatures(workerId, mapped),
+    fetchLeaveRequestSignatures(
+      mapped
+        .map((row) => row.leaveRequestId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ]);
+
+  const workerSignature =
+    pickSignatureFromRecord(worker as unknown as Record<string, unknown>) ||
+    worker.induction_signature_url?.trim() ||
+    null;
+
+  const withFallbacks = applySignatureFallbacks(mapped, {
+    payWeekSignatures,
+    leaveSignatures,
+    workerSignature,
+  });
+
+  const hydratedUrls = new Map<string, string>();
+  await Promise.all(
+    [
+      ...new Set(
+        withFallbacks
+          .map((row) => row.signatureUrl)
+          .filter((url): url is string => Boolean(url))
+      ),
+    ].map(async (url) => {
+      hydratedUrls.set(url, (await hydrateTimesheetSignatureUrl(url)) ?? url);
+    })
+  );
+
+  const hydrated = withFallbacks.map((row) => ({
+    ...row,
+    signatureUrl: row.signatureUrl
+      ? hydratedUrls.get(row.signatureUrl) ?? row.signatureUrl
+      : null,
+  }));
+
   return {
     report: {
       worker: toTimesheetAuditWorkerOption(worker),
       startDate,
       endDate,
       generatedAt: new Date().toISOString(),
-      rows: mapped,
-      totals: sumTotals(mapped),
+      rows: hydrated,
+      totals: sumTotals(hydrated),
     },
     error: null,
   };

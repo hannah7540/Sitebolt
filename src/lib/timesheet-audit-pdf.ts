@@ -1,12 +1,14 @@
 "use client";
 
-import { fetchCompanyProfile } from "@/lib/supabase";
+import { fetchCompanyProfile, supabase } from "@/lib/supabase";
 import {
+  extractStorageObjectRef,
   formatAuditDate,
   formatAuditDateTime,
   formatAuditHours,
   formatHoursAllowancesPreview,
   formatSubmissionMethodLabel,
+  hydrateTimesheetSignatureUrl,
   type TimesheetAuditReport,
   type TimesheetAuditRow,
 } from "@/lib/timesheet-audit-report";
@@ -89,26 +91,64 @@ async function rasterizeImage(
   });
 }
 
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function downloadStorageSignature(
+  src: string
+): Promise<{ dataUrl: string; format: "PNG" | "JPEG" } | null> {
+  const ref = extractStorageObjectRef(src);
+  if (!ref?.path) return null;
+
+  const buckets = [...new Set([ref.bucket, "worker-docs", "signatures"])];
+  for (const bucket of buckets) {
+    try {
+      const { data, error } = await supabase.storage.from(bucket).download(ref.path);
+      if (error || !data) continue;
+      const dataUrl = await blobToDataUrl(data);
+      if (data.type.includes("svg") || dataUrl.startsWith("data:image/svg")) {
+        return rasterizeImage(dataUrl);
+      }
+      const format: "PNG" | "JPEG" = data.type.includes("jpeg") ? "JPEG" : "PNG";
+      return { dataUrl, format };
+    } catch {
+      /* try next bucket */
+    }
+  }
+  return null;
+}
+
 async function loadSignatureImage(
   src: string | null
 ): Promise<{ dataUrl: string; format: "PNG" | "JPEG" } | null> {
   if (!src?.trim()) return null;
-  const embedded = resolveEmbeddedImage(src);
-  if (embedded && !src.includes("svg")) return embedded;
+  const trimmed = src.trim();
 
-  const rasterized = await rasterizeImage(src);
+  if (trimmed.startsWith("data:image/svg")) {
+    return rasterizeImage(trimmed);
+  }
+
+  const embedded = resolveEmbeddedImage(trimmed);
+  if (embedded && !trimmed.includes("svg")) return embedded;
+
+  const fromStorage = await downloadStorageSignature(trimmed);
+  if (fromStorage) return fromStorage;
+
+  const hydrated = (await hydrateTimesheetSignatureUrl(trimmed)) ?? trimmed;
+  const rasterized = await rasterizeImage(hydrated);
   if (rasterized) return rasterized;
 
   try {
-    const response = await fetch(src);
+    const response = await fetch(hydrated);
     if (!response.ok) return null;
     const blob = await response.blob();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
+    const dataUrl = await blobToDataUrl(blob);
     if (blob.type.includes("svg") || dataUrl.startsWith("data:image/svg")) {
       return rasterizeImage(dataUrl);
     }
