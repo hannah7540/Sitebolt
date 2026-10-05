@@ -16,6 +16,7 @@ import {
   ReceiptText,
   CalendarSearch,
   Clock,
+  FileSpreadsheet,
   Scale,
   UserPlus,
   LogOut,
@@ -196,6 +197,21 @@ function buildAccountsMenu(
       title: "Add Timesheets",
       href: "/accounts/add-timesheets",
       icon: UserPlus,
+    });
+  }
+
+  if (
+    canViewAccountsTimesheets(sessionRole) ||
+    canAccessAccountsArea({
+      securityRole: sessionRole,
+      accountsAccessRole,
+      canAccessAccounts,
+    })
+  ) {
+    children.push({
+      title: "Timesheet Reports",
+      href: "/accounts/timesheet-reports",
+      icon: FileSpreadsheet,
     });
   }
 

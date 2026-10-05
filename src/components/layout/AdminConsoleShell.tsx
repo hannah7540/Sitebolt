@@ -49,6 +49,7 @@ import {
   isPayRulesPath,
   isTimesheetsPath,
   isAddTimesheetsPath,
+  isTimesheetReportsPath,
   PROJECT_VIEWS,
 } from "@/lib/rbac-guards";
 import {
@@ -255,7 +256,8 @@ export default function AdminConsoleShell({
     const timesheetsRoute =
       requireAccountsAccess ||
       isTimesheetsPath(pathname) ||
-      isAddTimesheetsPath(pathname);
+      isAddTimesheetsPath(pathname) ||
+      isTimesheetReportsPath(pathname);
     if (timesheetsRoute) {
       const allowed =
         canViewAccountsTimesheets(sessionRole) ||
