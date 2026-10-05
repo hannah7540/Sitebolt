@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FileSpreadsheet,
   Loader2,
   Search,
   Download,
+  X,
 } from "lucide-react";
 import AccountsNav from "@/components/accounts/AccountsNav";
 import Toast from "@/components/ui/Toast";
@@ -30,13 +31,185 @@ import {
   generateTimesheetAuditPdf,
 } from "@/lib/timesheet-audit-pdf";
 
+function TimesheetReportWorkerCombobox({
+  workers,
+  selectedWorkerId,
+  onSelectWorkerId,
+  loading,
+}: {
+  workers: TimesheetAuditWorkerOption[];
+  selectedWorkerId: string;
+  onSelectWorkerId: (workerId: string) => void;
+  loading: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectedWorker = useMemo(
+    () => workers.find((worker) => worker.id === selectedWorkerId) ?? null,
+    [selectedWorkerId, workers]
+  );
+  const [query, setQuery] = useState(selectedWorker?.name ?? "");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (selectedWorker) {
+      setQuery(selectedWorker.name);
+    }
+  }, [selectedWorker]);
+
+  const filteredWorkers = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return [];
+    return workers.filter((worker) => {
+      const haystack = [
+        worker.searchText,
+        worker.name,
+        worker.lastName,
+        worker.email,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalized);
+    });
+  }, [query, workers]);
+
+  const showMenu = open && query.trim().length >= 1;
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        if (selectedWorker) {
+          setQuery(selectedWorker.name);
+        }
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [selectedWorker]);
+
+  function selectWorker(worker: TimesheetAuditWorkerOption) {
+    onSelectWorkerId(worker.id);
+    setQuery(worker.name);
+    setOpen(false);
+  }
+
+  function clearSelection() {
+    onSelectWorkerId("");
+    setQuery("");
+    setOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  return (
+    <div>
+      <label className={labelClass} htmlFor="timesheet-report-worker-search">
+        Worker
+      </label>
+      <div ref={containerRef} className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          id="timesheet-report-worker-search"
+          ref={inputRef}
+          className={cn(inputClass, "pl-9", selectedWorkerId ? "pr-9" : "")}
+          placeholder="Search worker by name or email..."
+          value={query}
+          disabled={loading}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={showMenu}
+          aria-controls="timesheet-report-worker-results"
+          aria-autocomplete="list"
+          onFocus={() => {
+            if (query.trim().length >= 1) setOpen(true);
+          }}
+          onChange={(event) => {
+            const nextQuery = event.target.value;
+            setQuery(nextQuery);
+            setOpen(nextQuery.trim().length >= 1);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              if (selectedWorker) setQuery(selectedWorker.name);
+              return;
+            }
+            if (event.key === "Enter" && showMenu && filteredWorkers[0]) {
+              event.preventDefault();
+              selectWorker(filteredWorkers[0]);
+            }
+          }}
+        />
+        {selectedWorkerId ? (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Clear selected worker"
+            onClick={clearSelection}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
+
+        {showMenu ? (
+          <div
+            id="timesheet-report-worker-results"
+            role="listbox"
+            className="absolute top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {loading ? (
+              <div className="px-3 py-2 text-sm text-slate-500">Loading workers…</div>
+            ) : filteredWorkers.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-slate-500">No matching workers</div>
+            ) : (
+              filteredWorkers.map((worker) => {
+                const archived = worker.statusLabel !== "Active";
+                const subtitle = worker.trade || worker.email || "—";
+                const isSelected = worker.id === selectedWorkerId;
+                return (
+                  <button
+                    key={worker.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={cn(
+                      "flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-accent/15",
+                      isSelected ? "bg-accent/10" : ""
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectWorker(worker)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold text-slate-900 dark:text-zinc-100">
+                        {worker.name}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {subtitle}
+                      </span>
+                    </span>
+                    {archived ? (
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Archived
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function AccountsTimesheetReportsPanel() {
   const defaultRange = useMemo(
     () => resolveTimesheetAuditPreset("last_pay_period"),
     []
   );
   const [workers, setWorkers] = useState<TimesheetAuditWorkerOption[]>([]);
-  const [workerSearch, setWorkerSearch] = useState("");
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
@@ -61,17 +234,6 @@ export default function AccountsTimesheetReportsPanel() {
       cancelled = true;
     };
   }, [showError]);
-
-  const filteredWorkers = useMemo(() => {
-    const query = workerSearch.trim().toLowerCase();
-    if (!query) return workers;
-    return workers.filter((worker) => worker.searchText.includes(query));
-  }, [workerSearch, workers]);
-
-  const selectedWorker = useMemo(
-    () => workers.find((worker) => worker.id === selectedWorkerId) ?? null,
-    [selectedWorkerId, workers]
-  );
 
   function applyPreset(preset: TimesheetAuditPreset) {
     const range = resolveTimesheetAuditPreset(preset);
@@ -142,44 +304,12 @@ export default function AccountsTimesheetReportsPanel() {
 
       <section className={cn(cardClass, "p-4")}>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,0.8fr))]">
-          <div>
-            <label className={labelClass} htmlFor="timesheet-report-worker-search">
-              Worker
-            </label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="timesheet-report-worker-search"
-                className={cn(inputClass, "pl-9")}
-                placeholder="Search all workers, including archived"
-                value={workerSearch}
-                onChange={(event) => setWorkerSearch(event.target.value)}
-              />
-            </div>
-            <select
-              className={cn(inputClass, "mt-2")}
-              value={selectedWorkerId}
-              onChange={(event) => setSelectedWorkerId(event.target.value)}
-              disabled={workersLoading}
-            >
-              <option value="">
-                {workersLoading ? "Loading workers…" : "Select a worker"}
-              </option>
-              {filteredWorkers.map((worker) => (
-                <option key={worker.id} value={worker.id}>
-                  {worker.name}
-                  {worker.statusLabel !== "Active" ? ` (${worker.statusLabel})` : ""}
-                  {worker.employeeId ? ` · ${worker.employeeId}` : ""}
-                </option>
-              ))}
-            </select>
-            {selectedWorker ? (
-              <p className="mt-2 text-xs text-slate-500">
-                {selectedWorker.name} · {selectedWorker.statusLabel}
-                {selectedWorker.trade ? ` · ${selectedWorker.trade}` : ""}
-              </p>
-            ) : null}
-          </div>
+          <TimesheetReportWorkerCombobox
+            workers={workers}
+            selectedWorkerId={selectedWorkerId}
+            onSelectWorkerId={setSelectedWorkerId}
+            loading={workersLoading}
+          />
 
           <div>
             <label className={labelClass} htmlFor="timesheet-report-start">
