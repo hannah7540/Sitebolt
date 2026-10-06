@@ -82,29 +82,16 @@ function PlantCategoryBadges({ category }: { category: string }) {
   );
 }
 
-const PLANT_PROJECT_STATE_OPTIONS = [
-  "NSW",
-  "ACT",
-  "QLD",
-  "VIC",
-  "WA",
-  "SA",
-  "TAS",
-  "NT",
-] as const;
+const PLANT_PROJECT_STATE_OPTIONS = ["NSW", "ACT", "WA", "NZ"] as const;
 
 type PlantProjectState = (typeof PLANT_PROJECT_STATE_OPTIONS)[number];
-type PlantStateFilter = "ALL" | "UNASSIGNED" | PlantProjectState;
+type PlantStateFilter = "ALL" | PlantProjectState;
 
 const PLANT_STATE_NAME_ALIASES: Record<string, PlantProjectState> = {
   "NEW SOUTH WALES": "NSW",
   "AUSTRALIAN CAPITAL TERRITORY": "ACT",
-  "QUEENSLAND": "QLD",
-  "VICTORIA": "VIC",
   "WESTERN AUSTRALIA": "WA",
-  "SOUTH AUSTRALIA": "SA",
-  "TASMANIA": "TAS",
-  "NORTHERN TERRITORY": "NT",
+  "NEW ZEALAND": "NZ",
 };
 
 function normalizePlantProjectState(value: string | null | undefined): PlantProjectState | null {
@@ -138,7 +125,6 @@ function resolveProjectState(
 function isPlantStateFilter(value: string): value is PlantStateFilter {
   return (
     value === "ALL" ||
-    value === "UNASSIGNED" ||
     (PLANT_PROJECT_STATE_OPTIONS as readonly string[]).includes(value)
   );
 }
@@ -339,7 +325,6 @@ export default function PlantAdminPanel({
     (item: PlantAsset) => {
       if (stateFilter === "ALL") return true;
       const assignedProjects = assignedProjectsForPlant(item);
-      if (stateFilter === "UNASSIGNED") return assignedProjects.length === 0;
       if (assignedProjects.length === 0) return false;
       return assignedProjects.some(
         (project) => resolveProjectState(project) === stateFilter
@@ -387,13 +372,11 @@ export default function PlantAdminPanel({
         .map((item) => {
           const assignedProjects = assignedProjectsForPlant(item);
           const project =
-            (stateFilter !== "ALL" && stateFilter !== "UNASSIGNED"
+            stateFilter !== "ALL"
               ? assignedProjects.find(
                   (row) => resolveProjectState(row) === stateFilter
-                )
-              : null) ??
-            assignedProjects[0] ??
-            null;
+                ) ?? assignedProjects[0] ?? null
+              : assignedProjects[0] ?? null;
           return {
             id: item.id,
             qrUrl: getPrestartUrl(item.id),
@@ -417,11 +400,7 @@ export default function PlantAdminPanel({
   );
 
   const qrSheetHeading =
-    stateFilter === "ALL"
-      ? "Plant QR Labels"
-      : stateFilter === "UNASSIGNED"
-        ? "Unassigned Plant QR Labels"
-        : `${stateFilter} Plant QR Labels`;
+    stateFilter === "ALL" ? "Plant QR Labels" : `${stateFilter} Plant QR Labels`;
 
   const handleArchive = async (reason: string) => {
     if (!archiveTarget) return;
@@ -560,11 +539,10 @@ export default function PlantAdminPanel({
             const next = event.target.value;
             if (isPlantStateFilter(next)) setStateFilter(next);
           }}
-          className={cn(inputClass, "w-full sm:max-w-[180px]")}
+          className={cn(inputClass, "w-full sm:max-w-[220px]")}
           aria-label="Filter plant by project state"
         >
-          <option value="ALL">All States</option>
-          <option value="UNASSIGNED">Unassigned</option>
+          <option value="ALL">All States / Regions</option>
           {PLANT_PROJECT_STATE_OPTIONS.map((state) => (
             <option key={state} value={state}>
               {state}
@@ -772,11 +750,7 @@ export default function PlantAdminPanel({
           <div className={`py-10 text-center ${cardClass}`}>
             <p className="text-sm text-slate-600">
               No plant assets match &quot;{searchQuery.trim()}&quot;
-              {stateFilter === "ALL"
-                ? "."
-                : stateFilter === "UNASSIGNED"
-                  ? " in unassigned plant."
-                  : ` in ${stateFilter}.`}
+              {stateFilter === "ALL" ? "." : ` in ${stateFilter}.`}
             </p>
             <button
               type="button"
@@ -800,13 +774,11 @@ export default function PlantAdminPanel({
         !loading &&
         !searchQuery.trim() ? (
           <p className="py-8 text-center text-slate-500">
-            {stateFilter === "UNASSIGNED"
-              ? "No unassigned plant assets."
-              : stateFilter !== "ALL"
-                ? `No plant assigned to ${stateFilter} projects.`
-                : listTab === "archived"
-                  ? "No archived plant assets."
-                  : "No active plant assets."}
+            {stateFilter !== "ALL"
+              ? `No plant assigned to ${stateFilter} projects.`
+              : listTab === "archived"
+                ? "No archived plant assets."
+                : "No active plant assets."}
           </p>
         ) : null}
       </div>
