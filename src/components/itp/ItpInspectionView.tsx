@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowLeft,
   Camera,
+  FileDown,
   Loader2,
 } from "lucide-react";
 import {
@@ -20,6 +20,7 @@ import {
   getBlockingHoldPointItems,
   hasBlockingHoldPoints,
   markItpInProgress,
+  removeItpItemPhoto,
   type ProjectItp,
   type ProjectItpItem,
   updateItpItemStatus,
@@ -28,12 +29,22 @@ import {
 import { uploadItpPhoto } from "@/lib/itp-upload";
 import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import ItpSignOffModal from "./ItpSignOffModal";
+import ItcPhotoThumbGallery from "@/components/itc/ItcPhotoThumbGallery";
+import ItcChecklistDrawer from "@/components/itc/admin/ItcChecklistDrawer";
+import {
+  getAdminItc,
+  listItcsForItp,
+  type AdminItcRecord,
+} from "@/components/itc/admin/itp-itc-admin-api";
+import { downloadItpItcPdf, generateProjectItpPdf } from "@/lib/itp-itc-export-pdf";
+import { ITC_MAX_SECTION_PHOTOS } from "@/lib/itc-naming";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 interface ItpInspectionViewProps {
   itpId: string;
   inspectorName?: string;
+  projectName?: string;
   onBack: () => void;
   onUpdated: () => void;
 }
@@ -72,6 +83,7 @@ function StatusButton({
 export default function ItpInspectionView({
   itpId,
   inspectorName = "",
+  projectName = "Project",
   onBack,
   onUpdated,
 }: ItpInspectionViewProps) {
@@ -81,12 +93,17 @@ export default function ItpInspectionView({
   const [actionId, setActionId] = useState<string | null>(null);
   const [signOffItem, setSignOffItem] = useState<ProjectItpItem | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [sectionTab, setSectionTab] = useState<"checklist" | "itcs">("checklist");
+  const [linkedItcs, setLinkedItcs] = useState<AdminItcRecord[]>([]);
+  const [openItc, setOpenItc] = useState<AdminItcRecord | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const loadItp = useCallback(async () => {
     setLoading(true);
     try {
       const row = await fetchItpById(itpId);
       setItp(row);
+      setLinkedItcs(await listItcsForItp(itpId));
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Failed to load ITP.");
     } finally {
@@ -121,25 +138,54 @@ export default function ItpInspectionView({
     }
   };
 
-  const handlePhotoUpload = async (item: ProjectItpItem, file: File) => {
+  const handlePhotoUpload = async (item: ProjectItpItem, files: File[]) => {
+    if (!files.length) return;
+    if (item.photo_urls.length >= ITC_MAX_SECTION_PHOTOS) {
+      setMessage(`Maximum of ${ITC_MAX_SECTION_PHOTOS} photos reached for this item.`);
+      return;
+    }
     setActionId(item.id);
     setMessage(null);
     try {
-      const upload = await uploadItpPhoto(file, itpId, item.id);
-      if (!upload.url) {
-        setMessage(upload.error ?? "Photo upload failed");
-        return;
-      }
-      const { error } = await appendItpItemPhoto(item.id, upload.url);
-      if (error) {
-        setMessage(error);
-        return;
+      for (const file of files) {
+        const upload = await uploadItpPhoto(file, itpId, item.id);
+        if (!upload.url) {
+          setMessage(upload.error ?? "Photo upload failed");
+          break;
+        }
+        const { error } = await appendItpItemPhoto(item.id, upload.url);
+        if (error) {
+          setMessage(error);
+          break;
+        }
       }
       await loadItp();
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Failed to upload photo.");
     } finally {
       setActionId(null);
+    }
+  };
+
+  const handleRemovePhoto = async (item: ProjectItpItem, url: string) => {
+    setActionId(item.id);
+    const { error } = await removeItpItemPhoto(item.id, url);
+    if (error) setMessage(error);
+    await loadItp();
+    setActionId(null);
+  };
+
+  const handleExportPdf = async () => {
+    if (!itp) return;
+    setExporting(true);
+    setMessage(null);
+    try {
+      const result = await generateProjectItpPdf({ itp, projectName });
+      downloadItpItcPdf(result.blob, result.fileName);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "PDF export failed.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -226,18 +272,31 @@ export default function ItpInspectionView({
               {itp.location_area ? <span>Location: {itp.location_area}</span> : null}
             </div>
           </div>
-          <span
-            className={cn(
-              "rounded px-3 py-1 text-xs font-bold uppercase tracking-wide",
-              itp.status === "approved" && "bg-emerald-100 text-emerald-800",
-              itp.status === "completed" && "bg-emerald-100 text-emerald-800",
-              itp.status === "submitted" && "bg-blue-100 text-blue-800",
-              itp.status === "in_progress" && "bg-amber-100 text-amber-800",
-              itp.status === "draft" && "bg-slate-100 text-slate-700"
-            )}
-          >
-            {ITP_STATUS_LABELS[itp.status]}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "rounded px-3 py-1 text-xs font-bold uppercase tracking-wide",
+                itp.status === "approved" && "bg-emerald-100 text-emerald-800",
+                itp.status === "completed" && "bg-emerald-100 text-emerald-800",
+                itp.status === "submitted" && "bg-blue-100 text-blue-800",
+                itp.status === "in_progress" && "bg-amber-100 text-amber-800",
+                itp.status === "draft" && "bg-slate-100 text-slate-700"
+              )}
+            >
+              {ITP_STATUS_LABELS[itp.status]}
+            </span>
+            {itp.status === "submitted" || itp.status === "approved" || itp.status === "completed" ? (
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void handleExportPdf()}
+                className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+                Export to PDF
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {holdPointBlocked ? (
@@ -290,6 +349,53 @@ export default function ItpInspectionView({
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-1">
+        {(
+          [
+            ["checklist", "ITP Checklist"],
+            ["itcs", `Inspection Test Checklists (${linkedItcs.length})`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSectionTab(id)}
+            className={
+              sectionTab === id
+                ? "rounded-full bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white"
+                : "rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 ring-1 ring-slate-200"
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {sectionTab === "itcs" ? (
+        <div className={`${cardClass} p-4`}>
+          <p className="mb-3 text-sm text-slate-600">
+            ITCs linked to this Inspection Test Plan. Open a checklist to view or complete it.
+          </p>
+          {linkedItcs.length === 0 ? (
+            <p className="text-sm text-slate-500">No ITCs are linked to this ITP yet.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+              {linkedItcs.map((itc) => (
+                <li key={itc.id}>
+                  <button
+                    type="button"
+                    onClick={() => void getAdminItc(itc.id).then((row) => setOpenItc(row ?? itc))}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-orange-50"
+                  >
+                    <span className="font-semibold text-slate-900">{itc.number}</span>
+                    <span className="text-xs text-slate-500">{itc.status}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-[960px] w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
@@ -348,31 +454,23 @@ export default function ItpInspectionView({
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    {item.photo_urls.map((url) => (
-                      <a
-                        key={url}
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block h-12 w-12 overflow-hidden rounded border border-slate-200"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="Evidence" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
-                  </div>
+                  <ItcPhotoThumbGallery
+                    urls={item.photo_urls}
+                    disabled={actionId === item.id}
+                    onRemove={(url) => void handleRemovePhoto(item, url)}
+                  />
                   <label className="mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700">
                     <Camera className="h-3.5 w-3.5" />
-                    Add Photo
+                    Add Photos
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       className="hidden"
-                      disabled={actionId === item.id}
+                      disabled={actionId === item.id || item.photo_urls.length >= ITC_MAX_SECTION_PHOTOS}
                       onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void handlePhotoUpload(item, file);
+                        const files = Array.from(e.target.files ?? []);
+                        if (files.length) void handlePhotoUpload(item, files);
                         e.target.value = "";
                       }}
                     />
@@ -409,6 +507,20 @@ export default function ItpInspectionView({
           </tbody>
         </table>
       </div>
+      )}
+
+      {openItc ? (
+        <ItcChecklistDrawer
+          itc={openItc}
+          projectName={projectName}
+          defaultSignerName={inspectorName}
+          onClose={() => setOpenItc(null)}
+          onSaved={(next) => {
+            setOpenItc(next);
+            setLinkedItcs((current) => current.map((row) => (row.id === next.id ? next : row)));
+          }}
+        />
+      ) : null}
 
       {signOffItem ? (
         <ItpSignOffModal

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Trash2, X } from "lucide-react";
+import { FileDown, Loader2, Trash2, X } from "lucide-react";
 import AdminItcPhotoSlotGrid from "@/components/itc/admin/AdminItcPhotoSlotGrid";
 import AdminItcPressureTestSection from "@/components/itc/admin/AdminItcPressureTestSection";
 import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
@@ -11,6 +11,7 @@ import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
   deriveAdminItcStatus,
+  getAdminItp,
   saveAdminItcRecord,
   uploadAdminWaeMarkup,
   type AdminChecklistItem,
@@ -47,6 +48,7 @@ import {
   modalStickyFooterClass,
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { downloadItpItcPdf, generateAdminItcPdf } from "@/lib/itp-itc-export-pdf";
 
 interface ItcChecklistDrawerProps {
   itc: AdminItcRecord;
@@ -110,6 +112,7 @@ export default function ItcChecklistDrawer({
       })
   );
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -221,6 +224,24 @@ export default function ItcChecklistDrawer({
     onSaved(currentItc);
   };
 
+  const handleExportPdf = async () => {
+    setExporting(true);
+    setMessage(null);
+    try {
+      const parent = currentItc.itp_id ? await getAdminItp(currentItc.itp_id) : null;
+      const result = await generateAdminItcPdf({
+        itc: currentItc,
+        projectName,
+        planUrl: parent?.plan_url ?? null,
+      });
+      downloadItpItcPdf(result.blob, result.fileName);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "PDF export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
@@ -244,6 +265,17 @@ export default function ItcChecklistDrawer({
             >
               {ADMIN_STATUS_LABELS[currentItc.status]}
             </span>
+            {currentItc.status === "completed" ? (
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void handleExportPdf()}
+                className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+                Export to PDF
+              </button>
+            ) : null}
             <button type="button" onClick={onClose} className={modalCloseIconButtonClass}>
               <X className="h-5 w-5" />
             </button>

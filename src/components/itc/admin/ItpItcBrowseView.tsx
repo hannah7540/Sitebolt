@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCheck, FileText, Search } from "lucide-react";
+import { ClipboardCheck, Search } from "lucide-react";
 import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
@@ -10,20 +10,15 @@ import {
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
-export type BrowseKindFilter = "itps" | "itcs" | "both";
-
 interface ItpItcBrowseViewProps {
   items: AdminBrowseItem[];
   search: string;
   projectId: string;
-  kind: BrowseKindFilter;
   projects: Array<{ id: string; name: string }>;
   loading?: boolean;
   onSearchChange: (value: string) => void;
   onProjectChange: (value: string) => void;
-  onKindChange: (value: BrowseKindFilter) => void;
   onOpenItp: (id: string) => void;
-  onOpenItc: (id: string) => void;
   onDeleteItem: (item: AdminBrowseItem) => void;
 }
 
@@ -31,14 +26,11 @@ export default function ItpItcBrowseView({
   items,
   search,
   projectId,
-  kind,
   projects,
   loading = false,
   onSearchChange,
   onProjectChange,
-  onKindChange,
   onOpenItp,
-  onOpenItc,
   onDeleteItem,
 }: ItpItcBrowseViewProps) {
   return (
@@ -50,7 +42,7 @@ export default function ItpItcBrowseView({
             <input
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search title, ITC no, line number, location, contractor…"
+              placeholder="Search ITP title, number, location, contractor…"
               className={cn(inputClass, "pl-9")}
             />
           </label>
@@ -69,32 +61,13 @@ export default function ItpItcBrowseView({
             ))}
           </select>
         </div>
-        <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-700">
-          {(
-            [
-              ["itps", "ITPs"],
-              ["itcs", "ITCs"],
-              ["both", "Both"],
-            ] as const
-          ).map(([value, label]) => (
-            <label key={value} className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={kind === value}
-                onChange={() => onKindChange(value)}
-                className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
-              />
-              {label}
-            </label>
-          ))}
-        </div>
       </div>
 
       {loading ? (
-        <div className={`${cardClass} p-8 text-sm text-slate-500`}>Loading ITPs and ITCs…</div>
+        <div className={`${cardClass} p-8 text-sm text-slate-500`}>Loading Inspection Test Plans…</div>
       ) : items.length === 0 ? (
         <div className={`${cardClass} p-8 text-sm text-slate-500`}>
-          No matching ITPs or ITCs. Adjust search filters or create a new plan.
+          No matching Inspection Test Plans. Adjust search or create a new ITP. Open an ITP to view or create its Inspection Test Checklists.
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -105,18 +78,14 @@ export default function ItpItcBrowseView({
             >
               <button
                 type="button"
-                onClick={() => (item.kind === "itp" ? onOpenItp(item.id) : onOpenItc(item.id))}
+                onClick={() => onOpenItp(item.id)}
                 className="w-full text-left"
               >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    {item.kind === "itp" ? (
-                      <ClipboardCheck className="h-3.5 w-3.5 text-orange-500" />
-                    ) : (
-                      <FileText className="h-3.5 w-3.5 text-sky-500" />
-                    )}
-                    {item.kind === "itp" ? "ITP" : "ITC"} · {item.number}
+                    <ClipboardCheck className="h-3.5 w-3.5 text-orange-500" />
+                    ITP · {item.number}
                   </p>
                   <h3 className="mt-1 truncate text-sm font-semibold text-slate-900">{item.title}</h3>
                 </div>
@@ -143,12 +112,8 @@ export default function ItpItcBrowseView({
                   <dd>{formatAdminDate(item.date)}</dd>
                 </div>
                 <div>
-                  <dt className="font-semibold text-slate-500">
-                    {item.kind === "itc" ? "Line / Run" : "Contractor"}
-                  </dt>
-                  <dd className="truncate">
-                    {item.kind === "itc" ? item.line_number || "—" : item.contractor || "—"}
-                  </dd>
+                  <dt className="font-semibold text-slate-500">Contractor</dt>
+                  <dd className="truncate">{item.contractor || "—"}</dd>
                 </div>
               </dl>
               </button>
@@ -157,7 +122,7 @@ export default function ItpItcBrowseView({
                 onClick={() => onDeleteItem(item)}
                 className="mt-3 w-full rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
               >
-                {item.kind === "itp" ? "Delete ITP" : "Delete ITC"}
+                Delete ITP
               </button>
             </div>
           ))}

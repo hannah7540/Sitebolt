@@ -4,6 +4,7 @@ import type { ItcDetailBundle, ItcSignoff, ItcStepPhoto, ProjectItc } from "./it
 import type { ItcInspectionActivity } from "./itc-batch-templates";
 import { ITC_FIELD_PHOTO_STEP_KEY, ITC_MAX_FINAL_PHOTOS } from "./itc-naming";
 import { formatConduitConfig } from "./itc-templates";
+import { fetchCompanyProfile } from "./supabase";
 
 const PAGE_MARGIN = 12;
 const CONTENT_WIDTH = 186;
@@ -259,12 +260,27 @@ export async function generateItcCertificatePdf(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const { itc, stepPhotos, signoffs, inspectionActivities } = bundle;
   const specs = resolveItcSpecs(itc);
+  const profile = await fetchCompanyProfile().catch(() => null);
+  const logo = profile?.logo_url ? await loadImageDataUrl(profile.logo_url) : null;
 
   let y = PAGE_MARGIN;
+  if (logo) {
+    try {
+      doc.addImage(logo.dataUrl, logo.format, PAGE_MARGIN, y, 28, 11);
+    } catch {
+      /* optional */
+    }
+  }
   doc.setFontSize(15);
   doc.setTextColor(...ACCENT);
-  doc.text("Inspection Test Certificate", PAGE_MARGIN, y);
-  y += 8;
+  doc.text("Inspection Test Certificate", logo ? PAGE_MARGIN + 32 : PAGE_MARGIN, y + 8);
+  y += 16;
+  if (profile?.company_name) {
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(profile.company_name, PAGE_MARGIN, y);
+    y += 4;
+  }
 
   y = drawMetadataGrid(doc, autoTable, y, [
     [
@@ -339,23 +355,32 @@ export async function generateItcCertificatePdf(
     ],
   ]);
 
-  const redlineUrl = itc.redline_markup_url;
-  if (redlineUrl) {
+  const planUrl = itc.redline_markup_url;
+  if (planUrl) {
     y = ensureSpace(doc, y + 6, 70);
     doc.setFontSize(11);
     doc.setTextColor(...ACCENT);
-    doc.text("Redline Shop Drawing", PAGE_MARGIN, y);
+    doc.text("Plan Markup — Pin Location", PAGE_MARGIN, y);
     y += 4;
-    const drawing = await loadImageDataUrl(redlineUrl);
+    const drawing = await loadImageDataUrl(planUrl);
     if (drawing) {
       const maxWidth = CONTENT_WIDTH;
       const maxHeight = 58;
       doc.addImage(drawing.dataUrl, drawing.format, PAGE_MARGIN, y, maxWidth, maxHeight);
+      const pinX = itc.map_x;
+      const pinY = itc.map_y;
+      if (pinX != null && pinY != null && Number.isFinite(pinX) && Number.isFinite(pinY)) {
+        const px = PAGE_MARGIN + pinX * maxWidth;
+        const py = y + pinY * maxHeight;
+        doc.setFillColor(...ACCENT);
+        doc.triangle(px, py, px - 1.6, py - 5.2, px + 1.6, py - 5.2, "F");
+        doc.circle(px, py - 6.2, 1.7, "F");
+      }
       y += maxHeight + 4;
     } else {
       doc.setFontSize(8);
       doc.setTextColor(100, 116, 139);
-      doc.text("Shop drawing attached — preview unavailable in export.", PAGE_MARGIN, y + 4);
+      doc.text("Plan drawing attached — preview unavailable in export.", PAGE_MARGIN, y + 4);
       y += 10;
     }
   }
@@ -406,9 +431,13 @@ export async function generateItcCertificatePdf(
     ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 40) +
     8;
 
-  const finalPhotos = stepPhotos
+  const starredPhotos = stepPhotos
     .filter((row) => row.step_key === ITC_FIELD_PHOTO_STEP_KEY && row.is_approved_for_export)
     .slice(0, ITC_MAX_FINAL_PHOTOS);
+  const finalPhotos =
+    starredPhotos.length > 0
+      ? starredPhotos
+      : stepPhotos.filter((row) => row.step_key === ITC_FIELD_PHOTO_STEP_KEY).slice(0, ITC_MAX_FINAL_PHOTOS);
 
   y = ensureSpace(doc, y, 20);
   doc.setFontSize(11);

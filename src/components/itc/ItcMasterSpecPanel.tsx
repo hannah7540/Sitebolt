@@ -8,7 +8,6 @@ import {
   type ItcMasterSpec,
   type ItcTradeDiscipline,
 } from "@/lib/itc-master-spec-service";
-import { uploadItcMarkup } from "@/lib/itc-upload";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -86,23 +85,6 @@ export default function ItcMasterSpecPanel({ projectId }: ItcMasterSpecPanelProp
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleRedlineUpload = async (file: File) => {
-    if (!draft) return;
-    setSaving(true);
-    const upload = await uploadItcMarkup({
-      projectId,
-      discipline: draft.discipline,
-      file,
-    });
-    if (upload.error || !upload.url) {
-      setSaving(false);
-      setMessage(upload.error ?? "Upload failed");
-      return;
-    }
-    setDraft({ ...draft, redline_markup_url: upload.url });
-    setSaving(false);
   };
 
   if (loading || !draft) {
@@ -230,34 +212,6 @@ export default function ItcMasterSpecPanel({ projectId }: ItcMasterSpecPanelProp
               }
               className={inputClass}
             />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-              Redline Markup (PDF or image)
-            </span>
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="file"
-                accept=".pdf,image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleRedlineUpload(file);
-                }}
-                className="text-sm"
-              />
-              {draft.redline_markup_url ? (
-                <a
-                  href={draft.redline_markup_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm font-semibold text-orange-600 hover:underline"
-                >
-                  View current markup
-                </a>
-              ) : (
-                <span className="text-sm text-slate-500">No markup uploaded</span>
-              )}
-            </div>
           </label>
         </div>
 

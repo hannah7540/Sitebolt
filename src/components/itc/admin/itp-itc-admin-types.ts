@@ -120,6 +120,7 @@ export interface AdminItcSpecValues {
 export interface AdminItcPhotoSlot {
   id: string;
   url: string | null;
+  urls?: string[];
   path: string | null;
   captured_at: string | null;
   file_size: number | null;

@@ -1,21 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { Loader2, MapPin, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
+import { Loader2, MapPin, Plus, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import FieldItcCreateModal from "@/components/itc/field/FieldItcCreateModal";
+import ItcPlanPinMarker from "@/components/itc/ItcPlanPinMarker";
 import {
-  FIELD_ITC_STATUS_COLORS,
   SITE_PLAN_FALLBACK_URL,
   listCompactionTests,
   listDrawings,
   listFormVersions,
-  serviceChipColor,
   type FieldDrawing,
   type FieldFormVersion,
   type FieldItcListResult,
   type FieldItcRecord,
 } from "@/lib/api/itc";
 import { getRelativeCanvasCoordinates } from "@/lib/itc-drawing-upload";
+import { clampPlanZoom, ITC_PLAN_ZOOM_STEP } from "@/lib/itc-plan-zoom";
 import type { ItcCompactionTest } from "@/lib/itc-compaction-service";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,15 @@ export default function FieldItcPlanView({
   onCreated,
 }: FieldItcPlanViewProps) {
   const planRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [drawings, setDrawings] = useState<FieldDrawing[]>([]);
   const [formVersions, setFormVersions] = useState<FieldFormVersion[]>([]);
   const [tests, setTests] = useState<ItcCompactionTest[]>([]);
@@ -97,6 +106,37 @@ export default function FieldItcPlanView({
     );
     setPendingPin(coords);
     setDropMode(false);
+  };
+
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
+    setScale((current) => clampPlanZoom(current + delta));
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (dropMode || (event.target as HTMLElement).closest("[data-plan-pin]")) return;
+    dragRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: offset.x,
+      originY: offset.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current?.active) return;
+    setOffset({
+      x: dragRef.current.originX + (event.clientX - dragRef.current.startX),
+      y: dragRef.current.originY + (event.clientY - dragRef.current.startY),
+    });
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   return (
@@ -192,19 +232,47 @@ export default function FieldItcPlanView({
             Loading plan…
           </div>
         ) : (
+          <div>
+            <div className="flex items-center justify-end gap-1 border-b border-slate-200 bg-white px-2 py-1.5">
+              <button type="button" onClick={() => setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP))} className="rounded-lg border border-slate-200 p-1.5 text-slate-600" aria-label="Zoom out">
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="min-w-[3.5rem] text-center text-[11px] font-semibold text-slate-500">{Math.round(scale * 100)}%</span>
+              <button type="button" onClick={() => setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP))} className="rounded-lg border border-slate-200 p-1.5 text-slate-600" aria-label="Zoom in">
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }} className="rounded-lg border border-slate-200 p-1.5 text-slate-600" aria-label="Reset zoom">
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            </div>
+          <div
+            onWheel={handleWheel}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            className={cn(
+              "relative h-[min(70vh,520px)] overflow-hidden bg-slate-100",
+              dropMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+            )}
+          >
+            <div
+              className="absolute left-1/2 top-1/2 origin-center"
+              style={{
+                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+              }}
+            >
           <div
             ref={planRef}
             onClick={handlePlanClick}
-            className={cn(
-              "relative aspect-[16/9] min-h-[280px] bg-slate-100",
-              dropMode && "cursor-crosshair"
-            )}
+            className="relative inline-block"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={planSrc}
               alt="Site plan"
-              className="h-full w-full object-contain"
+              className="max-h-[480px] max-w-[min(92vw,960px)] select-none object-contain"
+              draggable={false}
               onError={() => {
                 if (planSrc !== SITE_PLAN_SVG_FALLBACK) {
                   setPlanSrc(SITE_PLAN_SVG_FALLBACK);
@@ -236,31 +304,16 @@ export default function FieldItcPlanView({
               )
             )}
 
-            {visibleItcs.map((itc) => {
-              const colors = FIELD_ITC_STATUS_COLORS[itc.status];
-              const serviceColor = serviceChipColor(itc.service_code ?? itc.service_name);
-              return (
-                <button
-                  key={itc.id}
-                  type="button"
-                  title={`${itc.itc_number} — ${itc.start_location ?? "—"} → ${itc.end_location ?? "—"}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSelect(itc);
-                  }}
-                  className={cn(
-                    "absolute z-20 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-md transition hover:scale-125",
-                    colors.bg.replace("bg-", "bg-"),
-                    selectedId === itc.id && "ring-4 ring-orange-300"
-                  )}
-                  style={{
-                    left: `${Number(itc.pin_x) * 100}%`,
-                    top: `${Number(itc.pin_y) * 100}%`,
-                    backgroundColor: serviceColor,
-                  }}
-                />
-              );
-            })}
+            {visibleItcs.map((itc) => (
+              <ItcPlanPinMarker
+                key={itc.id}
+                x={Number(itc.pin_x)}
+                y={Number(itc.pin_y)}
+                selected={selectedId === itc.id}
+                colorClass={itc.status === "complete" ? "text-emerald-500" : "text-orange-500"}
+                onClick={() => onSelect(itc)}
+              />
+            ))}
 
             {dropMode ? (
               <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
@@ -270,6 +323,9 @@ export default function FieldItcPlanView({
                 </span>
               </div>
             ) : null}
+          </div>
+            </div>
+          </div>
           </div>
         )}
         <div className="flex flex-wrap gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">

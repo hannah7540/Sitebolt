@@ -2,12 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight,
   ChevronLeft,
-  ChevronRight,
   Loader2,
   MapPin,
-  X,
   ZoomIn,
   ZoomOut,
   RotateCcw,
@@ -18,13 +15,13 @@ import type { DbProject } from "@/lib/project-resolver";
 import {
   fetchWorkerItcPlan,
   fetchWorkerItcRegister,
-  getWorkerItcPinColor,
-  getWorkerItcStatusLabel,
   type WorkerItcPlanRow,
   type WorkerItcRegisterRow,
 } from "@/lib/worker-itc-service";
 import WorkerItcPinPreviewModal from "./WorkerItcPinPreviewModal";
 import WorkerItcChecklistForm from "./WorkerItcChecklistForm";
+import { clampPlanZoom, ITC_PLAN_ZOOM_STEP } from "@/lib/itc-plan-zoom";
+import ItcPlanPinMarker from "@/components/itc/ItcPlanPinMarker";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +31,6 @@ interface WorkerItcFloorplanViewerProps {
   projects: DbProject[];
   defaultProjectId?: string | null;
   onBack?: () => void;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 export default function WorkerItcFloorplanViewer({
@@ -117,8 +110,8 @@ export default function WorkerItcFloorplanViewer({
 
   const handleWheel: React.WheelEventHandler<HTMLDivElement> = (event) => {
     event.preventDefault();
-    const delta = event.deltaY > 0 ? -0.1 : 0.1;
-    setScale((current) => clamp(current + delta, 0.5, 4));
+    const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
+    setScale((current) => clampPlanZoom(current + delta));
   };
 
   const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (event) => {
@@ -162,6 +155,7 @@ export default function WorkerItcFloorplanViewer({
         projectId={selectedProjectId}
         workerId={workerId}
         workerName={workerName}
+        projectName={selectedProject?.name}
         onClose={() => {
           setChecklistItcId(null);
           void loadProjectData(selectedProjectId);
@@ -247,7 +241,7 @@ export default function WorkerItcFloorplanViewer({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setScale((current) => clamp(current - 0.2, 0.5, 4))}
+                onClick={() => setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP))}
                 className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
                 aria-label="Zoom out"
               >
@@ -255,7 +249,7 @@ export default function WorkerItcFloorplanViewer({
               </button>
               <button
                 type="button"
-                onClick={() => setScale((current) => clamp(current + 0.2, 0.5, 4))}
+                onClick={() => setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP))}
                 className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
                 aria-label="Zoom in"
               >
@@ -299,24 +293,21 @@ export default function WorkerItcFloorplanViewer({
                   draggable={false}
                 />
                 {pinnedItcs.map((itc, index) => (
-                  <button
+                  <ItcPlanPinMarker
                     key={itc.id}
-                    type="button"
-                    data-itc-pin
-                    title={itc.itc_number}
+                    x={itc.pin_x ?? 0.5}
+                    y={itc.pin_y ?? 0.5}
+                    label={String(index + 1)}
+                    selected={previewItcId === itc.id}
+                    colorClass={
+                      itc.status === "completed" || itc.status === "complete"
+                        ? "text-emerald-500"
+                        : itc.status === "in_progress"
+                          ? "text-amber-500"
+                          : "text-slate-500"
+                    }
                     onClick={() => setPreviewItcId(itc.id)}
-                    className={cn(
-                      "absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow-md transition hover:scale-110",
-                      getWorkerItcPinColor(itc.status),
-                      previewItcId === itc.id && "ring-4 ring-orange-300"
-                    )}
-                    style={{
-                      left: `${(itc.pin_x ?? 0.5) * 100}%`,
-                      top: `${(itc.pin_y ?? 0.5) * 100}%`,
-                    }}
-                  >
-                    #{index + 1}
-                  </button>
+                  />
                 ))}
               </div>
             </div>

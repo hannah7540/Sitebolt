@@ -53,5 +53,6 @@ export function itcAutoNamePrefix(siteNumber: string, serviceType: string): stri
 }
 
 export const ITC_FIELD_PHOTO_STEP_KEY = "field";
-export const ITC_MAX_FIELD_PHOTOS = 9;
-export const ITC_MAX_FINAL_PHOTOS = 9;
+export const ITC_MAX_SECTION_PHOTOS = 10;
+export const ITC_MAX_FIELD_PHOTOS = ITC_MAX_SECTION_PHOTOS;
+export const ITC_MAX_FINAL_PHOTOS = ITC_MAX_SECTION_PHOTOS;

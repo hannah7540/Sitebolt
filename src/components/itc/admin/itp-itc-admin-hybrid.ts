@@ -24,6 +24,7 @@ export function emptyAdminPhotoSlots(): Record<AdminItcPhotoSlotId, AdminItcPhot
       acc[slot.id] = {
         id: slot.id,
         url: null,
+        urls: [],
         path: null,
         captured_at: null,
         file_size: null,
@@ -40,16 +41,24 @@ export function mapAdminPhotoSlots(raw: unknown): Record<AdminItcPhotoSlotId, Ad
   const source = asRecord(raw);
   for (const slot of ADMIN_ITC_PHOTO_SLOTS) {
     const row = asRecord(source[slot.id]);
+    const extraUrls = Array.isArray(row.urls)
+      ? row.urls.filter((value): value is string => typeof value === "string" && Boolean(value))
+      : Array.isArray(row.photos)
+        ? row.photos.filter((value): value is string => typeof value === "string" && Boolean(value))
+        : [];
     const url =
-      typeof row.url === "string"
+      extraUrls[0] ??
+      (typeof row.url === "string"
         ? row.url
         : typeof row.photo_url === "string"
           ? row.photo_url
-          : null;
+          : null);
+    const urls = extraUrls.length ? extraUrls : url ? [url] : [];
     const path = typeof row.path === "string" ? row.path : url;
     base[slot.id] = {
       id: slot.id,
       url,
+      urls,
       path,
       captured_at: typeof row.captured_at === "string" ? row.captured_at : null,
       file_size:
@@ -70,7 +79,7 @@ export function photoSlotsSatisfied(
     const row = current[slot.id];
     if (!row) return false;
     if (slot.allowNa && row.not_required) return true;
-    return Boolean(row.url);
+    return Boolean(row.url) || Boolean(row.urls?.length);
   });
 }
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, Loader2, Star } from "lucide-react";
+import { Camera, Loader2, Star, X } from "lucide-react";
 import type { ItcStepPhoto } from "@/lib/itc-service";
-import { addItcStepPhoto, setStepPhotoApproval } from "@/lib/itc-service";
+import { addItcStepPhoto, deleteItcStepPhoto, setStepPhotoApproval } from "@/lib/itc-service";
 import { prepareItcPhotoUpload, uploadItcPhoto } from "@/lib/itc-upload";
+import { ITC_MAX_SECTION_PHOTOS } from "@/lib/itc-naming";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -41,39 +42,43 @@ export default function ItcStepPhotoPool({
 
   const stepPhotos = photos.filter((photo) => photo.step_key === stepKey);
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (files: File[]) => {
+    if (!files.length) return;
+    if (stepPhotos.length >= ITC_MAX_SECTION_PHOTOS) {
+      setMessage(`Maximum of ${ITC_MAX_SECTION_PHOTOS} photos reached for this section.`);
+      return;
+    }
     setLoading(true);
     setMessage(null);
+    for (const file of files) {
+      const prepared = await prepareItcPhotoUpload(file);
+      const upload = await uploadItcPhoto({
+        projectId,
+        itcId,
+        slotKey: `step-${stepKey}`,
+        file: prepared.file,
+      });
 
-    const prepared = await prepareItcPhotoUpload(file);
-    const upload = await uploadItcPhoto({
-      projectId,
-      itcId,
-      slotKey: `step-${stepKey}`,
-      file: prepared.file,
-    });
+      if (upload.error || !upload.url) {
+        setMessage(upload.error ?? "Upload failed");
+        break;
+      }
 
-    if (upload.error || !upload.url) {
-      setLoading(false);
-      setMessage(upload.error ?? "Upload failed");
-      return;
+      const save = await addItcStepPhoto({
+        itcId,
+        stepKey,
+        photoUrl: upload.url,
+        gpsLat: prepared.gpsLat,
+        gpsLng: prepared.gpsLng,
+        uploadedBy,
+        uploadedByName,
+      });
+      if (save.error) {
+        setMessage(save.error);
+        break;
+      }
     }
-
-    const save = await addItcStepPhoto({
-      itcId,
-      stepKey,
-      photoUrl: upload.url,
-      gpsLat: prepared.gpsLat,
-      gpsLng: prepared.gpsLng,
-      uploadedBy,
-      uploadedByName,
-    });
-
     setLoading(false);
-    if (save.error) {
-      setMessage(save.error);
-      return;
-    }
     onUpdated();
   };
 
@@ -93,6 +98,17 @@ export default function ItcStepPhotoPool({
     onUpdated();
   };
 
+  const handleRemove = async (photoId: string) => {
+    setLoading(true);
+    const result = await deleteItcStepPhoto(photoId);
+    setLoading(false);
+    if (result.error) {
+      setMessage(result.error);
+      return;
+    }
+    onUpdated();
+  };
+
   return (
     <div className={cardClass}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
@@ -101,27 +117,27 @@ export default function ItcStepPhotoPool({
             Step Photo Pool{stepTitle ? `: ${stepTitle}` : ""}
           </h3>
           <p className="text-xs text-slate-500">
-            Multiple workers can upload photos. Admins star approved photos for PDF export.
+            Up to {ITC_MAX_SECTION_PHOTOS} photos per section. Admins star approved photos for PDF export.
           </p>
         </div>
         <button
           type="button"
-          disabled={loading}
+          disabled={loading || stepPhotos.length >= ITC_MAX_SECTION_PHOTOS}
           onClick={() => fileRef.current?.click()}
           className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-          Add Photo
+          Add Photos
         </button>
         <input
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          multiple
           className="hidden"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleUpload(file);
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) void handleUpload(files);
             e.target.value = "";
           }}
         />
@@ -135,12 +151,21 @@ export default function ItcStepPhotoPool({
             <div
               key={photo.id}
               className={cn(
-                "overflow-hidden rounded-lg border",
+                "relative overflow-hidden rounded-lg border",
                 photo.is_approved_for_export
                   ? "border-amber-400 ring-2 ring-amber-200"
                   : "border-slate-200"
               )}
             >
+              <button
+                type="button"
+                disabled={loading}
+                aria-label="Remove photo"
+                onClick={() => void handleRemove(photo.id)}
+                className="absolute right-1 top-1 z-10 rounded-full bg-slate-900/80 p-1 text-white hover:bg-red-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               <img
                 src={photo.photo_url}
                 alt="ITC step evidence"

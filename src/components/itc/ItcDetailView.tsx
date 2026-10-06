@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, FileDown, Loader2 } from "lucide-react";
 import ItcFieldPhotoGallery from "@/components/itc/ItcFieldPhotoGallery";
-import ItcRedlineViewer from "@/components/itc/ItcRedlineViewer";
 import ItcStepSignoffCard from "@/components/itc/ItcStepSignoffCard";
 import {
   createItcChangeRequest,
@@ -55,7 +54,6 @@ export default function ItcDetailView({
   const [roverOptions, setRoverOptions] = useState<string[]>([]);
   const [operatorOptions, setOperatorOptions] = useState<string[]>([]);
   const [gpsMessage, setGpsMessage] = useState<string | null>(null);
-  const [masterRedlineUrl, setMasterRedlineUrl] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchItcMasterSpecs(projectId).then((specs) => {
@@ -65,11 +63,8 @@ export default function ItcDetailView({
       const spec = specs.find((row) => row.discipline === discipline) ?? specs[0];
       setRoverOptions(spec?.rover_serial_numbers ?? []);
       setOperatorOptions(spec?.rover_operators ?? []);
-      setMasterRedlineUrl(spec?.redline_markup_url ?? null);
     });
   }, [projectId, itc.trade_discipline, itc.service_discipline]);
-
-  const redlineUrl = itc.redline_markup_url ?? masterRedlineUrl;
 
   const handleCaptureGps = () => {
     setGpsLoading(true);
@@ -148,7 +143,7 @@ export default function ItcDetailView({
           className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
         >
           {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-          Generate PDF
+          Export to PDF
         </button>
       </div>
 
@@ -167,14 +162,25 @@ export default function ItcDetailView({
         </div>
       </div>
 
-      <ItcRedlineViewer
-        markupUrl={redlineUrl}
-        gpsLat={itc.gps_lat}
-        gpsLng={itc.gps_lng}
-        onCaptureGps={handleCaptureGps}
-        gpsLoading={gpsLoading}
-        gpsMessage={gpsMessage}
-      />
+      <div className={`${cardClass} px-4 py-3`}>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-semibold text-slate-700">
+            {itc.gps_lat != null && itc.gps_lng != null
+              ? `GPS ${itc.gps_lat.toFixed(5)}, ${itc.gps_lng.toFixed(5)}`
+              : "GPS not tagged yet"}
+          </span>
+          <button
+            type="button"
+            disabled={gpsLoading}
+            onClick={handleCaptureGps}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {gpsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {itc.gps_lat != null ? "Update GPS" : "Capture GPS"}
+          </button>
+        </div>
+        {gpsMessage ? <p className="mt-1 text-xs text-slate-600">{gpsMessage}</p> : null}
+      </div>
 
       <ItcFieldPhotoGallery
         projectId={projectId}

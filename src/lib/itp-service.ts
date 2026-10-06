@@ -551,6 +551,65 @@ export async function appendItpItemPhoto(
       ? [...(record.photos as string[])]
       : [];
   photos.push(photoUrl);
+  if (photos.length > 10) {
+    return { error: "Maximum of 10 photos reached for this item." };
+  }
+
+  const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {
+    method: "PATCH",
+    body: JSON.stringify({ itemId, patch: { photo_urls: photos } }),
+  });
+
+  if (!apiResult.useFallback) {
+    return { error: apiResult.error };
+  }
+
+  const result = await retryItpItcWrite(
+    "project_itp_items.photos",
+    stripItpPayload(
+      { photo_urls: photos, photos, updated_at: new Date().toISOString() },
+      PROJECT_ITP_ITEM_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase.from(PROJECT_ITP_ITEMS_TABLE).update(next).eq("id", itemId);
+      return { error };
+    }
+  );
+  return { error: result.error };
+}
+
+export async function removeItpItemPhoto(
+  itemId: string,
+  photoUrl: string
+): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+
+  let { data, error: readError } = await supabase
+    .from(PROJECT_ITP_ITEMS_TABLE)
+    .select("photo_urls, photos, form_data")
+    .eq("id", itemId)
+    .maybeSingle();
+
+  if (readError) {
+    const fallback = await supabase
+      .from(PROJECT_ITP_ITEMS_TABLE)
+      .select("*")
+      .eq("id", itemId)
+      .maybeSingle();
+    data = fallback.data;
+    readError = fallback.error;
+  }
+
+  if (readError || !data) return { error: readError?.message ?? "Item not found" };
+
+  const record = hydrateItpItcRow(data as Record<string, unknown>);
+  const photos = (
+    Array.isArray(record.photo_urls)
+      ? [...(record.photo_urls as string[])]
+      : Array.isArray(record.photos)
+        ? [...(record.photos as string[])]
+        : []
+  ).filter((url) => url !== photoUrl);
 
   const apiResult = await mutateItpViaApi<{ ok?: boolean }>("/api/itp/items", {
     method: "PATCH",

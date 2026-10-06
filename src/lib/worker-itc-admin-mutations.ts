@@ -107,6 +107,7 @@ export interface WorkerItcChecklistEntryRow {
   is_checked: boolean;
   notes: string | null;
   photo_url: string | null;
+  photos: string[];
   worker_id: string | null;
   worker_name: string | null;
   sort_order: number;
@@ -383,10 +384,15 @@ export async function fetchWorkerItcDetailAdmin(
           is_mandatory: existing.is_mandatory !== false,
           is_checked: existing.is_checked === true || existing.passed === true,
           notes: existing.notes ? String(existing.notes) : null,
+          photos: Array.isArray(existing.photos)
+            ? existing.photos.filter((value): value is string => typeof value === "string" && Boolean(value))
+            : existing.photo_url
+              ? [String(existing.photo_url)]
+              : [],
           photo_url: existing.photo_url
             ? String(existing.photo_url)
             : Array.isArray(existing.photos)
-              ? String(existing.photos[0] ?? "")
+              ? String(existing.photos[0] ?? "") || null
               : null,
           worker_id: existing.worker_id ? String(existing.worker_id) : null,
           worker_name: existing.worker_name ? String(existing.worker_name) : null,
@@ -404,6 +410,7 @@ export async function fetchWorkerItcDetailAdmin(
         is_checked: false,
         notes: null,
         photo_url: null,
+        photos: [],
         worker_id: null,
         worker_name: null,
         sort_order: template.sort_order,
@@ -429,6 +436,7 @@ export interface SaveChecklistItemInput {
   is_checked?: boolean;
   notes?: string | null;
   photo_url?: string | null;
+  photos?: string[];
   sort_order?: number;
 }
 
@@ -452,8 +460,8 @@ export async function saveWorkerItcChecklistAdmin(
         is_mandatory: item.is_mandatory ?? true,
         is_checked: item.is_checked ?? false,
         notes: item.notes ?? null,
-        photo_url: item.photo_url ?? null,
-        photos: item.photo_url ? [item.photo_url] : [],
+        photo_url: (item.photos?.[0] ?? item.photo_url) ?? null,
+        photos: item.photos?.length ? item.photos : item.photo_url ? [item.photo_url] : [],
         worker_id: input.workerId,
         worker_name: input.workerName.trim(),
         sort_order: item.sort_order ?? 0,
@@ -486,12 +494,13 @@ export async function saveWorkerItcChecklistAdmin(
       is_mandatory: item.is_mandatory ?? true,
       is_checked: item.is_checked ?? false,
       notes: item.notes ?? null,
-      photo_url: item.photo_url ?? null,
+      photo_url: (item.photos?.[0] ?? item.photo_url) ?? null,
+      photos: item.photos?.length ? item.photos : item.photo_url ? [item.photo_url] : [],
       sort_order: item.sort_order ?? 0,
     }));
-    const photos = checklist
-      .map((item) => item.photo_url)
-      .filter((url): url is string => Boolean(url));
+    const photos = checklist.flatMap((item) =>
+      item.photos?.length ? item.photos : item.photo_url ? [item.photo_url] : []
+    );
 
     const statusUpdate = await updateWithMissingColumnFallback(
       admin,
@@ -547,11 +556,12 @@ export async function completeWorkerItcAdmin(
       is_checked: entry.is_checked,
       notes: entry.notes,
       photo_url: entry.photo_url,
+      photos: entry.photos?.length ? entry.photos : entry.photo_url ? [entry.photo_url] : [],
       sort_order: entry.sort_order,
     }));
-    const photos = checklist
-      .map((item) => item.photo_url)
-      .filter((url): url is string => Boolean(url));
+    const photos = checklist.flatMap((item) =>
+      item.photos?.length ? item.photos : item.photo_url ? [item.photo_url] : []
+    );
 
     return await updateWithMissingColumnFallback(
       admin,

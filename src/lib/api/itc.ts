@@ -6,6 +6,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { formatItcAutoName, ITC_MAX_SECTION_PHOTOS } from "@/lib/itc-naming";
 import {
   ITC_ATTACHMENTS_BUCKET,
   buildUniqueStorageFileName,
@@ -28,7 +29,6 @@ import {
   type ItcZone,
   type ProjectItc,
 } from "@/lib/itc-service";
-import { formatItcAutoName } from "@/lib/itc-naming";
 import {
   ITC_PHOTO_COLUMNS,
   PROJECT_ITC_COLUMNS,
@@ -324,6 +324,7 @@ export interface FieldItcPhoto {
   itc_id: string;
   slot_key: string;
   photo_url: string | null;
+  urls: string[];
   not_required: boolean;
   gps_lat: number | null;
   gps_lng: number | null;
@@ -895,16 +896,35 @@ export async function insertSignoff(input: {
 }
 
 function mapPhoto(row: Record<string, unknown>): FieldItcPhoto {
+  const photoUrl = str(row, "photo_url") ?? str(row, "url");
+  const urls = Array.isArray(row.photos)
+    ? row.photos.filter((value): value is string => typeof value === "string" && Boolean(value))
+    : Array.isArray(row.urls)
+      ? row.urls.filter((value): value is string => typeof value === "string" && Boolean(value))
+      : photoUrl
+        ? [photoUrl]
+        : [];
   return {
     id: String(row.id),
     itc_id: String(row.itc_id),
     slot_key: String(row.slot_key ?? row.slot ?? ""),
-    photo_url: str(row, "photo_url") ?? str(row, "url"),
+    photo_url: urls[0] ?? photoUrl,
+    urls,
     not_required: row.not_required === true,
     gps_lat: num(row, "gps_lat"),
     gps_lng: num(row, "gps_lng"),
     captured_at: str(row, "captured_at"),
   };
+}
+
+export function photosForSlot(
+  photos: FieldItcPhoto[],
+  slotKey: FieldItcPhotoSlotKey
+): string[] {
+  const photo = photoForSlot(photos, slotKey);
+  if (!photo || photo.not_required) return [];
+  if (photo.urls.length) return photo.urls;
+  return photo.photo_url ? [photo.photo_url] : [];
 }
 
 export function photoForSlot(
@@ -983,12 +1003,24 @@ export async function uploadFieldItcPhoto(input: {
   }
 
   const photoUrl = uploaded.url;
+  const existingRows = await supabase
+    .from("itc_photos")
+    .select("*")
+    .eq("itc_id", input.itcId)
+    .eq("slot_key", input.slotKey)
+    .maybeSingle();
+  const existing = existingRows.data ? mapPhoto(asRecord(existingRows.data)) : null;
+  const urls = [...(existing?.urls ?? (existing?.photo_url ? [existing.photo_url] : []))];
+  if (urls.length >= ITC_MAX_SECTION_PHOTOS) {
+    return { error: `Maximum of ${ITC_MAX_SECTION_PHOTOS} photos reached for this section.` };
+  }
+  urls.push(photoUrl);
 
   const payload = {
     itc_id: input.itcId,
     slot_key: input.slotKey,
-    photo_url: photoUrl,
-    photos: [photoUrl],
+    photo_url: urls[0] ?? photoUrl,
+    photos: urls,
     not_required: false,
     gps_lat: gps.lat,
     gps_lng: gps.lng,
@@ -1014,6 +1046,44 @@ export async function uploadFieldItcPhoto(input: {
     error: null,
     photo: saved.data ? mapPhoto(asRecord(saved.data)) : mapPhoto(payload),
   };
+}
+
+export async function removeFieldItcPhotoUrl(input: {
+  itcId: string;
+  slotKey: FieldItcPhotoSlotKey;
+  url: string;
+}): Promise<{ error: string | null }> {
+  const existingRows = await supabase
+    .from("itc_photos")
+    .select("*")
+    .eq("itc_id", input.itcId)
+    .eq("slot_key", input.slotKey)
+    .maybeSingle();
+  if (existingRows.error) return { error: existingRows.error.message };
+  if (!existingRows.data) return { error: null };
+  const existing = mapPhoto(asRecord(existingRows.data));
+  const urls = existing.urls.filter((url) => url !== input.url);
+  const saved = await retryItpItcWrite(
+    "itc_photos.remove_url",
+    sanitizeItpItcWritePayload(
+      {
+        itc_id: input.itcId,
+        slot_key: input.slotKey,
+        photo_url: urls[0] ?? null,
+        photos: urls,
+        not_required: existing.not_required,
+        updated_at: new Date().toISOString(),
+      },
+      ITC_PHOTO_COLUMNS
+    ),
+    async (next) => {
+      const { error } = await supabase
+        .from("itc_photos")
+        .upsert(next, { onConflict: "itc_id,slot_key" });
+      return { error };
+    }
+  );
+  return { error: saved.error };
 }
 
 export async function markPhotoSlotNotRequired(input: {

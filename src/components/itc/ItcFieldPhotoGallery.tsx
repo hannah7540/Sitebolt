@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Camera, Loader2, Star } from "lucide-react";
+import { useRef, useState, type DragEvent } from "react";
+import { Camera, Loader2, Star, X } from "lucide-react";
 import type { ItcStepPhoto } from "@/lib/itc-service";
-import { addItcStepPhoto, setStepPhotoApproval } from "@/lib/itc-service";
+import { addItcStepPhoto, deleteItcStepPhoto, setStepPhotoApproval } from "@/lib/itc-service";
 import {
   ITC_FIELD_PHOTO_STEP_KEY,
   ITC_MAX_FIELD_PHOTOS,
@@ -44,44 +44,48 @@ export default function ItcFieldPhotoGallery({
   const finalCount = fieldPhotos.filter((photo) => photo.is_approved_for_export).length;
   const canUpload = fieldPhotos.length < ITC_MAX_FIELD_PHOTOS;
 
-  const handleUpload = async (file: File) => {
-    if (!canUpload) {
+  const handleUpload = async (files: File[]) => {
+    if (!files.length) return;
+    if (fieldPhotos.length >= ITC_MAX_FIELD_PHOTOS) {
       setMessage(`Maximum of ${ITC_MAX_FIELD_PHOTOS} field photos reached.`);
       return;
     }
 
     setLoading(true);
     setMessage(null);
+    for (const file of files) {
+      if (fieldPhotos.length >= ITC_MAX_FIELD_PHOTOS) {
+        setMessage(`Maximum of ${ITC_MAX_FIELD_PHOTOS} field photos reached.`);
+        break;
+      }
+      const prepared = await prepareItcPhotoUpload(file);
+      const upload = await uploadItcPhoto({
+        projectId,
+        itcId,
+        slotKey: ITC_FIELD_PHOTO_STEP_KEY,
+        file: prepared.file,
+      });
 
-    const prepared = await prepareItcPhotoUpload(file);
-    const upload = await uploadItcPhoto({
-      projectId,
-      itcId,
-      slotKey: ITC_FIELD_PHOTO_STEP_KEY,
-      file: prepared.file,
-    });
+      if (upload.error || !upload.url) {
+        setMessage(upload.error ?? "Upload failed");
+        break;
+      }
 
-    if (upload.error || !upload.url) {
-      setLoading(false);
-      setMessage(upload.error ?? "Upload failed");
-      return;
+      const save = await addItcStepPhoto({
+        itcId,
+        stepKey: ITC_FIELD_PHOTO_STEP_KEY,
+        photoUrl: upload.url,
+        gpsLat: prepared.gpsLat,
+        gpsLng: prepared.gpsLng,
+        uploadedBy,
+        uploadedByName,
+      });
+      if (save.error) {
+        setMessage(save.error);
+        break;
+      }
     }
-
-    const save = await addItcStepPhoto({
-      itcId,
-      stepKey: ITC_FIELD_PHOTO_STEP_KEY,
-      photoUrl: upload.url,
-      gpsLat: prepared.gpsLat,
-      gpsLng: prepared.gpsLng,
-      uploadedBy,
-      uploadedByName,
-    });
-
     setLoading(false);
-    if (save.error) {
-      setMessage(save.error);
-      return;
-    }
     onUpdated();
   };
 
@@ -100,6 +104,23 @@ export default function ItcFieldPhotoGallery({
       return;
     }
     onUpdated();
+  };
+
+  const handleRemove = async (photoId: string) => {
+    setLoading(true);
+    const result = await deleteItcStepPhoto(photoId);
+    setLoading(false);
+    if (result.error) {
+      setMessage(result.error);
+      return;
+    }
+    onUpdated();
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    void handleUpload(files);
   };
 
   return (
@@ -128,18 +149,18 @@ export default function ItcFieldPhotoGallery({
             className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            Add Photo
+            Add Photos
           </button>
         </div>
         <input
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          multiple
           className="hidden"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleUpload(file);
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) void handleUpload(files);
             e.target.value = "";
           }}
         />
@@ -151,17 +172,30 @@ export default function ItcFieldPhotoGallery({
           sign-off steps.
         </p>
       ) : (
-        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleDrop}
+        >
           {fieldPhotos.map((photo) => (
             <div
               key={photo.id}
               className={cn(
-                "overflow-hidden rounded-lg border",
+                "relative overflow-hidden rounded-lg border",
                 photo.is_approved_for_export
                   ? "border-amber-400 ring-2 ring-amber-200"
                   : "border-slate-200"
               )}
             >
+              <button
+                type="button"
+                disabled={loading}
+                aria-label="Remove photo"
+                onClick={() => void handleRemove(photo.id)}
+                className="absolute right-1 top-1 z-10 rounded-full bg-slate-900/80 p-1 text-white hover:bg-red-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={photo.photo_url}

@@ -3,9 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardCheck, Loader2 } from "lucide-react";
 import ItcChecklistDrawer from "@/components/itc/admin/ItcChecklistDrawer";
-import ItpItcBrowseView, {
-  type BrowseKindFilter,
-} from "@/components/itc/admin/ItpItcBrowseView";
+import ItpItcBrowseView from "@/components/itc/admin/ItpItcBrowseView";
 import ItpItcCreateWizard from "@/components/itc/admin/ItpItcCreateWizard";
 import ItpMasterDrawer from "@/components/itc/admin/ItpMasterDrawer";
 import {
@@ -37,7 +35,6 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
   const [tab, setTab] = useState<AdminItcTab>("view");
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
-  const [kind, setKind] = useState<BrowseKindFilter>("both");
   const [itps, setItps] = useState<AdminItpRecord[]>([]);
   const [itcs, setItcs] = useState<AdminItcRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,10 +87,9 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
 
   const browseItems = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return toAdminBrowseItems(itps, itcs, projects).filter((item) => {
+    return toAdminBrowseItems(itps, [], projects).filter((item) => {
+      if (item.kind !== "itp") return false;
       if (projectFilter && item.project_id !== projectFilter) return false;
-      if (kind === "itps" && item.kind !== "itp") return false;
-      if (kind === "itcs" && item.kind !== "itc") return false;
       if (!needle) return true;
       return [item.title, item.number, item.line_number, item.area, item.contractor]
         .filter(Boolean)
@@ -101,7 +97,7 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
         .toLowerCase()
         .includes(needle);
     });
-  }, [itps, itcs, projects, projectFilter, kind, search]);
+  }, [itps, projects, projectFilter, search]);
 
   const openItpDrawer = async (id: string) => {
     const itp = itps.find((row) => row.id === id) ?? (await getAdminItp(id));
@@ -179,9 +175,9 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
           <ClipboardCheck className="h-4 w-4" />
           Administration
         </p>
-        <h1 className="text-2xl font-semibold text-slate-900">ITP / ITC</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">Inspection Test Plans</h1>
         <p className="text-sm text-slate-500">
-          View existing plans and certificates, or create a new ITP and drop ITC pins on the drawing.
+          Browse parent ITPs, then open a plan to view or create its Inspection Test Checklists.
         </p>
       </div>
 
@@ -226,14 +222,11 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
           items={browseItems}
           search={search}
           projectId={projectFilter}
-          kind={kind}
           projects={projects.map((row) => ({ id: row.id, name: row.name }))}
           loading={loading}
           onSearchChange={setSearch}
           onProjectChange={setProjectFilter}
-          onKindChange={setKind}
           onOpenItp={(id) => void openItpDrawer(id)}
-          onOpenItc={(id) => void openItcDrawer(id)}
           onDeleteItem={requestDeleteFromBrowse}
         />
       )}

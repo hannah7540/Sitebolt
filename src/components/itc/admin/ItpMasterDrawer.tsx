@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Upload, X } from "lucide-react";
+import { FileDown, Loader2, Plus, Upload, X } from "lucide-react";
 import ItpItcPlanCanvas from "@/components/itc/admin/ItpItcPlanCanvas";
 import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
 import {
@@ -41,6 +41,7 @@ import {
   modalStickyFooterClass,
 } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { downloadItpItcPdf, generateAdminItpPdf } from "@/lib/itp-itc-export-pdf";
 
 interface ItpMasterDrawerProps {
   itp: AdminItpRecord;
@@ -97,6 +98,8 @@ export default function ItpMasterDrawer({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [sectionTab, setSectionTab] = useState<"plan" | "itcs">("plan");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setLocalItcs(itcs);
@@ -232,6 +235,23 @@ export default function ItpMasterDrawer({
     onCreatedItc?.(created);
   };
 
+  const handleExportPdf = async () => {
+    setExporting(true);
+    setMessage(null);
+    try {
+      const result = await generateAdminItpPdf({
+        itp: { ...itp, title, area, client, managing_contractor: managingContractor, subcontractor, drawing_ref: drawingRef, status, plan_url: planUrl },
+        projectName,
+        itcs: localItcs,
+      });
+      downloadItpItcPdf(result.blob, result.fileName);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "PDF export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className={modalOverlayClass} onClick={onClose}>
       <div
@@ -255,6 +275,17 @@ export default function ItpMasterDrawer({
             >
               {ADMIN_STATUS_LABELS[status]}
             </span>
+            {status === "completed" ? (
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void handleExportPdf()}
+                className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+                Export to PDF
+              </button>
+            ) : null}
             <button type="button" onClick={onClose} className={modalCloseIconButtonClass}>
               <X className="h-5 w-5" />
             </button>
@@ -364,24 +395,34 @@ export default function ItpMasterDrawer({
                   />
                 </label>
               </div>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["plan", "Plan & Pins"],
+                    ["itcs", `Inspection Test Checklists (${localItcs.length})`],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setSectionTab(id)}
+                    className={
+                      sectionTab === id
+                        ? "rounded-full bg-orange-500 px-3 py-1 text-xs font-semibold text-white"
+                        : "rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {sectionTab === "plan" ? (
+              <>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-slate-600">
-                  Interactive plan — drop a pin, or draw a red service run before creating the ITC.
+                  Interactive plan — drop a pin to create an ITC linked to this ITP.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCanvasMode("line");
-                      setDropMode(false);
-                    }}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
-                      canvasMode === "line" ? "bg-red-500 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
-                    )}
-                  >
-                    Draw service run
-                  </button>
                   <button
                     type="button"
                     onClick={startDropMode}
@@ -393,15 +434,6 @@ export default function ItpMasterDrawer({
                     <Plus className="h-4 w-4" />
                     {dropMode ? "Click plan to drop pin" : "+ Drop Pin to Add ITC"}
                   </button>
-                  {serviceRunPoints.length ? (
-                    <button
-                      type="button"
-                      onClick={() => setServiceRunPoints((current) => current.slice(0, -1))}
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
-                    >
-                      Undo point
-                    </button>
-                  ) : null}
                 </div>
               </div>
               <ItpItcPlanCanvas
@@ -418,10 +450,27 @@ export default function ItpMasterDrawer({
                 onDrop={(x, y) => void handleDrop(x, y)}
                 onPinClick={(pin) => onOpenItc(pin.id)}
               />
+              </>
+              ) : (
               <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">Associated ITCs</h3>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">Inspection Test Checklists</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSectionTab("plan");
+                      startDropMode();
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Create ITC
+                  </button>
+                </div>
                 {localItcs.length === 0 ? (
-                  <p className="text-sm text-slate-500">No pins have been saved against this ITP yet.</p>
+                  <p className="text-sm text-slate-500">
+                    No ITCs linked to this ITP yet. Drop a pin on the plan to create one.
+                  </p>
                 ) : (
                   <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                     {localItcs.map((itc, index) => (
@@ -457,6 +506,7 @@ export default function ItpMasterDrawer({
                   </ul>
                 )}
               </div>
+              )}
               {message ? <p className="text-sm text-rose-600">{message}</p> : null}
             </div>
           )}

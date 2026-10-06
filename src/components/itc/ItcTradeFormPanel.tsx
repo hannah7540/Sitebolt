@@ -27,7 +27,6 @@ import {
   updateItcTradeForm,
   type ProjectItc,
 } from "@/lib/itc-service";
-import { uploadItcMarkup } from "@/lib/itc-upload";
 import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -183,22 +182,6 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
       await load();
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Failed to save ITC.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRedlineUpload = async (file: File) => {
-    setSaving(true);
-    try {
-      const upload = await uploadItcMarkup({ projectId, discipline, file });
-      if (upload.error || !upload.url) {
-        setMessage(upload.error ?? "Upload failed");
-        return;
-      }
-      setForm((current) => ({ ...current, redline_markup_url: upload.url! }));
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Network error while saving. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -475,32 +458,6 @@ export default function ItcTradeFormPanel({ projectId }: ItcTradeFormPanelProps)
             </>
           )}
 
-          <label className="block md:col-span-2">
-            <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-              Redline Markup
-            </span>
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="file"
-                accept=".pdf,image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleRedlineUpload(file);
-                }}
-                className="text-sm"
-              />
-              {form.redline_markup_url ? (
-                <a
-                  href={form.redline_markup_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm font-semibold text-orange-600 hover:underline"
-                >
-                  View markup
-                </a>
-              ) : null}
-            </div>
-          </label>
         </div>
 
         {(form.min_bedding_mm != null || form.min_cover_mm != null) && (

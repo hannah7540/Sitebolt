@@ -18,6 +18,7 @@ import {
   ITC_FIELD_PHOTO_STEP_KEY,
   ITC_MAX_FIELD_PHOTOS,
   ITC_MAX_FINAL_PHOTOS,
+  ITC_MAX_SECTION_PHOTOS,
   itcAutoNamePrefix,
   parseItcAutoNameSequence,
 } from "./itc-naming";
@@ -1172,17 +1173,15 @@ export async function addItcStepPhoto(input: {
 }): Promise<{ error: string | null; photo?: ItcStepPhoto }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
 
-  if (input.stepKey === ITC_FIELD_PHOTO_STEP_KEY) {
-    const { count, error: countError } = await supabase
-      .from("itc_step_photos")
-      .select("id", { count: "exact", head: true })
-      .eq("itc_id", input.itcId)
-      .eq("step_key", ITC_FIELD_PHOTO_STEP_KEY);
+  const { count, error: countError } = await supabase
+    .from("itc_step_photos")
+    .select("id", { count: "exact", head: true })
+    .eq("itc_id", input.itcId)
+    .eq("step_key", input.stepKey);
 
-    if (countError) return { error: countError.message };
-    if ((count ?? 0) >= ITC_MAX_FIELD_PHOTOS) {
-      return { error: `Maximum of ${ITC_MAX_FIELD_PHOTOS} field photos reached.` };
-    }
+  if (countError) return { error: countError.message };
+  if ((count ?? 0) >= ITC_MAX_SECTION_PHOTOS) {
+    return { error: `Maximum of ${ITC_MAX_SECTION_PHOTOS} photos reached for this section.` };
   }
 
   const payload = {
@@ -1217,6 +1216,12 @@ export async function addItcStepPhoto(input: {
     error: null,
     photo: normalizeStepPhoto(insertResult.data as Record<string, unknown>),
   };
+}
+
+export async function deleteItcStepPhoto(photoId: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured" };
+  const { error } = await supabase.from("itc_step_photos").delete().eq("id", photoId);
+  return { error: error?.message ?? null };
 }
 
 export async function setStepPhotoApproval(input: {

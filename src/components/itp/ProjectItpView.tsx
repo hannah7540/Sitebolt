@@ -180,6 +180,7 @@ export default function ProjectItpView({
       <ItpInspectionView
         itpId={selectedItpId}
         inspectorName={inspectorName}
+        projectName={projectName}
         onBack={() => setSelectedItpId(null)}
         onUpdated={() => void loadData()}
       />
@@ -190,8 +191,8 @@ export default function ProjectItpView({
     <div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-orange-500">ITPs & ITCs</h1>
-          <p className="text-sm text-slate-500">{projectName}</p>
+        <h1 className="text-2xl font-bold text-orange-500">Inspection Test Plans</h1>
+        <p className="text-sm text-slate-500">{projectName}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -206,7 +207,7 @@ export default function ProjectItpView({
             onClick={() => setShowCreate(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
           >
-            <Plus className="h-4 w-4" /> Create New ITP / ITC
+            <Plus className="h-4 w-4" /> Create New ITP
           </button>
         </div>
       </div>

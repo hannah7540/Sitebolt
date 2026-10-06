@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Loader2 } from "lucide-react";
+import { Camera, FileDown, Loader2 } from "lucide-react";
 import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import Toast from "@/components/ui/Toast";
@@ -10,17 +10,22 @@ import { getChecklistTemplateItem } from "@/lib/worker-itc-checklist-templates";
 import {
   completeWorkerItc,
   fetchWorkerItcDetail,
+  fetchWorkerItcPlan,
   saveWorkerItcChecklist,
   uploadWorkerItcChecklistPhoto,
   type WorkerItcChecklistEntryRow,
 } from "@/lib/worker-itc-service";
 import { ITP_ITC_COMPLETED_TOAST } from "@/lib/itp-itc-payload";
+import { downloadItpItcPdf, generateWorkerItcPdf } from "@/lib/itp-itc-export-pdf";
+import ItcPhotoThumbGallery from "@/components/itc/ItcPhotoThumbGallery";
+import { ITC_MAX_SECTION_PHOTOS } from "@/lib/itc-naming";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 interface WorkerItcChecklistFormProps {
   itcId: string;
   projectId: string;
+  projectName?: string;
   workerId: string;
   workerName: string;
   onClose: () => void;
@@ -30,6 +35,7 @@ interface WorkerItcChecklistFormProps {
 export default function WorkerItcChecklistForm({
   itcId,
   projectId,
+  projectName = "Project",
   workerId,
   workerName,
   onClose,
@@ -38,6 +44,12 @@ export default function WorkerItcChecklistForm({
   const router = useRouter();
   const [entries, setEntries] = useState<WorkerItcChecklistEntryRow[]>([]);
   const [itcNumber, setItcNumber] = useState("");
+  const [itcStatus, setItcStatus] = useState("in_progress");
+  const [completedAt, setCompletedAt] = useState<string | null>(null);
+  const [pinX, setPinX] = useState<number | null>(null);
+  const [pinY, setPinY] = useState<number | null>(null);
+  const [planUrl, setPlanUrl] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
@@ -56,13 +68,19 @@ export default function WorkerItcChecklistForm({
         return;
       }
       setItcNumber(result.itc.itc_number);
+      setItcStatus(result.itc.status);
+      setCompletedAt(result.itc.completed_at);
+      setPinX(result.itc.pin_x ?? result.itc.map_x);
+      setPinY(result.itc.pin_y ?? result.itc.map_y);
       setEntries(result.entries);
+      const plan = await fetchWorkerItcPlan(projectId);
+      setPlanUrl(plan.plan?.image_url ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load ITC checklist.");
     } finally {
       setLoading(false);
     }
-  }, [itcId]);
+  }, [itcId, projectId]);
 
   useEffect(() => {
     void load();
@@ -81,20 +99,32 @@ export default function WorkerItcChecklistForm({
     );
   };
 
-  const handlePhotoUpload = async (itemKey: string, file: File) => {
+  const handlePhotoUpload = async (itemKey: string, files: File[]) => {
+    if (!files.length) return;
+    const entry = entries.find((row) => row.item_key === itemKey);
+    const current = entry?.photos?.length ? entry.photos : entry?.photo_url ? [entry.photo_url] : [];
+    if (current.length >= ITC_MAX_SECTION_PHOTOS) {
+      setToast({ message: `Maximum of ${ITC_MAX_SECTION_PHOTOS} photos reached.`, variant: "error" });
+      return;
+    }
     setUploadingKey(itemKey);
     try {
-      const upload = await uploadWorkerItcChecklistPhoto({
-        projectId,
-        itcId,
-        itemKey,
-        file,
-      });
-      if (upload.error || !upload.url) {
-        setToast({ message: upload.error ?? "Photo upload failed.", variant: "error" });
-        return;
+      const urls = [...current];
+      for (const file of files) {
+        if (urls.length >= ITC_MAX_SECTION_PHOTOS) break;
+        const upload = await uploadWorkerItcChecklistPhoto({
+          projectId,
+          itcId,
+          itemKey,
+          file,
+        });
+        if (upload.error || !upload.url) {
+          setToast({ message: upload.error ?? "Photo upload failed.", variant: "error" });
+          break;
+        }
+        urls.push(upload.url);
       }
-      updateEntry(itemKey, { photo_url: upload.url });
+      updateEntry(itemKey, { photo_url: urls[0] ?? null, photos: urls });
     } catch (cause) {
       const message =
         cause instanceof Error ? cause.message : "Network error while saving. Please try again.";
@@ -111,7 +141,8 @@ export default function WorkerItcChecklistForm({
       is_mandatory: entry.is_mandatory,
       is_checked: entry.is_checked,
       notes: entry.notes,
-      photo_url: entry.photo_url,
+      photo_url: entry.photos?.[0] ?? entry.photo_url,
+      photos: entry.photos?.length ? entry.photos : entry.photo_url ? [entry.photo_url] : [],
       sort_order: entry.sort_order,
     }));
 
@@ -205,11 +236,45 @@ export default function WorkerItcChecklistForm({
 
       <WorkerMobileBackButton label="Back to floorplan" onClick={onClose} />
 
-      <div>
-        <h2 className="text-xl font-bold text-slate-900">{itcNumber}</h2>
-        <p className="text-sm text-slate-500">
-          Collaborative checklist — each item shows who last updated it.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">{itcNumber}</h2>
+          <p className="text-sm text-slate-500">
+            Collaborative checklist — each item shows who last updated it.
+          </p>
+        </div>
+        {itcStatus === "completed" || itcStatus === "complete" ? (
+          <button
+            type="button"
+            disabled={exporting}
+            onClick={() => {
+              setExporting(true);
+              void generateWorkerItcPdf({
+                itcNumber,
+                projectName,
+                status: "Completed / Signed-off",
+                completedAt,
+                workerName,
+                entries,
+                planUrl,
+                pinX,
+                pinY,
+              })
+                .then((result) => downloadItpItcPdf(result.blob, result.fileName))
+                .catch((cause) =>
+                  setToast({
+                    message: cause instanceof Error ? cause.message : "PDF export failed.",
+                    variant: "error",
+                  })
+                )
+                .finally(() => setExporting(false));
+            }}
+            className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+          >
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+            Export to PDF
+          </button>
+        ) : null}
       </div>
 
       {error ? (
@@ -266,28 +331,32 @@ export default function WorkerItcChecklistForm({
                 className={cn(inputClass, "mt-3")}
               />
 
-              <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div className="mt-3 space-y-2">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                   <Camera className="h-4 w-4" />
-                  {uploadingKey === entry.item_key ? "Uploading…" : "Attach photo"}
+                  {uploadingKey === entry.item_key ? "Uploading…" : "Add photos"}
                   <input
                     type="file"
                     accept="image/*"
+                    multiple
                     className="hidden"
                     onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void handlePhotoUpload(entry.item_key, file);
+                      const files = Array.from(event.target.files ?? []);
+                      if (files.length) void handlePhotoUpload(entry.item_key, files);
+                      event.target.value = "";
                     }}
                   />
                 </label>
-                {entry.photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={entry.photo_url}
-                    alt={`${entry.item_label} photo`}
-                    className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
-                  />
-                ) : null}
+                <ItcPhotoThumbGallery
+                  urls={entry.photos?.length ? entry.photos : entry.photo_url ? [entry.photo_url] : []}
+                  disabled={uploadingKey === entry.item_key}
+                  onRemove={(url) => {
+                    const next = (entry.photos?.length ? entry.photos : entry.photo_url ? [entry.photo_url] : []).filter(
+                      (item) => item !== url
+                    );
+                    updateEntry(entry.item_key, { photos: next, photo_url: next[0] ?? null });
+                  }}
+                />
               </div>
             </div>
           );

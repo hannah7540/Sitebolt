@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { ArrowLeft, ArrowRight, X, ZoomIn } from "lucide-react";
+import { useCallback } from "react";
+import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import {
   getWorkerItcStatusLabel,
@@ -41,16 +41,11 @@ export default function WorkerItcPinPreviewModal({
   onClose,
   onAddToItc,
 }: WorkerItcPinPreviewModalProps) {
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const handleHardwareBack = useCallback(() => {
-    if (lightboxUrl) {
-      setLightboxUrl(null);
-      return true;
-    }
     onClose();
     return true;
-  }, [lightboxUrl, onClose]);
+  }, [onClose]);
 
   useMobileBackHandler(handleHardwareBack, true);
 
@@ -118,28 +113,11 @@ export default function WorkerItcPinPreviewModal({
               ) : null}
             </div>
 
-            {itc.redline_markup_url ? (
-              <button
-                type="button"
-                onClick={() => setLightboxUrl(itc.redline_markup_url)}
-                className="group relative block w-full overflow-hidden rounded-lg border border-slate-200"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={itc.redline_markup_url}
-                  alt="Redline drawing"
-                  className="max-h-48 w-full object-contain bg-slate-50"
-                />
-                <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded bg-black/60 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                  <ZoomIn className="h-3 w-3" />
-                  View full size
-                </span>
-              </button>
-            ) : (
-              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
-                No redline drawing attached for this ITC.
+            {itc.start_location || itc.end_location ? (
+              <p className="mt-2 text-sm text-slate-600">
+                {itc.start_location ?? "—"} → {itc.end_location ?? "—"}
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
@@ -178,22 +156,6 @@ export default function WorkerItcPinPreviewModal({
           </div>
         </div>
       </div>
-
-      {lightboxUrl ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setLightboxUrl(null)}
-          onKeyDown={() => undefined}
-          role="presentation"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightboxUrl}
-            alt="Redline full size"
-            className="max-h-[90vh] max-w-full object-contain"
-          />
-        </div>
-      ) : null}
     </>
   );
 }
