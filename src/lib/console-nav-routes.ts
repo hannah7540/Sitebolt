@@ -61,7 +61,7 @@ export function parseConsoleRoute(
   }
 
   if (pathname === "/") {
-    return { view: "dashboard" };
+    return { view: "admin-master-dashboard" };
   }
 
   return null;

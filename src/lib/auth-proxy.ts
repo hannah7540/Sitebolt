@@ -10,7 +10,7 @@ import {
 import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 import {
-  PROJECT_DASHBOARD_HOME_PATH,
+  MASTER_PROJECT_DASHBOARD_PATH,
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
 import {
@@ -60,8 +60,8 @@ const AUTH_REQUIRED_PREFIXES = [
   "/sms",
 ] as const;
 
-/** Project-scoped admin roles land on the main project console. */
-const PROJECTS_HOME_PATH = PROJECT_DASHBOARD_HOME_PATH;
+/** Admin console roles land on the Master Project Dashboard, not a specific project. */
+const PROJECTS_HOME_PATH = MASTER_PROJECT_DASHBOARD_PATH;
 
 const GENERAL_WORKER_HOME_PATH = "/worker-dashboard";
 

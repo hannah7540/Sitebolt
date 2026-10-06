@@ -19,6 +19,7 @@ import {
 } from "@/lib/project-nav-routes";
 import {
   buildConsoleNavHref,
+  CONSOLE_VIEW_SEARCH_PARAM,
   parseConsoleRoute,
   readConsoleOpenAdd,
 } from "@/lib/console-nav-routes";
@@ -35,6 +36,7 @@ import {
 } from "@/lib/public-auth-paths";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
+  MASTER_PROJECT_DASHBOARD_PATH,
   setAdminWorkerId,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -139,9 +141,6 @@ function HomeConsole() {
     await fetchProjects();
     const projects = getCachedProjects();
     setSidebarProjects(projects);
-    const defaultProject =
-      projects.find((p) => p.slug === "project-3") ?? projects[0] ?? null;
-    setDashboardProject((prev) => prev ?? defaultProject);
     setWorkers(workerData);
     setWorkerVocs(vocData);
     setPlant(plantData);
@@ -279,6 +278,13 @@ function HomeConsole() {
       activeTab === "subcontractors" && openAddFromUrl
     );
   }, [activeTab, openAddFromUrl]);
+
+  useEffect(() => {
+    if (pathname !== "/") return;
+    if (searchParams.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim()) return;
+    if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
+    router.replace(MASTER_PROJECT_DASHBOARD_PATH);
+  }, [pathname, router, searchParams]);
 
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
 

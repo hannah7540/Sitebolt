@@ -169,8 +169,13 @@ export default function AdminConsoleShell({
 
     setWorkers(workerData);
     setSidebarProjects(projects);
+    const routeProjectId = extractProjectIdFromPathname(pathname);
     setDashboardProject(
-      projects.find((project) => project.slug === "project-3") ?? projects[0] ?? null
+      routeProjectId
+        ? projects.find(
+            (project) => project.id === routeProjectId || project.slug === routeProjectId
+          ) ?? null
+        : null
     );
     setLoading(false);
     setSessionReady(true);
