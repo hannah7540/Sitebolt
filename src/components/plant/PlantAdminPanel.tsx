@@ -45,7 +45,7 @@ import {
 } from "@/lib/plant-archive";
 import AddPlantModal from "./AddPlantModal";
 import PlantQRModal from "./PlantQRModal";
-import QrLabelSheet from "@/components/labels/QrLabelSheet";
+import QrLabelSheet, { type QrLabelItem } from "@/components/labels/QrLabelSheet";
 import PlantDefectModal from "./PlantDefectModal";
 import PlantArchiveModal from "./PlantArchiveModal";
 import PlantDeleteConfirmModal from "./PlantDeleteConfirmModal";
@@ -79,6 +79,67 @@ function PlantCategoryBadges({ category }: { category: string }) {
         </span>
       ))}
     </span>
+  );
+}
+
+const PLANT_PROJECT_STATE_OPTIONS = [
+  "NSW",
+  "ACT",
+  "QLD",
+  "VIC",
+  "WA",
+  "SA",
+  "TAS",
+  "NT",
+] as const;
+
+type PlantProjectState = (typeof PLANT_PROJECT_STATE_OPTIONS)[number];
+type PlantStateFilter = "ALL" | "UNASSIGNED" | PlantProjectState;
+
+const PLANT_STATE_NAME_ALIASES: Record<string, PlantProjectState> = {
+  "NEW SOUTH WALES": "NSW",
+  "AUSTRALIAN CAPITAL TERRITORY": "ACT",
+  "QUEENSLAND": "QLD",
+  "VICTORIA": "VIC",
+  "WESTERN AUSTRALIA": "WA",
+  "SOUTH AUSTRALIA": "SA",
+  "TASMANIA": "TAS",
+  "NORTHERN TERRITORY": "NT",
+};
+
+function normalizePlantProjectState(value: string | null | undefined): PlantProjectState | null {
+  const trimmed = value?.trim().toUpperCase();
+  if (!trimmed) return null;
+  if ((PLANT_PROJECT_STATE_OPTIONS as readonly string[]).includes(trimmed)) {
+    return trimmed as PlantProjectState;
+  }
+  return PLANT_STATE_NAME_ALIASES[trimmed] ?? null;
+}
+
+function extractStateFromLocation(location: string | null | undefined): PlantProjectState | null {
+  if (!location?.trim()) return null;
+  const upper = location.toUpperCase();
+  for (const code of PLANT_PROJECT_STATE_OPTIONS) {
+    if (new RegExp(`\\b${code}\\b`).test(upper)) return code;
+  }
+  for (const [name, code] of Object.entries(PLANT_STATE_NAME_ALIASES)) {
+    if (upper.includes(name)) return code;
+  }
+  return null;
+}
+
+function resolveProjectState(
+  project: Pick<DbProject, "state" | "location"> | null | undefined
+): PlantProjectState | null {
+  if (!project) return null;
+  return normalizePlantProjectState(project.state) ?? extractStateFromLocation(project.location);
+}
+
+function isPlantStateFilter(value: string): value is PlantStateFilter {
+  return (
+    value === "ALL" ||
+    value === "UNASSIGNED" ||
+    (PLANT_PROJECT_STATE_OPTIONS as readonly string[]).includes(value)
   );
 }
 
@@ -176,6 +237,8 @@ export default function PlantAdminPanel({
   const [showAddPlant, setShowAddPlant] = useState(initialShowAdd);
   const [qrPlant, setQrPlant] = useState<PlantAsset | null>(null);
   const [showQrSheet, setShowQrSheet] = useState(false);
+  const [qrSheetSnapshot, setQrSheetSnapshot] = useState<QrLabelItem[]>([]);
+  const [qrSheetSnapshotHeading, setQrSheetSnapshotHeading] = useState("Plant QR Labels");
   const [defectPlant, setDefectPlant] = useState<PlantAsset | null>(null);
   const [assignPlant, setAssignPlant] = useState<PlantAsset | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<PlantAsset | null>(null);
@@ -183,6 +246,7 @@ export default function PlantAdminPanel({
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [plantList, setPlantList] = useState<PlantAsset[]>(plant);
   const [searchQuery, setSearchQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<PlantStateFilter>("ALL");
   const [listTab, setListTab] = useState<PlantListTab>("active");
   const [archiveTarget, setArchiveTarget] = useState<PlantAsset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PlantAsset | null>(null);
@@ -253,15 +317,47 @@ export default function PlantAdminPanel({
     [plantList]
   );
 
+  const assignedProjectsForPlant = useCallback(
+    (item: PlantAsset) => {
+      const assignedIds = getPlantAssignedProjectIds(
+        item,
+        plantProjectMap.get(item.id) ?? []
+      );
+      const matched = projects.filter((project) => assignedIds.includes(project.id));
+      if (matched.length > 0) return matched;
+      const fallbackId = item.assigned_project_id?.trim();
+      if (!fallbackId) return [];
+      const fallback = projects.find(
+        (project) => project.id === fallbackId || project.slug === fallbackId
+      );
+      return fallback ? [fallback] : [];
+    },
+    [plantProjectMap, projects]
+  );
+
+  const plantMatchesStateFilter = useCallback(
+    (item: PlantAsset) => {
+      if (stateFilter === "ALL") return true;
+      const assignedProjects = assignedProjectsForPlant(item);
+      if (stateFilter === "UNASSIGNED") return assignedProjects.length === 0;
+      if (assignedProjects.length === 0) return false;
+      return assignedProjects.some(
+        (project) => resolveProjectState(project) === stateFilter
+      );
+    },
+    [assignedProjectsForPlant, stateFilter]
+  );
+
   const filteredPlantList = useMemo(() => {
     const byTab = plantList.filter((item) =>
       listTab === "archived" ? isPlantArchived(item) : !isPlantArchived(item)
     );
-    if (!searchQuery.trim()) return byTab;
+    const byState = byTab.filter((item) => plantMatchesStateFilter(item));
+    if (!searchQuery.trim()) return byState;
 
     const q = searchQuery.toLowerCase().trim();
 
-    return byTab.filter((item) => {
+    return byState.filter((item) => {
       const plantNum = (item.plant_number || item.unit_number || "").toLowerCase();
       const name = (item.name || "").toLowerCase();
       const make = (item.make || "").toLowerCase();
@@ -282,20 +378,21 @@ export default function PlantAdminPanel({
         category.includes(q)
       );
     });
-  }, [plantList, searchQuery, listTab]);
+  }, [plantList, searchQuery, listTab, plantMatchesStateFilter]);
 
   const qrSheetItems = useMemo(
     () =>
       filteredPlantList
         .filter((item) => !isPlantArchived(item))
         .map((item) => {
-          const assignedIds = getPlantAssignedProjectIds(
-            item,
-            plantProjectMap.get(item.id) ?? []
-          );
+          const assignedProjects = assignedProjectsForPlant(item);
           const project =
-            projects.find((row) => assignedIds.includes(row.id)) ??
-            projects.find((row) => row.id === item.assigned_project_id) ??
+            (stateFilter !== "ALL" && stateFilter !== "UNASSIGNED"
+              ? assignedProjects.find(
+                  (row) => resolveProjectState(row) === stateFilter
+                )
+              : null) ??
+            assignedProjects[0] ??
             null;
           return {
             id: item.id,
@@ -313,11 +410,18 @@ export default function PlantAdminPanel({
               resolvePlantAssignedProjectName(item) !== "Unassigned"
                 ? resolvePlantAssignedProjectName(item)
                 : project?.name ?? null,
-            state: project?.state ?? null,
+            state: resolveProjectState(project),
           };
         }),
-    [filteredPlantList, plantProjectMap, projects]
+    [assignedProjectsForPlant, filteredPlantList, stateFilter]
   );
+
+  const qrSheetHeading =
+    stateFilter === "ALL"
+      ? "Plant QR Labels"
+      : stateFilter === "UNASSIGNED"
+        ? "Unassigned Plant QR Labels"
+        : `${stateFilter} Plant QR Labels`;
 
   const handleArchive = async (reason: string) => {
     if (!archiveTarget) return;
@@ -406,7 +510,11 @@ export default function PlantAdminPanel({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowQrSheet(true)}
+            onClick={() => {
+              setQrSheetSnapshot(qrSheetItems);
+              setQrSheetSnapshotHeading(qrSheetHeading);
+              setShowQrSheet(true);
+            }}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-700"
           >
             <Printer className="h-5 w-5" /> Print QR Labels (2 per page)
@@ -421,29 +529,48 @@ export default function PlantAdminPanel({
         </div>
       </div>
 
-      <div className="relative mb-6">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by Unit #, Name, Make, Model, Serial #, or Category..."
-          className={cn(inputClass, "w-full py-2.5 pl-10", searchQuery ? "pr-10" : "pr-4")}
-          aria-label="Search plant assets"
-        />
-        {searchQuery ? (
-          <button
-            type="button"
-            onClick={() => setSearchQuery("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Clear search"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by Unit #, Name, Make, Model, Serial #, or Category..."
+            className={cn(inputClass, "w-full py-2.5 pl-10", searchQuery ? "pr-10" : "pr-4")}
+            aria-label="Search plant assets"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <select
+          value={stateFilter}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (isPlantStateFilter(next)) setStateFilter(next);
+          }}
+          className={cn(inputClass, "w-full sm:max-w-[180px]")}
+          aria-label="Filter plant by project state"
+        >
+          <option value="ALL">All States</option>
+          <option value="UNASSIGNED">Unassigned</option>
+          {PLANT_PROJECT_STATE_OPTIONS.map((state) => (
+            <option key={state} value={state}>
+              {state}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -533,7 +660,12 @@ export default function PlantAdminPanel({
                   {assignedProjects.length > 0 ? (
                     <p className="mt-2 text-xs text-slate-500">
                       Assigned:{" "}
-                      {assignedProjects.map((project) => project.name).join(", ")}
+                      {assignedProjects
+                        .map((project) => {
+                          const state = resolveProjectState(project);
+                          return state ? `${project.name} (${state})` : project.name;
+                        })
+                        .join(", ")}
                     </p>
                   ) : (
                     <p className="mt-2 text-xs text-slate-500">
@@ -639,7 +771,12 @@ export default function PlantAdminPanel({
         {filteredPlantList.length === 0 && !loading && searchQuery.trim() ? (
           <div className={`py-10 text-center ${cardClass}`}>
             <p className="text-sm text-slate-600">
-              No plant assets match &quot;{searchQuery.trim()}&quot;.
+              No plant assets match &quot;{searchQuery.trim()}&quot;
+              {stateFilter === "ALL"
+                ? "."
+                : stateFilter === "UNASSIGNED"
+                  ? " in unassigned plant."
+                  : ` in ${stateFilter}.`}
             </p>
             <button
               type="button"
@@ -663,9 +800,13 @@ export default function PlantAdminPanel({
         !loading &&
         !searchQuery.trim() ? (
           <p className="py-8 text-center text-slate-500">
-            {listTab === "archived"
-              ? "No archived plant assets."
-              : "No active plant assets."}
+            {stateFilter === "UNASSIGNED"
+              ? "No unassigned plant assets."
+              : stateFilter !== "ALL"
+                ? `No plant assigned to ${stateFilter} projects.`
+                : listTab === "archived"
+                  ? "No archived plant assets."
+                  : "No active plant assets."}
           </p>
         ) : null}
       </div>
@@ -676,8 +817,8 @@ export default function PlantAdminPanel({
 
       {showQrSheet ? (
         <QrLabelSheet
-          heading="Plant QR Labels"
-          items={qrSheetItems}
+          heading={qrSheetSnapshotHeading}
+          items={qrSheetSnapshot}
           onClose={() => setShowQrSheet(false)}
         />
       ) : null}
