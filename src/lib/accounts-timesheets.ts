@@ -8,6 +8,13 @@ import {
   type LeaveRequestStatus,
 } from "./supabase";
 import { handleSupabaseNetworkFetchError } from "./project-resolver";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
 import { mapTimesheetRow } from "./timesheet-entries";
 import {
   formatTimesheetHours,
@@ -401,12 +408,28 @@ export function filterAccountsTimesheets(
 export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+
   try {
-    const { data: timesheetData, error: timesheetError } = await supabase
-      .from("worker_timesheets")
-      .select("*")
+    let query = supabase.from("worker_timesheets").select("*");
+    query = withOrganisationScope(query, orgId);
+    let { data: timesheetData, error: timesheetError } = await query
       .order("work_date", { ascending: false })
       .order("created_at", { ascending: false });
+
+    if (timesheetError && isDemoOrganisationScopeBlocked(timesheetError.message, orgId)) {
+      return [];
+    }
+
+    if (timesheetError && isOrganisationColumnMissing(timesheetError.message)) {
+      const retry = await supabase
+        .from("worker_timesheets")
+        .select("*")
+        .order("work_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      timesheetData = retry.data;
+      timesheetError = retry.error;
+    }
 
     if (timesheetError) {
       if (handleSupabaseNetworkFetchError(timesheetError, "fetch accounts timesheets")) {
@@ -418,7 +441,7 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
       return [];
     }
 
-    const timesheets = (timesheetData ?? []).map((row) =>
+    const timesheets = filterRowsByOrganisation(timesheetData ?? [], orgId).map((row) =>
       mapTimesheetRow(row as Record<string, unknown>)
     );
     if (timesheets.length === 0) return [];

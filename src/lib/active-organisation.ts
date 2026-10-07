@@ -31,6 +31,22 @@ export function getActiveOrganisationId(): string | null {
   }
 }
 
+const organisationCacheClearers: Array<() => void> = [];
+
+export function onActiveOrganisationChange(clearCache: () => void): void {
+  organisationCacheClearers.push(clearCache);
+}
+
+function notifyActiveOrganisationChanged(): void {
+  for (const clearCache of organisationCacheClearers) {
+    try {
+      clearCache();
+    } catch {
+      // Cache clearers must not block workspace switching.
+    }
+  }
+}
+
 export function setActiveOrganisationId(id: string): void {
   const trimmed = id.trim();
   if (!trimmed) return;
@@ -45,6 +61,8 @@ export function setActiveOrganisationId(id: string): void {
   } catch {
     // WebView storage can be unavailable; cookie still carries the workspace.
   }
+
+  notifyActiveOrganisationChanged();
 }
 
 export function clearActiveOrganisationId(): void {
@@ -57,4 +75,5 @@ export function clearActiveOrganisationId(): void {
   } catch {
     // Ignore storage failures.
   }
+  notifyActiveOrganisationChanged();
 }

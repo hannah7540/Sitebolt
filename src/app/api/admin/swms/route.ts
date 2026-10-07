@@ -10,12 +10,14 @@ import {
   fetchSwmsListAdmin,
   updateSwmsDocumentAdmin,
 } from "@/lib/swms-admin-mutations";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export async function GET() {
   const access = await requireSwmsAdminAccess();
   if (!access.ok) return access.response;
 
-  const { swms, error } = await fetchSwmsListAdmin(access.admin);
+  const orgId = await resolveActiveOrganisationIdFromCookies();
+  const { swms, error } = await fetchSwmsListAdmin(access.admin, orgId);
   if (error) {
     return NextResponse.json({ error }, { status: 400 });
   }

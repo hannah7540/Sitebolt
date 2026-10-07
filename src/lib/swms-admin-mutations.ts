@@ -12,6 +12,10 @@ import {
 } from "@/lib/supabase";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import {
+  filterRowsByOrganisationStrict,
+  resolveActiveOrganisationId,
+} from "@/lib/tenant-scope";
 
 type SwmsTable = "swms_documents" | "swms";
 
@@ -181,7 +185,8 @@ function mapSwmsRow(row: Record<string, unknown>): AdminSwmsSummary {
 }
 
 export async function fetchSwmsListAdmin(
-  admin: SupabaseClient
+  admin: SupabaseClient,
+  orgId: string = resolveActiveOrganisationId()
 ): Promise<{ swms: AdminSwmsSummary[]; error: string | null }> {
   const byId = new Map<string, AdminSwmsSummary>();
 
@@ -195,8 +200,11 @@ export async function fetchSwmsListAdmin(
       return { swms: [], error: error.message };
     }
 
-    for (const row of data ?? []) {
-      const mapped = mapSwmsRow(row as Record<string, unknown>);
+    for (const row of filterRowsByOrganisationStrict(
+      (data ?? []) as Record<string, unknown>[],
+      orgId
+    )) {
+      const mapped = mapSwmsRow(row);
       if (mapped.id) byId.set(mapped.id, mapped);
     }
   }

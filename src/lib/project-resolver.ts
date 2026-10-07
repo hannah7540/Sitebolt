@@ -1,6 +1,13 @@
 import { supabase } from "./supabase";
 import { sanitizeWritePayload } from "./form-payload-utils";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
+import { onActiveOrganisationChange } from "./active-organisation";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
 
 /** Normalized project row used by the app. */
 export interface DbProject {
@@ -39,6 +46,7 @@ type RawProjectRow = {
   is_archived?: boolean | string | null;
   status?: string | null;
   state?: string | null;
+  organisation_id?: string | null;
 };
 
 const UUID_RE =
@@ -274,16 +282,47 @@ const PROJECT_SELECT_VARIANTS = [
   "id, project_name, slug, is_archived, status",
 ] as const;
 
+function getProjectsCacheForActiveOrg(): DbProject[] | null {
+  const orgId = resolveActiveOrganisationId();
+  if (projectsCache && projectsCacheOrgId === orgId) return projectsCache;
+  return null;
+}
+
+export function clearProjectsCache(): void {
+  projectsCache = null;
+  projectsCacheOrgId = null;
+}
+
 async function queryAllProjects(): Promise<DbProject[]> {
+  const orgId = resolveActiveOrganisationId();
+  let skipOrganisationScope = false;
+
   try {
     for (const select of PROJECT_SELECT_VARIANTS) {
-      const { data, error } = await supabase
-        .from("projects")
-        .select(select)
-        .order("project_name", { ascending: true, nullsFirst: false });
+      let query = supabase.from("projects").select(select);
+      if (!skipOrganisationScope) {
+        query = withOrganisationScope(query, orgId);
+      }
+      const { data, error } = await query.order("project_name", {
+        ascending: true,
+        nullsFirst: false,
+      });
 
       if (!error) {
-        return ((data ?? []) as unknown as RawProjectRow[]).map(normalizeProject);
+        const rows = filterRowsByOrganisation(
+          (data ?? []) as unknown as RawProjectRow[],
+          orgId
+        );
+        return rows.map(normalizeProject);
+      }
+
+      if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
+
+      if (isOrganisationColumnMissingForProjects(error.message) && !skipOrganisationScope) {
+        skipOrganisationScope = true;
+        continue;
       }
 
       if (isMissingColumnError(error.message)) {
@@ -291,21 +330,26 @@ async function queryAllProjects(): Promise<DbProject[]> {
       }
 
       if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
-        return projectsCache ?? [];
+        return getProjectsCacheForActiveOrg() ?? [];
       }
 
       console.error("Failed to fetch projects:", error.message);
       break;
     }
 
-    return projectsCache ?? [];
+    return getProjectsCacheForActiveOrg() ?? [];
   } catch (error) {
     if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
-      return projectsCache ?? [];
+      return getProjectsCacheForActiveOrg() ?? [];
     }
     console.error("Failed to fetch projects:", error);
-    return projectsCache ?? [];
+    return getProjectsCacheForActiveOrg() ?? [];
   }
+}
+
+function isOrganisationColumnMissingForProjects(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("organisation_id") || lower.includes("organization_id");
 }
 
 export function isProjectUuid(value: string): boolean {
@@ -318,26 +362,32 @@ export function isProjectSlug(value: string): boolean {
 }
 
 let projectsCache: DbProject[] | null = null;
+let projectsCacheOrgId: string | null = null;
+
+onActiveOrganisationChange(clearProjectsCache);
 
 export function getCachedProjects(): DbProject[] {
-  return projectsCache ?? [];
+  return getProjectsCacheForActiveOrg() ?? [];
 }
 
 export function setProjectsCache(projects: DbProject[]): void {
   projectsCache = projects;
+  projectsCacheOrgId = resolveActiveOrganisationId();
 }
 
 export async function fetchProjects(): Promise<DbProject[]> {
+  const orgId = resolveActiveOrganisationId();
   try {
     const projects = filterActiveProjects(await queryAllProjects());
     projectsCache = projects;
+    projectsCacheOrgId = orgId;
     return projects;
   } catch (error) {
     if (handleSupabaseNetworkFetchError(error, "fetch projects")) {
-      return projectsCache ?? [];
+      return getProjectsCacheForActiveOrg() ?? [];
     }
     console.error("fetchProjects failed:", error);
-    return projectsCache ?? [];
+    return getProjectsCacheForActiveOrg() ?? [];
   }
 }
 
@@ -432,6 +482,13 @@ async function persistProjectWrite(
     return { data: null, error: "Project id is required to update a project." };
   }
 
+  if (mode === "insert") {
+    payload = {
+      ...payload,
+      organisation_id: resolveActiveOrganisationId(),
+    } as ProjectWritePayload;
+  }
+
   const runWrite = (body: Record<string, unknown>, select: string) => {
     if (mode === "update") {
       return supabase
@@ -448,6 +505,7 @@ async function persistProjectWrite(
 
   if (error && isMissingColumnError(error.message)) {
     const optionalKeys = [
+      "organisation_id",
       "project_managers",
       "project_administrators",
       "project_admins",

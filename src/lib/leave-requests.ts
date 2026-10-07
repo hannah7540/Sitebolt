@@ -10,6 +10,13 @@ import {
 } from "./supabase-errors";
 import { fetchWorkerProfileDisplayName } from "./worker-profile-lookup";
 import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
+import {
   nullIfBlank,
   parseMissingColumnFromError,
   sanitizeWritePayload,
@@ -640,7 +647,10 @@ export async function fetchLeaveRequestsNormalized(options?: {
 }): Promise<LeaveRequest[]> {
   if (!isSupabaseConfigured()) return [];
 
-  let query = supabase.from(LEAVE_REQUESTS_TABLE).select("*").order("created_at", {
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(LEAVE_REQUESTS_TABLE).select("*");
+  query = withOrganisationScope(query, orgId);
+  query = query.order("created_at", {
     ascending: false,
   });
 
@@ -654,7 +664,28 @@ export async function fetchLeaveRequestsNormalized(options?: {
     query = query.eq("project_id", options.projectId);
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return [];
+  }
+  if (error && isOrganisationColumnMissing(error.message)) {
+    let retry = supabase.from(LEAVE_REQUESTS_TABLE).select("*").order("created_at", {
+      ascending: false,
+    });
+    if (options?.workerId) {
+      retry = retry.eq("worker_id", options.workerId);
+    }
+    if (options?.status) {
+      retry = retry.eq("status", options.status);
+    }
+    if (options?.projectId) {
+      retry = retry.eq("project_id", options.projectId);
+    }
+    const retried = await retry;
+    data = retried.data;
+    error = retried.error;
+  }
 
   if (error) {
     if (!error.message.toLowerCase().includes("leave_requests")) {
@@ -663,7 +694,7 @@ export async function fetchLeaveRequestsNormalized(options?: {
     return [];
   }
 
-  return (data ?? []).map((row) =>
+  return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
     normalizeLeaveRequestRow(row as Record<string, unknown>)
   );
 }

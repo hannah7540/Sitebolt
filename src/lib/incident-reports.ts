@@ -12,6 +12,13 @@ import {
 } from "@/lib/form-payload-utils";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { fetchUserProfile, fetchWorkerIdForAuthUser } from "@/lib/auth-profile";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "@/lib/tenant-scope";
 
 export const INCIDENT_REPORTS_TABLE = "incident_reports";
 
@@ -679,9 +686,10 @@ export async function fetchIncidentReports(options?: {
     return { reports: [], error: "Supabase is not configured." };
   }
 
-  let query = fromIncidentReports(supabase)
-    .select("*")
-    .order("created_at", { ascending: false });
+  const orgId = resolveActiveOrganisationId();
+  let query = fromIncidentReports(supabase).select("*");
+  query = withOrganisationScope(query, orgId);
+  query = query.order("created_at", { ascending: false });
 
   if (options?.status && options.status !== "all") {
     query = query.eq("status", options.status);
@@ -690,13 +698,33 @@ export async function fetchIncidentReports(options?: {
     query = query.eq("is_read_admin", false);
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { reports: [], error: null };
+  }
+  if (error && isOrganisationColumnMissing(error.message)) {
+    let retry = fromIncidentReports(supabase)
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (options?.status && options.status !== "all") {
+      retry = retry.eq("status", options.status);
+    }
+    if (options?.unreadOnly) {
+      retry = retry.eq("is_read_admin", false);
+    }
+    const retried = await retry;
+    data = retried.data;
+    error = retried.error;
+  }
   if (error) {
     logIncidentSupabaseError("fetch incident_reports failed", error);
     return { reports: [], error: formatIncidentTableError(error) };
   }
 
-  const reports = ((data ?? []) as Record<string, unknown>[]).map(normalizeIncidentReport);
+  const reports = filterRowsByOrganisation(
+    (data ?? []) as Record<string, unknown>[],
+    orgId
+  ).map(normalizeIncidentReport);
   return { reports, error: null };
 }
 

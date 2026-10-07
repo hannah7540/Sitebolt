@@ -18,6 +18,13 @@ import {
 } from "@/lib/itp-itc-payload";
 import { fetchProjectItcs } from "@/lib/itc-service";
 import { fetchProjectItps } from "@/lib/itp-service";
+import { fetchAllProjectsAdmin } from "@/lib/project-resolver";
+import {
+  filterRowsByOrganisationStrict,
+  getRecordOrganisationId,
+  isAPlusOrganisationId,
+  resolveActiveOrganisationId,
+} from "@/lib/tenant-scope";
 import { downscaleImage, captureGps } from "@/lib/api/itc";
 import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
 import {
@@ -439,30 +446,49 @@ async function queryItcTable(
   return data.map((row) => mapItcRow(row as Record<string, unknown>));
 }
 
+async function filterItpItcRowsForActiveOrg<T extends { project_id?: string | null }>(
+  rows: T[]
+): Promise<T[]> {
+  const orgId = resolveActiveOrganisationId();
+  const projects = await fetchAllProjectsAdmin();
+  const allowedProjects = new Set(projects.map((project) => project.id));
+  return rows.filter((row) => {
+    const orgValue = getRecordOrganisationId(row);
+    if (orgValue !== undefined) {
+      return filterRowsByOrganisationStrict([row], orgId).length > 0;
+    }
+    if (row.project_id) return allowedProjects.has(row.project_id);
+    return isAPlusOrganisationId(orgId);
+  });
+}
+
 export async function listAdminItps(projectId?: string | null): Promise<AdminItpRecord[]> {
   if (!isSupabaseConfigured()) return [];
   let query = supabase.from(PROJECT_ITPS_TABLE).select("*");
   if (projectId) query = query.eq("project_id", projectId);
   const { data, error } = await query.order("created_at", { ascending: false });
   if (!error && data?.length) {
-    return data.map((row) => mapItpRow(row as Record<string, unknown>));
+    const mapped = data.map((row) => mapItpRow(row as Record<string, unknown>));
+    return filterItpItcRowsForActiveOrg(mapped);
   }
   if (projectId) {
     const rows = await fetchProjectItps(projectId);
-    return rows.map((row) =>
-      mapItpRow({
-        id: row.id,
-        project_id: row.project_id,
-        itp_number: row.itp_number,
-        title: row.title,
-        location_area: row.location_area,
-        subcontractor_name: row.subcontractor_name,
-        status: row.status,
-        template_key: row.template_key,
-        revision: row.revision,
-        created_at: row.created_at,
-        form_data: {},
-      })
+    return filterItpItcRowsForActiveOrg(
+      rows.map((row) =>
+        mapItpRow({
+          id: row.id,
+          project_id: row.project_id,
+          itp_number: row.itp_number,
+          title: row.title,
+          location_area: row.location_area,
+          subcontractor_name: row.subcontractor_name,
+          status: row.status,
+          template_key: row.template_key,
+          revision: row.revision,
+          created_at: row.created_at,
+          form_data: {},
+        })
+      )
     );
   }
   return [];
@@ -476,27 +502,37 @@ export async function listAdminItcs(projectId?: string | null): Promise<AdminItc
   ]);
   if (prototype.length === 0 && project.length === 0 && projectId) {
     const rows = await fetchProjectItcs(projectId);
-    return rows.map((row) => mapItcRow(row as unknown as Record<string, unknown>));
+    return filterItpItcRowsForActiveOrg(
+      rows.map((row) => mapItcRow(row as unknown as Record<string, unknown>))
+    );
   }
   const byId = new Map<string, AdminItcRecord>();
   for (const row of [...project, ...prototype]) {
     if (row.id) byId.set(row.id, row);
   }
-  return [...byId.values()].sort((a, b) =>
-    String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+  return filterItpItcRowsForActiveOrg(
+    [...byId.values()].sort((a, b) =>
+      String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+    )
   );
 }
 
 export async function getAdminItp(id: string): Promise<AdminItpRecord | null> {
   const { data, error } = await supabase.from(PROJECT_ITPS_TABLE).select("*").eq("id", id).maybeSingle();
   if (error || !data) return null;
-  return mapItpRow(data as Record<string, unknown>);
+  const mapped = mapItpRow(data as Record<string, unknown>);
+  const allowed = await filterItpItcRowsForActiveOrg([mapped]);
+  return allowed[0] ?? null;
 }
 
 export async function getAdminItc(id: string): Promise<AdminItcRecord | null> {
   for (const table of [PROJECT_ITCS_TABLE, "itcs"]) {
     const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle();
-    if (!error && data) return mapItcRow(data as Record<string, unknown>);
+    if (!error && data) {
+      const mapped = mapItcRow(data as Record<string, unknown>);
+      const allowed = await filterItpItcRowsForActiveOrg([mapped]);
+      return allowed[0] ?? null;
+    }
   }
   return null;
 }

@@ -1,5 +1,11 @@
 import { isSupabaseConfigured, supabase } from "./supabase";
 import { ORGANISATION_SELECT_FIELDS, resolveOrganisationLogo } from "@/lib/organisation-api";
+import { DEMO_ORGANISATION_NAME } from "@/lib/active-organisation";
+import {
+  isAPlusOrganisationId,
+  isDemoOrganisationId,
+  resolveActiveOrganisationId,
+} from "@/lib/tenant-scope";
 
 export type CompanyProfileSource = "company_profile" | "organisations";
 
@@ -148,6 +154,21 @@ async function resolveExistingProfileTarget(): Promise<{
   table: ProfileTable;
   id: string;
 } | null> {
+  const orgId = resolveActiveOrganisationId();
+  const primaryByActiveId = await fetchRawProfileRowById("company_profile", orgId);
+  if (primaryByActiveId?.id) {
+    return { table: "company_profile", id: String(primaryByActiveId.id) };
+  }
+
+  const fallbackByActiveId = await fetchRawProfileRowById("organisations", orgId);
+  if (fallbackByActiveId?.id) {
+    return { table: "organisations", id: String(fallbackByActiveId.id) };
+  }
+
+  if (!isAPlusOrganisationId(orgId)) {
+    return null;
+  }
+
   const primaryByDefaultId = await fetchRawProfileRowById(
     "company_profile",
     DEFAULT_COMPANY_PROFILE_ID
@@ -196,10 +217,11 @@ function buildProfilePayload(input: CompanyProfileInput): Record<string, unknown
 export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null> {
   if (!isSupabaseConfigured()) return null;
 
+  const orgId = resolveActiveOrganisationId();
   const { data: orgRow, error: orgError } = await supabase
     .from("organisations")
     .select(ORGANISATION_SELECT_FIELDS)
-    .limit(1)
+    .eq("id", orgId)
     .maybeSingle();
 
   if (!orgError && orgRow?.id) {
@@ -220,6 +242,33 @@ export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null>
       updated_at: mapped.updated_at,
       source: "organisations",
     };
+  }
+
+  const profileByActiveId = await fetchRawProfileRowById("company_profile", orgId);
+  if (profileByActiveId?.id) {
+    return normalizeProfileRow(profileByActiveId, "company_profile");
+  }
+
+  if (isDemoOrganisationId(orgId)) {
+    return {
+      id: orgId,
+      company_name: DEMO_ORGANISATION_NAME,
+      trading_name: null,
+      abn: null,
+      acn: null,
+      phone: null,
+      email: null,
+      address: null,
+      suburb: null,
+      state: null,
+      postcode: null,
+      logo_url: null,
+      source: "organisations",
+    };
+  }
+
+  if (!isAPlusOrganisationId(orgId)) {
+    return null;
   }
 
   const primaryByDefaultId = await fetchRawProfileRowById(

@@ -15,6 +15,14 @@ import {
 } from "./supabase-errors";
 import { isWorkerDeleted, type Worker } from "./supabase";
 import { getWorkerDisplayName } from "./worker-utils";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  recordMatchesActiveOrganisation,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
 
 const FLEET_TABLE = "organization_fleet";
 
@@ -300,13 +308,21 @@ function buildFleetPayload(input: FleetVehicleInput): Record<string, unknown> {
 async function fetchFleetVehicleById(
   id: string
 ): Promise<OrganizationFleetVehicle | null> {
-  const { data, error } = await supabase
-    .from(FLEET_TABLE)
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(FLEET_TABLE).select("*").eq("id", id);
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query.maybeSingle();
 
-  if (error || !data) return null;
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return null;
+  }
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase.from(FLEET_TABLE).select("*").eq("id", id).maybeSingle();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error || !data || !recordMatchesActiveOrganisation(data, orgId)) return null;
   return normalizeFleetRow(data as Record<string, unknown>);
 }
 
@@ -385,10 +401,23 @@ export async function fetchOrganizationFleetById(
 export async function fetchOrganizationFleet(): Promise<OrganizationFleetVehicle[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from(FLEET_TABLE)
-    .select("*")
-    .order("unit_number", { ascending: true });
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(FLEET_TABLE).select("*");
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query.order("unit_number", { ascending: true });
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return [];
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from(FLEET_TABLE)
+      .select("*")
+      .order("unit_number", { ascending: true });
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (
@@ -400,7 +429,9 @@ export async function fetchOrganizationFleet(): Promise<OrganizationFleetVehicle
     return [];
   }
 
-  return (data ?? []).map((row) => normalizeFleetRow(row as Record<string, unknown>));
+  return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+    normalizeFleetRow(row as Record<string, unknown>)
+  );
 }
 
 export async function insertOrganizationFleetVehicle(

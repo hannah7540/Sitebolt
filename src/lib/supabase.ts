@@ -27,6 +27,14 @@ import {
   normalizeWorkerUuidArray,
   handleSupabaseNetworkFetchError,
 } from "./project-resolver";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  recordMatchesActiveOrganisation,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
 import {
   asPrestartTemplate,
@@ -161,6 +169,7 @@ export interface Worker {
 
 const WORKER_SELECT_COLUMNS = [
   "id",
+  "organisation_id",
   "first_name",
   "last_name",
   "full_name",
@@ -468,12 +477,24 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
   };
 }
 
+function finalizeWorkerRows(
+  rows: RawWorkerRow[],
+  orgId: string,
+  options?: { onlyDeleted?: boolean; skipDeletedFilter?: boolean }
+): Worker[] {
+  const workers = filterRowsByOrganisation(rows, orgId).map(normalizeWorkerRow);
+  if (options?.onlyDeleted) return workers.filter(isWorkerDeleted);
+  if (!options?.skipDeletedFilter) return workers.filter((worker) => !isWorkerDeleted(worker));
+  return workers;
+}
+
 async function queryWorkerRows(options?: {
   id?: string;
   limit?: number;
   includeDeleted?: boolean;
   onlyDeleted?: boolean;
 }): Promise<Worker[]> {
+  const orgId = resolveActiveOrganisationId();
   let columns =
     cachedWorkerSelectColumns ??
     loadCachedWorkerColumnsFromStorage() ??
@@ -482,6 +503,7 @@ async function queryWorkerRows(options?: {
     options?.id || options?.includeDeleted || options?.onlyDeleted
   );
   const onlyDeleted = options?.onlyDeleted === true;
+  let skipOrganisationScope = false;
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const select = columns.join(", ");
@@ -489,15 +511,28 @@ async function queryWorkerRows(options?: {
     for (const orderColumn of WORKER_ORDER_COLUMNS) {
       try {
         if (options?.id) {
-          const { data, error } = await supabase
-            .from("workers")
-            .select(select)
-            .eq("id", options.id)
-            .maybeSingle();
+          let query = supabase.from("workers").select(select).eq("id", options.id);
+          if (!skipOrganisationScope) {
+            query = withOrganisationScope(query, orgId);
+          }
+          const { data, error } = await query.maybeSingle();
 
           if (!error) {
             saveCachedWorkerColumnsToStorage(columns);
-            return data ? [normalizeWorkerRow(data as unknown as RawWorkerRow)] : [];
+            const rows = data ? [data as unknown as RawWorkerRow] : [];
+            return finalizeWorkerRows(rows, orgId, {
+              onlyDeleted,
+              skipDeletedFilter: true,
+            });
+          }
+
+          if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+            return [];
+          }
+
+          if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
+            skipOrganisationScope = true;
+            continue;
           }
 
           const missingColumn = parseMissingColumnFromError(error.message);
@@ -520,6 +555,9 @@ async function queryWorkerRows(options?: {
         }
 
         let query = supabase.from("workers").select(select);
+        if (!skipOrganisationScope) {
+          query = withOrganisationScope(query, orgId);
+        }
         if (onlyDeleted && columns.includes("deleted_at")) {
           query = query.or("deleted_at.not.is.null,status.eq.deleted");
         } else if (onlyDeleted) {
@@ -541,12 +579,20 @@ async function queryWorkerRows(options?: {
 
         if (!error) {
           saveCachedWorkerColumnsToStorage(columns);
-          const workers = ((data ?? []) as unknown as RawWorkerRow[]).map(
-            normalizeWorkerRow
+          return finalizeWorkerRows(
+            (data ?? []) as unknown as RawWorkerRow[],
+            orgId,
+            { onlyDeleted, skipDeletedFilter }
           );
-          if (onlyDeleted) return workers.filter(isWorkerDeleted);
-          if (!skipDeletedFilter) return workers.filter((worker) => !isWorkerDeleted(worker));
-          return workers;
+        }
+
+        if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+          return [];
+        }
+
+        if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
+          skipOrganisationScope = true;
+          continue;
         }
 
         const missingColumn = parseMissingColumnFromError(error.message);
@@ -1560,9 +1606,15 @@ export async function fetchAllWorkers(options?: {
   const onlyDeleted = options?.onlyDeleted === true;
   const includeDeleted = onlyDeleted || options?.includeDeleted === true;
 
+  const orgId = resolveActiveOrganisationId();
+  let skipOrganisationScope = false;
+
   try {
     for (const orderColumn of WORKER_ORDER_COLUMNS) {
       let query = supabase.from("workers").select("*");
+      if (!skipOrganisationScope) {
+        query = withOrganisationScope(query, orgId);
+      }
       if (onlyDeleted) {
         query = query.or("deleted_at.not.is.null,status.eq.deleted");
       } else if (!includeDeleted) {
@@ -1575,7 +1627,10 @@ export async function fetchAllWorkers(options?: {
       const { data, error } = await query;
 
       if (!error) {
-        const workers = ((data ?? []) as unknown as RawWorkerRow[])
+        const workers = filterRowsByOrganisation(
+          (data ?? []) as unknown as RawWorkerRow[],
+          orgId
+        )
           .map(normalizeWorkerRow)
           .filter((worker) =>
             onlyDeleted
@@ -1583,6 +1638,15 @@ export async function fetchAllWorkers(options?: {
               : includeDeleted || !isWorkerDeleted(worker)
           );
         return { workers, error: null };
+      }
+
+      if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return { workers: [], error: null };
+      }
+
+      if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
+        skipOrganisationScope = true;
+        continue;
       }
 
       const missingDeletedAt =
@@ -1642,13 +1706,33 @@ export async function fetchPastEmployees(): Promise<{
 export async function fetchPlantList(): Promise<PlantAsset[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+
   try {
-    const { data, error } = await supabase
-      .from(MASTER_PLANT_TABLE)
-      .select("*")
-      .order("unit_number");
+    let query = supabase.from(MASTER_PLANT_TABLE).select("*");
+    query = withOrganisationScope(query, orgId);
+    const { data, error } = await query.order("unit_number");
 
     if (error) {
+      if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
+      if (isOrganisationColumnMissing(error.message)) {
+        const retry = await supabase
+          .from(MASTER_PLANT_TABLE)
+          .select("*")
+          .order("unit_number");
+        if (retry.error) {
+          if (handleSupabaseNetworkFetchError(retry.error, "fetch plant")) {
+            return [];
+          }
+          console.error(`Failed to fetch ${MASTER_PLANT_TABLE}:`, retry.error.message);
+          return [];
+        }
+        return filterRowsByOrganisation(retry.data ?? [], orgId)
+          .map((row) => normalizePlantRecord(row as RawPlantRow))
+          .filter((row) => Boolean(row.id));
+      }
       if (handleSupabaseNetworkFetchError(error, "fetch plant")) {
         return [];
       }
@@ -1656,7 +1740,7 @@ export async function fetchPlantList(): Promise<PlantAsset[]> {
       return [];
     }
 
-    return (data ?? [])
+    return filterRowsByOrganisation(data ?? [], orgId)
       .map((row) => normalizePlantRecord(row as RawPlantRow))
       .filter((row) => Boolean(row.id));
   } catch (error) {
@@ -1676,18 +1760,31 @@ export async function fetchPlantById(id: string): Promise<PlantAsset | null> {
   const { plantId, error: idError } = verifyMasterPlantId(id);
   if (idError) return null;
 
-  const { data, error } = await supabase
-    .from(MASTER_PLANT_TABLE)
-    .select("*")
-    .eq("id", plantId)
-    .maybeSingle();
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(MASTER_PLANT_TABLE).select("*").eq("id", plantId);
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query.maybeSingle();
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return null;
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from(MASTER_PLANT_TABLE)
+      .select("*")
+      .eq("id", plantId)
+      .maybeSingle();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     console.error(`Failed to fetch ${MASTER_PLANT_TABLE}:`, error.message);
     return null;
   }
 
-  if (!data) return null;
+  if (!data || !recordMatchesActiveOrganisation(data, orgId)) return null;
   return normalizePlantRecord(data as RawPlantRow);
 }
 
@@ -3007,11 +3104,15 @@ export async function fetchWorkerTimesheets(
 ): Promise<WorkerTimesheet[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+
   try {
     let query = supabase
       .from("worker_timesheets")
       .select("*")
-      .eq("worker_id", workerId)
+      .eq("worker_id", workerId);
+    query = withOrganisationScope(query, orgId);
+    query = query
       .order("work_date", { ascending: false })
       .order("created_at", { ascending: false });
 
@@ -3025,7 +3126,23 @@ export async function fetchWorkerTimesheets(
       query = query.limit(options.limit);
     }
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = supabase
+        .from("worker_timesheets")
+        .select("*")
+        .eq("worker_id", workerId)
+        .order("work_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      const retried = await retry;
+      data = retried.data;
+      error = retried.error;
+    }
 
     if (error) {
       if (handleSupabaseNetworkFetchError(error, "fetch worker timesheets")) {
@@ -3037,7 +3154,7 @@ export async function fetchWorkerTimesheets(
       return [];
     }
 
-    return (data ?? []).map((row) => {
+    return filterRowsByOrganisation(data ?? [], orgId).map((row) => {
       const timesheet = row as WorkerTimesheet;
       return {
         ...timesheet,
@@ -3511,6 +3628,9 @@ export async function fetchSiteForms(options?: {
 }): Promise<import("./site-forms").SiteFormSubmission[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+  let skipOrganisationScope = false;
+
   const scopeValues = options?.projectId
     ? await resolveProjectScopeValues(options.projectId)
     : [];
@@ -3543,6 +3663,9 @@ export async function fetchSiteForms(options?: {
           .select("*")
           .order(orderColumn, { ascending: false })
       );
+      if (!skipOrganisationScope) {
+        query = withOrganisationScope(query, orgId);
+      }
 
       if (scopeValues.length > 0) {
         const scopeFilter = buildProjectScopeOrFilter(scopeValues, [
@@ -3572,6 +3695,9 @@ export async function fetchSiteForms(options?: {
             .select("*")
             .order(orderColumn, { ascending: false })
         );
+        if (!skipOrganisationScope) {
+          fallbackQuery = withOrganisationScope(fallbackQuery, orgId);
+        }
         const projectOnlyFilter = buildProjectScopeOrFilter(scopeValues, [
           "project_id",
         ]);
@@ -3588,7 +3714,19 @@ export async function fetchSiteForms(options?: {
       }
 
       if (!error) {
-        return ((data ?? []) as RawSiteFormRow[]).map(normalizeSiteFormRow);
+        return filterRowsByOrganisation(
+          (data ?? []) as RawSiteFormRow[],
+          orgId
+        ).map(normalizeSiteFormRow);
+      }
+
+      if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
+
+      if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
+        skipOrganisationScope = true;
+        continue;
       }
 
       if (isMissingSiteFormColumnError(error.message, orderColumn)) {
@@ -3696,16 +3834,32 @@ export async function fetchPlantPrestarts(options?: {
   }
 
   if (!options?.projectId && !options?.plantIds?.length) {
-    const { data, error } = await applyDateFilters(
-      supabase
-        .from("plant_prestarts")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(queryLimit)
-    );
+    const orgId = resolveActiveOrganisationId();
+    let query = supabase
+      .from("plant_prestarts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(queryLimit);
+    query = withOrganisationScope(query, orgId);
+    const { data, error } = await applyDateFilters(query);
 
     if (!error) {
-      results.push(...((data ?? []) as PlantPrestart[]));
+      results.push(...filterRowsByOrganisation((data ?? []) as PlantPrestart[], orgId));
+    } else if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      // Demo must not see unscoped prestarts.
+    } else if (isOrganisationColumnMissing(error.message)) {
+      const retry = await applyDateFilters(
+        supabase
+          .from("plant_prestarts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(queryLimit)
+      );
+      if (!retry.error) {
+        results.push(
+          ...filterRowsByOrganisation((retry.data ?? []) as PlantPrestart[], orgId)
+        );
+      }
     } else {
       console.error("fetchPlantPrestarts query failed:", error.message);
     }
@@ -3713,12 +3867,13 @@ export async function fetchPlantPrestarts(options?: {
 
   const seen = new Set<string>();
   const workerId = options?.workerId?.trim() || null;
+  const orgId = resolveActiveOrganisationId();
   return results
     .filter((row) => {
       if (seen.has(row.id)) return false;
       seen.add(row.id);
       if (workerId && row.operator_worker_id !== workerId) return false;
-      return true;
+      return recordMatchesActiveOrganisation(row, orgId);
     })
     .sort(
       (a, b) =>
@@ -4390,7 +4545,20 @@ async function fetchSwmsRecordsFromTable(
     return { rows: [], error: null, missingTable: false };
   }
 
-  const { data, error } = await supabase.from(table).select("*");
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(table).select("*");
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query;
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { rows: [], error: null, missingTable: false };
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase.from(table).select("*");
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     const missingTable = isMissingSwmsTableError(error.message, table);
@@ -4402,7 +4570,7 @@ async function fetchSwmsRecordsFromTable(
 
   return {
     rows: sortSwmsDocumentRecords(
-      (data ?? []).map((row) =>
+      filterRowsByOrganisation(data ?? [], orgId).map((row) =>
         normalizeSwmsDocumentRecord(row as RawSwmsDocumentRecord)
       )
     ),

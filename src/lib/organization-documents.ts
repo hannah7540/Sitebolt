@@ -1,5 +1,13 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import {
+  filterRowsByOrganisation,
+  isAPlusOrganisationId,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
+import {
   isSupabaseRelationMissingError,
   isSupabaseSchemaCacheError,
   isSupabaseTableUnavailableError,
@@ -61,17 +69,38 @@ export async function fetchOrganizationDocuments(): Promise<{
     return { data: [], error: "Supabase is not configured." };
   }
 
-  const { data, error } = await supabase
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase
     .from(DOCUMENTS_TABLE)
-    .select("id, name, file_url, file_name, file_size, created_at, updated_at")
-    .order("created_at", { ascending: false });
+    .select("id, name, file_url, file_name, file_size, created_at, updated_at, organisation_id");
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query.order("created_at", { ascending: false });
 
-  if (error) {
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { data: [], error: null };
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from(DOCUMENTS_TABLE)
+      .select("id, name, file_url, file_name, file_size, created_at, updated_at")
+      .order("created_at", { ascending: false });
+    data = retry.data as typeof data;
+    error = retry.error;
+    if (error) {
+      return { data: [], error: formatDocumentsError(error) };
+    }
+    if (!isAPlusOrganisationId(orgId)) {
+      return { data: [], error: null };
+    }
+  } else if (error) {
     return { data: [], error: formatDocumentsError(error) };
   }
 
   return {
-    data: (data ?? []).map((row) => normalizeDocumentRow(row as Record<string, unknown>)),
+    data: filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+      normalizeDocumentRow(row as Record<string, unknown>)
+    ),
     error: null,
   };
 }

@@ -12,6 +12,13 @@ import {
   RDO_LEAVE_EVENT_STYLE,
 } from "./leave-type-calendar";
 import type { WorkerCalendarEvent } from "./worker-calendar-events";
+import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
 
 export const COMPANY_CALENDAR_DAYS_TABLE = "company_calendar_days";
 
@@ -107,10 +114,10 @@ export async function fetchCompanyCalendarDays(options?: {
 }): Promise<CompanyCalendarDay[]> {
   if (!isSupabaseConfigured()) return [];
 
-  let query = supabase
-    .from(COMPANY_CALENDAR_DAYS_TABLE)
-    .select("*")
-    .order("date", { ascending: true });
+  const orgId = resolveActiveOrganisationId();
+  let query = supabase.from(COMPANY_CALENDAR_DAYS_TABLE).select("*");
+  query = withOrganisationScope(query, orgId);
+  query = query.order("date", { ascending: true });
 
   if (options?.startDate) {
     query = query.gte("date", formatDateOnly(options.startDate));
@@ -125,7 +132,19 @@ export async function fetchCompanyCalendarDays(options?: {
     query = query.eq("day_type", options.dayType);
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return [];
+  }
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = supabase
+      .from(COMPANY_CALENDAR_DAYS_TABLE)
+      .select("*")
+      .order("date", { ascending: true });
+    const retried = await retry;
+    data = retried.data;
+    error = retried.error;
+  }
   if (error) {
     if (
       !isSupabaseMissingColumnError(error) &&
@@ -136,7 +155,7 @@ export async function fetchCompanyCalendarDays(options?: {
     return [];
   }
 
-  return (data ?? []).map((row) =>
+  return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
     normalizeCompanyCalendarDay(row as Record<string, unknown>)
   );
 }

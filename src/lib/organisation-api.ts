@@ -1,4 +1,10 @@
-export const DEFAULT_ORGANISATION_ID = "00000000-0000-0000-0000-000000000001";
+import {
+  A_PLUS_ORGANISATION_ID,
+  DEMO_ORGANISATION_NAME,
+} from "./active-organisation";
+import { isDemoOrganisationId, resolveActiveOrganisationId } from "./tenant-scope";
+
+export const DEFAULT_ORGANISATION_ID = A_PLUS_ORGANISATION_ID;
 
 export const ORGANISATION_SELECT_FIELDS =
   "id, company_name, abn, email, phone, address, street_address, logo_url, logo, company_logo";
@@ -41,10 +47,13 @@ export function resolveOrganisationLogo(record: OrganisationRow): string | null 
   );
 }
 
-export function buildDefaultOrganisationRecord(): OrganisationRow {
+export function buildDefaultOrganisationRecord(id?: string): OrganisationRow {
+  const orgId = id || resolveActiveOrganisationId();
   return {
-    id: DEFAULT_ORGANISATION_ID,
-    company_name: "SiteBolt Construction Pty Ltd",
+    id: orgId,
+    company_name: isDemoOrganisationId(orgId)
+      ? DEMO_ORGANISATION_NAME
+      : "SiteBolt Construction Pty Ltd",
     abn: "",
     email: "",
     phone: "",

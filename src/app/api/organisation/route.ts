@@ -11,6 +11,7 @@ import {
   ORGANISATION_SELECT_FIELDS,
   type OrganisationRow,
 } from "@/lib/organisation-api";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,10 +64,11 @@ async function requireOrganisationWriteAccess() {
 async function fetchOrCreateOrganisation(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<{ data: OrganisationRow | null; error: string | null }> {
+  const orgId = await resolveActiveOrganisationIdFromCookies();
   const { data: existing, error: fetchError } = await admin
     .from("organisations")
     .select(ORGANISATION_SELECT_FIELDS)
-    .limit(1)
+    .eq("id", orgId)
     .maybeSingle();
 
   if (fetchError) {
@@ -77,7 +79,7 @@ async function fetchOrCreateOrganisation(
     return { data: existing as OrganisationRow, error: null };
   }
 
-  const defaultRecord = buildDefaultOrganisationRecord();
+  const defaultRecord = buildDefaultOrganisationRecord(orgId);
   const { data: inserted, error: insertError } = await admin
     .from("organisations")
     .insert([defaultRecord])
@@ -104,9 +106,10 @@ async function saveOrganisation(
 
   const existing = existingResult.data;
   if (!existing?.id) {
+    const orgId = await resolveActiveOrganisationIdFromCookies();
     const { data, error } = await admin
       .from("organisations")
-      .insert([{ id: DEFAULT_ORGANISATION_ID, ...updatePayload }])
+      .insert([{ id: orgId || DEFAULT_ORGANISATION_ID, ...updatePayload }])
       .select(ORGANISATION_SELECT_FIELDS)
       .single();
 

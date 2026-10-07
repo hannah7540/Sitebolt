@@ -1,6 +1,14 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { resolveProjectId, isProjectUuid } from "./project-resolver";
 import {
+  filterRowsByOrganisation,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  recordMatchesActiveOrganisation,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "./tenant-scope";
+import {
   nullIfBlank,
   nullIfBlankDate,
   parseMissingColumnFromError,
@@ -472,11 +480,22 @@ function isMissingTableError(message: string, table: string): boolean {
 export async function fetchAssets(): Promise<Asset[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+
   try {
-    const { data, error } = await supabase
-      .from("assets")
-      .select("*")
-      .order("asset_number");
+    let query = supabase.from("assets").select("*");
+    query = withOrganisationScope(query, orgId);
+    let { data, error } = await query.order("asset_number");
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase.from("assets").select("*").order("asset_number");
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       if (!isMissingTableError(error.message, "assets")) {
@@ -485,7 +504,9 @@ export async function fetchAssets(): Promise<Asset[]> {
       return [];
     }
 
-    return (data ?? []).map((row) => normalizeAsset(row as Record<string, unknown>));
+    return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+      normalizeAsset(row as Record<string, unknown>)
+    );
   } catch (error) {
     console.warn("fetchAssets threw:", error);
     return [];
@@ -496,13 +517,22 @@ export async function fetchAssetById(id: string): Promise<Asset | null> {
   if (!isSupabaseConfigured()) return null;
 
   try {
-    const { data, error } = await supabase
-      .from("assets")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+    const orgId = resolveActiveOrganisationId();
+    let query = supabase.from("assets").select("*").eq("id", id);
+    query = withOrganisationScope(query, orgId);
+    let { data, error } = await query.maybeSingle();
 
-    if (error || !data) return null;
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return null;
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase.from("assets").select("*").eq("id", id).maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error || !data || !recordMatchesActiveOrganisation(data, orgId)) return null;
     return normalizeAsset(data as Record<string, unknown>);
   } catch {
     return null;
