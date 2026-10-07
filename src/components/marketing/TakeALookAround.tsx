@@ -72,7 +72,7 @@ export default function TakeALookAround() {
   const callout = CALLOUTS[tab];
 
   return (
-    <section id="preview" className="border-t border-white/10 bg-[#13171B] px-4 py-16">
+    <section id="preview" className="border-t border-white/10 bg-[#13171B] px-4 pb-8 pt-16">
       <div className="mx-auto max-w-6xl">
         <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
           Interactive Preview

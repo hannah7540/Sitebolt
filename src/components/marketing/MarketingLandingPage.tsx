@@ -4,14 +4,8 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Check,
-  ClipboardCheck,
   Factory,
-  FileSpreadsheet,
   HardHat,
-  MapPinned,
-  PlayCircle,
-  QrCode,
-  ShieldCheck,
   Sparkles,
   Tractor,
   Truck,
@@ -26,13 +20,9 @@ import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
 import { getAppLoginUrl } from "@/lib/site-domains";
 
 const NAV_ITEMS = [
-  { id: "industries", label: "Industries" },
-  { id: "preview", label: "Preview" },
   { id: "features", label: "Features" },
-  { id: "custom-build", label: "Custom Build" },
-  { id: "demos", label: "Demo Videos" },
-  { id: "compliance", label: "Compliance" },
-  { id: "about", label: "About" },
+  { id: "preview", label: "Take a Look Around" },
+  { id: "custom-build", label: "Custom Software" },
 ] as const;
 
 const INDUSTRIES = [
@@ -45,41 +35,6 @@ const INDUSTRIES = [
 ] as const;
 
 const HERO_BADGES = ["ACT · NSW · WA · NZ", "31-Day SWMS", "Plant QR", "ITP / ITC"] as const;
-
-const DEMO_TABS = [
-  {
-    id: "plant",
-    label: "Plant & QR Pre-Starts",
-    title: "Scan. Inspect. Tag out.",
-    body: "Every machine carries a cab sticker QR. Operators complete daily pre-starts on their phone, and tagged-out plant is blocked until a defect is cleared.",
-    points: ["2-per-page A4 QR cab stickers", "Photo-backed defect capture", "State-scoped plant registers"],
-    icon: QrCode,
-  },
-  {
-    id: "swms",
-    label: "31-Day SWMS Cycle",
-    title: "Sign-off that never goes stale.",
-    body: "Site-specific SWMS stay on a 31-day review cycle with worker consultation, manager signatures, and automatic due reminders.",
-    points: ["Company and site-specific SWMS", "Consulted worker sign-off", "Review due tracking"],
-    icon: ClipboardCheck,
-  },
-  {
-    id: "timesheets",
-    label: "Timesheet & MYOB",
-    title: "Audit-ready Fair Work hours.",
-    body: "Supervisors approve field timesheets, then accounts export pay-ready files with state-by-state rule mapping.",
-    points: ["Batch signatures on submissions", "State pay-rule assignment", "MYOB-ready export"],
-    icon: FileSpreadsheet,
-  },
-  {
-    id: "itp",
-    label: "ITP / ITC Drawings",
-    title: "High-resolution drawings. Pin-accurate ITCs.",
-    body: "Inspectors zoom drawings, drop pins, attach photos, and close ITCs against the live ITP — ready for the next audit.",
-    points: ["Nested ITP / ITC views", "Deep drawing zoom", "Individual PDF exports"],
-    icon: MapPinned,
-  },
-] as const;
 
 const glassCardClass =
   "rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-md transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/45 hover:shadow-[0_0_32px_rgba(255,107,0,0.16)]";
@@ -110,10 +65,7 @@ export default function MarketingLandingPage() {
   const searchParams = useSearchParams();
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [customBuildOpen, setCustomBuildOpen] = useState(false);
-  const [activeDemo, setActiveDemo] = useState<(typeof DEMO_TABS)[number]["id"]>("plant");
   const [loginUrl, setLoginUrl] = useState("/login");
-  const demo = DEMO_TABS.find((tab) => tab.id === activeDemo) ?? DEMO_TABS[0];
-  const DemoIcon = demo.icon;
 
   useEffect(() => {
     setLoginUrl(getAppLoginUrl());
@@ -201,10 +153,6 @@ export default function MarketingLandingPage() {
                   <button type="button" onClick={() => scrollTo("preview")} className={ghostButtonClass}>
                     Take a Look Around
                   </button>
-                  <button type="button" onClick={() => scrollTo("demos")} className={ghostButtonClass}>
-                    <PlayCircle className="h-4 w-4" />
-                    Watch Platform Demos
-                  </button>
                 </div>
               </div>
               <div className={glassCardClass}>
@@ -253,8 +201,6 @@ export default function MarketingLandingPage() {
           </div>
         </section>
 
-        <TakeALookAround />
-
         <section id="features" className="border-t border-white/10 bg-[#1F2429] px-4 py-16">
           <div className="mx-auto max-w-6xl">
             <h2 className="text-3xl font-extrabold text-white">One platform for site control</h2>
@@ -286,7 +232,9 @@ export default function MarketingLandingPage() {
           </div>
         </section>
 
-        <section id="custom-build" className="relative overflow-hidden border-t border-white/10 bg-[#13171B] px-4 py-16">
+        <TakeALookAround />
+
+        <section id="custom-build" className="relative overflow-hidden bg-[#13171B] px-4 pb-16 pt-8">
           <div
             aria-hidden
             className="pointer-events-none absolute right-0 top-0 h-72 w-72 rounded-full bg-[#FF6B00]/12 blur-[100px]"
@@ -337,7 +285,7 @@ export default function MarketingLandingPage() {
                 <div className="mt-auto pt-6">
                   <button
                     type="button"
-                    onClick={() => scrollTo("demos")}
+                    onClick={() => scrollTo("preview")}
                     className={`${ghostButtonClass} w-full justify-center sm:w-auto`}
                   >
                     Explore Modules
@@ -392,53 +340,8 @@ export default function MarketingLandingPage() {
           </div>
         </section>
 
-        <section id="demos" className="border-y border-white/10 bg-[#1F2429] py-16">
-          <div className="mx-auto max-w-6xl px-4">
-            <h2 className="text-3xl font-extrabold text-white">Platform demos</h2>
-            <p className="mt-3 max-w-2xl text-zinc-400">
-              Switch modules to see how SiteBolt presents in the field and in the office.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {DEMO_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveDemo(tab.id)}
-                  className={
-                    activeDemo === tab.id
-                      ? "rounded-lg bg-gradient-to-r from-[#FF6B00] to-[#FF8533] px-3 py-2 text-sm font-semibold text-white shadow-[0_0_16px_rgba(255,107,0,0.35)]"
-                      : "rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-zinc-200 backdrop-blur-md hover:border-[#FF6B00] hover:text-[#FF8533]"
-                  }
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <article className={`${glassCardClass} mt-6 grid gap-6 md:grid-cols-[1.1fr_0.9fr] md:items-center`}>
-              <div>
-                <h3 className="text-2xl font-bold text-white">{demo.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-300">{demo.body}</p>
-                <ul className="mt-4 space-y-2 text-sm text-zinc-200">
-                  {demo.points.map((point) => (
-                    <li key={point} className="flex items-start gap-2">
-                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-white/[0.08] bg-[#13171B]/80 p-6 text-center">
-                <DemoIcon className="h-12 w-12 text-[#FF6B00]" />
-                <p className="mt-3 text-sm font-semibold">{demo.label}</p>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Interface preview · compliance-ready workflow
-                </p>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section id="compliance" className="mx-auto max-w-6xl px-4 py-16">
+        <section id="compliance" className="border-t border-white/10 px-4 py-16">
+          <div className="mx-auto max-w-6xl">
           <h2 className="text-3xl font-extrabold text-white">Compliant across states</h2>
           <p className="mt-3 text-sm text-zinc-400">ACT, NSW, WA, and NZ.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -452,6 +355,7 @@ export default function MarketingLandingPage() {
                 {item}
               </p>
             ))}
+          </div>
           </div>
         </section>
 
