@@ -59,6 +59,7 @@ import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { usePersistedSidebarSection } from "@/hooks/usePersistedSidebarSection";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
+import ThemePicker from "@/components/theme/ThemePicker";
 import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 import { SUPER_ADMIN_CONSOLE_ROLE } from "@/lib/super-admin";
 
@@ -717,22 +718,25 @@ export default function Sidebar({
       </nav>
 
       <div className="mt-auto border-t border-slate-200 p-4">
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <Link
-            href="/account/update-password"
-            className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
-          >
-            <KeyRound className="h-4 w-4 shrink-0" />
-            <span className="truncate">Change Password</span>
-          </Link>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            <span className="truncate">Sign Out</span>
-          </button>
+        <div className="mb-3 flex items-center gap-2">
+          <ThemePicker />
+          <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+            <Link
+              href="/account/update-password"
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+            >
+              <KeyRound className="h-4 w-4 shrink-0" />
+              <span className="truncate">Change Password</span>
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              <span className="truncate">Sign Out</span>
+            </button>
+          </div>
         </div>
         <p className="text-xs text-slate-400">Construction Safety Platform</p>
       </div>

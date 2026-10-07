@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { signOutAndRedirect } from "@/lib/auth-guard";
+import ThemePicker from "@/components/theme/ThemePicker";
 
 export default function WorkerDashboardSignOutButton() {
   const [signingOut, setSigningOut] = useState(false);
@@ -18,7 +19,8 @@ export default function WorkerDashboardSignOutButton() {
   };
 
   return (
-    <div className="mt-12 mb-8 flex justify-center px-4 sm:justify-end">
+    <div className="mt-12 mb-8 flex items-center justify-center gap-2 px-4 sm:justify-end">
+      <ThemePicker />
       <button
         type="button"
         onClick={() => void handleSignOut()}
