@@ -56,6 +56,13 @@ export function resolvePostLoginPath(
     return resolveNativeWorkerDashboardPath(workerId);
   }
 
+  if (
+    options?.defaultPath === "/select-company" ||
+    returnPathname === "/select-company"
+  ) {
+    return "/select-company";
+  }
+
   if (returnPath && returnPath.startsWith("/") && !shouldRedirectNativePath(returnPath)) {
     return returnPath;
   }

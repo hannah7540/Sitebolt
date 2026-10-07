@@ -3,24 +3,21 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import {
-  getActiveOrganisationId,
-  setActiveOrganisationId,
-} from "@/lib/active-organisation";
+import { getActiveOrganisationId } from "@/lib/active-organisation";
+import { activateOrganisationWorkspace } from "@/lib/activate-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import {
   KNOWN_WORKSPACE_COMPANIES,
   mergeWorkspaceCompanies,
   type WorkspaceCompany,
 } from "@/lib/organisation-workspace";
-import { MASTER_PROJECT_DASHBOARD_PATH } from "@/lib/user-session";
 
 interface OrganisationWorkspaceContextValue {
   isSuperAdmin: boolean;
   ready: boolean;
   companies: WorkspaceCompany[];
   activeCompany: WorkspaceCompany | null;
-  selectCompany: (companyId: string) => void;
+  selectCompany: (companyId: string) => Promise<void>;
   refreshCompanies: () => Promise<void>;
 }
 
@@ -87,14 +84,10 @@ export default function OrganisationWorkspaceProvider({
     router.replace("/select-company");
   }, [isSuperAdmin, pathname, ready, router]);
 
-  const selectCompany = useCallback(
-    (companyId: string) => {
-      setActiveOrganisationId(companyId);
-      setActiveOrgId(companyId);
-      router.push(MASTER_PROJECT_DASHBOARD_PATH);
-    },
-    [router]
-  );
+  const selectCompany = useCallback(async (companyId: string) => {
+    setActiveOrgId(companyId);
+    await activateOrganisationWorkspace(companyId);
+  }, []);
 
   const activeCompany = useMemo(
     () => companies.find((company) => company.id === activeOrgId) ?? null,

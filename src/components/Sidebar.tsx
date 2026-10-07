@@ -42,11 +42,7 @@ import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
   canAccessAccountsArea,
-  canAccessEmailsModule,
-  canAccessSmsModule,
   canAccessPayRules,
-  canManageAdministration,
-  canManageOrganisation,
   canManageSecuritySettings,
   canViewAccountsTimesheets,
   canAddAccountsTimesheets,
@@ -547,7 +543,7 @@ export default function Sidebar({
   assignedProjectIds = [],
   accountsAccessRole = "disabled",
   canAccessAccounts = false,
-  permissionsLoading = false,
+  permissionsLoading: _permissionsLoading = false,
   onNavigate,
   profileName: profileNameOverride,
   profileWorkerId,
@@ -585,43 +581,29 @@ export default function Sidebar({
   const workspace = useOrganisationWorkspace();
   const isSuperAdmin = workspace?.isSuperAdmin === true;
   const effectiveRole = isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionRole;
-  const effectiveAccountsRole = isSuperAdmin ? "full_access" : accountsAccessRole;
-  const effectiveCanAccessAccounts = isSuperAdmin || canAccessAccounts;
-  const showOrganisation = isSuperAdmin || canManageOrganisation(effectiveRole);
-  const showAdministration = isSuperAdmin || canManageAdministration(effectiveRole);
-  const showEmails = isSuperAdmin || canAccessEmailsModule(effectiveRole);
-  const showSms = isSuperAdmin || canAccessSmsModule(effectiveRole);
-  const showCommunication = showEmails || showSms;
   const showSecurity = isSuperAdmin || canManageSecuritySettings(effectiveRole);
-  const accountsMenu = useMemo(
-    () =>
-      buildAccountsMenu(
-        effectiveRole,
-        effectiveAccountsRole,
-        effectiveCanAccessAccounts,
-        isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionSecurityRoleRaw
-      ),
-    [
-      effectiveRole,
-      effectiveAccountsRole,
-      effectiveCanAccessAccounts,
-      isSuperAdmin,
-      sessionSecurityRoleRaw,
-    ]
-  );
-  const showAccounts =
-    isSuperAdmin ||
-    permissionsLoading ||
-    (accountsMenu !== null &&
-      canAccessAccountsArea({
-        securityRole: effectiveRole,
-        accountsAccessRole: effectiveAccountsRole,
-        canAccessAccounts: effectiveCanAccessAccounts,
-      }));
+  const accountsMenu =
+    buildAccountsMenu(
+      SUPER_ADMIN_CONSOLE_ROLE,
+      "full_access",
+      true,
+      SUPER_ADMIN_CONSOLE_ROLE
+    ) ??
+    buildAccountsMenu(
+      sessionRole,
+      accountsAccessRole,
+      canAccessAccounts,
+      sessionSecurityRoleRaw
+    );
 
   const roleFilteredProjects = useMemo(
-    () => filterProjectsForRole(sessionRole, projects, assignedProjectIds),
-    [sessionRole, projects, assignedProjectIds]
+    () =>
+      filterProjectsForRole(
+        isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionRole,
+        projects,
+        assignedProjectIds
+      ),
+    [isSuperAdmin, sessionRole, projects, assignedProjectIds]
   );
   const activeProjects = useMemo(
     () => filterActiveProjects(roleFilteredProjects),
@@ -714,36 +696,24 @@ export default function Sidebar({
           onNavigate={onNavigate}
         />
 
-        {showAdministration && (
-          <AdministrationSection
-            activeView={effectiveActiveView}
-            pathname={pathname}
-            onNavigate={onNavigate}
-          />
-        )}
+        <AdministrationSection
+          activeView={effectiveActiveView}
+          pathname={pathname}
+          onNavigate={onNavigate}
+        />
 
         <SubcontractorsSection activeView={effectiveActiveView} onNavigate={onNavigate} />
 
-        {showAccounts && accountsMenu ? (
-          <AccountsSection menu={accountsMenu} pathname={pathname} />
-        ) : null}
+        {accountsMenu ? <AccountsSection menu={accountsMenu} pathname={pathname} /> : null}
 
-        {showCommunication ? (
-          <EmailsSection
-            pathname={pathname}
-            showEmails={showEmails}
-            showSms={showSms}
-          />
-        ) : null}
+        <EmailsSection pathname={pathname} showEmails showSms />
 
-        {showOrganisation && (
-          <OrganisationSection
-            items={organisationItems}
-            activeView={effectiveActiveView}
-            pathname={pathname}
-            onNavigate={onNavigate}
-          />
-        )}
+        <OrganisationSection
+          items={organisationItems}
+          activeView={effectiveActiveView}
+          pathname={pathname}
+          onNavigate={onNavigate}
+        />
       </nav>
 
       <div className="mt-auto border-t border-slate-200 p-4">

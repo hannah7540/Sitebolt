@@ -7,7 +7,7 @@ export const DEMO_ORGANISATION_ID = "00000000-0000-0000-0000-000000000002";
 export const A_PLUS_ORGANISATION_NAME = "A Plus Plumbing (ACT) PTY LTD";
 export const DEMO_ORGANISATION_NAME = "SiteBolt Demo Construction";
 
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+const COOKIE_MAX_AGE = 2592000;
 
 function readBrowserCookie(name: string): string | null {
   if (typeof document === "undefined") return null;

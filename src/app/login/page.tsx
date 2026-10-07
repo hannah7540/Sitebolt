@@ -9,6 +9,8 @@ import SiteFooter from "@/components/layout/SiteFooter";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser, resolvePostAuthPathForUser } from "@/lib/auth-profile";
+import { clearOrganisationWorkspace } from "@/lib/activate-organisation";
+import { isSuperAdminAccount } from "@/lib/super-admin";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import { resolvePostLoginPath } from "@/lib/native-app";
@@ -118,6 +120,17 @@ function LoginPageContent() {
         const message = bound.error ?? "Unable to sign in. Contact your administrator.";
         setError(message);
         showError(message);
+        return;
+      }
+
+      if (
+        isSuperAdminAccount({
+          email: data.user.email,
+          metadata: (data.user.user_metadata ?? null) as Record<string, unknown> | null,
+        })
+      ) {
+        await clearOrganisationWorkspace();
+        navigateAfterLogin("/select-company");
         return;
       }
 
