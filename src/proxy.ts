@@ -1,9 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runAuthProxy } from "@/lib/auth-proxy";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+import {
+  isMarketingHostname,
+  isMarketingPublicPath,
+  isOperationalAppPath,
+  resolveAppOriginFromRequest,
+} from "@/lib/site-domains";
 
 /**
- * Next.js 16 Proxy entry — refreshes Supabase sessions and enforces RBAC redirects.
+ * Next.js 16 Proxy entry — domain-aware marketing/app split, then session/RBAC.
  * @see https://nextjs.org/docs/app/getting-started/proxy
  */
 export async function proxy(request: NextRequest) {
@@ -15,27 +21,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const pathname = cleanedPath;
-
-  if (
-    pathname.startsWith("/auth/confirm") ||
-    pathname.startsWith("/setyourpassword") ||
-    pathname.startsWith("/onboarding") ||
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/privacy") ||
-    pathname.startsWith("/download") ||
-    pathname.startsWith("/support") ||
-    isPlantPrestartPath(pathname)
-  ) {
-    return NextResponse.next();
-  }
-
-  if (
-    pathname.startsWith("/reset-password") ||
-    pathname.startsWith("/set-password") ||
-    pathname.startsWith("/auth")
-  ) {
-    return NextResponse.next();
-  }
+  const host = request.headers.get("host");
 
   const hasAuthPayload =
     request.nextUrl.searchParams.has("code") ||
@@ -50,6 +36,52 @@ export async function proxy(request: NextRequest) {
       dest.searchParams.set("next", "/setyourpassword");
     }
     return NextResponse.redirect(dest);
+  }
+
+  if (isMarketingHostname(host)) {
+    if (pathname === "/" || pathname === "/enquire" || pathname.startsWith("/enquire/")) {
+      const dest = request.nextUrl.clone();
+      dest.pathname = "/marketing";
+      if (pathname === "/enquire" || pathname.startsWith("/enquire/")) {
+        dest.searchParams.set("enquire", "1");
+      }
+      return NextResponse.rewrite(dest);
+    }
+
+    if (isMarketingPublicPath(pathname)) {
+      return NextResponse.next();
+    }
+
+    if (isOperationalAppPath(pathname) || isPlantPrestartPath(pathname)) {
+      const dest = new URL(
+        `${pathname}${request.nextUrl.search}`,
+        resolveAppOriginFromRequest(request)
+      );
+      return NextResponse.redirect(dest);
+    }
+  }
+
+  if (
+    pathname.startsWith("/auth/confirm") ||
+    pathname.startsWith("/setyourpassword") ||
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/download") ||
+    pathname.startsWith("/support") ||
+    pathname.startsWith("/marketing") ||
+    pathname.startsWith("/enquire") ||
+    isPlantPrestartPath(pathname)
+  ) {
+    return NextResponse.next();
+  }
+
+  if (
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/set-password") ||
+    pathname.startsWith("/auth")
+  ) {
+    return NextResponse.next();
   }
 
   return runAuthProxy(request);

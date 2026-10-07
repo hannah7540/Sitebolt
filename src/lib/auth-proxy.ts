@@ -32,6 +32,8 @@ const PUBLIC_PATH_PREFIXES = [
   "/privacy",
   "/download",
   "/support",
+  "/marketing",
+  "/enquire",
   "/auth/",
   "/auth/callback",
   "/auth/confirm",
@@ -403,6 +405,20 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       return redirectWithCookies(request, destination, sessionResponse);
     }
     return sessionResponse;
+  }
+
+  if (pathname === "/" && context.user) {
+    const hasConsoleView = Boolean(request.nextUrl.searchParams.get("view")?.trim());
+    const hasAuthPayload =
+      request.nextUrl.searchParams.has("code") ||
+      request.nextUrl.searchParams.has("token_hash");
+    if (!hasConsoleView && !hasAuthPayload) {
+      return redirectWithCookies(
+        request,
+        resolveAuthenticatedHomePath(context, request),
+        sessionResponse
+      );
+    }
   }
 
   if (isPublicPath(pathname)) {
