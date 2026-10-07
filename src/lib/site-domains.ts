@@ -4,14 +4,6 @@ export const PRODUCTION_APP_ORIGIN = "https://app.site-bolt.com.au";
 export const PRODUCTION_MARKETING_ORIGIN = "https://www.site-bolt.com.au";
 export const PRODUCTION_APP_LOGIN_URL = `${PRODUCTION_APP_ORIGIN}/login`;
 
-const MARKETING_HOSTNAMES = new Set([
-  "site-bolt.com.au",
-  "www.site-bolt.com.au",
-  "localhost",
-  "127.0.0.1",
-  "www.localhost",
-]);
-
 const MARKETING_PUBLIC_PATHS = [
   "/",
   "/marketing",
@@ -43,20 +35,28 @@ const OPERATIONAL_APP_PREFIXES = [
 
 export function hostnameFromHost(host: string | null | undefined): string {
   return String(host ?? "")
+    .split(",")[0]
     .split(":")[0]
     .trim()
     .toLowerCase();
 }
 
-export function isAppHostname(host: string | null | undefined): boolean {
-  const hostname = hostnameFromHost(host);
-  return hostname === "app.site-bolt.com.au" || hostname.startsWith("app.");
+export function requestHostHeader(request: Pick<NextRequest, "headers">): string {
+  return (
+    request.headers.get("x-forwarded-host") ||
+    request.headers.get("host") ||
+    ""
+  );
 }
 
-export function isMarketingHostname(host: string | null | undefined): boolean {
+export function isAppHostname(host: string | null | undefined): boolean {
   const hostname = hostnameFromHost(host);
-  if (!hostname || isAppHostname(hostname)) return false;
-  return MARKETING_HOSTNAMES.has(hostname);
+  return hostname.startsWith("app.") || hostname.startsWith("app.localhost");
+}
+
+/** Any host that is not the operational app subdomain is a public marketing host. */
+export function isMarketingHostname(host: string | null | undefined): boolean {
+  return !isAppHostname(host);
 }
 
 export function isMarketingPublicPath(pathname: string): boolean {
@@ -73,7 +73,7 @@ export function isOperationalAppPath(pathname: string): boolean {
 }
 
 export function resolveAppOriginFromRequest(request: NextRequest): string {
-  const host = request.headers.get("host");
+  const host = requestHostHeader(request);
   const hostname = hostnameFromHost(host);
   const port = host?.includes(":") ? host.split(":")[1] : "";
   const protocol = request.nextUrl.protocol.replace(":", "") || "https";

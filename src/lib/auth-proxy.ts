@@ -26,6 +26,7 @@ import {
   isPublicAuthFlowPath,
 } from "@/lib/public-auth-paths";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+import { isAppHostname, requestHostHeader } from "@/lib/site-domains";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -79,9 +80,9 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-function requiresAuthentication(pathname: string): boolean {
+function requiresAuthentication(pathname: string, request: NextRequest): boolean {
   if (isPublicPath(pathname)) return false;
-  if (pathname === "/") return true;
+  if (pathname === "/") return isAppHostname(requestHostHeader(request));
   return AUTH_REQUIRED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
@@ -407,7 +408,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     return sessionResponse;
   }
 
-  if (pathname === "/" && context.user) {
+  if (pathname === "/" && context.user && isAppHostname(requestHostHeader(request))) {
     const hasConsoleView = Boolean(request.nextUrl.searchParams.get("view")?.trim());
     const hasAuthPayload =
       request.nextUrl.searchParams.has("code") ||
@@ -437,7 +438,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     );
   }
 
-  if (requiresAuthentication(pathname) && !context.user) {
+  if (requiresAuthentication(pathname, request) && !context.user) {
     const loginUrl = new URL("/login", request.url);
     const nextPath = `${pathname}${request.nextUrl.search}`;
     if (nextPath !== "/" && !nextPath.startsWith("/login")) {

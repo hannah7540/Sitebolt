@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runAuthProxy } from "@/lib/auth-proxy";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import {
-  isMarketingHostname,
   isMarketingPublicPath,
   isOperationalAppPath,
   resolveAppOriginFromRequest,
@@ -21,7 +20,15 @@ export async function proxy(request: NextRequest) {
   }
 
   const pathname = cleanedPath;
-  const host = request.headers.get("host");
+  const host = (
+    request.headers.get("x-forwarded-host") ||
+    request.headers.get("host") ||
+    ""
+  )
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const isAppSubdomain = host.startsWith("app.") || host.startsWith("app.localhost");
 
   const hasAuthPayload =
     request.nextUrl.searchParams.has("code") ||
@@ -38,7 +45,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(dest);
   }
 
-  if (isMarketingHostname(host)) {
+  if (!isAppSubdomain) {
     if (pathname === "/" || pathname === "/enquire" || pathname.startsWith("/enquire/")) {
       const dest = request.nextUrl.clone();
       dest.pathname = "/marketing";
@@ -59,6 +66,8 @@ export async function proxy(request: NextRequest) {
       );
       return NextResponse.redirect(dest);
     }
+
+    return NextResponse.next();
   }
 
   if (

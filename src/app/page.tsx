@@ -93,6 +93,13 @@ import { cn } from "@/lib/utils";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
+import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
+
+function isAppSubdomainHost(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.host.toLowerCase();
+  return host.startsWith("app.") || host.startsWith("app.localhost");
+}
 
 function HomeConsole() {
   const router = useRouter();
@@ -199,6 +206,7 @@ function HomeConsole() {
         if (shouldSkipAuthRedirect(pathname) || hasAuthHashFragment() || hasAuthCodeQuery()) {
           return;
         }
+        if (!isAppSubdomainHost()) return;
         redirectToLogin(router, pathname);
         return;
       }
@@ -281,6 +289,7 @@ function HomeConsole() {
 
   useEffect(() => {
     if (pathname !== "/") return;
+    if (!isAppSubdomainHost()) return;
     if (searchParams.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim()) return;
     if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
     router.replace(MASTER_PROJECT_DASHBOARD_PATH);
@@ -741,6 +750,28 @@ function HomeConsole() {
   );
 }
 
+function RootEntry() {
+  const pathname = usePathname();
+  const [isAppHost, setIsAppHost] = useState(false);
+  const [hostReady, setHostReady] = useState(false);
+
+  useEffect(() => {
+    setIsAppHost(isAppSubdomainHost());
+    setHostReady(true);
+  }, []);
+
+  const isMarketingRoot =
+    pathname === "/" ||
+    pathname === "/marketing" ||
+    Boolean(pathname?.startsWith("/enquire"));
+
+  if (isMarketingRoot && (!hostReady || !isAppHost)) {
+    return <MarketingLandingPage />;
+  }
+
+  return <HomeConsole />;
+}
+
 export default function Home() {
   return (
     <Suspense
@@ -750,7 +781,7 @@ export default function Home() {
         </div>
       }
     >
-      <HomeConsole />
+      <RootEntry />
     </Suspense>
   );
 }
