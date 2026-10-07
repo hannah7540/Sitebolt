@@ -2,17 +2,21 @@
 
 import { useState } from "react";
 import {
+  AlertTriangle,
   Building2,
+  CalendarDays,
   Check,
   ClipboardCheck,
   Clock,
   FileSpreadsheet,
   FolderKanban,
+  HardHat,
   MapPin,
   MessageSquareText,
   QrCode,
   ReceiptText,
   Shield,
+  ShieldCheck,
   Truck,
   Users,
 } from "lucide-react";
@@ -20,10 +24,13 @@ import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { id: "projects", label: "Live Projects & Jobs", icon: FolderKanban },
-  { id: "plant", label: "Plant & Equipment QR", icon: Truck },
-  { id: "timesheets", label: "Digital Timesheets & Roster", icon: Clock },
-  { id: "compliance", label: "ITP & Safety Compliance", icon: ClipboardCheck },
+  { id: "projects", label: "Projects & Command Center", icon: FolderKanban },
+  { id: "plant", label: "Plant, Fleet & QR Assets", icon: Truck },
+  { id: "calendars", label: "Worker & Plant Calendars", icon: CalendarDays },
+  { id: "swms", label: "SWMS & Safety Compliance", icon: HardHat },
+  { id: "itp", label: "ITP & ITC Quality Assurance", icon: ClipboardCheck },
+  { id: "timesheets", label: "Timesheets & Payroll", icon: Clock },
+  { id: "organisation", label: "Insurances & Organisation", icon: Building2 },
 ] as const;
 
 type PreviewTab = (typeof TABS)[number]["id"];
@@ -37,14 +44,32 @@ const SIDEBAR_ITEMS = [
   { id: "organisation", label: "Organisation", icon: Building2 },
 ] as const;
 
+const CALLOUTS: Partial<Record<PreviewTab, { label: string; className: string }>> = {
+  projects: { label: "Live Stage Tracking", className: "right-3 top-16 sm:right-8 sm:top-20" },
+  plant: { label: "Mobile QR Instant Scan", className: "right-3 top-16 sm:right-8 sm:top-20" },
+  calendars: { label: "Cross-Team Roster", className: "right-3 top-16 sm:right-8 sm:top-20" },
+  swms: { label: "Zero Paperwork", className: "bottom-8 right-3 sm:bottom-10 sm:right-10" },
+  itp: { label: "Photo Evidence Pins", className: "right-3 top-20 sm:right-10 sm:top-24" },
+  timesheets: {
+    label: "NSW/ACT Pay Rules Built-in",
+    className: "bottom-8 right-3 sm:bottom-12 sm:right-10",
+  },
+  organisation: {
+    label: "Automated Expiry Warnings",
+    className: "right-3 top-16 sm:right-8 sm:top-20",
+  },
+};
+
 function sidebarActiveFor(tab: PreviewTab): (typeof SIDEBAR_ITEMS)[number]["id"] {
   if (tab === "timesheets") return "accounts";
-  if (tab === "plant" || tab === "compliance") return "administration";
-  return "projects";
+  if (tab === "organisation") return "organisation";
+  if (tab === "projects") return "projects";
+  return "administration";
 }
 
 export default function TakeALookAround() {
   const [tab, setTab] = useState<PreviewTab>("projects");
+  const callout = CALLOUTS[tab];
 
   return (
     <section id="preview" className="border-t border-white/10 bg-[#13171B] px-4 py-16">
@@ -63,7 +88,7 @@ export default function TakeALookAround() {
         </p>
 
         <div
-          className="mt-8 flex flex-wrap gap-2"
+          className="mt-8 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           aria-label="Platform preview modules"
         >
@@ -78,10 +103,10 @@ export default function TakeALookAround() {
                 aria-selected={selected}
                 onClick={() => setTab(item.id)}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition",
+                  "inline-flex shrink-0 snap-start items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition",
                   selected
                     ? "bg-gradient-to-r from-[#FF6B00] to-[#FF8533] text-white shadow-[0_0_16px_rgba(255,107,0,0.35)]"
-                    : "border border-white/10 bg-white/[0.04] text-zinc-200 hover:border-[#FF6B00] hover:text-[#FF8533]"
+                    : "border border-white/10 bg-[#1F2429] text-zinc-200 hover:border-[#FF6B00] hover:text-[#FF8533]"
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -93,19 +118,7 @@ export default function TakeALookAround() {
 
         <div className="relative mt-8">
           <MockAppFrame tab={tab} />
-          {tab === "plant" ? (
-            <Callout className="right-3 top-16 sm:right-8 sm:top-20">Instant QR Scan</Callout>
-          ) : null}
-          {tab === "timesheets" ? (
-            <Callout className="bottom-8 right-3 sm:bottom-12 sm:right-10">
-              One-Click Export
-            </Callout>
-          ) : null}
-          {tab === "compliance" ? (
-            <Callout className="right-3 top-24 sm:right-10 sm:top-28">
-              Custom Forms Supported
-            </Callout>
-          ) : null}
+          {callout ? <Callout className={callout.className}>{callout.label}</Callout> : null}
         </div>
       </div>
     </section>
@@ -135,7 +148,7 @@ function MockAppFrame({ tab }: { tab: PreviewTab }) {
   const activeNav = sidebarActiveFor(tab);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.1] bg-[#1F2429] shadow-[0_0_48px_rgba(255,107,0,0.12)]">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#161B20] shadow-[0_0_48px_rgba(255,107,0,0.12)]">
       <div className="flex items-center gap-3 border-b border-white/10 bg-[#13171B] px-4 py-2.5">
         <div className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
@@ -149,7 +162,7 @@ function MockAppFrame({ tab }: { tab: PreviewTab }) {
         </div>
       </div>
 
-      <div className="flex min-h-[420px] flex-col md:min-h-[460px] md:flex-row">
+      <div className="flex min-h-[440px] flex-col md:min-h-[500px] md:flex-row">
         <aside className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/10 bg-[#13171B] px-2 py-2 md:w-[72px] md:flex-col md:items-center md:gap-2 md:overflow-visible md:border-b-0 md:border-r md:py-4">
           <SiteBoltMark className="mb-1 hidden h-8 w-8 md:block" />
           {SIDEBAR_ITEMS.map((item) => {
@@ -173,11 +186,14 @@ function MockAppFrame({ tab }: { tab: PreviewTab }) {
           })}
         </aside>
 
-        <div className="min-w-0 flex-1 bg-[#1F2429] p-4 sm:p-5">
+        <div className="min-w-0 flex-1 bg-[#161B20] p-4 sm:p-5">
           {tab === "projects" ? <ProjectsPreview /> : null}
           {tab === "plant" ? <PlantPreview /> : null}
+          {tab === "calendars" ? <CalendarsPreview /> : null}
+          {tab === "swms" ? <SwmsPreview /> : null}
+          {tab === "itp" ? <ItpPreview /> : null}
           {tab === "timesheets" ? <TimesheetsPreview /> : null}
-          {tab === "compliance" ? <CompliancePreview /> : null}
+          {tab === "organisation" ? <OrganisationPreview /> : null}
         </div>
       </div>
     </div>
@@ -189,34 +205,43 @@ function ProjectsPreview() {
     {
       name: "Pacific Highway Upgrade",
       location: "Sydney",
+      stage: "Earthworks",
       progress: 72,
       workers: 18,
+      budget: "On budget",
+      schedule: "2 days ahead",
       status: "In Progress",
     },
     {
       name: "Civic Centre Fit-Out",
       location: "Canberra",
+      stage: "Services rough-in",
       progress: 41,
       workers: 9,
+      budget: "3% contingency",
+      schedule: "On programme",
       status: "Mobilising",
     },
     {
       name: "Quay Street Drainage",
       location: "Auckland",
+      stage: "Commissioning",
       progress: 88,
       workers: 12,
+      budget: "Under budget",
+      schedule: "Handover Fri",
       status: "On Track",
     },
   ];
 
   return (
     <div>
-      <HeaderRow title="Live projects" meta="3 active workspaces" />
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <HeaderRow title="Command center" meta="Active site breakdown" />
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
         {projects.map((project) => (
           <article
             key={project.name}
-            className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-4"
           >
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-sm font-bold text-white">{project.name}</h3>
@@ -226,7 +251,7 @@ function ProjectsPreview() {
             </div>
             <p className="mt-2 flex items-center gap-1 text-xs text-zinc-400">
               <MapPin className="h-3 w-3 text-[#FF6B00]" />
-              {project.location}
+              {project.location} · {project.stage}
             </p>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
               <div
@@ -234,12 +259,14 @@ function ProjectsPreview() {
                 style={{ width: `${project.progress}%` }}
               />
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-400">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-zinc-400">
               <span className="inline-flex items-center gap-1">
                 <Users className="h-3 w-3" />
                 {project.workers} on site
               </span>
-              <span className="font-semibold text-white">{project.progress}%</span>
+              <span className="text-right font-semibold text-white">{project.progress}%</span>
+              <span>{project.budget}</span>
+              <span className="text-right text-emerald-400">{project.schedule}</span>
             </div>
           </article>
         ))}
@@ -250,19 +277,19 @@ function ProjectsPreview() {
 
 function PlantPreview() {
   const fleet = [
-    { name: "5.5T Excavator", code: "EX-104", service: "14 days" },
-    { name: "Service Truck", code: "ST-22", service: "6 days" },
-    { name: "8T Smooth Drum Roller", code: "RL-08", service: "21 days" },
+    { name: "5.5T Excavator", code: "EX-104", service: "14 days", last: "Pre-start 06:12" },
+    { name: "12T Tipper", code: "TP-09", service: "9 days", last: "Pre-start 06:18" },
+    { name: "Dual-cab Ute", code: "UT-31", service: "21 days", last: "Pre-start 05:58" },
   ];
 
   return (
     <div>
-      <HeaderRow title="Plant & equipment" meta="QR-verified fleet" />
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <HeaderRow title="Plant, fleet & QR assets" meta="Live equipment register" />
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
         {fleet.map((item) => (
           <article
             key={item.code}
-            className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-4"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -273,13 +300,14 @@ function PlantPreview() {
                 Operational
               </span>
             </div>
-            <div className="mt-4 flex items-center justify-between">
+            <p className="mt-3 text-[11px] text-zinc-400">{item.last}</p>
+            <div className="mt-3 flex items-center justify-between">
               <p className="text-[11px] text-zinc-400">
                 Next service <span className="font-semibold text-white">{item.service}</span>
               </p>
               <span className="inline-flex items-center gap-1 rounded-md border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#FF6B00]">
                 <QrCode className="h-3 w-3" />
-                QR
+                Scan
               </span>
             </div>
           </article>
@@ -289,30 +317,208 @@ function PlantPreview() {
   );
 }
 
+function CalendarsPreview() {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  const rows = [
+    {
+      name: "J. Patel",
+      kind: "Worker",
+      slots: ["Pacific Hwy", "Pacific Hwy", "Civic Centre", "Civic Centre", "Standby"],
+    },
+    {
+      name: "EX-104",
+      kind: "Plant",
+      slots: ["Pacific Hwy", "Pacific Hwy", "Yard service", "Quay St", "Quay St"],
+    },
+    {
+      name: "North crew",
+      kind: "Team",
+      slots: ["Civic Centre", "Civic Centre", "Civic Centre", "RDO", "Civic Centre"],
+    },
+  ];
+
+  return (
+    <div>
+      <HeaderRow title="Operational calendar" meta="Worker & plant allocations" />
+      <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+        <table className="w-full min-w-[520px] text-left text-[11px]">
+          <thead className="bg-white/[0.04] text-[10px] uppercase tracking-wider text-zinc-500">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Resource</th>
+              {days.map((day) => (
+                <th key={day} className="px-3 py-2 font-semibold">
+                  {day}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[0.06]">
+            {rows.map((row) => (
+              <tr key={row.name}>
+                <td className="px-3 py-2.5">
+                  <p className="font-semibold text-white">{row.name}</p>
+                  <p className="text-zinc-500">{row.kind}</p>
+                </td>
+                {row.slots.map((slot, index) => (
+                  <td key={`${row.name}-${index}`} className="px-2 py-2">
+                    <span
+                      className={cn(
+                        "block rounded-md px-2 py-1 text-center font-medium",
+                        slot === "RDO" || slot === "Standby" || slot === "Yard service"
+                          ? "bg-white/[0.06] text-zinc-400"
+                          : "bg-[#FF6B00]/15 text-[#FF8533]"
+                      )}
+                    >
+                      {slot}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SwmsPreview() {
+  const items = [
+    { title: "Excavation & trenching", due: "Day 8 / 31", status: "Current" },
+    { title: "Working at heights", due: "Day 22 / 31", status: "Due soon" },
+    { title: "Hot works — welding", due: "Signed today", status: "Current" },
+  ];
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <HeaderRow title="SWMS & field safety" meta="31-day rolling review" />
+        <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-300">
+          14 pre-starts complete
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-2">
+          {items.map((item) => (
+            <article
+              key={item.title}
+              className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3"
+            >
+              <div>
+                <h3 className="text-sm font-bold text-white">{item.title}</h3>
+                <p className="mt-1 text-[11px] text-zinc-400">{item.due} · 12 worker signatures</p>
+              </div>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  item.status === "Due soon"
+                    ? "bg-[#FF6B00]/15 text-[#FF8533]"
+                    : "bg-emerald-500/15 text-emerald-400"
+                )}
+              >
+                {item.status}
+              </span>
+            </article>
+          ))}
+        </div>
+        <article className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+          <p className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#FF6B00]">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Incident log
+          </p>
+          <p className="mt-3 text-sm font-semibold text-white">Near miss — reversing plant</p>
+          <p className="mt-1 text-xs text-zinc-400">Pacific Hwy · logged 06:41 · photos attached</p>
+          <p className="mt-4 text-[11px] text-zinc-500">Zero lost-time injuries this period.</p>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function ItpPreview() {
+  const checks = [
+    { label: "Hold point signed", done: true },
+    { label: "Photo evidence pinned", done: true },
+    { label: "Spec verification closed", done: true },
+  ];
+
+  return (
+    <div>
+      <HeaderRow title="ITP & ITC quality assurance" meta="Inspection pack" />
+      <article className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white">Stormwater pit inspection — ITC 14</h3>
+            <p className="mt-1 text-xs text-zinc-400">Civic Centre Fit-Out · ITP 03 — Drainage</p>
+          </div>
+          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-400">
+            100% compliant
+          </span>
+        </div>
+        <ul className="mt-4 space-y-2">
+          {checks.map((item) => (
+            <li key={item.label} className="flex items-center gap-2 text-sm text-zinc-200">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                <Check className="h-3 w-3" />
+              </span>
+              {item.label}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-5 flex flex-wrap items-center gap-4">
+          <div className="flex gap-2">
+            {["#FF6B00", "#38BDF8", "#22C55E"].map((color) => (
+              <span
+                key={color}
+                className="relative h-12 w-12 rounded-lg border border-white/10"
+                style={{ background: `linear-gradient(145deg, ${color}55, #13171B)` }}
+              >
+                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-[#FF6B00] ring-2 ring-[#161B20]" />
+              </span>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-emerald-400/60 text-[9px] font-extrabold uppercase leading-tight text-emerald-300">
+              Sign
+              <br />
+              OK
+            </span>
+            <p className="text-xs text-zinc-400">
+              Supervisor stamp
+              <br />
+              <span className="text-zinc-300">Verified 07:42</span>
+            </p>
+          </div>
+        </div>
+      </article>
+    </div>
+  );
+}
+
 function TimesheetsPreview() {
   const rows = [
-    { crew: "North crew", hours: "42.5", signoff: "Signed", status: "Approved" },
-    { crew: "Plant operators", hours: "38.0", signoff: "Signed", status: "Approved" },
-    { crew: "Night shift", hours: "21.0", signoff: "Pending", status: "In review" },
+    { crew: "North crew", hours: "42.5", award: "NSW CI", status: "Approved" },
+    { crew: "Plant operators", hours: "38.0", award: "ACT building", status: "Approved" },
+    { crew: "Night shift", hours: "21.0", award: "NSW CI OT", status: "In review" },
   ];
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <HeaderRow title="Digital timesheets" meta="Week ending 3 Oct" />
+        <HeaderRow title="Timesheets & payroll" meta="Supervisor approvals" />
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          MYOB export ready
+          Export-ready tally
         </span>
       </div>
-      <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.08]">
+      <div className="mt-4 overflow-hidden rounded-xl border border-white/10">
         <table className="w-full text-left text-xs">
           <thead className="bg-white/[0.04] text-[10px] uppercase tracking-wider text-zinc-500">
             <tr>
-              <th className="px-3 py-2 font-semibold">Crew</th>
+              <th className="px-3 py-2 font-semibold">Shift card</th>
               <th className="px-3 py-2 font-semibold">Hours</th>
-              <th className="hidden px-3 py-2 font-semibold sm:table-cell">Daily sign-off</th>
-              <th className="px-3 py-2 font-semibold">Status</th>
+              <th className="hidden px-3 py-2 font-semibold sm:table-cell">Award rule</th>
+              <th className="px-3 py-2 font-semibold">Approval</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.06] text-zinc-200">
@@ -320,7 +526,7 @@ function TimesheetsPreview() {
               <tr key={row.crew}>
                 <td className="px-3 py-2.5 font-medium text-white">{row.crew}</td>
                 <td className="px-3 py-2.5">{row.hours}</td>
-                <td className="hidden px-3 py-2.5 sm:table-cell">{row.signoff}</td>
+                <td className="hidden px-3 py-2.5 sm:table-cell">{row.award}</td>
                 <td className="px-3 py-2.5">
                   <span
                     className={cn(
@@ -342,62 +548,56 @@ function TimesheetsPreview() {
   );
 }
 
-function CompliancePreview() {
-  const checks = [
-    { label: "Hold point signed", done: true },
-    { label: "Photo evidence attached", done: true },
-    { label: "ITP item closed", done: true },
+function OrganisationPreview() {
+  const policies = [
+    { name: "Public liability $20m", expires: "18 days", tone: "warn" },
+    { name: "Workers compensation", expires: "74 days", tone: "ok" },
+    { name: "Plant & motor fleet", expires: "41 days", tone: "ok" },
   ];
 
   return (
     <div>
-      <HeaderRow title="ITP & safety compliance" meta="Inspection pack" />
-      <article className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.04] p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-white">Stormwater pit inspection — ITC 14</h3>
-            <p className="mt-1 text-xs text-zinc-400">Civic Centre Fit-Out · Canberra</p>
-          </div>
-          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-400">
-            100% compliant
-          </span>
-        </div>
-        <ul className="mt-4 space-y-2">
-          {checks.map((item) => (
-            <li key={item.label} className="flex items-center gap-2 text-sm text-zinc-200">
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
-                <Check className="h-3 w-3" />
-              </span>
-              {item.label}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-5 flex flex-wrap items-center gap-4">
-          <div className="flex gap-2">
-            {["#FF6B00", "#38BDF8", "#22C55E"].map((color) => (
+      <HeaderRow title="Insurances & organisation" meta="Compliance register" />
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-2">
+          {policies.map((policy) => (
+            <article
+              key={policy.name}
+              className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[#FF6B00]" />
+                <div>
+                  <h3 className="text-sm font-bold text-white">{policy.name}</h3>
+                  <p className="text-[11px] text-zinc-400">Document vault · PDF attached</p>
+                </div>
+              </div>
               <span
-                key={color}
-                className="h-12 w-12 rounded-lg border border-white/10"
-                style={{
-                  background: `linear-gradient(145deg, ${color}55, #13171B)`,
-                }}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-emerald-400/60 text-[9px] font-extrabold uppercase leading-tight text-emerald-300">
-              Sign
-              <br />
-              OK
-            </span>
-            <p className="text-xs text-zinc-400">
-              Supervisor stamp
-              <br />
-              <span className="text-zinc-300">Verified 07:42</span>
-            </p>
-          </div>
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  policy.tone === "warn"
+                    ? "bg-[#FF6B00]/15 text-[#FF8533]"
+                    : "bg-emerald-500/15 text-emerald-400"
+                )}
+              >
+                {policy.expires}
+              </span>
+            </article>
+          ))}
         </div>
-      </article>
+        <article className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#FF6B00]">
+            Subcontractor pack
+          </p>
+          <p className="mt-3 text-sm font-semibold text-white">6 of 6 current</p>
+          <p className="mt-1 text-xs text-zinc-400">
+            SWMS, insurance, and induction evidence filed against each company.
+          </p>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-full rounded-full bg-gradient-to-r from-[#FF6B00] to-[#FF8533]" />
+          </div>
+        </article>
+      </div>
     </div>
   );
 }
