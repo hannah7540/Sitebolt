@@ -3,10 +3,12 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { HardHat, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import SiteFooter from "@/components/layout/SiteFooter";
 import Toast from "@/components/ui/Toast";
+import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
+import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import { useFormToast } from "@/hooks/useFormToast";
 import { bindAuthSessionForUser, resolvePostAuthPathForUser } from "@/lib/auth-profile";
 import { clearOrganisationWorkspace } from "@/lib/activate-organisation";
@@ -14,7 +16,6 @@ import { isSuperAdminAccount } from "@/lib/super-admin";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import { resolvePostLoginPath } from "@/lib/native-app";
-import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
   hasAuthHashFragment,
@@ -26,6 +27,10 @@ import {
   WORKER_REVOKED_LOGIN_ERROR_PARAM,
   WORKER_REVOKED_LOGIN_MESSAGE,
 } from "@/lib/worker-revocation";
+
+const loginFieldClass =
+  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none transition focus:border-[#FF6B00] focus:ring-2 focus:ring-[#FF6B00]/40";
+const loginLabelClass = "text-xs font-semibold uppercase tracking-wider text-zinc-400";
 
 async function waitForAuthSession(
   supabase: ReturnType<typeof createSupabaseBrowserClient>
@@ -274,149 +279,151 @@ function LoginPageContent() {
 
   if (checkingSession) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-      </div>
+      <TechAmbientBackdrop className="flex min-h-screen items-center justify-center p-6">
+        <Loader2 className="h-8 w-8 animate-spin text-[#FF6B00]" />
+      </TechAmbientBackdrop>
     );
   }
 
   if (showForgotPassword) {
     return (
-      <div className="flex min-h-screen flex-col bg-slate-50">
+      <TechAmbientBackdrop className="flex min-h-screen flex-col">
         <div className="flex flex-1 items-center justify-center p-6">
           <ForgotPasswordForm
             initialEmail={email}
             onBackToSignIn={() => setShowForgotPassword(false)}
           />
         </div>
-        <SiteFooter />
-      </div>
+        <SiteFooter variant="dark" />
+      </TechAmbientBackdrop>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
+    <TechAmbientBackdrop className="flex min-h-screen flex-col">
       <div className="flex flex-1 items-center justify-center p-6">
-      <div className={cardClass + " w-full max-w-md p-8"}>
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500">
-            <HardHat className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">
-              SiteBolt
+        <div className="relative w-full max-w-md">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[#FF6B00]/20 blur-3xl"
+          />
+          <div className="relative rounded-2xl border border-white/10 bg-[#1F2429]/80 p-8 shadow-[0_0_60px_rgba(255,107,0,0.18)] backdrop-blur-md">
+            <div className="mb-6 flex items-center gap-3">
+              <SiteBoltMark className="h-11 w-11" />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FF6B00]">
+                  SiteBolt
+                </p>
+                <h1 className="text-xl font-bold text-white">Log In</h1>
+              </div>
+            </div>
+
+            <p className="mb-6 text-sm text-zinc-400">Sign in to your account.</p>
+
+            {resetSuccess || passwordSetMessage ? (
+              <p className="mb-4 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                {passwordSetMessage ||
+                  "Password updated successfully! Please sign in with your new password."}
+              </p>
+            ) : null}
+
+            {revokedError ? (
+              <p className="mb-4 rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {WORKER_REVOKED_LOGIN_MESSAGE}
+              </p>
+            ) : null}
+
+            <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
+              <div className="space-y-1">
+                <label htmlFor="login-email" className={loginLabelClass}>
+                  Email
+                </label>
+                <input
+                  id="login-email"
+                  name="email"
+                  type="email"
+                  className={loginFieldClass}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
+                  enterKeyHint="next"
+                  disabled={submitting}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="login-password" className={loginLabelClass}>
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="text-xs font-semibold text-[#FF8533] hover:text-[#FF6B00]"
+                    disabled={submitting}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <input
+                  id="login-password"
+                  name="password"
+                  type="password"
+                  className={loginFieldClass}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="go"
+                  disabled={submitting}
+                  required
+                />
+              </div>
+
+              {error ? (
+                <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                aria-busy={submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FF6B00] to-[#FF8533] py-3 text-sm font-semibold text-white shadow-[0_0_28px_rgba(255,107,0,0.45)] transition hover:from-[#FF8533] hover:to-[#FF6B00] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  "Sign In to SiteBolt"
+                )}
+              </button>
+            </form>
+
+            {toast ? (
+              <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+            ) : null}
+
+            <p className="mt-6 text-center text-sm text-zinc-500">
+              <Link href="/" className="font-medium text-[#FF8533] hover:text-[#FF6B00]">
+                Back to SiteBolt
+              </Link>
             </p>
-            <h1 className="text-xl font-bold text-slate-900">Log In</h1>
           </div>
         </div>
-
-        <p className="mb-6 text-sm text-slate-600">
-          Sign in to your account.
-        </p>
-
-        {resetSuccess || passwordSetMessage ? (
-          <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {passwordSetMessage ||
-              "Password updated successfully! Please sign in with your new password."}
-          </p>
-        ) : null}
-
-        {revokedError ? (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {WORKER_REVOKED_LOGIN_MESSAGE}
-          </p>
-        ) : null}
-
-        <form className="space-y-4" onSubmit={handleSubmit} autoComplete="on">
-          <div className="space-y-1">
-            <label htmlFor="login-email" className={labelClass}>
-              Email
-            </label>
-            <input
-              id="login-email"
-              name="email"
-              type="email"
-              className={inputClass}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              inputMode="email"
-              enterKeyHint="next"
-              disabled={submitting}
-              required
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <label htmlFor="login-password" className={labelClass}>
-                Password
-              </label>
-              <button
-                type="button"
-                onClick={() => setShowForgotPassword(true)}
-                className="text-xs font-semibold text-orange-600 hover:text-orange-700"
-                disabled={submitting}
-              >
-                Forgot password?
-              </button>
-            </div>
-            <input
-              id="login-password"
-              name="password"
-              type="password"
-              className={inputClass}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="go"
-              disabled={submitting}
-              required
-            />
-          </div>
-
-          {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {error}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            aria-busy={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white shadow-sm hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Signing in…
-              </>
-            ) : (
-              "Sign in"
-            )}
-          </button>
-        </form>
-
-        {toast ? (
-          <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
-        ) : null}
-
-        <p className="mt-6 text-center text-sm text-slate-500">
-          <Link href="/" className="font-medium text-orange-600 hover:text-orange-700">
-            Back to SiteBolt
-          </Link>
-        </p>
       </div>
-      </div>
-      <SiteFooter />
-    </div>
+      <SiteFooter variant="dark" />
+    </TechAmbientBackdrop>
   );
 }
 
@@ -424,8 +431,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        <div className="flex min-h-screen items-center justify-center bg-[#13171B] p-6">
+          <Loader2 className="h-8 w-8 animate-spin text-[#FF6B00]" />
         </div>
       }
     >
