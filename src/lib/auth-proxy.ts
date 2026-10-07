@@ -27,6 +27,8 @@ import {
 } from "@/lib/public-auth-paths";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import { isAppHostname, requestHostHeader } from "@/lib/site-domains";
+import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
+import { isSuperAdminAccount } from "@/lib/super-admin";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -61,6 +63,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/account",
   "/emails",
   "/sms",
+  "/select-company",
 ] as const;
 
 /** Admin console roles land on the Master Project Dashboard, not a specific project. */
@@ -280,6 +283,15 @@ function resolveAuthenticatedHomePath(
   if (isNativeAppRequest(request)) {
     return resolveNativeWorkerDashboardPath(context.workerId);
   }
+  if (
+    isSuperAdminAccount({
+      email: context.user?.email,
+      metadata: (context.user?.user_metadata ?? null) as Record<string, unknown> | null,
+    }) &&
+    !request.cookies.get(ACTIVE_ORG_COOKIE)?.value?.trim()
+  ) {
+    return "/select-company";
+  }
   return resolveDefaultLandingPathForRole(context.role, context.workerId);
 }
 
@@ -436,6 +448,25 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       resolveNativeWorkerDashboardPath(context.workerId),
       sessionResponse
     );
+  }
+
+  if (context.user) {
+    const superAdmin = isSuperAdminAccount({
+      email: context.user.email,
+      metadata: (context.user.user_metadata ?? null) as Record<string, unknown> | null,
+    });
+    if (superAdmin) {
+      const hasOrg = Boolean(request.cookies.get(ACTIVE_ORG_COOKIE)?.value?.trim());
+      if (!hasOrg && pathname !== "/select-company") {
+        return redirectWithCookies(request, "/select-company", sessionResponse);
+      }
+    } else if (pathname === "/select-company" || pathname.startsWith("/select-company/")) {
+      return redirectWithCookies(
+        request,
+        resolveDefaultLandingPathForRole(context.role, context.workerId),
+        sessionResponse
+      );
+    }
   }
 
   if (requiresAuthentication(pathname, request) && !context.user) {

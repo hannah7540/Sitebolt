@@ -6,6 +6,7 @@ import CompanyLogo from "@/components/ui/CompanyLogo";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 import GlobalSearchBar from "@/components/search/GlobalSearchBar";
+import CompanySwitcher from "@/components/organisation/CompanySwitcher";
 import { cn } from "@/lib/utils";
 
 interface AppScreenHeaderProps {
@@ -34,8 +35,9 @@ export default function AppScreenHeader({
         className
       )}
     >
-      <div className="justify-self-start">
+      <div className="flex items-center gap-3 justify-self-start">
         <CompanyLogo size="md" showFallback />
+        <CompanySwitcher />
       </div>
       <GlobalSearchBar />
       <div className="flex items-center justify-end gap-3 justify-self-end">

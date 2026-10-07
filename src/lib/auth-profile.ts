@@ -15,9 +15,12 @@ import {
   setAdminWorkerId,
   setStoredWorkerId,
   resolveDefaultLandingPathForRole,
+  MASTER_PROJECT_DASHBOARD_PATH,
 } from "@/lib/user-session";
 import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
 import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
+import { getActiveOrganisationId } from "@/lib/active-organisation";
+import { isSuperAdminAccount } from "@/lib/super-admin";
 import {
   WORKER_REVOKED_LOGIN_MESSAGE,
   fetchWorkerAccessRevokedForAuthUser,
@@ -180,6 +183,15 @@ export async function bindAuthSessionForUser(user: User): Promise<{
 }
 
 export async function resolvePostAuthPathForUser(user: User): Promise<string> {
+  if (
+    isSuperAdminAccount({
+      email: user.email,
+      metadata: (user.user_metadata ?? null) as Record<string, unknown> | null,
+    })
+  ) {
+    return getActiveOrganisationId() ? MASTER_PROJECT_DASHBOARD_PATH : "/select-company";
+  }
+
   const bound = await bindAuthSessionForUser(user);
   if (bound.ok && bound.workerId && isGeneralWorkerRole(bound.role)) {
     const completed = await fetchWorkerOnboardingCompleted(bound.workerId);

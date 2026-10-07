@@ -7,6 +7,7 @@ import NativeBackButtonHandler from "@/components/layout/NativeBackButtonHandler
 import WorkerPushNotifications from "@/components/workers/WorkerPushNotifications";
 import CommandPaletteProvider from "@/components/command-palette/CommandPaletteProvider";
 import GlobalSearchProvider from "@/components/search/GlobalSearchProvider";
+import OrganisationWorkspaceProvider from "@/components/organisation/OrganisationWorkspaceProvider";
 
 export default function BrandingRoot({
   children,
@@ -15,15 +16,17 @@ export default function BrandingRoot({
 }) {
   return (
     <CompanyBrandingProvider>
-      <CommandPaletteProvider>
-        <GlobalSearchProvider>
-          <HashAuthCapture />
-          <NativeAppRouteGuard />
-          <NativeBackButtonHandler />
-          <WorkerPushNotifications />
-          {children}
-        </GlobalSearchProvider>
-      </CommandPaletteProvider>
+      <OrganisationWorkspaceProvider>
+        <CommandPaletteProvider>
+          <GlobalSearchProvider>
+            <HashAuthCapture />
+            <NativeAppRouteGuard />
+            <NativeBackButtonHandler />
+            <WorkerPushNotifications />
+            {children}
+          </GlobalSearchProvider>
+        </CommandPaletteProvider>
+      </OrganisationWorkspaceProvider>
     </CompanyBrandingProvider>
   );
 }
