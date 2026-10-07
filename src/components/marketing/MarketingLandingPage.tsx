@@ -15,6 +15,7 @@ import {
 import SiteFooter from "@/components/layout/SiteFooter";
 import CustomBuildModal from "@/components/marketing/CustomBuildModal";
 import EnquireNowModal from "@/components/marketing/EnquireNowModal";
+import EverythingIncluded from "@/components/marketing/EverythingIncluded";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import TakeALookAround from "@/components/marketing/TakeALookAround";
 import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
@@ -234,6 +235,11 @@ export default function MarketingLandingPage() {
         </section>
 
         <TakeALookAround />
+
+        <EverythingIncluded
+          onStartReady={openEnquire}
+          onOpenCustomBuild={() => setCustomBuildOpen(true)}
+        />
 
         <section id="custom-build" className="relative overflow-hidden bg-[#13171B] px-4 pb-16 pt-8">
           <div
