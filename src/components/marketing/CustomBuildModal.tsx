@@ -99,10 +99,10 @@ export default function CustomBuildModal({ onClose }: CustomBuildModalProps) {
           <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
             <CheckCircle2 className="h-12 w-12 text-[#FF6B00]" />
             <p className="mt-4 text-lg font-bold text-white">
-              Your custom build brief has been received.
+              Thank you! Your brief has been sent to our engineering lead.
             </p>
             <p className="mt-2 max-w-sm text-sm text-zinc-400">
-              Our engineering lead will be in touch within 24 hours.
+              We&apos;ll be in touch within 24 hours.
             </p>
             <button
               type="button"

@@ -102,10 +102,11 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
         {success ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
             <CheckCircle2 className="h-12 w-12 text-[#FF6B00]" />
-            <p className="mt-4 text-lg font-bold text-[#1F2429]">Thanks — we have your enquiry.</p>
+            <p className="mt-4 text-lg font-bold text-[#1F2429]">
+              Thank you! Your brief has been sent to our engineering lead.
+            </p>
             <p className="mt-2 max-w-sm text-sm text-zinc-600">
-              A SiteBolt specialist will be in touch shortly to walk through the platform and
-              your compliance requirements.
+              We&apos;ll be in touch within 24 hours.
             </p>
             <button
               type="button"
