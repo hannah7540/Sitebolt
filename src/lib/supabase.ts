@@ -480,9 +480,16 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
 function finalizeWorkerRows(
   rows: RawWorkerRow[],
   orgId: string,
-  options?: { onlyDeleted?: boolean; skipDeletedFilter?: boolean }
+  options?: {
+    onlyDeleted?: boolean;
+    skipDeletedFilter?: boolean;
+    skipOrganisationScope?: boolean;
+  }
 ): Worker[] {
-  const workers = filterRowsByOrganisation(rows, orgId).map(normalizeWorkerRow);
+  const scoped = options?.skipOrganisationScope
+    ? rows
+    : filterRowsByOrganisation(rows, orgId);
+  const workers = scoped.map(normalizeWorkerRow);
   if (options?.onlyDeleted) return workers.filter(isWorkerDeleted);
   if (!options?.skipDeletedFilter) return workers.filter((worker) => !isWorkerDeleted(worker));
   return workers;
@@ -493,6 +500,7 @@ async function queryWorkerRows(options?: {
   limit?: number;
   includeDeleted?: boolean;
   onlyDeleted?: boolean;
+  skipOrganisationScope?: boolean;
 }): Promise<Worker[]> {
   const orgId = resolveActiveOrganisationId();
   let columns =
@@ -503,7 +511,7 @@ async function queryWorkerRows(options?: {
     options?.id || options?.includeDeleted || options?.onlyDeleted
   );
   const onlyDeleted = options?.onlyDeleted === true;
-  let skipOrganisationScope = false;
+  let skipOrganisationScope = options?.skipOrganisationScope === true;
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const select = columns.join(", ");
@@ -523,6 +531,7 @@ async function queryWorkerRows(options?: {
             return finalizeWorkerRows(rows, orgId, {
               onlyDeleted,
               skipDeletedFilter: true,
+              skipOrganisationScope,
             });
           }
 
@@ -582,7 +591,7 @@ async function queryWorkerRows(options?: {
           return finalizeWorkerRows(
             (data ?? []) as unknown as RawWorkerRow[],
             orgId,
-            { onlyDeleted, skipDeletedFilter }
+            { onlyDeleted, skipDeletedFilter, skipOrganisationScope }
           );
         }
 
@@ -658,6 +667,13 @@ async function fetchWorkerRows(): Promise<Worker[]> {
 
 async function fetchWorkerRowById(id: string): Promise<Worker | null> {
   const rows = await queryWorkerRows({ id });
+  return rows[0] ?? null;
+}
+
+/** Signed-in identity only — not tenant-scoped, so Super-Admin keeps their role in Demo. */
+export async function fetchAuthenticatedWorkerById(id: string): Promise<Worker | null> {
+  if (!isSupabaseConfigured() || !id.trim()) return null;
+  const rows = await queryWorkerRows({ id: id.trim(), skipOrganisationScope: true });
   return rows[0] ?? null;
 }
 

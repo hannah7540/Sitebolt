@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { fetchOrganisationFromApi } from "@/lib/organisation-api-client";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 
 interface CompanyBrandingContextValue {
   logoUrl: string | null;
@@ -29,6 +30,7 @@ export function CompanyBrandingProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const workspace = useOrganisationWorkspace();
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState("SiteBolt");
   const [loading, setLoading] = useState(true);
@@ -50,8 +52,8 @@ export function CompanyBrandingProvider({
   }, []);
 
   useEffect(() => {
-    refreshBranding();
-  }, [refreshBranding]);
+    void refreshBranding();
+  }, [refreshBranding, workspace?.activeCompany?.id]);
 
   const value = useMemo(
     () => ({

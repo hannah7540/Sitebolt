@@ -15,8 +15,8 @@ export default function BrandingRoot({
   children: React.ReactNode;
 }) {
   return (
-    <CompanyBrandingProvider>
-      <OrganisationWorkspaceProvider>
+    <OrganisationWorkspaceProvider>
+      <CompanyBrandingProvider>
         <CommandPaletteProvider>
           <GlobalSearchProvider>
             <HashAuthCapture />
@@ -26,7 +26,7 @@ export default function BrandingRoot({
             {children}
           </GlobalSearchProvider>
         </CommandPaletteProvider>
-      </OrganisationWorkspaceProvider>
-    </CompanyBrandingProvider>
+      </CompanyBrandingProvider>
+    </OrganisationWorkspaceProvider>
   );
 }

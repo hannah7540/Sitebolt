@@ -12,11 +12,15 @@ import {
   type AdminConsoleContextValue,
 } from "@/contexts/AdminConsoleContext";
 import {
+  fetchAuthenticatedWorkerById,
   fetchWorkers,
   getWorkerAssignedProjectIds,
   isSupabaseConfigured,
   type Worker,
 } from "@/lib/supabase";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { isSuperAdminAccount, SUPER_ADMIN_CONSOLE_ROLE } from "@/lib/super-admin";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { resolveAdminWorkerFromAuthSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
@@ -96,14 +100,17 @@ export default function AdminConsoleShell({
   const router = useRouter();
   const pathname = usePathname();
   const commandPalette = useCommandPalette();
+  const workspace = useOrganisationWorkspace();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [sessionIdentity, setSessionIdentity] = useState<Worker | null>(null);
   const [sidebarProjects, setSidebarProjects] = useState<DbProject[]>([]);
   const [dashboardProject, setDashboardProject] = useState<DbProject | null>(null);
   const [adminWorkerId, setAdminWorkerIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
+  const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState(false);
 
   const loadSession = useCallback(async () => {
     if (
@@ -140,6 +147,15 @@ export default function AdminConsoleShell({
     await fetchProjects();
     const projects = getCachedProjects();
 
+    const supabase = createSupabaseBrowserClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const authUser = authData.user;
+    const superAdmin = isSuperAdminAccount({
+      email: authUser?.email,
+      metadata: (authUser?.user_metadata ?? null) as Record<string, unknown> | null,
+    });
+    setAuthIsSuperAdmin(superAdmin);
+
     const authSession = await resolveAdminWorkerFromAuthSession();
 
     if (!authSession.hasSession) {
@@ -157,13 +173,19 @@ export default function AdminConsoleShell({
     if (authSession.workerId) {
       setAdminWorkerId(authSession.workerId);
       setAdminWorkerIdState(authSession.workerId);
+      setSessionIdentity(await fetchAuthenticatedWorkerById(authSession.workerId));
+    } else if (superAdmin) {
+      setSessionIdentity(null);
+      setAdminWorkerIdState(null);
     } else if (isWorkerDashboardPath(pathname)) {
       // General workers keep the profile route; do not gate it as admin-only.
+      setSessionIdentity(null);
       setAdminWorkerIdState(null);
     } else {
       setAccessDenied(
         "Your account is signed in but does not have admin console access. Sign in with an owner or admin account at /login."
       );
+      setSessionIdentity(null);
       setAdminWorkerIdState(null);
     }
 
@@ -183,11 +205,16 @@ export default function AdminConsoleShell({
 
   useEffect(() => {
     void loadSession();
-  }, [loadSession]);
+  }, [loadSession, workspace?.activeCompany?.id]);
+
+  const isSuperAdmin = authIsSuperAdmin || workspace?.isSuperAdmin === true;
 
   const sessionWorker = useMemo(
-    () => workers.find((worker) => worker.id === adminWorkerId) ?? null,
-    [workers, adminWorkerId]
+    () =>
+      sessionIdentity ??
+      workers.find((worker) => worker.id === adminWorkerId) ??
+      null,
+    [sessionIdentity, workers, adminWorkerId]
   );
 
   const adminProfileName = useMemo(() => {
@@ -200,10 +227,13 @@ export default function AdminConsoleShell({
     [sessionWorker]
   );
 
-  const sessionRole = useMemo(
-    () => normalizeSecurityRole(sessionWorker?.security_role),
-    [sessionWorker]
-  );
+  const sessionRole = useMemo(() => {
+    if (isSuperAdmin) {
+      const fromWorker = normalizeSecurityRole(sessionWorker?.security_role);
+      return canAccessAdminConsole(fromWorker) ? fromWorker : SUPER_ADMIN_CONSOLE_ROLE;
+    }
+    return normalizeSecurityRole(sessionWorker?.security_role);
+  }, [isSuperAdmin, sessionWorker]);
 
   const assignedProjectIds = useMemo(
     () => (sessionWorker ? getWorkerAssignedProjectIds(sessionWorker) : []),
@@ -216,16 +246,22 @@ export default function AdminConsoleShell({
   );
 
   const sessionSecurityRoleRaw = useMemo(
-    () => sessionWorker?.security_role?.trim() || null,
-    [sessionWorker]
+    () =>
+      sessionWorker?.security_role?.trim() ||
+      (isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : null),
+    [isSuperAdmin, sessionWorker]
   );
 
   const accountsAccessRole = useMemo(
-    () => normalizeAccountsAccessRole(sessionWorker?.accounts_access_role),
-    [sessionWorker]
+    () =>
+      isSuperAdmin
+        ? "full_access"
+        : normalizeAccountsAccessRole(sessionWorker?.accounts_access_role),
+    [isSuperAdmin, sessionWorker]
   );
 
-  const canAccessAccounts = sessionWorker?.can_access_accounts === true;
+  const canAccessAccounts =
+    isSuperAdmin || sessionWorker?.can_access_accounts === true;
 
   const accountsReadOnly = useMemo(
     () => isAccountsTimesheetsReadOnly(sessionRole, accountsAccessRole),
@@ -234,6 +270,11 @@ export default function AdminConsoleShell({
 
   useEffect(() => {
     if (!sessionReady || loading) return;
+
+    if (isSuperAdmin) {
+      setAccessDenied(null);
+      return;
+    }
 
     if (!sessionWorker || workers.length === 0) return;
 
@@ -309,6 +350,7 @@ export default function AdminConsoleShell({
   }, [
     sessionReady,
     loading,
+    isSuperAdmin,
     sessionWorker,
     workers.length,
     sessionRole,

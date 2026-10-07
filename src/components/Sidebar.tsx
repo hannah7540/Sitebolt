@@ -63,6 +63,8 @@ import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { usePersistedSidebarSection } from "@/hooks/usePersistedSidebarSection";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { SUPER_ADMIN_CONSOLE_ROLE } from "@/lib/super-admin";
 
 export type ActiveView =
   | "dashboard"
@@ -580,29 +582,41 @@ export default function Sidebar({
   const profileActive =
     effectiveActiveView === "my-profile" ||
     pathname.startsWith("/worker-dashboard");
-  const showOrganisation = canManageOrganisation(sessionRole);
-  const showAdministration = canManageAdministration(sessionRole);
-  const showEmails = canAccessEmailsModule(sessionRole);
-  const showSms = canAccessSmsModule(sessionRole);
+  const workspace = useOrganisationWorkspace();
+  const isSuperAdmin = workspace?.isSuperAdmin === true;
+  const effectiveRole = isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionRole;
+  const effectiveAccountsRole = isSuperAdmin ? "full_access" : accountsAccessRole;
+  const effectiveCanAccessAccounts = isSuperAdmin || canAccessAccounts;
+  const showOrganisation = isSuperAdmin || canManageOrganisation(effectiveRole);
+  const showAdministration = isSuperAdmin || canManageAdministration(effectiveRole);
+  const showEmails = isSuperAdmin || canAccessEmailsModule(effectiveRole);
+  const showSms = isSuperAdmin || canAccessSmsModule(effectiveRole);
   const showCommunication = showEmails || showSms;
-  const showSecurity = canManageSecuritySettings(sessionRole);
+  const showSecurity = isSuperAdmin || canManageSecuritySettings(effectiveRole);
   const accountsMenu = useMemo(
     () =>
       buildAccountsMenu(
-        sessionRole,
-        accountsAccessRole,
-        canAccessAccounts,
-        sessionSecurityRoleRaw
+        effectiveRole,
+        effectiveAccountsRole,
+        effectiveCanAccessAccounts,
+        isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionSecurityRoleRaw
       ),
-    [sessionRole, sessionSecurityRoleRaw, accountsAccessRole, canAccessAccounts]
+    [
+      effectiveRole,
+      effectiveAccountsRole,
+      effectiveCanAccessAccounts,
+      isSuperAdmin,
+      sessionSecurityRoleRaw,
+    ]
   );
   const showAccounts =
+    isSuperAdmin ||
     permissionsLoading ||
     (accountsMenu !== null &&
       canAccessAccountsArea({
-        securityRole: sessionRole,
-        accountsAccessRole,
-        canAccessAccounts,
+        securityRole: effectiveRole,
+        accountsAccessRole: effectiveAccountsRole,
+        canAccessAccounts: effectiveCanAccessAccounts,
       }));
 
   const roleFilteredProjects = useMemo(
