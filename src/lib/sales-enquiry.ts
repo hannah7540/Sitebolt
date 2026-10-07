@@ -4,6 +4,28 @@ export const SALES_ENQUIRIES_TABLE = "sales_enquiries";
 
 export const SALES_ENQUIRY_STATE_OPTIONS = WORKER_STATE_REGION_OPTIONS;
 
+/** Public custom-build inquiry only — does not change internal project/worker states. */
+export const CUSTOM_BUILD_STATE_OPTIONS = [
+  { id: "ACT", label: "ACT (Australian Capital Territory)" },
+  { id: "NSW", label: "NSW (New South Wales)" },
+  { id: "NT", label: "NT (Northern Territory)" },
+  { id: "QLD", label: "QLD (Queensland)" },
+  { id: "SA", label: "SA (South Australia)" },
+  { id: "TAS", label: "TAS (Tasmania)" },
+  { id: "VIC", label: "VIC (Victoria)" },
+  { id: "WA", label: "WA (Western Australia)" },
+  { id: "NZ", label: "NZ (New Zealand)" },
+] as const;
+
+export type CustomBuildStateId = (typeof CUSTOM_BUILD_STATE_OPTIONS)[number]["id"];
+
+export function isCustomBuildStateRegion(
+  value: string | null | undefined
+): value is CustomBuildStateId {
+  if (!value) return false;
+  return CUSTOM_BUILD_STATE_OPTIONS.some((item) => item.id === value);
+}
+
 export const SALES_ENQUIRY_TEAM_SIZES = ["1-10", "11-30", "31-50", "50+"] as const;
 
 export const SALES_ENQUIRY_MODULES = [
@@ -76,7 +98,11 @@ export function validateSalesEnquiry(input: unknown): SalesEnquiryValidation {
   if (!companyName) errors.companyName = "Company name is required.";
   if (!workEmail) errors.workEmail = "Work email is required.";
   else if (!EMAIL_RE.test(workEmail)) errors.workEmail = "Enter a valid work email.";
-  if (!isWorkerStateRegion(state)) {
+  if (enquiryType === "custom_build") {
+    if (!isCustomBuildStateRegion(state)) {
+      errors.state = "Select a state or region.";
+    }
+  } else if (!isWorkerStateRegion(state)) {
     errors.state = "Select ACT, NSW, WA, or NZ.";
   }
   if (enquiryType === "custom_build" && !phone) {

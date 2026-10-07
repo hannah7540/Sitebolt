@@ -5,7 +5,7 @@ import { CheckCircle2, Loader2, X } from "lucide-react";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import {
   CUSTOM_BUILD_MODULE_ID,
-  SALES_ENQUIRY_STATE_OPTIONS,
+  CUSTOM_BUILD_STATE_OPTIONS,
   SALES_ENQUIRY_TEAM_SIZES,
 } from "@/lib/sales-enquiry";
 import { modalOverlayClass } from "@/lib/ui-classes";
@@ -164,10 +164,10 @@ export default function CustomBuildModal({ onClose }: CustomBuildModalProps) {
                 }
                 className={cn(fieldClass, "mt-1", errors.state && "border-red-400")}
               >
-                <option value="">Select ACT, NSW, WA, or NZ</option>
-                {SALES_ENQUIRY_STATE_OPTIONS.map((state) => (
-                  <option key={state} value={state} className="bg-[#1F2429] text-white">
-                    {state}
+                <option value="">Select your state or region</option>
+                {CUSTOM_BUILD_STATE_OPTIONS.map((state) => (
+                  <option key={state.id} value={state.id} className="bg-[#1F2429] text-white">
+                    {state.label}
                   </option>
                 ))}
               </select>
