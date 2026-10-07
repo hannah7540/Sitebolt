@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  Check,
   ClipboardCheck,
   FileSpreadsheet,
   MapPinned,
@@ -12,6 +13,7 @@ import {
   Sparkles,
   Wrench,
 } from "lucide-react";
+import CustomBuildModal from "@/components/marketing/CustomBuildModal";
 import EnquireNowModal from "@/components/marketing/EnquireNowModal";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
@@ -90,6 +92,7 @@ function SiteBoltWordmark() {
 export default function MarketingLandingPage() {
   const searchParams = useSearchParams();
   const [enquireOpen, setEnquireOpen] = useState(false);
+  const [customBuildOpen, setCustomBuildOpen] = useState(false);
   const [activeDemo, setActiveDemo] = useState<(typeof DEMO_TABS)[number]["id"]>("plant");
   const [loginUrl, setLoginUrl] = useState("/login");
   const demo = DEMO_TABS.find((tab) => tab.id === activeDemo) ?? DEMO_TABS[0];
@@ -232,62 +235,106 @@ export default function MarketingLandingPage() {
         <section id="custom-build" className="relative overflow-hidden border-t border-white/10 bg-[#13171B] px-4 py-16">
           <div
             aria-hidden
-            className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-[#38BDF8]/10 blur-[90px]"
+            className="pointer-events-none absolute right-0 top-0 h-72 w-72 rounded-full bg-[#FF6B00]/12 blur-[100px]"
           />
           <div className="relative mx-auto max-w-6xl">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF6B00]">
-              Built your way
+            <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
+              Flexible Software Solutions
             </p>
-            <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">
+            <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">
               <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-                Turnkey Power. Bespoke Flexibility.
+                Use Our Proven Platform. Or Let Us Build Yours From Scratch.
               </span>
             </h2>
-            <p className="mt-3 max-w-3xl text-zinc-400">
-              Use our field-proven trade modules out of the box, or let us tailor SiteBolt directly
-              to your operational blueprint.
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-400">
+              Choose our ready-to-run construction modules, or commission a completely custom
+              software solution built exclusively for your company&apos;s operational blueprint —
+              at a fraction of traditional enterprise development costs.
             </p>
             <div className="mt-8 grid gap-4 md:grid-cols-2">
-              <article className={glassCardClass}>
+              <article className={`${glassCardClass} flex flex-col`}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF8533]">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
                     <Sparkles className="h-5 w-5" />
                   </span>
-                  <span className="rounded-full border border-[#FF6B00]/35 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#FF8533]">
-                    Instant Setup
+                  <span className="rounded-full border border-white/20 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-200">
+                    Turnkey &amp; Immediate
                   </span>
                 </div>
-                <h3 className="mt-4 text-xl font-bold text-white">Ready-to-Deploy Modules</h3>
+                <h3 className="mt-4 text-xl font-bold text-white">SiteBolt Standard Suite</h3>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-                  Instant compliance right out of the box. 31-day rolling SWMS, instant QR-scanned
-                  plant &amp; asset verification, live digital timesheets, and comprehensive ITP/ITC
-                  quality registers.
+                  Deploy our field-proven modules instantly. Complete with rolling 31-day SWMS,
+                  instant QR plant verification, live digital timesheets, and ITP/ITC quality
+                  control registers.
                 </p>
+                <ul className="mt-5 space-y-2.5 text-sm text-zinc-200">
+                  {[
+                    "Instant workspace onboarding",
+                    "Pre-configured compliance & safety workflows",
+                    "Built-in MYOB & payroll time tracking",
+                    "Standard subscription pricing",
+                  ].map((point) => (
+                    <li key={point} className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-auto pt-6">
+                  <button
+                    type="button"
+                    onClick={() => scrollTo("demos")}
+                    className={`${ghostButtonClass} w-full justify-center sm:w-auto`}
+                  >
+                    Explore Modules
+                  </button>
+                </div>
               </article>
-              <article className={glassCardClass}>
+              <article className="flex flex-col rounded-2xl border-2 border-[#FF6B00] bg-white/[0.04] p-6 backdrop-blur-md shadow-[0_0_42px_rgba(255,107,0,0.28)]">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#38BDF8]/15 text-[#38BDF8]">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
                     <Wrench className="h-5 w-5" />
                   </span>
-                  <span className="rounded-full border border-[#38BDF8]/35 bg-[#38BDF8]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#38BDF8]">
-                    Tailored to Fit
+                  <span className="rounded-full bg-[#FF6B00] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-white">
+                    Full Creative Control
                   </span>
                 </div>
-                <h3 className="mt-4 text-xl font-bold text-white">Custom Built for Your Operations</h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-                  Every contractor runs differently. We engineer custom inspection forms, specialized
-                  pay-rule calculators, client-specific sign-off workflows, and custom ERP/accounting
-                  integrations built specifically for your team.
+                <h3 className="mt-4 text-xl font-bold text-white">
+                  100% Custom Built For Your Business
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                  Tell us exactly how you want your business to run. We engineer bespoke web and
+                  mobile tools built to your exact specifications — giving you proprietary software
+                  advantages at a fraction of typical agency costs.
                 </p>
-                <button
-                  type="button"
-                  onClick={openEnquire}
-                  className={`${primaryButtonClass} mt-6`}
-                >
-                  Request a Custom Build
-                </button>
+                <ul className="mt-5 space-y-2.5 text-sm text-zinc-200">
+                  {[
+                    "Complete creative control over features, layouts & workflows",
+                    "Custom forms, custom calculation engines & proprietary reporting",
+                    "Direct integrations into your existing legacy tools & databases",
+                    "Enterprise-grade architecture without the $100k+ agency price tag",
+                  ].map((point) => (
+                    <li key={point} className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-auto pt-6">
+                  <button
+                    type="button"
+                    onClick={() => setCustomBuildOpen(true)}
+                    className={`${primaryButtonClass} w-full sm:w-auto`}
+                  >
+                    Tell Us What You Need
+                  </button>
+                </div>
               </article>
             </div>
+            <p className="mt-6 max-w-3xl text-sm text-zinc-500">
+              Built by trade tech specialists who understand civil, mechanical, hydraulic, and
+              commercial contracting in Australia and New Zealand.
+            </p>
           </div>
         </section>
 
@@ -379,6 +426,9 @@ export default function MarketingLandingPage() {
       </main>
 
       {enquireOpen ? <EnquireNowModal onClose={() => setEnquireOpen(false)} /> : null}
+      {customBuildOpen ? (
+        <CustomBuildModal onClose={() => setCustomBuildOpen(false)} />
+      ) : null}
     </div>
   );
 }

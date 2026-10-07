@@ -4,10 +4,52 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { sendEmail } from "@/lib/email-service";
 import {
   SALES_ENQUIRIES_TABLE,
   validateSalesEnquiry,
 } from "@/lib/sales-enquiry";
+
+function isMissingColumnError(message: string): boolean {
+  const lower = (message || "").toLowerCase();
+  return (
+    (lower.includes("notes") || lower.includes("enquiry_type")) &&
+    (lower.includes("does not exist") ||
+      lower.includes("schema cache") ||
+      lower.includes("could not find") ||
+      lower.includes("column"))
+  );
+}
+
+async function notifySalesTeam(payload: NonNullable<
+  ReturnType<typeof validateSalesEnquiry>["payload"]
+>) {
+  const isCustom = payload.enquiry_type === "custom_build";
+  const subject = isCustom
+    ? `Custom build brief — ${payload.company_name}`
+    : `SiteBolt enquiry — ${payload.company_name}`;
+  const lines = [
+    `Name: ${payload.full_name}`,
+    `Company: ${payload.company_name}`,
+    `Email: ${payload.work_email}`,
+    `Phone: ${payload.phone ?? "—"}`,
+    `State: ${payload.state}`,
+    `Team / fleet: ${payload.fleet_team_size ?? "—"}`,
+    `Type: ${payload.enquiry_type}`,
+    `Modules: ${payload.modules_of_interest.join(", ") || "—"}`,
+    "",
+    payload.notes ?? "",
+  ];
+  await sendEmail({
+    to: ["support@site-bolt.com.au"],
+    replyTo: payload.work_email,
+    subject,
+    text: lines.join("\n"),
+    html: `<pre style="font-family:system-ui,sans-serif;white-space:pre-wrap">${lines
+      .map((line) => line.replace(/</g, "&lt;"))
+      .join("\n")}</pre>`,
+  });
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -34,10 +76,16 @@ export async function POST(request: Request) {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { error } = await admin.from(SALES_ENQUIRIES_TABLE).insert({
+    const row = {
       ...validated.payload,
       source_host: request.headers.get("host"),
-    });
+    };
+    let { error } = await admin.from(SALES_ENQUIRIES_TABLE).insert(row);
+
+    if (error && isMissingColumnError(error.message)) {
+      const { notes: _notes, enquiry_type: _type, ...legacyRow } = row;
+      ({ error } = await admin.from(SALES_ENQUIRIES_TABLE).insert(legacyRow));
+    }
 
     if (error) {
       console.error("sales_enquiries insert failed:", error.message);
@@ -48,6 +96,12 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    try {
+      await notifySalesTeam(validated.payload);
+    } catch (cause) {
+      console.warn("sales enquiry email notify skipped:", cause);
     }
 
     return NextResponse.json({ ok: true });

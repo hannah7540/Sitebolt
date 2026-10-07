@@ -16,6 +16,10 @@ export const SALES_ENQUIRY_MODULES = [
 export type SalesEnquiryTeamSize = (typeof SALES_ENQUIRY_TEAM_SIZES)[number];
 export type SalesEnquiryModuleId = (typeof SALES_ENQUIRY_MODULES)[number]["id"];
 
+export const CUSTOM_BUILD_MODULE_ID = "custom_build";
+
+export type SalesEnquiryType = "general" | "custom_build";
+
 export interface SalesEnquiryInput {
   fullName: string;
   companyName: string;
@@ -24,6 +28,8 @@ export interface SalesEnquiryInput {
   state: string;
   teamSize?: string;
   modules: string[];
+  notes?: string;
+  enquiryType?: SalesEnquiryType;
 }
 
 export interface SalesEnquiryValidation {
@@ -37,6 +43,8 @@ export interface SalesEnquiryValidation {
     state: string;
     fleet_team_size: string | null;
     modules_of_interest: string[];
+    notes: string | null;
+    enquiry_type: SalesEnquiryType;
   } | null;
 }
 
@@ -54,6 +62,10 @@ export function validateSalesEnquiry(input: unknown): SalesEnquiryValidation {
   const phone = readTrimmed(record.phone);
   const state = readTrimmed(record.state).toUpperCase();
   const teamSize = readTrimmed(record.teamSize ?? record.fleet_team_size);
+  const notes = readTrimmed(record.notes ?? record.brief ?? record.custom_brief);
+  const enquiryTypeRaw = readTrimmed(record.enquiryType ?? record.enquiry_type).toLowerCase();
+  const enquiryType: SalesEnquiryType =
+    enquiryTypeRaw === "custom_build" ? "custom_build" : "general";
   const rawModules = record.modules ?? record.modules_of_interest;
   const modules = Array.isArray(rawModules)
     ? rawModules.map((value) => String(value).trim()).filter(Boolean)
@@ -67,12 +79,24 @@ export function validateSalesEnquiry(input: unknown): SalesEnquiryValidation {
   if (!isWorkerStateRegion(state)) {
     errors.state = "Select ACT, NSW, WA, or NZ.";
   }
+  if (enquiryType === "custom_build" && !phone) {
+    errors.phone = "Phone number is required.";
+  }
+  if (enquiryType === "custom_build" && notes.length < 12) {
+    errors.notes = "Tell us what you want the software to do.";
+  }
   if (teamSize && !(SALES_ENQUIRY_TEAM_SIZES as readonly string[]).includes(teamSize)) {
     errors.teamSize = "Select a valid fleet / team size.";
   }
 
-  const allowedModules = new Set<string>(SALES_ENQUIRY_MODULES.map((item) => item.id));
+  const allowedModules = new Set<string>([
+    ...SALES_ENQUIRY_MODULES.map((item) => item.id),
+    CUSTOM_BUILD_MODULE_ID,
+  ]);
   const cleanModules = modules.filter((item) => allowedModules.has(item));
+  if (enquiryType === "custom_build" && !cleanModules.includes(CUSTOM_BUILD_MODULE_ID)) {
+    cleanModules.push(CUSTOM_BUILD_MODULE_ID);
+  }
 
   if (Object.keys(errors).length > 0) {
     return { ok: false, errors, payload: null };
@@ -89,6 +113,8 @@ export function validateSalesEnquiry(input: unknown): SalesEnquiryValidation {
       state,
       fleet_team_size: teamSize || null,
       modules_of_interest: cleanModules,
+      notes: notes || null,
+      enquiry_type: enquiryType,
     },
   };
 }
