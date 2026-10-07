@@ -7,7 +7,31 @@ import {
   SALES_ENQUIRY_STATE_OPTIONS,
   SALES_ENQUIRY_TEAM_SIZES,
 } from "@/lib/sales-enquiry";
-import { inputClass, labelClass, modalOverlayClass } from "@/lib/ui-classes";
+import { labelClass, modalOverlayClass } from "@/lib/ui-classes";
+
+function SiteBoltMark({ className = "h-9 w-9" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 48 48"
+      className={className}
+      aria-hidden
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <polygon
+        points="24,3 43,13.5 43,34.5 24,45 5,34.5 5,13.5"
+        fill="#1F2429"
+        stroke="#FF6B00"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M27.8 12.2 15.6 26.2h8.1l-4.2 9.6 13.4-15.2h-8.2l3.1-8.4Z"
+        fill="#FF6B00"
+      />
+    </svg>
+  );
+}
 import { cn } from "@/lib/utils";
 
 interface EnquireNowModalProps {
@@ -23,6 +47,9 @@ const EMPTY_FORM = {
   teamSize: "",
   modules: [] as string[],
 };
+
+const fieldClass =
+  "w-full rounded-lg border border-[#1F2429]/15 bg-[#F8FAFC] px-3 py-2 text-sm text-[#1F2429] focus:border-[#FF6B00] focus:outline-none focus:ring-1 focus:ring-[#FF6B00]";
 
 export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -73,20 +100,21 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
 
   return (
     <div className={modalOverlayClass} style={{ zIndex: 80 }}>
-      <div className="relative flex max-h-[min(92dvh,100%)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-xl sm:max-h-[92vh] sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-orange-600">
-              SiteBolt
-            </p>
-            <h2 className="text-lg font-bold text-slate-900">
-              {success ? "Enquiry received" : "Enquire Now"}
-            </h2>
+      <div className="relative flex max-h-[min(92dvh,100%)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-[#FF6B00]/20 bg-white shadow-xl sm:max-h-[92vh] sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-[#FF6B00]/20 bg-[#121417] px-5 py-4">
+          <div className="flex items-center gap-3">
+            <SiteBoltMark className="h-9 w-9" />
+            <div>
+              <p className="text-[11px] font-extrabold tracking-[0.18em] text-white">SITEBOLT</p>
+              <h2 className="text-lg font-bold text-white">
+                {success ? "Enquiry received" : "Enquire Now"}
+              </h2>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-slate-500 hover:text-slate-900"
+            className="rounded p-1 text-zinc-400 hover:text-white"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -95,16 +123,16 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
 
         {success ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
-            <CheckCircle2 className="h-12 w-12 text-emerald-500" />
-            <p className="mt-4 text-lg font-bold text-slate-900">Thanks — we have your enquiry.</p>
-            <p className="mt-2 max-w-sm text-sm text-slate-600">
+            <CheckCircle2 className="h-12 w-12 text-[#FF6B00]" />
+            <p className="mt-4 text-lg font-bold text-[#1F2429]">Thanks — we have your enquiry.</p>
+            <p className="mt-2 max-w-sm text-sm text-zinc-600">
               A SiteBolt specialist will be in touch shortly to walk through the platform and
               your compliance requirements.
             </p>
             <button
               type="button"
               onClick={onClose}
-              className="mt-6 rounded-lg bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-500"
+              className="mt-6 rounded-lg bg-[#FF6B00] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#E65100]"
             >
               Close
             </button>
@@ -147,7 +175,7 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
 
               <div>
                 <label htmlFor="enquire-state" className={labelClass}>
-                  State / Region <span className="text-orange-600">*</span>
+                  State <span className="text-[#FF6B00]">*</span>
                 </label>
                 <select
                   id="enquire-state"
@@ -156,9 +184,9 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                   onChange={(event) =>
                     setForm((current) => ({ ...current, state: event.target.value }))
                   }
-                  className={cn(inputClass, "mt-1", errors.state && "border-red-400")}
+                  className={cn(fieldClass, "mt-1", errors.state && "border-red-400")}
                 >
-                  <option value="">Select state / region</option>
+                  <option value="">Select your state</option>
                   {SALES_ENQUIRY_STATE_OPTIONS.map((state) => (
                     <option key={state} value={state}>
                       {state}
@@ -178,7 +206,7 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                   onChange={(event) =>
                     setForm((current) => ({ ...current, teamSize: event.target.value }))
                   }
-                  className={cn(inputClass, "mt-1")}
+                  className={cn(fieldClass, "mt-1")}
                 >
                   <option value="">Select size</option>
                   {SALES_ENQUIRY_TEAM_SIZES.map((size) => (
@@ -195,13 +223,13 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                   {SALES_ENQUIRY_MODULES.map((module) => (
                     <label
                       key={module.id}
-                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                      className="flex items-center gap-2 rounded-lg border border-[#FF6B00]/20 bg-[#F8FAFC] px-3 py-2 text-sm text-[#1F2429]"
                     >
                       <input
                         type="checkbox"
                         checked={form.modules.includes(module.id)}
                         onChange={() => toggleModule(module.id)}
-                        className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                        className="rounded border-zinc-300 text-[#FF6B00] focus:ring-[#FF6B00]"
                       />
                       {module.label}
                     </label>
@@ -218,7 +246,7 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
               <button
                 type="submit"
                 disabled={submitting}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 py-3 text-sm font-semibold text-white hover:bg-orange-500 disabled:bg-slate-300"
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#FF6B00] py-3 text-sm font-semibold text-white hover:bg-[#E65100] disabled:bg-zinc-300"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Submit enquiry
@@ -226,7 +254,7 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-200"
+                className="rounded-lg bg-[#1F2429] px-4 py-3 text-sm font-semibold text-white hover:bg-[#121417]"
               >
                 Cancel
               </button>
@@ -259,7 +287,7 @@ function Field({
     <div>
       <label htmlFor={id} className={labelClass}>
         {label}
-        {required ? <span className="text-orange-600"> *</span> : null}
+        {required ? <span className="text-[#FF6B00]"> *</span> : null}
       </label>
       <input
         id={id}
@@ -267,7 +295,7 @@ function Field({
         required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={cn(inputClass, "mt-1", error && "border-red-400")}
+        className={cn(fieldClass, "mt-1", error && "border-red-400")}
       />
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>

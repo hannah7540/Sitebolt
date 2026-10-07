@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import {
   ClipboardCheck,
   FileSpreadsheet,
-  HardHat,
   MapPinned,
   PlayCircle,
   QrCode,
@@ -42,7 +41,7 @@ const DEMO_TABS = [
     id: "timesheets",
     label: "Timesheet & MYOB",
     title: "Audit-ready Fair Work hours.",
-    body: "Supervisors approve field timesheets, then accounts export pay-ready files with NSW, ACT, WA, and NZ rule mapping.",
+    body: "Supervisors approve field timesheets, then accounts export pay-ready files with state-by-state rule mapping.",
     points: ["Batch signatures on submissions", "State pay-rule assignment", "MYOB-ready export"],
     icon: FileSpreadsheet,
   },
@@ -55,6 +54,46 @@ const DEMO_TABS = [
     icon: MapPinned,
   },
 ] as const;
+
+export function SiteBoltMark({ className = "h-10 w-10" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 48 48"
+      className={className}
+      aria-hidden
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <polygon
+        points="24,3 43,13.5 43,34.5 24,45 5,34.5 5,13.5"
+        fill="#1F2429"
+        stroke="#FF6B00"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M27.8 12.2 15.6 26.2h8.1l-4.2 9.6 13.4-15.2h-8.2l3.1-8.4Z"
+        fill="#FF6B00"
+      />
+    </svg>
+  );
+}
+
+function SiteBoltWordmark() {
+  return (
+    <div className="flex items-center gap-3">
+      <SiteBoltMark />
+      <div>
+        <p className="text-[15px] font-extrabold tracking-[0.18em] text-[#1F2429]">
+          SITEBOLT
+        </p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FF6B00]">
+          Site Management Software
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function MarketingLandingPage() {
   const searchParams = useSearchParams();
@@ -76,17 +115,15 @@ export default function MarketingLandingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div className="min-h-screen bg-[#F8FAFC] text-[#1F2429]">
+      <header className="sticky top-0 z-40 border-b border-[#FF6B00]/20 bg-[#121417]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <a href="#top" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500">
-              <HardHat className="h-5 w-5 text-white" />
-            </div>
+            <SiteBoltMark />
             <div>
-              <p className="text-sm font-extrabold tracking-tight text-slate-900">SiteBolt</p>
-              <p className="text-[11px] font-medium text-slate-500">
-                Civil field operations, simplified
+              <p className="text-[15px] font-extrabold tracking-[0.18em] text-white">SITEBOLT</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FF6B00]">
+                Site Management Software
               </p>
             </div>
           </a>
@@ -96,7 +133,7 @@ export default function MarketingLandingPage() {
                 key={item.id}
                 type="button"
                 onClick={() => scrollTo(item.id)}
-                className="text-sm font-semibold text-slate-600 hover:text-orange-600"
+                className="text-sm font-semibold text-zinc-300 hover:text-[#FF6B00]"
               >
                 {item.label}
               </button>
@@ -105,14 +142,14 @@ export default function MarketingLandingPage() {
           <div className="flex items-center gap-2">
             <a
               href={loginUrl}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-700"
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-white hover:border-[#FF6B00] hover:text-[#FF6B00]"
             >
               Existing Log In
             </a>
             <button
               type="button"
               onClick={openEnquire}
-              className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-500"
+              className="rounded-lg bg-[#FF6B00] px-3 py-2 text-sm font-semibold text-white shadow-[0_0_18px_rgba(255,107,0,0.35)] hover:bg-[#E65100]"
             >
               Enquire Now
             </button>
@@ -121,43 +158,49 @@ export default function MarketingLandingPage() {
       </header>
 
       <main id="top">
-        <section className="bg-gradient-to-b from-orange-50 to-slate-50">
+        <section
+          className="relative overflow-hidden bg-[#121417]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(18,20,23,0.92), rgba(18,20,23,0.94)), linear-gradient(#1F2429 1px, transparent 1px), linear-gradient(90deg, #1F2429 1px, transparent 1px)",
+            backgroundSize: "auto, 28px 28px, 28px 28px",
+          }}
+        >
           <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:items-center md:py-20">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">
-                Australia &amp; New Zealand
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF6B00]">
+                Multi-state operations
               </p>
-              <h1 className="mt-3 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
+              <h1 className="mt-3 text-4xl font-extrabold leading-tight text-white sm:text-5xl">
                 Civil &amp; Construction Field Operations. Simplified &amp; Compliant.
               </h1>
-              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
-                Purpose-built for Australian and NZ civil contractors. End-to-end plant QR
-                verification, 31-day SWMS sign-offs, high-resolution ITP drawings, and audit-ready
-                Fair Work timesheets.
+              <p className="mt-5 text-base leading-relaxed text-zinc-300 sm:text-lg">
+                Purpose-built for civil contractors. End-to-end plant QR verification, 31-day SWMS
+                sign-offs, high-resolution ITP drawings, and audit-ready Fair Work timesheets.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={openEnquire}
-                  className="rounded-lg bg-orange-600 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-500"
+                  className="rounded-lg bg-[#FF6B00] px-5 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(255,107,0,0.4)] hover:bg-[#E65100]"
                 >
                   Enquire Now
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollTo("demos")}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-700"
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#FF6B00]/40 bg-transparent px-5 py-3 text-sm font-semibold text-white hover:border-[#FF6B00] hover:text-[#FF6B00]"
                 >
                   <PlayCircle className="h-4 w-4" />
                   Watch Platform Demos
                 </button>
               </div>
             </div>
-            <div className="rounded-2xl border border-orange-100 bg-white p-6 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wider text-orange-600">
+            <div className="rounded-2xl border border-[#FF6B00]/20 bg-[#1F2429] p-6">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#FF6B00]">
                 Built for the field
               </p>
-              <ul className="mt-4 space-y-3 text-sm text-slate-700">
+              <ul className="mt-4 space-y-3 text-sm text-zinc-200">
                 <li>QR plant pre-starts that operators actually complete</li>
                 <li>SWMS consultation and 31-day review evidence</li>
                 <li>ITP / ITC drawings with pin-accurate photos</li>
@@ -168,8 +211,8 @@ export default function MarketingLandingPage() {
         </section>
 
         <section id="features" className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-3xl font-extrabold text-slate-900">One platform for site control</h2>
-          <p className="mt-3 max-w-2xl text-slate-600">
+          <h2 className="text-3xl font-extrabold text-[#1F2429]">One platform for site control</h2>
+          <p className="mt-3 max-w-2xl text-zinc-600">
             SiteBolt replaces spreadsheets, paper SWMS, and lost plant books with a single
             operational register for plant, people, quality, and hours.
           </p>
@@ -177,7 +220,7 @@ export default function MarketingLandingPage() {
             {[
               {
                 title: "Plant that cannot hide",
-                body: "Assign machines to ACT, NSW, WA, or NZ projects and print only the labels you need.",
+                body: "Assign machines by state and print only the labels you need.",
               },
               {
                 title: "Workers who stay current",
@@ -188,18 +231,21 @@ export default function MarketingLandingPage() {
                 body: "Timesheet signatures, ITP photos, and SWMS reviews are already filed when the auditor arrives.",
               },
             ].map((item) => (
-              <article key={item.title} className="rounded-2xl border border-slate-200 bg-white p-5">
-                <h3 className="font-bold text-slate-900">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.body}</p>
+              <article
+                key={item.title}
+                className="rounded-2xl border border-[#FF6B00]/20 bg-white p-5"
+              >
+                <h3 className="font-bold text-[#1F2429]">{item.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-600">{item.body}</p>
               </article>
             ))}
           </div>
         </section>
 
-        <section id="demos" className="border-y border-slate-200 bg-white py-16">
+        <section id="demos" className="border-y border-[#FF6B00]/20 bg-white py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <h2 className="text-3xl font-extrabold text-slate-900">Platform demos</h2>
-            <p className="mt-3 max-w-2xl text-slate-600">
+            <h2 className="text-3xl font-extrabold text-[#1F2429]">Platform demos</h2>
+            <p className="mt-3 max-w-2xl text-zinc-600">
               Switch modules to see how SiteBolt presents in the field and in the office.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
@@ -210,31 +256,31 @@ export default function MarketingLandingPage() {
                   onClick={() => setActiveDemo(tab.id)}
                   className={
                     activeDemo === tab.id
-                      ? "rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white"
-                      : "rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-orange-300 hover:text-orange-700"
+                      ? "rounded-lg bg-[#FF6B00] px-3 py-2 text-sm font-semibold text-white"
+                      : "rounded-lg border border-[#1F2429]/10 bg-[#F8FAFC] px-3 py-2 text-sm font-semibold text-[#1F2429] hover:border-[#FF6B00] hover:text-[#FF6B00]"
                   }
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
-            <article className="mt-6 grid gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 md:grid-cols-[1.1fr_0.9fr] md:items-center">
+            <article className="mt-6 grid gap-6 rounded-2xl border border-[#FF6B00]/20 bg-[#121417] p-6 text-white md:grid-cols-[1.1fr_0.9fr] md:items-center">
               <div>
-                <h3 className="text-2xl font-bold text-slate-900">{demo.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-600">{demo.body}</p>
-                <ul className="mt-4 space-y-2 text-sm text-slate-700">
+                <h3 className="text-2xl font-bold">{demo.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-300">{demo.body}</p>
+                <ul className="mt-4 space-y-2 text-sm text-zinc-200">
                   {demo.points.map((point) => (
                     <li key={point} className="flex items-start gap-2">
-                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-orange-500" />
+                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
                       {point}
                     </li>
                   ))}
                 </ul>
               </div>
-              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-orange-200 bg-white p-6 text-center">
-                <DemoIcon className="h-12 w-12 text-orange-500" />
-                <p className="mt-3 text-sm font-semibold text-slate-800">{demo.label}</p>
-                <p className="mt-1 text-xs text-slate-500">
+              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-[#FF6B00]/20 bg-[#1F2429] p-6 text-center">
+                <DemoIcon className="h-12 w-12 text-[#FF6B00]" />
+                <p className="mt-3 text-sm font-semibold">{demo.label}</p>
+                <p className="mt-1 text-xs text-zinc-400">
                   Interface preview · compliance-ready workflow
                 </p>
               </div>
@@ -243,17 +289,19 @@ export default function MarketingLandingPage() {
         </section>
 
         <section id="compliance" className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="text-3xl font-extrabold text-slate-900">Compliance, not paperwork theatre</h2>
+          <h2 className="text-3xl font-extrabold text-[#1F2429]">
+            Compliant across states
+          </h2>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
-              "Fair Work timesheets with state/region pay rules for ACT, NSW, WA, and NZ",
+              "Fair Work timesheets with state-by-state pay rules",
               "31-day SWMS review evidence with consulted worker signatures",
               "Plant pre-start and tag-out history retained with the asset",
               "ITP / ITC photo and drawing records ready for principal contractor audits",
             ].map((item) => (
               <p
                 key={item}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700"
+                className="rounded-xl border border-[#FF6B00]/20 bg-white px-4 py-4 text-sm text-[#1F2429]"
               >
                 {item}
               </p>
@@ -261,25 +309,26 @@ export default function MarketingLandingPage() {
           </div>
         </section>
 
-        <section id="about" className="border-t border-slate-200 bg-slate-900 px-4 py-16 text-white">
+        <section id="about" className="border-t border-[#FF6B00]/20 bg-[#121417] px-4 py-16 text-white">
           <div className="mx-auto max-w-6xl">
-            <h2 className="text-3xl font-extrabold">About SiteBolt</h2>
-            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-300">
+            <SiteBoltWordmark />
+            <h2 className="mt-6 text-3xl font-extrabold">About SITEBOLT</h2>
+            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-300">
               SiteBolt is an operational system for civil and construction contractors who need
               plant, SWMS, quality, and payroll evidence in one place — not five apps and a shared
-              drive. We operate across ACT, NSW, WA, and NZ.
+              drive. Built for multi-state operations.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={openEnquire}
-                className="rounded-lg bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-400"
+                className="rounded-lg bg-[#FF6B00] px-5 py-3 text-sm font-semibold text-white shadow-[0_0_18px_rgba(255,107,0,0.35)] hover:bg-[#E65100]"
               >
                 Enquire Now
               </button>
               <a
                 href={loginUrl}
-                className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-white hover:border-orange-300"
+                className="rounded-lg border border-white/20 px-5 py-3 text-sm font-semibold text-white hover:border-[#FF6B00] hover:text-[#FF6B00]"
               >
                 Existing Log In
               </a>
