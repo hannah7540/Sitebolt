@@ -20,6 +20,7 @@ export type CompanyInsuranceRow = Record<string, unknown>;
 
 export interface CompanyInsuranceRecord {
   id: string;
+  organisation_id?: string | null;
   insurance_type: string;
   custom_type_name: string;
   policy_number: string;
@@ -239,6 +240,7 @@ export function mapCompanyInsuranceResponse(
 
   return {
     id: String(record.id ?? ""),
+    organisation_id: record.organisation_id ? String(record.organisation_id) : null,
     insurance_type:
       asString(record.insurance_type) ||
       asString(record.type) ||

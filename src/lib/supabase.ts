@@ -86,6 +86,7 @@ export { getWorkerDisplayName } from "./worker-utils";
 
 export interface Worker {
   id: string;
+  organisation_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   worker_name?: string | null;
@@ -385,6 +386,7 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
 
   return {
     id: row.id,
+    organisation_id: row.organisation_id ? String(row.organisation_id) : null,
     first_name: row.first_name ?? null,
     last_name: row.last_name ?? null,
     worker_name: row.worker_name ?? null,
@@ -786,6 +788,7 @@ export const MASTER_PLANT_TABLE = ALIAS_PLANT_TABLE;
 
 export interface PlantAsset {
   id: string;
+  organisation_id?: string | null;
   plant_id?: string | null;
   unit_number: string;
   plant_number?: string | null;
@@ -970,6 +973,7 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
 
   return {
     id: String(record.id ?? record.plant_id ?? "").trim(),
+    organisation_id: record.organisation_id ? String(record.organisation_id) : null,
     plant_id: record.plant_id ? String(record.plant_id).trim() : null,
     unit_number: String(record.unit_number ?? record.plant_number ?? "").trim(),
     plant_number: record.plant_number ? String(record.plant_number).trim() : null,
@@ -2121,9 +2125,14 @@ export async function fetchWorkerVocs(workerId: string): Promise<WorkerVoc[]> {
 
 export async function fetchAllWorkerVocs(): Promise<WorkerVoc[]> {
   try {
+    const workers = await fetchWorkers();
+    const workerIds = workers.map((worker) => worker.id);
+    if (workerIds.length === 0) return [];
+
     const { data, error } = await supabase
       .from("worker_vocs")
       .select("*")
+      .in("worker_id", workerIds)
       .order("expiry_date");
 
     if (error) {
@@ -3387,11 +3396,36 @@ export async function fetchCompanyInsurances(): Promise<CompanyInsurance[]> {
   if (!isSupabaseConfigured()) return [];
 
   const { mapCompanyInsuranceResponse } = await import("./organisation-insurances-api");
+  const orgId = resolveActiveOrganisationId();
 
-  const { data, error } = await supabase
-    .from("company_insurances")
-    .select("*")
-    .order("expiry_date", { ascending: true, nullsFirst: false });
+  let query = supabase.from("company_insurances").select("*");
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query.order("expiry_date", {
+    ascending: true,
+    nullsFirst: false,
+  });
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return [];
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from("company_insurances")
+      .select("*")
+      .order("expiry_date", { ascending: true, nullsFirst: false });
+    data = retry.data;
+    error = retry.error;
+    if (error) {
+      if (!error.message.toLowerCase().includes("company_insurances")) {
+        console.error("Failed to fetch insurances:", error.message);
+      }
+      return [];
+    }
+    return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+      mapCompanyInsuranceResponse(row)
+    );
+  }
 
   if (error) {
     if (!error.message.toLowerCase().includes("company_insurances")) {
@@ -3400,7 +3434,9 @@ export async function fetchCompanyInsurances(): Promise<CompanyInsurance[]> {
     return [];
   }
 
-  return (data ?? []).map((row) => mapCompanyInsuranceResponse(row));
+  return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+    mapCompanyInsuranceResponse(row)
+  );
 }
 
 export async function insertCompanyInsurance(input: {

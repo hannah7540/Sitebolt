@@ -38,6 +38,7 @@ import { SECURITY_ROLE_LABELS, normalizeSecurityRole } from "@/lib/security-role
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 
 function categoryLabel(category: ComplianceAlertItem["category"]): string {
   switch (category) {
@@ -80,6 +81,7 @@ function CategoryIcon({ category }: { category: ComplianceAlertItem["category"] 
 
 export default function OrganisationAlertsPanel() {
   const router = useRouter();
+  const workspace = useOrganisationWorkspace();
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [runningCheck, setRunningCheck] = useState(false);
@@ -144,7 +146,7 @@ export default function OrganisationAlertsPanel() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, workspace?.activeCompany?.id]);
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);

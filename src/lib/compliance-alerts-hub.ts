@@ -34,6 +34,11 @@ import {
 } from "./organisation-insurances-api";
 import { attachComplianceAlertNavigation } from "./organisation-alert-navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  filterRowsByOrganisation,
+  filterRowsByOrganisationStrict,
+  resolveActiveOrganisationId,
+} from "./tenant-scope";
 
 /** Alert trigger windows (days before due/expiry). */
 export const HEAVY_VEHICLE_ALERT_WINDOW_DAYS = 56;
@@ -331,7 +336,8 @@ export function collectCompanyInsuranceAlerts(
 }
 
 async function fetchInsurancePoliciesForAlerts(
-  admin?: SupabaseClient
+  admin: SupabaseClient | undefined,
+  orgId: string
 ): Promise<CompanyInsuranceRecord[]> {
   try {
     if (admin) {
@@ -340,7 +346,9 @@ async function fetchInsurancePoliciesForAlerts(
         console.warn("Insurance alerts: failed to load policies", result.error);
         return [];
       }
-      return (result.data ?? []).map((row) => mapCompanyInsuranceResponse(row));
+      return filterRowsByOrganisationStrict(result.data ?? [], orgId).map((row) =>
+        mapCompanyInsuranceResponse(row)
+      );
     }
 
     if (typeof window === "undefined") return [];
@@ -360,29 +368,40 @@ async function fetchInsurancePoliciesForAlerts(
 
 export async function fetchComplianceAlerts(options?: {
   admin?: SupabaseClient;
+  organisationId?: string;
 }): Promise<ComplianceAlertsSummary> {
+  const orgId = options?.organisationId ?? resolveActiveOrganisationId();
+
   try {
     const [workers, vocs, fleet, plant, insurancePolicies] = await Promise.all([
       fetchWorkers(),
       fetchAllWorkerVocs(),
       fetchOrganizationFleet(),
       fetchPlant(),
-      fetchInsurancePoliciesForAlerts(options?.admin),
+      fetchInsurancePoliciesForAlerts(options?.admin, orgId),
     ]);
 
+    const scopedWorkers = filterRowsByOrganisation(workers, orgId);
+    const scopedFleet = filterRowsByOrganisation(fleet, orgId);
+    const scopedPlant = filterRowsByOrganisation(plant, orgId);
+    const allowedWorkerIds = new Set(scopedWorkers.map((worker) => worker.id));
+    const scopedVocs = vocs.filter((voc) => allowedWorkerIds.has(voc.worker_id));
+
     const vocsByWorker = new Map<string, WorkerVoc[]>();
-    for (const voc of vocs) {
+    for (const voc of scopedVocs) {
       const list = vocsByWorker.get(voc.worker_id) ?? [];
       list.push(voc);
       vocsByWorker.set(voc.worker_id, list);
     }
 
     const alerts = attachComplianceAlertNavigation([
-      ...collectHeavyVehicleCheckAlerts(plant),
-      ...collectPlantRegistrationAlerts(plant),
-      ...collectFleetRegistrationAlerts(fleet),
-      ...collectWorkerTicketAlerts(workers, vocsByWorker),
-      ...collectCompanyInsuranceAlerts(insurancePolicies),
+      ...collectHeavyVehicleCheckAlerts(scopedPlant),
+      ...collectPlantRegistrationAlerts(scopedPlant),
+      ...collectFleetRegistrationAlerts(scopedFleet),
+      ...collectWorkerTicketAlerts(scopedWorkers, vocsByWorker),
+      ...collectCompanyInsuranceAlerts(
+        filterRowsByOrganisation(insurancePolicies, orgId)
+      ),
     ]).sort((left, right) => left.daysRemaining - right.daysRemaining);
 
     const counts = {

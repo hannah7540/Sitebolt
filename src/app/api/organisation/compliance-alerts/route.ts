@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { fetchComplianceAlerts } from "@/lib/compliance-alerts-hub";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,8 @@ export async function GET() {
 
   try {
     const admin = createSupabaseAdminClient();
-    const summary = await fetchComplianceAlerts({ admin });
+    const organisationId = await resolveActiveOrganisationIdFromCookies();
+    const summary = await fetchComplianceAlerts({ admin, organisationId });
     return NextResponse.json({ success: true, data: summary });
   } catch (error) {
     const message =

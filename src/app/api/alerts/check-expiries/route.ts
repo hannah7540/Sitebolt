@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runExpiryAlertCheck, ORGANISATION_ALERT_THRESHOLDS } from "@/lib/expiry-alerts";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,8 @@ async function runCheck(force = false) {
     const admin = isSupabaseAdminConfigured()
       ? createSupabaseAdminClient()
       : undefined;
-    return await runExpiryAlertCheck({ force, admin });
+    const organisationId = await resolveActiveOrganisationIdFromCookies();
+    return await runExpiryAlertCheck({ force, admin, organisationId });
   } catch (cause) {
     const message =
       cause instanceof Error ? cause.message : "Alert check failed unexpectedly.";

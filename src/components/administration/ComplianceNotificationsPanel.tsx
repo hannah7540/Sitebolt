@@ -23,6 +23,7 @@ import {
 import type { ActiveView } from "@/components/Sidebar";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 
 interface ComplianceNotificationsPanelProps {
   onNavigate: (view: ActiveView) => void;
@@ -37,6 +38,7 @@ function daysBadgeClass(days: number): string {
 export default function ComplianceNotificationsPanel({
   onNavigate,
 }: ComplianceNotificationsPanelProps) {
+  const workspace = useOrganisationWorkspace();
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [runningCheck, setRunningCheck] = useState(false);
@@ -76,7 +78,7 @@ export default function ComplianceNotificationsPanel({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, workspace?.activeCompany?.id]);
 
   const combinedItems: UpcomingExpiryItem[] = useMemo(
     () => [...workerItems, ...insuranceItems],

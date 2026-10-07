@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 
 export function useComplianceAlertCount(): number {
+  const workspace = useOrganisationWorkspace();
   const [count, setCount] = useState(0);
 
   const load = useCallback(async () => {
@@ -24,7 +26,7 @@ export function useComplianceAlertCount(): number {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, workspace?.activeCompany?.id]);
 
   return count;
 }

@@ -65,6 +65,7 @@ export type FleetDocumentType = "rego" | "warranty_fitness" | "insurance";
 
 export interface OrganizationFleetVehicle {
   id: string;
+  organisation_id?: string | null;
   unit_number: string;
   make: string | null;
   model: string | null;
@@ -119,6 +120,7 @@ export interface FleetVehicleInput {
 function normalizeFleetRow(row: Record<string, unknown>): OrganizationFleetVehicle {
   return {
     id: String(row.id),
+    organisation_id: row.organisation_id ? String(row.organisation_id) : null,
     unit_number: String(row.unit_number ?? ""),
     make: row.make ? String(row.make) : null,
     model: row.model ? String(row.model) : null,

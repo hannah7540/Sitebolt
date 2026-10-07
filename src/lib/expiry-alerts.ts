@@ -32,6 +32,7 @@ import {
 } from "./compliance-alerts-hub";
 import { isSupabaseAdminConfigured } from "./supabase/env";
 import { createSupabaseAdminClient } from "./supabase/admin";
+import { filterRowsByOrganisation, resolveActiveOrganisationId } from "./tenant-scope";
 
 export type ExpiryEntityType =
   | "worker_qualification"
@@ -204,22 +205,31 @@ export function collectInsuranceExpiries(
 }
 
 export async function fetchUpcomingExpiries(): Promise<ExpiryCheckSummary> {
+  const orgId = resolveActiveOrganisationId();
   const [workers, vocs, insurances] = await Promise.all([
     fetchWorkers(),
     fetchAllWorkerVocs(),
     fetchCompanyInsurances(),
   ]);
 
+  const scopedWorkers = filterRowsByOrganisation(workers, orgId);
+  const allowedWorkerIds = new Set(scopedWorkers.map((worker) => worker.id));
+  const scopedVocs = vocs.filter((voc) => allowedWorkerIds.has(voc.worker_id));
+  const scopedInsurances = filterRowsByOrganisation(insurances, orgId);
+
   const vocsByWorker = new Map<string, WorkerVoc[]>();
-  for (const voc of vocs) {
+  for (const voc of scopedVocs) {
     const list = vocsByWorker.get(voc.worker_id) ?? [];
     list.push(voc);
     vocsByWorker.set(voc.worker_id, list);
   }
 
-  const workerQualifications = collectWorkerQualificationExpiries(workers, vocsByWorker);
-  const insuranceItems = collectInsuranceExpiries(insurances);
-  const adminRecipients = await fetchExpiryAlertRecipients(workers);
+  const workerQualifications = collectWorkerQualificationExpiries(
+    scopedWorkers,
+    vocsByWorker
+  );
+  const insuranceItems = collectInsuranceExpiries(scopedInsurances);
+  const adminRecipients = await fetchExpiryAlertRecipients(scopedWorkers);
 
   return {
     workerQualifications,
@@ -380,6 +390,7 @@ async function safeSendEmail(input: {
 export async function runExpiryAlertCheck(options?: {
   force?: boolean;
   admin?: SupabaseClient;
+  organisationId?: string;
 }): Promise<ExpiryAlertRunResult> {
   const thresholds = { ...ORGANISATION_ALERT_THRESHOLDS };
 
@@ -403,12 +414,14 @@ export async function runExpiryAlertCheck(options?: {
       options?.admin ??
       (isSupabaseAdminConfigured() ? createSupabaseAdminClient() : undefined);
 
+    const orgId = options?.organisationId ?? resolveActiveOrganisationId();
     const [workers, compliance] = await Promise.all([
       fetchWorkers(),
-      fetchComplianceAlerts({ admin }),
+      fetchComplianceAlerts({ admin, organisationId: orgId }),
     ]);
 
-    const recipients = await fetchExpiryAlertRecipients(workers);
+    const scopedWorkers = filterRowsByOrganisation(workers, orgId);
+    const recipients = await fetchExpiryAlertRecipients(scopedWorkers);
     const errors: string[] = [];
     let emailsAttempted = 0;
     let emailsSent = 0;
