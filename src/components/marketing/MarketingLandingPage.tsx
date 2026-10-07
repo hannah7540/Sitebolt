@@ -12,6 +12,7 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
+import SiteFooter from "@/components/layout/SiteFooter";
 import CustomBuildModal from "@/components/marketing/CustomBuildModal";
 import EnquireNowModal from "@/components/marketing/EnquireNowModal";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
@@ -382,6 +383,8 @@ export default function MarketingLandingPage() {
           </div>
         </section>
       </main>
+
+      <SiteFooter variant="dark" />
 
       {enquireOpen ? <EnquireNowModal onClose={() => setEnquireOpen(false)} /> : null}
       {customBuildOpen ? (

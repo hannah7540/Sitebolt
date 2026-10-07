@@ -33,6 +33,7 @@ import { isSuperAdminAccount } from "@/lib/super-admin";
 const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/privacy",
+  "/terms",
   "/download",
   "/support",
   "/marketing",

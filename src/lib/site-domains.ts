@@ -9,6 +9,7 @@ const MARKETING_PUBLIC_PATHS = [
   "/marketing",
   "/enquire",
   "/privacy",
+  "/terms",
   "/download",
   "/support",
 ] as const;
