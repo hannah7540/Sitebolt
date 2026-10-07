@@ -5,26 +5,43 @@ import { useSearchParams } from "next/navigation";
 import {
   Check,
   ClipboardCheck,
+  Factory,
   FileSpreadsheet,
+  HardHat,
   MapPinned,
   PlayCircle,
   QrCode,
   ShieldCheck,
   Sparkles,
+  Tractor,
+  Truck,
   Wrench,
+  Zap,
 } from "lucide-react";
 import CustomBuildModal from "@/components/marketing/CustomBuildModal";
 import EnquireNowModal from "@/components/marketing/EnquireNowModal";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
+import TakeALookAround from "@/components/marketing/TakeALookAround";
 import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
 import { getAppLoginUrl } from "@/lib/site-domains";
 
 const NAV_ITEMS = [
+  { id: "industries", label: "Industries" },
+  { id: "preview", label: "Preview" },
   { id: "features", label: "Features" },
   { id: "custom-build", label: "Custom Build" },
   { id: "demos", label: "Demo Videos" },
   { id: "compliance", label: "Compliance" },
   { id: "about", label: "About" },
+] as const;
+
+const INDUSTRIES = [
+  { title: "Civil & Construction", icon: HardHat },
+  { title: "Transport, Logistics & Fleet", icon: Truck },
+  { title: "Facility & Property Maintenance", icon: Wrench },
+  { title: "Manufacturing & Warehousing", icon: Factory },
+  { title: "Specialist Commercial Trades (Plumbing, Electrical, HVAC)", icon: Zap },
+  { title: "Heavy Plant & Equipment Hire", icon: Tractor },
 ] as const;
 
 const HERO_BADGES = ["ACT · NSW · WA · NZ", "31-Day SWMS", "Plant QR", "ITP / ITC"] as const;
@@ -126,7 +143,7 @@ export default function MarketingLandingPage() {
               </p>
             </div>
           </a>
-          <nav className="hidden items-center gap-5 lg:flex">
+          <nav className="hidden items-center gap-3 xl:gap-5 lg:flex">
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.id}
@@ -169,16 +186,20 @@ export default function MarketingLandingPage() {
                 </p>
                 <h1 className="mt-3 text-4xl font-extrabold leading-tight sm:text-5xl">
                   <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-                    Civil &amp; Construction Field Operations. Simplified &amp; Compliant.
+                    Field Operations. Simplified &amp; Compliant.
                   </span>
                 </h1>
                 <p className="mt-5 text-base leading-relaxed text-zinc-300 sm:text-lg">
-                  Purpose-built for civil contractors. End-to-end plant QR verification, 31-day SWMS
-                  sign-offs, high-resolution ITP drawings, and audit-ready Fair Work timesheets.
+                  Born on heavy commercial sites. SiteBolt now unifies plant, people, quality, and
+                  hours for any business running field teams — construction, logistics, facilities,
+                  manufacturing, and specialist trades.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <button type="button" onClick={openEnquire} className={primaryButtonClass}>
                     Enquire Now
+                  </button>
+                  <button type="button" onClick={() => scrollTo("preview")} className={ghostButtonClass}>
+                    Take a Look Around
                   </button>
                   <button type="button" onClick={() => scrollTo("demos")} className={ghostButtonClass}>
                     <PlayCircle className="h-4 w-4" />
@@ -200,6 +221,39 @@ export default function MarketingLandingPage() {
             </div>
           </section>
         </TechAmbientBackdrop>
+
+        <section id="industries" className="border-t border-white/10 bg-[#1F2429] px-4 py-16">
+          <div className="mx-auto max-w-6xl">
+            <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
+              Across Every Industry
+            </p>
+            <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">
+              <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
+                Engineered for Field Operations. Built to Fit Your Sector.
+              </span>
+            </h2>
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-400">
+              While born on heavy commercial sites, SiteBolt&apos;s workflow engine adapts to any
+              business managing mobile teams, physical assets, safety compliance, or custom job
+              tracking.
+            </p>
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {INDUSTRIES.map((industry) => {
+                const Icon = industry.icon;
+                return (
+                  <article key={industry.title} className={glassCardClass}>
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <h3 className="mt-3 font-bold text-white">{industry.title}</h3>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <TakeALookAround />
 
         <section id="features" className="border-t border-white/10 bg-[#1F2429] px-4 py-16">
           <div className="mx-auto max-w-6xl">
@@ -409,9 +463,9 @@ export default function MarketingLandingPage() {
             <SiteBoltWordmark />
             <h2 className="mt-6 text-3xl font-extrabold">About SITEBOLT</h2>
             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-300">
-              SiteBolt is an operational system for civil and construction contractors who need
-              plant, SWMS, quality, and payroll evidence in one place — not five apps and a shared
-              drive. Built for multi-state operations.
+              SiteBolt is an operational system for any organisation managing field teams, physical
+              assets, safety compliance, and job tracking — not five apps and a shared drive. Born
+              on civil sites. Built for multi-industry operations across Australia and New Zealand.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button type="button" onClick={openEnquire} className={primaryButtonClass}>

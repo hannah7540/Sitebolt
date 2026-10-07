@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
 
 export const metadata: Metadata = {
-  title: "SiteBolt — Civil & Construction Field Operations",
+  title: "SiteBolt — Field Operations Software for Every Industry",
   description:
-    "Purpose-built for Australian and NZ civil contractors. Plant QR verification, 31-day SWMS sign-offs, ITP drawings, and audit-ready Fair Work timesheets.",
+    "Operational software for field teams across construction, logistics, facilities, manufacturing, and specialist trades. Plant QR, compliance, timesheets, and custom workflows.",
 };
 
 export default function MarketingPage() {
