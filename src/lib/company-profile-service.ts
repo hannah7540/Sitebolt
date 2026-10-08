@@ -155,6 +155,9 @@ async function resolveExistingProfileTarget(): Promise<{
   id: string;
 } | null> {
   const orgId = resolveActiveOrganisationId();
+  if (!orgId) {
+    return null;
+  }
   const primaryByActiveId = await fetchRawProfileRowById("company_profile", orgId);
   if (primaryByActiveId?.id) {
     return { table: "company_profile", id: String(primaryByActiveId.id) };
@@ -218,6 +221,9 @@ export async function loadCompanyProfile(): Promise<CompanyProfileRecord | null>
   if (!isSupabaseConfigured()) return null;
 
   const orgId = resolveActiveOrganisationId();
+  if (!orgId) {
+    return null;
+  }
   const { data: orgRow, error: orgError } = await supabase
     .from("organisations")
     .select(ORGANISATION_SELECT_FIELDS)
