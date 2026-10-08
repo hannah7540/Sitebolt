@@ -337,8 +337,10 @@ export function collectCompanyInsuranceAlerts(
 
 async function fetchInsurancePoliciesForAlerts(
   admin: SupabaseClient | undefined,
-  orgId: string
+  orgId: string | null | undefined
 ): Promise<CompanyInsuranceRecord[]> {
+  if (!orgId) return [];
+
   try {
     if (admin) {
       const result = await listInsuranceRecords(admin);
@@ -368,9 +370,21 @@ async function fetchInsurancePoliciesForAlerts(
 
 export async function fetchComplianceAlerts(options?: {
   admin?: SupabaseClient;
-  organisationId?: string;
+  organisationId?: string | null;
 }): Promise<ComplianceAlertsSummary> {
   const orgId = options?.organisationId ?? resolveActiveOrganisationId();
+  if (!orgId) {
+    return {
+      alerts: [],
+      counts: {
+        all: 0,
+        heavy_vehicle_check: 0,
+        fleet_plant_registration: 0,
+        worker_ticket: 0,
+        company_insurance: 0,
+      },
+    };
+  }
 
   try {
     const [workers, vocs, fleet, plant, insurancePolicies] = await Promise.all([
