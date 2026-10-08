@@ -206,6 +206,9 @@ export function collectInsuranceExpiries(
 
 export async function fetchUpcomingExpiries(): Promise<ExpiryCheckSummary> {
   const orgId = resolveActiveOrganisationId();
+  if (!orgId) {
+    return { workerQualifications: [], insurances: [], adminRecipients: [] };
+  }
   const [workers, vocs, insurances] = await Promise.all([
     fetchWorkers(),
     fetchAllWorkerVocs(),
@@ -390,7 +393,7 @@ async function safeSendEmail(input: {
 export async function runExpiryAlertCheck(options?: {
   force?: boolean;
   admin?: SupabaseClient;
-  organisationId?: string;
+  organisationId?: string | null;
 }): Promise<ExpiryAlertRunResult> {
   const thresholds = { ...ORGANISATION_ALERT_THRESHOLDS };
 
@@ -415,6 +418,19 @@ export async function runExpiryAlertCheck(options?: {
       (isSupabaseAdminConfigured() ? createSupabaseAdminClient() : undefined);
 
     const orgId = options?.organisationId ?? resolveActiveOrganisationId();
+    if (!orgId) {
+      return {
+        skipped: true,
+        reason: "Active organisation is required.",
+        workerItemsIncluded: 0,
+        insuranceItemsIncluded: 0,
+        complianceItemsIncluded: 0,
+        emailsAttempted: 0,
+        emailsSent: 0,
+        errors: [],
+        thresholds,
+      };
+    }
     const [workers, compliance] = await Promise.all([
       fetchWorkers(),
       fetchComplianceAlerts({ admin, organisationId: orgId }),

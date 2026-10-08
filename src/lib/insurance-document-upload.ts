@@ -38,15 +38,17 @@ export function buildInsuranceStorageObjectKey(
 }
 
 export async function resolveInsuranceStorageCompanyId(): Promise<string> {
+  const { resolveActiveOrganisationId } = await import("./tenant-scope");
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) {
+    throw new Error("Active organisation is required.");
+  }
   try {
-    const { loadCompanyProfile, DEFAULT_COMPANY_PROFILE_ID } = await import(
-      "./company-profile-service"
-    );
+    const { loadCompanyProfile } = await import("./company-profile-service");
     const profile = await loadCompanyProfile();
-    return profile?.id?.trim() || DEFAULT_COMPANY_PROFILE_ID;
+    return profile?.id?.trim() || orgId;
   } catch {
-    const { DEFAULT_COMPANY_PROFILE_ID } = await import("./company-profile-service");
-    return DEFAULT_COMPANY_PROFILE_ID;
+    return orgId;
   }
 }
 

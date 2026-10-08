@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
-import { ACTIVE_ORG_COOKIE, A_PLUS_ORGANISATION_ID } from "./active-organisation";
+import { ACTIVE_ORG_COOKIE } from "./active-organisation";
 
-export async function resolveActiveOrganisationIdFromCookies(): Promise<string> {
+/** Request cookie only. Never defaults to A Plus. */
+export async function resolveActiveOrganisationIdFromCookies(): Promise<string | null> {
   try {
     const store = await cookies();
     const value = store.get(ACTIVE_ORG_COOKIE)?.value?.trim();
@@ -9,5 +10,5 @@ export async function resolveActiveOrganisationIdFromCookies(): Promise<string> 
   } catch {
     // Not in a request context (build, scripts).
   }
-  return A_PLUS_ORGANISATION_ID;
+  return null;
 }

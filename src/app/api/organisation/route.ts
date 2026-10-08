@@ -5,12 +5,12 @@ import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { canManageOrganisation, normalizeSecurityRole } from "@/lib/security-roles";
 import {
   buildDefaultOrganisationRecord,
-  DEFAULT_ORGANISATION_ID,
   mapOrganisationResponse,
   normalizeOrganisationSavePayload,
   ORGANISATION_SELECT_FIELDS,
   type OrganisationRow,
 } from "@/lib/organisation-api";
+import { isAPlusOrganisationId } from "@/lib/tenant-scope";
 import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export const runtime = "nodejs";
@@ -65,6 +65,9 @@ async function fetchOrCreateOrganisation(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<{ data: OrganisationRow | null; error: string | null }> {
   const orgId = await resolveActiveOrganisationIdFromCookies();
+  if (!orgId) {
+    return { data: null, error: "Active organisation is required." };
+  }
   const { data: existing, error: fetchError } = await admin
     .from("organisations")
     .select(ORGANISATION_SELECT_FIELDS)
@@ -77,6 +80,10 @@ async function fetchOrCreateOrganisation(
 
   if (existing) {
     return { data: existing as OrganisationRow, error: null };
+  }
+
+  if (isAPlusOrganisationId(orgId)) {
+    return { data: null, error: "Organisation not found." };
   }
 
   const defaultRecord = buildDefaultOrganisationRecord(orgId);
@@ -107,9 +114,12 @@ async function saveOrganisation(
   const existing = existingResult.data;
   if (!existing?.id) {
     const orgId = await resolveActiveOrganisationIdFromCookies();
+    if (!orgId) {
+      return { data: null, error: "Active organisation is required." };
+    }
     const { data, error } = await admin
       .from("organisations")
-      .insert([{ id: orgId || DEFAULT_ORGANISATION_ID, ...updatePayload }])
+      .insert([{ id: orgId, ...updatePayload }])
       .select(ORGANISATION_SELECT_FIELDS)
       .single();
 

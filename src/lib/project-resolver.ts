@@ -483,9 +483,13 @@ async function persistProjectWrite(
   }
 
   if (mode === "insert") {
+    const orgId = resolveActiveOrganisationId();
+    if (!orgId) {
+      return { data: null, error: "Active organisation is required." };
+    }
     payload = {
       ...payload,
-      organisation_id: resolveActiveOrganisationId(),
+      organisation_id: orgId,
     } as ProjectWritePayload;
   }
 
