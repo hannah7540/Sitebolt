@@ -29,8 +29,8 @@ import {
 } from "@/lib/worker-revocation";
 
 const loginFieldClass =
-  "w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none transition focus:border-[#FF6B00] focus:ring-2 focus:ring-[#FF6B00]/40";
-const loginLabelClass = "text-xs font-semibold uppercase tracking-wider text-zinc-400";
+  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#FF6B00] focus:ring-2 focus:ring-[#FF6B00]/20";
+const loginLabelClass = "text-xs font-semibold uppercase tracking-wider text-slate-500";
 
 async function waitForAuthSession(
   supabase: ReturnType<typeof createSupabaseBrowserClient>
@@ -294,7 +294,7 @@ function LoginPageContent() {
             onBackToSignIn={() => setShowForgotPassword(false)}
           />
         </div>
-        <SiteFooter variant="dark" />
+        <SiteFooter />
       </TechAmbientBackdrop>
     );
   }
@@ -305,30 +305,30 @@ function LoginPageContent() {
         <div className="relative w-full max-w-md">
           <div
             aria-hidden
-            className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[#FF6B00]/20 blur-3xl"
+            className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[#FF6B00]/10 blur-3xl"
           />
-          <div className="relative rounded-2xl border border-white/10 bg-[#1F2429]/80 p-8 shadow-[0_0_60px_rgba(255,107,0,0.18)] backdrop-blur-md">
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="mb-6 flex items-center gap-3">
               <SiteBoltMark className="h-11 w-11" />
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FF6B00]">
                   SiteBolt
                 </p>
-                <h1 className="text-xl font-bold text-white">Log In</h1>
+                <h1 className="text-xl font-bold text-slate-900">Log In</h1>
               </div>
             </div>
 
-            <p className="mb-6 text-sm text-zinc-400">Sign in to your account.</p>
+            <p className="mb-6 text-sm text-slate-500">Sign in to your account.</p>
 
             {resetSuccess || passwordSetMessage ? (
-              <p className="mb-4 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                 {passwordSetMessage ||
                   "Password updated successfully! Please sign in with your new password."}
               </p>
             ) : null}
 
             {revokedError ? (
-              <p className="mb-4 rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {WORKER_REVOKED_LOGIN_MESSAGE}
               </p>
             ) : null}
@@ -364,7 +364,7 @@ function LoginPageContent() {
                   <button
                     type="button"
                     onClick={() => setShowForgotPassword(true)}
-                    className="text-xs font-semibold text-[#FF8533] hover:text-[#FF6B00]"
+                    className="text-xs font-semibold text-[#FF6B00] hover:text-[#E66000]"
                     disabled={submitting}
                   >
                     Forgot password?
@@ -388,7 +388,7 @@ function LoginPageContent() {
               </div>
 
               {error ? (
-                <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </p>
               ) : null}
@@ -397,7 +397,7 @@ function LoginPageContent() {
                 type="submit"
                 disabled={submitting}
                 aria-busy={submitting}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FF6B00] to-[#FF8533] py-3 text-sm font-semibold text-white shadow-[0_0_28px_rgba(255,107,0,0.45)] transition hover:from-[#FF8533] hover:to-[#FF6B00] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6B00] py-3 text-sm font-semibold text-white transition hover:bg-[#E66000] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? (
                   <>
@@ -414,15 +414,15 @@ function LoginPageContent() {
               <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
             ) : null}
 
-            <p className="mt-6 text-center text-sm text-zinc-500">
-              <Link href="/" className="font-medium text-[#FF8533] hover:text-[#FF6B00]">
+            <p className="mt-6 text-center text-sm text-slate-500">
+              <Link href="/" className="font-medium text-[#FF6B00] hover:text-[#E66000]">
                 Back to SiteBolt
               </Link>
             </p>
           </div>
         </div>
       </div>
-      <SiteFooter variant="dark" />
+      <SiteFooter />
     </TechAmbientBackdrop>
   );
 }
@@ -431,7 +431,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[#13171B] p-6">
+        <div className="flex min-h-screen items-center justify-center bg-white p-6">
           <Loader2 className="h-8 w-8 animate-spin text-[#FF6B00]" />
         </div>
       }

@@ -73,7 +73,7 @@ const PILLARS = [
 ] as const;
 
 const pillarCardClass =
-  "rounded-2xl border border-white/[0.08] bg-[#1F2429] p-6 transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/45 hover:shadow-[0_0_32px_rgba(255,107,0,0.16)]";
+  "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/50";
 
 export default function EverythingIncluded({
   onStartReady,
@@ -83,17 +83,15 @@ export default function EverythingIncluded({
   onOpenCustomBuild: () => void;
 }) {
   return (
-    <section id="included" className="border-t border-white/10 bg-[#13171B] px-4 py-16">
+    <section id="included" className="border-t border-slate-200 bg-slate-50 px-4 py-16">
       <div className="mx-auto max-w-6xl">
         <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
           Uncompromising Value
         </p>
-        <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">
-          <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-            Everything Included. Turn On What You Need.
-          </span>
+        <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+          Everything Included. Turn On What You Need.
         </h2>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-400">
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-500">
           No locked modules, no surprise paywalls, and no hidden add-ons. SiteBolt is priced as a
           single, all-inclusive platform. Whether you only need digital plant pre-starts today or
           run all six operational modules across your entire fleet, your price remains the same.
@@ -103,7 +101,7 @@ export default function EverythingIncluded({
 
         <div className="mt-8 flex items-start gap-3 rounded-2xl border border-[#FF6B00]/35 bg-[#FF6B00]/10 px-4 py-4 sm:px-5">
           <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#FF6B00]" />
-          <p className="text-sm font-medium leading-relaxed text-zinc-100">
+          <p className="text-sm font-medium leading-relaxed text-slate-800">
             One Transparent License: Use 2 modules or use all 20+ features—you get full platform
             access from day one.
           </p>
@@ -117,8 +115,8 @@ export default function EverythingIncluded({
                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-lg font-bold text-white">{pillar.title}</h3>
-                <ul className="mt-4 space-y-2.5 text-sm text-zinc-300">
+                <h3 className="mt-4 text-lg font-bold text-slate-900">{pillar.title}</h3>
+                <ul className="mt-4 space-y-2.5 text-sm text-slate-600">
                   {pillar.points.map((point) => (
                     <li key={point} className="flex items-start gap-2">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
@@ -131,22 +129,22 @@ export default function EverythingIncluded({
           })}
         </div>
 
-        <div className="mt-10 rounded-2xl border border-white/[0.08] bg-[#1F2429] px-5 py-8 text-center sm:px-8">
-          <p className="text-xl font-extrabold text-white sm:text-2xl">
+        <div className="mt-10 rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm sm:px-8">
+          <p className="text-xl font-extrabold text-slate-900 sm:text-2xl">
             Ready to streamline your field operations?
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onStartReady}
-              className="rounded-lg bg-gradient-to-r from-[#FF6B00] to-[#FF8533] px-5 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(255,107,0,0.45)] transition hover:from-[#FF8533] hover:to-[#FF6B00]"
+              className="rounded-lg bg-[#FF6B00] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#E66000]"
             >
               Start with Ready Modules
             </button>
             <button
               type="button"
               onClick={onOpenCustomBuild}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-white backdrop-blur-md transition hover:border-[#FF6B00] hover:text-[#FF8533]"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-[#FF6B00] hover:text-[#FF6B00]"
             >
               Need Custom Software Instead?
             </button>

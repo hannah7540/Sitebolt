@@ -39,13 +39,13 @@ const INDUSTRIES = [
 const HERO_BADGES = ["ACT · NSW · WA · NZ", "31-Day SWMS", "Plant QR", "ITP / ITC"] as const;
 
 const glassCardClass =
-  "rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-md transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/45 hover:shadow-[0_0_32px_rgba(255,107,0,0.16)]";
+  "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/50";
 
 const primaryButtonClass =
-  "rounded-lg bg-gradient-to-r from-[#FF6B00] to-[#FF8533] px-5 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(255,107,0,0.45)] transition hover:from-[#FF8533] hover:to-[#FF6B00]";
+  "rounded-lg bg-[#FF6B00] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#E66000]";
 
 const ghostButtonClass =
-  "inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-white backdrop-blur-md transition hover:border-[#FF6B00] hover:text-[#FF8533]";
+  "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-[#FF6B00] hover:text-[#FF6B00]";
 
 export { SiteBoltMark };
 
@@ -54,7 +54,7 @@ function SiteBoltWordmark() {
     <div className="flex items-center gap-3">
       <SiteBoltMark />
       <div>
-        <p className="text-[15px] font-extrabold tracking-[0.18em] text-white">SITEBOLT</p>
+        <p className="text-[15px] font-extrabold tracking-[0.18em] text-slate-900">SITEBOLT</p>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FF6B00]">
           Site Management Software
         </p>
@@ -85,13 +85,13 @@ export default function MarketingLandingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#13171B] text-white">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#13171B]/90 backdrop-blur-md">
+    <div className="min-h-screen bg-white text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <a href="#top" className="flex items-center gap-3">
             <SiteBoltMark />
             <div>
-              <p className="text-[15px] font-extrabold tracking-[0.18em] text-white">SITEBOLT</p>
+              <p className="text-[15px] font-extrabold tracking-[0.18em] text-slate-900">SITEBOLT</p>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FF6B00]">
                 Site Management Software
               </p>
@@ -103,7 +103,7 @@ export default function MarketingLandingPage() {
                 key={item.id}
                 type="button"
                 onClick={() => scrollTo(item.id)}
-                className="text-sm font-semibold text-zinc-300 transition hover:text-[#FF8533]"
+                className="text-sm font-semibold text-slate-500 transition hover:text-[#FF6B00]"
               >
                 {item.label}
               </button>
@@ -138,12 +138,10 @@ export default function MarketingLandingPage() {
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-[#38BDF8]">
                   Multi-state operations
                 </p>
-                <h1 className="mt-3 text-4xl font-extrabold leading-tight sm:text-5xl">
-                  <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-                    Field Operations. Simplified &amp; Compliant.
-                  </span>
+                <h1 className="mt-3 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
+                  Field Operations. Simplified &amp; Compliant.
                 </h1>
-                <p className="mt-5 text-base leading-relaxed text-zinc-300 sm:text-lg">
+                <p className="mt-5 text-base leading-relaxed text-slate-500 sm:text-lg">
                   Born on heavy commercial sites. SiteBolt now unifies plant, people, quality, and
                   hours for any business running field teams — construction, logistics, facilities,
                   manufacturing, and specialist trades.
@@ -161,7 +159,7 @@ export default function MarketingLandingPage() {
                 <p className="text-xs font-bold uppercase tracking-wider text-[#FF6B00]">
                   Built for the field
                 </p>
-                <ul className="mt-4 space-y-3 text-sm text-zinc-200">
+                <ul className="mt-4 space-y-3 text-sm text-slate-600">
                   <li>QR plant pre-starts that operators actually complete</li>
                   <li>SWMS consultation and 31-day review evidence</li>
                   <li>ITP / ITC drawings with pin-accurate photos</li>
@@ -172,17 +170,15 @@ export default function MarketingLandingPage() {
           </section>
         </TechAmbientBackdrop>
 
-        <section id="industries" className="border-t border-white/10 bg-[#1F2429] px-4 py-16">
+        <section id="industries" className="border-t border-slate-200 bg-slate-50 px-4 py-16">
           <div className="mx-auto max-w-6xl">
             <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
               Across Every Industry
             </p>
-            <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">
-              <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-                Engineered for Field Operations. Built to Fit Your Sector.
-              </span>
+            <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+              Engineered for Field Operations. Built to Fit Your Sector.
             </h2>
-            <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-400">
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-500">
               While born on heavy commercial sites, SiteBolt&apos;s workflow engine adapts to any
               business managing mobile teams, physical assets, safety compliance, or custom job
               tracking.
@@ -195,7 +191,7 @@ export default function MarketingLandingPage() {
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
                       <Icon className="h-5 w-5" />
                     </span>
-                    <h3 className="mt-3 font-bold text-white">{industry.title}</h3>
+                    <h3 className="mt-3 font-bold text-slate-900">{industry.title}</h3>
                   </article>
                 );
               })}
@@ -203,10 +199,10 @@ export default function MarketingLandingPage() {
           </div>
         </section>
 
-        <section id="features" className="border-t border-white/10 bg-[#1F2429] px-4 py-16">
+        <section id="features" className="border-t border-slate-200 bg-white px-4 py-16">
           <div className="mx-auto max-w-6xl">
-            <h2 className="text-3xl font-extrabold text-white">One platform for site control</h2>
-            <p className="mt-3 max-w-2xl text-zinc-400">
+            <h2 className="text-3xl font-extrabold text-slate-900">One platform for site control</h2>
+            <p className="mt-3 max-w-2xl text-slate-500">
               SiteBolt replaces spreadsheets, paper SWMS, and lost plant books with a single
               operational register for plant, people, quality, and hours.
             </p>
@@ -226,8 +222,8 @@ export default function MarketingLandingPage() {
                 },
               ].map((item) => (
                 <article key={item.title} className={glassCardClass}>
-                  <h3 className="font-bold text-white">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-400">{item.body}</p>
+                  <h3 className="font-bold text-slate-900">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-500">{item.body}</p>
                 </article>
               ))}
             </div>
@@ -241,7 +237,7 @@ export default function MarketingLandingPage() {
           onOpenCustomBuild={() => setCustomBuildOpen(true)}
         />
 
-        <section id="custom-build" className="relative overflow-hidden bg-[#13171B] px-4 pb-16 pt-8">
+        <section id="custom-build" className="relative overflow-hidden bg-white px-4 pb-16 pt-8">
           <div
             aria-hidden
             className="pointer-events-none absolute right-0 top-0 h-72 w-72 rounded-full bg-[#FF6B00]/12 blur-[100px]"
@@ -250,12 +246,10 @@ export default function MarketingLandingPage() {
             <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
               Flexible Software Solutions
             </p>
-            <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">
-              <span className="bg-gradient-to-r from-white via-neutral-100 to-orange-400 bg-clip-text text-transparent">
-                Use Our Proven Platform. Or Let Us Build Yours From Scratch.
-              </span>
+            <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+              Use Our Proven Platform. Or Let Us Build Yours From Scratch.
             </h2>
-            <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-400">
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-500">
               Choose our ready-to-run construction modules, or commission a completely custom
               software solution built exclusively for your company&apos;s operational blueprint —
               at a fraction of traditional enterprise development costs.
@@ -263,20 +257,20 @@ export default function MarketingLandingPage() {
             <div className="mt-8 grid gap-4 md:grid-cols-2">
               <article className={`${glassCardClass} flex flex-col`}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-[#FF6B00]">
                     <Sparkles className="h-5 w-5" />
                   </span>
-                  <span className="rounded-full border border-white/20 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-200">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
                     Turnkey &amp; Immediate
                   </span>
                 </div>
-                <h3 className="mt-4 text-xl font-bold text-white">SiteBolt Standard Suite</h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                <h3 className="mt-4 text-xl font-bold text-slate-900">SiteBolt Standard Suite</h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-500">
                   Deploy our field-proven modules instantly. Complete with rolling 31-day SWMS,
                   instant QR plant verification, live digital timesheets, and ITP/ITC quality
                   control registers.
                 </p>
-                <ul className="mt-5 space-y-2.5 text-sm text-zinc-200">
+                <ul className="mt-5 space-y-2.5 text-sm text-slate-700">
                   {[
                     "Instant workspace onboarding",
                     "Pre-configured compliance & safety workflows",
@@ -299,7 +293,7 @@ export default function MarketingLandingPage() {
                   </button>
                 </div>
               </article>
-              <article className="flex flex-col rounded-2xl border-2 border-[#FF6B00] bg-white/[0.04] p-6 backdrop-blur-md shadow-[0_0_42px_rgba(255,107,0,0.28)]">
+              <article className="flex flex-col rounded-2xl border-2 border-[#FF6B00] bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
                     <Wrench className="h-5 w-5" />
@@ -308,15 +302,15 @@ export default function MarketingLandingPage() {
                     Full Creative Control
                   </span>
                 </div>
-                <h3 className="mt-4 text-xl font-bold text-white">
+                <h3 className="mt-4 text-xl font-bold text-slate-900">
                   100% Custom Built For Your Business
                 </h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                <p className="mt-3 text-sm leading-relaxed text-slate-500">
                   Tell us exactly how you want your business to run. We engineer bespoke web and
                   mobile tools built to your exact specifications — giving you proprietary software
                   advantages at a fraction of typical agency costs.
                 </p>
-                <ul className="mt-5 space-y-2.5 text-sm text-zinc-200">
+                <ul className="mt-5 space-y-2.5 text-sm text-slate-700">
                   {[
                     "Complete creative control over features, layouts & workflows",
                     "Custom forms, custom calculation engines & proprietary reporting",
@@ -340,17 +334,17 @@ export default function MarketingLandingPage() {
                 </div>
               </article>
             </div>
-            <p className="mt-6 max-w-3xl text-sm text-zinc-500">
+            <p className="mt-6 max-w-3xl text-sm text-slate-500">
               Built by trade tech specialists who understand civil, mechanical, hydraulic, and
               commercial contracting in Australia and New Zealand.
             </p>
           </div>
         </section>
 
-        <section id="compliance" className="border-t border-white/10 px-4 py-16">
+        <section id="compliance" className="border-t border-slate-200 bg-slate-50 px-4 py-16">
           <div className="mx-auto max-w-6xl">
-          <h2 className="text-3xl font-extrabold text-white">Compliant across states</h2>
-          <p className="mt-3 text-sm text-zinc-400">ACT, NSW, WA, and NZ.</p>
+          <h2 className="text-3xl font-extrabold text-slate-900">Compliant across states</h2>
+          <p className="mt-3 text-sm text-slate-500">ACT, NSW, WA, and NZ.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
               "Fair Work timesheets with state-by-state pay rules",
@@ -358,7 +352,7 @@ export default function MarketingLandingPage() {
               "Plant pre-start and tag-out history retained with the asset",
               "ITP / ITC photo and drawing records ready for principal contractor audits",
             ].map((item) => (
-              <p key={item} className={`${glassCardClass} px-4 py-4 text-sm text-zinc-200`}>
+              <p key={item} className={`${glassCardClass} px-4 py-4 text-sm text-slate-700`}>
                 {item}
               </p>
             ))}
@@ -368,12 +362,12 @@ export default function MarketingLandingPage() {
 
         <section
           id="about"
-          className="border-t border-white/10 bg-[#1F2429] px-4 py-16 text-white"
+          className="border-t border-slate-200 bg-white px-4 py-16 text-slate-900"
         >
           <div className="mx-auto max-w-6xl">
             <SiteBoltWordmark />
-            <h2 className="mt-6 text-3xl font-extrabold">About SITEBOLT</h2>
-            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-300">
+            <h2 className="mt-6 text-3xl font-extrabold text-slate-900">About SITEBOLT</h2>
+            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-500">
               SiteBolt is an operational system for any organisation managing field teams, physical
               assets, safety compliance, and job tracking — not five apps and a shared drive. Born
               on civil sites. Built for multi-industry operations across Australia and New Zealand.
@@ -390,7 +384,7 @@ export default function MarketingLandingPage() {
         </section>
       </main>
 
-      <SiteFooter variant="dark" />
+      <SiteFooter />
 
       {enquireOpen ? <EnquireNowModal onClose={() => setEnquireOpen(false)} /> : null}
       {customBuildOpen ? (
