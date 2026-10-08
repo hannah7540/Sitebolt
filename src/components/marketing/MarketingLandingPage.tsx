@@ -36,7 +36,7 @@ const INDUSTRIES = [
   { title: "Heavy Plant & Equipment Hire", icon: Tractor },
 ] as const;
 
-const HERO_BADGES = ["ACT · NSW · WA · NZ", "31-Day SWMS", "Plant QR", "ITP / ITC"] as const;
+const HERO_BADGES = ["31-Day SWMS", "Plant QR", "ITP / ITC"] as const;
 
 const glassCardClass =
   "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/50";
@@ -136,7 +136,7 @@ export default function MarketingLandingPage() {
                   ))}
                 </div>
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-[#38BDF8]">
-                  Multi-state operations
+                  Field operations software
                 </p>
                 <h1 className="mt-3 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
                   Field Operations. Simplified &amp; Compliant.
@@ -210,7 +210,7 @@ export default function MarketingLandingPage() {
               {[
                 {
                   title: "Plant that cannot hide",
-                  body: "Assign machines by state and print only the labels you need.",
+                  body: "Assign machines and print only the labels you need.",
                 },
                 {
                   title: "Workers who stay current",
@@ -336,18 +336,18 @@ export default function MarketingLandingPage() {
             </div>
             <p className="mt-6 max-w-3xl text-sm text-slate-500">
               Built by trade tech specialists who understand civil, mechanical, hydraulic, and
-              commercial contracting in Australia and New Zealand.
+              commercial contracting.
             </p>
           </div>
         </section>
 
         <section id="compliance" className="border-t border-slate-200 bg-slate-50 px-4 py-16">
           <div className="mx-auto max-w-6xl">
-          <h2 className="text-3xl font-extrabold text-slate-900">Compliant across states</h2>
-          <p className="mt-3 text-sm text-slate-500">ACT, NSW, WA, and NZ.</p>
+          <h2 className="text-3xl font-extrabold text-slate-900">Audit-ready compliance</h2>
+          <p className="mt-3 text-sm text-slate-500">Evidence that is already filed when the auditor arrives.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
-              "Fair Work timesheets with state-by-state pay rules",
+              "Fair Work timesheets with automated pay rules",
               "31-day SWMS review evidence with consulted worker signatures",
               "Plant pre-start and tag-out history retained with the asset",
               "ITP / ITC photo and drawing records ready for principal contractor audits",
@@ -370,7 +370,7 @@ export default function MarketingLandingPage() {
             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-500">
               SiteBolt is an operational system for any organisation managing field teams, physical
               assets, safety compliance, and job tracking — not five apps and a shared drive. Born
-              on civil sites. Built for multi-industry operations across Australia and New Zealand.
+              on civil sites. Built for multi-industry field operations.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button type="button" onClick={openEnquire} className={primaryButtonClass}>

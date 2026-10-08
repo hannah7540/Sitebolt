@@ -45,7 +45,7 @@ const PILLARS = [
     icon: Timer,
     points: [
       "Live mobile shift logging with supervisor approval workflows",
-      "State-specific award & pay rule interpretations (NSW, ACT, WA, NZ)",
+      "Award and pay rule interpretations for field crews",
       "One-click export ready for MYOB & major payroll accounting systems",
       "Worker shift calendars & daily crew allocations",
     ],

@@ -51,7 +51,7 @@ const CALLOUTS: Partial<Record<PreviewTab, { label: string; className: string }>
   swms: { label: "Zero Paperwork", className: "bottom-8 right-3 sm:bottom-10 sm:right-10" },
   itp: { label: "Photo Evidence Pins", className: "right-3 top-20 sm:right-10 sm:top-24" },
   timesheets: {
-    label: "NSW/ACT Pay Rules Built-in",
+    label: "Award Pay Rules Built-in",
     className: "bottom-8 right-3 sm:bottom-12 sm:right-10",
   },
   organisation: {
@@ -495,9 +495,9 @@ function ItpPreview() {
 
 function TimesheetsPreview() {
   const rows = [
-    { crew: "North crew", hours: "42.5", award: "NSW CI", status: "Approved" },
-    { crew: "Plant operators", hours: "38.0", award: "ACT building", status: "Approved" },
-    { crew: "Night shift", hours: "21.0", award: "NSW CI OT", status: "In review" },
+    { crew: "North crew", hours: "42.5", award: "Building CI", status: "Approved" },
+    { crew: "Plant operators", hours: "38.0", award: "Plant award", status: "Approved" },
+    { crew: "Night shift", hours: "21.0", award: "Overtime", status: "In review" },
   ];
 
   return (
