@@ -32,7 +32,7 @@ export const KNOWN_WORKSPACE_COMPANIES: WorkspaceCompany[] = [
     id: A_PLUS_ORGANISATION_ID,
     company_name: A_PLUS_ORGANISATION_NAME,
     is_demo: false,
-    feature_flags: parseOrganisationFeatureFlags(undefined, A_PLUS_ORGANISATION_ID),
+    feature_flags: parseOrganisationFeatureFlags(undefined, A_PLUS_ORGANISATION_ID, "ACT"),
   },
   {
     id: DEMO_ORGANISATION_ID,
@@ -63,7 +63,8 @@ export function mergeWorkspaceCompanies(rows: WorkspaceCompany[]): WorkspaceComp
       state: row.state ?? existing?.state ?? null,
       feature_flags: parseOrganisationFeatureFlags(
         row.feature_flags ?? existing?.feature_flags,
-        row.id
+        row.id,
+        row.state ?? existing?.state
       ),
     });
   }

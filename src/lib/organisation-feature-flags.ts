@@ -32,9 +32,28 @@ export const WORKER_FIELD_KEYS = [
 export type FeatureModuleKey = (typeof FEATURE_MODULE_KEYS)[number];
 export type WorkerFieldKey = (typeof WORKER_FIELD_KEYS)[number];
 
+export const OPERATING_STATE_OPTIONS = [
+  { id: "ACT", label: "ACT - Australian Capital Territory" },
+  { id: "NSW", label: "NSW - New South Wales" },
+  { id: "NT", label: "NT - Northern Territory" },
+  { id: "QLD", label: "QLD - Queensland" },
+  { id: "SA", label: "SA - South Australia" },
+  { id: "TAS", label: "TAS - Tasmania" },
+  { id: "VIC", label: "VIC - Victoria" },
+  { id: "WA", label: "WA - Western Australia" },
+  { id: "NZ", label: "NZ - New Zealand" },
+] as const;
+
+export type OperatingStateId = (typeof OPERATING_STATE_OPTIONS)[number]["id"];
+
+export const OPERATING_STATE_IDS: OperatingStateId[] = OPERATING_STATE_OPTIONS.map(
+  (item) => item.id
+);
+
 export interface OrganisationFeatureFlags {
   modules: Record<FeatureModuleKey, boolean>;
   workerFields: Record<WorkerFieldKey, boolean>;
+  operating_states: OperatingStateId[];
 }
 
 export const CORE_MODULE_CATALOG: Array<{
@@ -123,10 +142,46 @@ function allTrueRecord<K extends string>(keys: readonly K[]): Record<K, boolean>
   return Object.fromEntries(keys.map((key) => [key, true])) as Record<K, boolean>;
 }
 
-export function createAllEnabledFeatureFlags(): OrganisationFeatureFlags {
+export function isOperatingStateId(value: string | null | undefined): value is OperatingStateId {
+  if (!value) return false;
+  return (OPERATING_STATE_IDS as readonly string[]).includes(value);
+}
+
+export function parseOperatingStates(
+  raw: unknown,
+  fallback?: string | string[] | null
+): OperatingStateId[] {
+  const collected: string[] = [];
+  if (Array.isArray(raw)) {
+    collected.push(...raw.map((item) => String(item ?? "").trim().toUpperCase()));
+  } else if (typeof raw === "string" && raw.trim()) {
+    collected.push(
+      ...raw
+        .split(/[,\s]+/)
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean)
+    );
+  }
+  if (collected.length === 0) {
+    const fallbackItems = Array.isArray(fallback) ? fallback : [fallback];
+    collected.push(
+      ...fallbackItems.map((item) => String(item ?? "").trim().toUpperCase()).filter(Boolean)
+    );
+  }
+  const unique = new Set<OperatingStateId>();
+  for (const item of collected) {
+    if (isOperatingStateId(item)) unique.add(item);
+  }
+  return OPERATING_STATE_IDS.filter((id) => unique.has(id));
+}
+
+export function createAllEnabledFeatureFlags(
+  operatingStates: OperatingStateId[] = []
+): OrganisationFeatureFlags {
   return {
     modules: allTrueRecord(FEATURE_MODULE_KEYS),
     workerFields: allTrueRecord(WORKER_FIELD_KEYS),
+    operating_states: parseOperatingStates(operatingStates),
   };
 }
 
@@ -157,18 +212,26 @@ function readBooleanMap(
 
 export function parseOrganisationFeatureFlags(
   raw: unknown,
-  organisationId?: string | null
+  organisationId?: string | null,
+  fallbackState?: string | string[] | null
 ): OrganisationFeatureFlags {
+  const record =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const operatingStates = parseOperatingStates(
+    record.operating_states ?? record.operatingStates,
+    fallbackState
+  );
+
   if (organisationId === A_PLUS_ORGANISATION_ID) {
-    return createAllEnabledFeatureFlags();
+    return createAllEnabledFeatureFlags(operatingStates.length > 0 ? operatingStates : ["ACT"]);
   }
 
-  const allEnabled = createAllEnabledFeatureFlags();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return allEnabled;
+    return createAllEnabledFeatureFlags(operatingStates);
   }
 
-  const record = raw as Record<string, unknown>;
   const modulesSource = record.modules ?? record;
   const workerSource = record.workerFields ?? record.worker_fields ?? {};
 
@@ -181,6 +244,7 @@ export function parseOrganisationFeatureFlags(
       WorkerFieldKey,
       boolean
     >,
+    operating_states: operatingStates,
   };
 }
 
@@ -208,9 +272,9 @@ export function serializeOrganisationFeatureFlags(
   organisationId?: string | null
 ): OrganisationFeatureFlags {
   if (organisationId === A_PLUS_ORGANISATION_ID) {
-    return createAllEnabledFeatureFlags();
+    return createAllEnabledFeatureFlags(flags.operating_states);
   }
-  return parseOrganisationFeatureFlags(flags, organisationId);
+  return parseOrganisationFeatureFlags(flags, organisationId, flags.operating_states);
 }
 
 export function isFeatureModuleEnabled(
@@ -242,11 +306,23 @@ export function toggleFeatureFlag<
   if (group === "modules") {
     return {
       ...flags,
+      operating_states: flags.operating_states,
       modules: { ...flags.modules, [key]: enabled },
     };
   }
   return {
     ...flags,
+    operating_states: flags.operating_states,
     workerFields: { ...flags.workerFields, [key]: enabled },
+  };
+}
+
+export function withOperatingStates(
+  flags: OrganisationFeatureFlags,
+  operatingStates: OperatingStateId[]
+): OrganisationFeatureFlags {
+  return {
+    ...flags,
+    operating_states: parseOperatingStates(operatingStates),
   };
 }

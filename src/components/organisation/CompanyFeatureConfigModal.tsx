@@ -2,17 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
-import {
-  COMPANY_STATE_OPTIONS,
-  type WorkspaceCompany,
-} from "@/lib/organisation-workspace";
+import { type WorkspaceCompany } from "@/lib/organisation-workspace";
 import {
   CORE_MODULE_CATALOG,
+  OPERATING_STATE_IDS,
+  OPERATING_STATE_OPTIONS,
   TOOL_MODULE_CATALOG,
   WORKER_FIELD_CATALOG,
-  createAllEnabledFeatureFlags,
   parseOrganisationFeatureFlags,
   toggleFeatureFlag,
+  withOperatingStates,
+  type OperatingStateId,
   type OrganisationFeatureFlags,
 } from "@/lib/organisation-feature-flags";
 import { A_PLUS_ORGANISATION_ID } from "@/lib/active-organisation";
@@ -109,6 +109,59 @@ function FlagRow({
   );
 }
 
+function OperatingStatesPicker({
+  selected,
+  disabled,
+  onToggle,
+  onSelectAll,
+  onClearAll,
+}: {
+  selected: OperatingStateId[];
+  disabled?: boolean;
+  onToggle: (id: OperatingStateId) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}) {
+  return (
+    <fieldset>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <legend className="text-xs text-zinc-400">
+          Operating Jurisdictions / States <span className="text-[#FF6B00]">*</span>
+        </legend>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onSelectAll}
+            className="text-xs font-semibold text-[#FF6B00] hover:text-[#FF8533] disabled:opacity-50"
+          >
+            Select All
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onClearAll}
+            className="text-xs font-semibold text-zinc-400 hover:text-white disabled:opacity-50"
+          >
+            Clear All
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {OPERATING_STATE_OPTIONS.map((item) => (
+          <FlagRow
+            key={item.id}
+            checked={selected.includes(item.id)}
+            disabled={disabled}
+            label={item.label}
+            onToggle={() => onToggle(item.id)}
+          />
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export default function CompanyFeatureConfigModal({
   mode,
   company,
@@ -118,20 +171,28 @@ export default function CompanyFeatureConfigModal({
   const locked = company?.id === A_PLUS_ORGANISATION_ID;
   const [step, setStep] = useState<1 | 2>(mode === "edit" ? 2 : 1);
   const [companyName, setCompanyName] = useState(company?.company_name ?? "");
-  const [state, setState] = useState(company?.state ?? "");
   const [flags, setFlags] = useState<OrganisationFeatureFlags>(() =>
-    parseOrganisationFeatureFlags(company?.feature_flags, company?.id)
+    parseOrganisationFeatureFlags(company?.feature_flags, company?.id, company?.state)
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const title = mode === "create" ? "Add New Company" : "Edit Configuration";
   const submitLabel = mode === "create" ? "Create Company" : "Save Changes";
+  const selectedStates = flags.operating_states;
 
   const canContinue = useMemo(
-    () => companyName.trim().length > 0 && state.trim().length > 0,
-    [companyName, state]
+    () => companyName.trim().length > 0 && selectedStates.length > 0,
+    [companyName, selectedStates.length]
   );
+
+  const toggleState = (id: OperatingStateId) => {
+    if (locked) return;
+    const next = selectedStates.includes(id)
+      ? selectedStates.filter((item) => item !== id)
+      : [...selectedStates, id];
+    setFlags((current) => withOperatingStates(current, next));
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -142,8 +203,16 @@ export default function CompanyFeatureConfigModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "create"
-            ? { companyName, state, featureFlags: flags }
-            : { id: company?.id, featureFlags: flags }
+            ? {
+                companyName,
+                operatingStates: flags.operating_states,
+                featureFlags: flags,
+              }
+            : {
+                id: company?.id,
+                operatingStates: flags.operating_states,
+                featureFlags: flags,
+              }
         ),
       });
       const payload = (await response.json().catch(() => ({}))) as {
@@ -208,28 +277,29 @@ export default function CompanyFeatureConfigModal({
                   className={cn(fieldClass, "mt-1")}
                 />
               </div>
-              <div>
-                <label htmlFor="wizard-company-state" className="text-xs text-zinc-400">
-                  Region / State <span className="text-[#FF6B00]">*</span>
-                </label>
-                <select
-                  id="wizard-company-state"
-                  required
-                  value={state}
-                  onChange={(event) => setState(event.target.value)}
-                  className={cn(fieldClass, "mt-1")}
-                >
-                  <option value="">Select your state</option>
-                  {COMPANY_STATE_OPTIONS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <OperatingStatesPicker
+                selected={selectedStates}
+                disabled={locked}
+                onToggle={toggleState}
+                onSelectAll={() =>
+                  setFlags((current) => withOperatingStates(current, [...OPERATING_STATE_IDS]))
+                }
+                onClearAll={() => setFlags((current) => withOperatingStates(current, []))}
+              />
             </>
           ) : (
             <>
+              {mode === "edit" ? (
+                <OperatingStatesPicker
+                  selected={selectedStates}
+                  disabled={locked}
+                  onToggle={toggleState}
+                  onSelectAll={() =>
+                    setFlags((current) => withOperatingStates(current, [...OPERATING_STATE_IDS]))
+                  }
+                  onClearAll={() => setFlags((current) => withOperatingStates(current, []))}
+                />
+              ) : null}
               <AccordionSection
                 title="Section 1: Core Modules & Navigation"
                 subtitle="Sidebar areas available in this workspace"

@@ -14,12 +14,11 @@ import {
 } from "@/lib/organisation-workspace";
 import { A_PLUS_ORGANISATION_ID } from "@/lib/active-organisation";
 import {
-  createAllEnabledFeatureFlags,
   flagsFromLegacyModules,
   parseOrganisationFeatureFlags,
+  parseOperatingStates,
   serializeOrganisationFeatureFlags,
 } from "@/lib/organisation-feature-flags";
-import { isWorkerStateRegion } from "@/lib/worker-state-region";
 
 async function requireSuperAdmin() {
   if (!isSupabaseAdminConfigured()) {
@@ -76,7 +75,11 @@ function mapOrganisationRow(row: Record<string, unknown>): WorkspaceCompany {
     company_name: String(row.company_name ?? row.name ?? "").trim(),
     is_demo: row.is_demo === true,
     state: typeof row.state === "string" ? row.state : null,
-    feature_flags: parseOrganisationFeatureFlags(row.feature_flags, id),
+    feature_flags: parseOrganisationFeatureFlags(
+      row.feature_flags,
+      id,
+      typeof row.state === "string" ? row.state : null
+    ),
   };
 }
 
@@ -121,22 +124,31 @@ export async function POST(request: Request) {
 
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const companyName = String(record.companyName ?? record.company_name ?? "").trim();
-  const state = String(record.state ?? "").trim().toUpperCase();
   const rawModules = Array.isArray(record.modules) ? record.modules.map(String) : [];
   const allowedModules = new Set<string>(COMPANY_MODULE_OPTIONS.map((item) => item.id));
   const modules = rawModules.filter((item) => allowedModules.has(item));
   const rawFlags = record.featureFlags ?? record.feature_flags;
-  const featureFlags = serializeOrganisationFeatureFlags(
-    rawFlags
-      ? parseOrganisationFeatureFlags(rawFlags)
-      : flagsFromLegacyModules(modules)
+  const parsedFlags = rawFlags
+    ? parseOrganisationFeatureFlags(rawFlags)
+    : flagsFromLegacyModules(modules);
+  const operatingStates = parseOperatingStates(
+    record.operatingStates ?? record.operating_states ?? parsedFlags.operating_states,
+    typeof record.state === "string" ? record.state : null
   );
+  const featureFlags = serializeOrganisationFeatureFlags({
+    ...parsedFlags,
+    operating_states: operatingStates,
+  });
+  const state = operatingStates[0] ?? "";
 
   if (!companyName) {
     return NextResponse.json({ error: "Company name is required." }, { status: 400 });
   }
-  if (!isWorkerStateRegion(state)) {
-    return NextResponse.json({ error: "Select a valid state." }, { status: 400 });
+  if (operatingStates.length === 0) {
+    return NextResponse.json(
+      { error: "Select at least one operating jurisdiction." },
+      { status: 400 }
+    );
   }
 
   const payloads: Record<string, unknown>[] = [
@@ -209,22 +221,38 @@ export async function PATCH(request: Request) {
       .select("id, company_name, state, is_demo, feature_flags")
       .eq("id", id)
       .maybeSingle();
+    const row = (data as unknown as Record<string, unknown> | null) ?? {};
     return NextResponse.json({
       company: mapOrganisationRow({
-        ...(data as Record<string, unknown> | null),
+        ...row,
         id,
-        company_name:
-          (data as { company_name?: string } | null)?.company_name ??
-          "A Plus Plumbing (ACT) PTY LTD",
-        feature_flags: createAllEnabledFeatureFlags(),
+        company_name: String(row.company_name ?? "A Plus Plumbing (ACT) PTY LTD"),
+        feature_flags: row.feature_flags,
+        state: row.state ?? "ACT",
       }),
     });
   }
 
+  const parsedFlags = parseOrganisationFeatureFlags(
+    record.featureFlags ?? record.feature_flags,
+    id,
+    typeof record.state === "string" ? record.state : null
+  );
+  const operatingStates = parseOperatingStates(
+    record.operatingStates ?? record.operating_states ?? parsedFlags.operating_states,
+    typeof record.state === "string" ? record.state : null
+  );
   const featureFlags = serializeOrganisationFeatureFlags(
-    parseOrganisationFeatureFlags(record.featureFlags ?? record.feature_flags, id),
+    { ...parsedFlags, operating_states: operatingStates },
     id
   );
+  const primaryState = operatingStates[0] ?? null;
+  if (operatingStates.length === 0) {
+    return NextResponse.json(
+      { error: "Select at least one operating jurisdiction." },
+      { status: 400 }
+    );
+  }
 
   const selectVariants = [
     "id, company_name, state, is_demo, feature_flags",
@@ -233,11 +261,10 @@ export async function PATCH(request: Request) {
   ];
 
   for (const select of selectVariants) {
-    const payload =
-      select.includes("feature_flags")
-        ? { feature_flags: featureFlags }
-        : null;
-    if (!payload) break;
+    const payload: Record<string, unknown> = {};
+    if (select.includes("feature_flags")) payload.feature_flags = featureFlags;
+    if (select.includes("state") && primaryState) payload.state = primaryState;
+    if (Object.keys(payload).length === 0) break;
     const { data, error } = await access.admin
       .from("organisations")
       .update(payload)
