@@ -27,6 +27,8 @@ import {
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
 } from "@/lib/worker-state-region";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { isWorkerFieldEnabled } from "@/lib/organisation-feature-flags";
 
 interface WorkerEditModalProps {
   worker: Worker;
@@ -41,6 +43,13 @@ export default function WorkerEditModal({
   onSaved,
   canManageWorkerRoles = false,
 }: WorkerEditModalProps) {
+  const workspace = useOrganisationWorkspace();
+  const flags = workspace?.featureFlags;
+  const orgId = workspace?.activeCompany?.id ?? null;
+  const showEmergencyContact = isWorkerFieldEnabled(flags, "emergency_contact", orgId);
+  const showPayRates = isWorkerFieldEnabled(flags, "pay_rates", orgId);
+  const showWhiteCard = isWorkerFieldEnabled(flags, "white_card", orgId);
+  const showDriversLicence = isWorkerFieldEnabled(flags, "drivers_licence", orgId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialNames = splitWorkerName(worker);
   const [firstName, setFirstName] = useState(initialNames.firstName);
@@ -400,6 +409,7 @@ export default function WorkerEditModal({
             disabled={saving}
           />
 
+          {showEmergencyContact ? (
           <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">Emergency contact</p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -431,7 +441,9 @@ export default function WorkerEditModal({
               </label>
             </div>
           </div>
+          ) : null}
 
+          {showPayRates ? (
           <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">Financial / payroll</p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -496,10 +508,13 @@ export default function WorkerEditModal({
               </label>
             </div>
           </div>
+          ) : null}
 
           <div className={sectionClass}>
             <p className="text-sm font-semibold text-slate-900">Certifications</p>
             <div className="mt-3 space-y-3">
+              {showWhiteCard ? (
+              <>
               <label className="block space-y-1">
                 <span className={labelClass}>White card number</span>
                 <input
@@ -517,6 +532,10 @@ export default function WorkerEditModal({
                   onChange={(event) => setWhiteCardIssueDate(event.target.value)}
                 />
               </label>
+              </>
+              ) : null}
+              {showDriversLicence ? (
+              <>
               <label className="block space-y-1">
                 <span className={labelClass}>Driver licence number</span>
                 <input
@@ -542,6 +561,8 @@ export default function WorkerEditModal({
                   onChange={(event) => setDriversLicenceExpiry(event.target.value)}
                 />
               </label>
+              </>
+              ) : null}
               <label className="block space-y-1">
                 <span className={labelClass}>Silica cert number</span>
                 <input

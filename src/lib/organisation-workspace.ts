@@ -4,6 +4,10 @@ import {
   DEMO_ORGANISATION_ID,
   DEMO_ORGANISATION_NAME,
 } from "@/lib/active-organisation";
+import {
+  parseOrganisationFeatureFlags,
+  type OrganisationFeatureFlags,
+} from "@/lib/organisation-feature-flags";
 import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
 
 export const COMPANY_MODULE_OPTIONS = [
@@ -20,6 +24,7 @@ export interface WorkspaceCompany {
   company_name: string;
   is_demo: boolean;
   state?: string | null;
+  feature_flags?: OrganisationFeatureFlags;
 }
 
 export const KNOWN_WORKSPACE_COMPANIES: WorkspaceCompany[] = [
@@ -27,11 +32,13 @@ export const KNOWN_WORKSPACE_COMPANIES: WorkspaceCompany[] = [
     id: A_PLUS_ORGANISATION_ID,
     company_name: A_PLUS_ORGANISATION_NAME,
     is_demo: false,
+    feature_flags: parseOrganisationFeatureFlags(undefined, A_PLUS_ORGANISATION_ID),
   },
   {
     id: DEMO_ORGANISATION_ID,
     company_name: DEMO_ORGANISATION_NAME,
     is_demo: true,
+    feature_flags: parseOrganisationFeatureFlags(undefined, DEMO_ORGANISATION_ID),
   },
 ];
 
@@ -54,6 +61,10 @@ export function mergeWorkspaceCompanies(rows: WorkspaceCompany[]): WorkspaceComp
       company_name: row.company_name.trim() || existing?.company_name || "Company",
       is_demo: row.is_demo || existing?.is_demo || row.id === DEMO_ORGANISATION_ID,
       state: row.state ?? existing?.state ?? null,
+      feature_flags: parseOrganisationFeatureFlags(
+        row.feature_flags ?? existing?.feature_flags,
+        row.id
+      ),
     });
   }
   return [...byId.values()].sort((a, b) => {

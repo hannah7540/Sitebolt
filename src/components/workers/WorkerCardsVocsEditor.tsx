@@ -25,6 +25,7 @@ interface WorkerCardsVocsEditorProps {
   onChange: (entries: WorkerCardVocEntry[]) => void;
   /** When false, viewing is allowed but editing/upload is disabled. */
   canEdit?: boolean;
+  allowedCategories?: WorkerCardCategory[];
 }
 
 function isPreviewableImage(url: string): boolean {
@@ -280,6 +281,7 @@ export default function WorkerCardsVocsEditor({
   entries,
   onChange,
   canEdit = true,
+  allowedCategories = WORKER_CARD_CATEGORIES,
 }: WorkerCardsVocsEditorProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -305,7 +307,7 @@ export default function WorkerCardsVocsEditor({
 
   return (
     <div className="space-y-8">
-      {WORKER_CARD_CATEGORIES.map((category) => {
+      {allowedCategories.map((category) => {
         const categoryEntries = entries.filter((entry) => entry.category === category);
         return (
           <section key={category} className="space-y-3">

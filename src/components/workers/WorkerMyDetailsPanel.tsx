@@ -38,6 +38,8 @@ import {
   labelClass,
   sectionClass,
 } from "@/lib/ui-classes";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { isWorkerFieldEnabled } from "@/lib/organisation-feature-flags";
 import ModalActionFooter from "@/components/ui/ModalActionFooter";
 
 interface WorkerMyDetailsPanelProps {
@@ -174,6 +176,12 @@ export default function WorkerMyDetailsPanel({
   onClose,
   onSaved,
 }: WorkerMyDetailsPanelProps) {
+  const workspace = useOrganisationWorkspace();
+  const flags = workspace?.featureFlags;
+  const orgId = workspace?.activeCompany?.id ?? null;
+  const showEmergencyContact = isWorkerFieldEnabled(flags, "emergency_contact", orgId);
+  const showWhiteCard = isWorkerFieldEnabled(flags, "white_card", orgId);
+  const showHighRisk = isWorkerFieldEnabled(flags, "high_risk_licences", orgId);
   const uploadPrefixRef = useRef(`workers/${worker.id}/profile/${Date.now()}`);
   const uploadPrefix = uploadPrefixRef.current;
 
@@ -516,6 +524,7 @@ export default function WorkerMyDetailsPanel({
             </Field>
           </div>
 
+          {showEmergencyContact ? (
           <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">
               Emergency Contact
@@ -544,7 +553,9 @@ export default function WorkerMyDetailsPanel({
               />
             </Field>
           </div>
+          ) : null}
 
+          {showWhiteCard ? (
           <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">White Card</h3>
             <Field label="Card Number">
@@ -574,6 +585,7 @@ export default function WorkerMyDetailsPanel({
               }
             />
           </div>
+          ) : null}
 
           <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">
@@ -607,6 +619,7 @@ export default function WorkerMyDetailsPanel({
             />
           </div>
 
+          {showHighRisk ? (
           <div>
             <h3 className="text-sm font-semibold text-orange-600">Your VOCs</h3>
             {loadingVocs ? (
@@ -636,6 +649,7 @@ export default function WorkerMyDetailsPanel({
               />
             </div>
           </div>
+          ) : null}
         </div>
 
         </div>

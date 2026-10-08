@@ -12,6 +12,13 @@ import {
   mergeWorkspaceCompanies,
   type WorkspaceCompany,
 } from "@/lib/organisation-workspace";
+import { A_PLUS_ORGANISATION_ID } from "@/lib/active-organisation";
+import {
+  createAllEnabledFeatureFlags,
+  flagsFromLegacyModules,
+  parseOrganisationFeatureFlags,
+  serializeOrganisationFeatureFlags,
+} from "@/lib/organisation-feature-flags";
 import { isWorkerStateRegion } from "@/lib/worker-state-region";
 
 async function requireSuperAdmin() {
@@ -63,11 +70,13 @@ async function requireSuperAdmin() {
 }
 
 function mapOrganisationRow(row: Record<string, unknown>): WorkspaceCompany {
+  const id = String(row.id ?? "");
   return {
-    id: String(row.id ?? ""),
+    id,
     company_name: String(row.company_name ?? row.name ?? "").trim(),
     is_demo: row.is_demo === true,
     state: typeof row.state === "string" ? row.state : null,
+    feature_flags: parseOrganisationFeatureFlags(row.feature_flags, id),
   };
 }
 
@@ -76,6 +85,8 @@ export async function GET() {
   if (!access.ok) return access.response;
 
   const selectVariants = [
+    "id, company_name, name, is_demo, state, feature_flags",
+    "id, company_name, is_demo, state, feature_flags",
     "id, company_name, name, is_demo, state",
     "id, company_name, is_demo, state",
     "id, company_name, name, state",
@@ -114,6 +125,12 @@ export async function POST(request: Request) {
   const rawModules = Array.isArray(record.modules) ? record.modules.map(String) : [];
   const allowedModules = new Set<string>(COMPANY_MODULE_OPTIONS.map((item) => item.id));
   const modules = rawModules.filter((item) => allowedModules.has(item));
+  const rawFlags = record.featureFlags ?? record.feature_flags;
+  const featureFlags = serializeOrganisationFeatureFlags(
+    rawFlags
+      ? parseOrganisationFeatureFlags(rawFlags)
+      : flagsFromLegacyModules(modules)
+  );
 
   if (!companyName) {
     return NextResponse.json({ error: "Company name is required." }, { status: 400 });
@@ -123,28 +140,118 @@ export async function POST(request: Request) {
   }
 
   const payloads: Record<string, unknown>[] = [
+    {
+      company_name: companyName,
+      state,
+      enabled_modules: modules,
+      feature_flags: featureFlags,
+      is_demo: false,
+    },
+    { company_name: companyName, state, feature_flags: featureFlags, is_demo: false },
     { company_name: companyName, state, enabled_modules: modules, is_demo: false },
     { company_name: companyName, state, is_demo: false },
     { company_name: companyName, state },
     { company_name: companyName },
   ];
 
-  for (const payload of payloads) {
-    const { data, error } = await access.admin
-      .from("organisations")
-      .insert([payload])
-      .select("id, company_name")
-      .maybeSingle();
+  const insertSelects = [
+    "id, company_name, state, is_demo, feature_flags",
+    "id, company_name, state, is_demo",
+    "id, company_name",
+  ];
 
-    if (error || !data) continue;
-    return NextResponse.json({
-      company: mapOrganisationRow(data as Record<string, unknown>),
-      states: COMPANY_STATE_OPTIONS,
-    });
+  for (const payload of payloads) {
+    for (const select of insertSelects) {
+      const { data, error } = await access.admin
+        .from("organisations")
+        .insert([payload])
+        .select(select)
+        .maybeSingle();
+
+      if (error || !data) continue;
+      const row = data as unknown as Record<string, unknown>;
+      return NextResponse.json({
+        company: mapOrganisationRow({
+          ...row,
+          feature_flags: row.feature_flags ?? featureFlags,
+        }),
+        states: COMPANY_STATE_OPTIONS,
+      });
+    }
   }
 
   return NextResponse.json(
     { error: "Unable to create the company workspace." },
+    { status: 500 }
+  );
+}
+
+export async function PATCH(request: Request) {
+  const access = await requireSuperAdmin();
+  if (!access.ok) return access.response;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const id = String(record.id ?? record.organisation_id ?? "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "Company id is required." }, { status: 400 });
+  }
+
+  if (id === A_PLUS_ORGANISATION_ID) {
+    const { data } = await access.admin
+      .from("organisations")
+      .select("id, company_name, state, is_demo, feature_flags")
+      .eq("id", id)
+      .maybeSingle();
+    return NextResponse.json({
+      company: mapOrganisationRow({
+        ...(data as Record<string, unknown> | null),
+        id,
+        company_name:
+          (data as { company_name?: string } | null)?.company_name ??
+          "A Plus Plumbing (ACT) PTY LTD",
+        feature_flags: createAllEnabledFeatureFlags(),
+      }),
+    });
+  }
+
+  const featureFlags = serializeOrganisationFeatureFlags(
+    parseOrganisationFeatureFlags(record.featureFlags ?? record.feature_flags, id),
+    id
+  );
+
+  const selectVariants = [
+    "id, company_name, state, is_demo, feature_flags",
+    "id, company_name, feature_flags",
+    "id, company_name",
+  ];
+
+  for (const select of selectVariants) {
+    const payload =
+      select.includes("feature_flags")
+        ? { feature_flags: featureFlags }
+        : null;
+    if (!payload) break;
+    const { data, error } = await access.admin
+      .from("organisations")
+      .update(payload)
+      .eq("id", id)
+      .select(select)
+      .maybeSingle();
+    if (error || !data) continue;
+    return NextResponse.json({
+      company: mapOrganisationRow(data as unknown as Record<string, unknown>),
+    });
+  }
+
+  return NextResponse.json(
+    { error: "Unable to update company configuration." },
     { status: 500 }
   );
 }

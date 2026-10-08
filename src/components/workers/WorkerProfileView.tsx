@@ -74,6 +74,9 @@ import {
   type WorkerStateRegion,
 } from "@/lib/worker-state-region";
 import EntityFormsTab from "@/components/forms/EntityFormsTab";
+import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { isWorkerFieldEnabled } from "@/lib/organisation-feature-flags";
+import type { WorkerCardCategory } from "@/lib/worker-cards-vocs";
 
 type ProfileTab = "basic" | "cards" | "inductions" | "financial" | "forms";
 
@@ -164,7 +167,20 @@ export default function WorkerProfileView({
   onWorkerUpdated,
   onWorkerDeleted,
 }: WorkerProfileViewProps) {
-  const canViewPayroll = canAssignPayRules && !hideFinancialFields;
+  const workspace = useOrganisationWorkspace();
+  const featureFlags = workspace?.featureFlags;
+  const orgId = workspace?.activeCompany?.id ?? null;
+  const showEmergencyContact = isWorkerFieldEnabled(featureFlags, "emergency_contact", orgId);
+  const showPayRates = isWorkerFieldEnabled(featureFlags, "pay_rates", orgId);
+  const showAppPin = isWorkerFieldEnabled(featureFlags, "app_pin", orgId);
+  const showWhiteCard = isWorkerFieldEnabled(featureFlags, "white_card", orgId);
+  const showHighRisk = isWorkerFieldEnabled(featureFlags, "high_risk_licences", orgId);
+  const cardCategories: WorkerCardCategory[] = [
+    ...(showWhiteCard ? (["white_card"] as const) : []),
+    ...(showHighRisk ? (["hrwl", "plant_voc"] as const) : []),
+    "first_aid" as const,
+  ];
+  const canViewPayroll = canAssignPayRules && !hideFinancialFields && showPayRates;
   const [currentWorker, setCurrentWorker] = useState(worker);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const { toast, showSuccess, showError, dismissToast } = useFormToast();
@@ -283,7 +299,7 @@ export default function WorkerProfileView({
             ) : null}
             <WorkerStateRegionBadge state={currentWorker.state} className="px-2.5 py-1" />
             <WorkerProfileStatusBadge worker={currentWorker} />
-            {!isWorkerDeleted(currentWorker) ? (
+            {!isWorkerDeleted(currentWorker) && showAppPin ? (
               // LOCKED: Critical worker invite functionality - do not delete or replace
               <ResendInviteButton
                 worker={currentWorker}
@@ -352,13 +368,15 @@ export default function WorkerProfileView({
           worker={currentWorker}
           projects={projects}
           canManageWorkerRoles={canManageWorkerRoles}
+          showEmergencyContact={showEmergencyContact}
           onSaved={patchWorker}
         />
       ) : tab === "cards" ? (
         <CardsVocsTab
           worker={currentWorker}
-          entries={cardEntries}
+          entries={cardEntries.filter((entry) => cardCategories.includes(entry.category))}
           loading={loadingVocs}
+          allowedCategories={cardCategories}
           onEntriesChange={setCardEntries}
           onSaved={patchWorker}
         />
@@ -467,11 +485,13 @@ function BasicInfoTab({
   worker,
   projects,
   canManageWorkerRoles,
+  showEmergencyContact = true,
   onSaved,
 }: {
   worker: Worker;
   projects: DbProject[];
   canManageWorkerRoles: boolean;
+  showEmergencyContact?: boolean;
   onSaved: (worker: Worker) => void;
 }) {
   const nameParts = splitWorkerName(worker);
@@ -750,34 +770,38 @@ function BasicInfoTab({
             autoComplete="postal-code"
           />
         </label>
-        <p className="sm:col-span-2 text-sm font-semibold text-slate-900">Emergency Contact</p>
-        <label className="block space-y-1 sm:col-span-2">
-          <span className={labelClass}>Contact Name</span>
-          <input
-            className={inputClass}
-            value={emergencyContactName}
-            onChange={(e) => setEmergencyContactName(e.target.value)}
-            autoComplete="name"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Relationship</span>
-          <input
-            className={inputClass}
-            value={emergencyContactRelationship}
-            onChange={(e) => setEmergencyContactRelationship(e.target.value)}
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className={labelClass}>Contact Phone Number</span>
-          <input
-            className={inputClass}
-            value={emergencyContactPhone}
-            onChange={(e) => setEmergencyContactPhone(e.target.value)}
-            inputMode="tel"
-            autoComplete="tel"
-          />
-        </label>
+        {showEmergencyContact ? (
+          <>
+            <p className="sm:col-span-2 text-sm font-semibold text-slate-900">Emergency Contact</p>
+            <label className="block space-y-1 sm:col-span-2">
+              <span className={labelClass}>Contact Name</span>
+              <input
+                className={inputClass}
+                value={emergencyContactName}
+                onChange={(e) => setEmergencyContactName(e.target.value)}
+                autoComplete="name"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>Relationship</span>
+              <input
+                className={inputClass}
+                value={emergencyContactRelationship}
+                onChange={(e) => setEmergencyContactRelationship(e.target.value)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className={labelClass}>Contact Phone Number</span>
+              <input
+                className={inputClass}
+                value={emergencyContactPhone}
+                onChange={(e) => setEmergencyContactPhone(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+              />
+            </label>
+          </>
+        ) : null}
         <label className="block space-y-1">
           <span className={labelClass}>Role / trade</span>
           <input className={inputClass} value={trade} onChange={(e) => setTrade(e.target.value)} />
@@ -893,12 +917,14 @@ function CardsVocsTab({
   worker,
   entries,
   loading,
+  allowedCategories,
   onEntriesChange,
   onSaved,
 }: {
   worker: Worker;
   entries: WorkerCardVocEntry[];
   loading: boolean;
+  allowedCategories?: WorkerCardCategory[];
   onEntriesChange: (entries: WorkerCardVocEntry[]) => void;
   onSaved: (worker: Worker) => void;
 }) {
@@ -984,6 +1010,7 @@ function CardsVocsTab({
         workerId={worker.id}
         entries={entries}
         onChange={onEntriesChange}
+        allowedCategories={allowedCategories}
       />
 
       {error && (

@@ -62,6 +62,11 @@ import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import ThemePicker from "@/components/theme/ThemePicker";
 import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 import { SUPER_ADMIN_CONSOLE_ROLE } from "@/lib/super-admin";
+import {
+  ALL_ENABLED_FEATURE_FLAGS,
+  isFeatureModuleEnabled,
+  type OrganisationFeatureFlags,
+} from "@/lib/organisation-feature-flags";
 
 export type ActiveView =
   | "dashboard"
@@ -487,36 +492,49 @@ function NestedAccordion({
   );
 }
 
-function buildStandardProjectNavItems(): (SubItem | NestedGroup)[] {
-  return [
+function buildStandardProjectNavItems(
+  flags: OrganisationFeatureFlags
+): (SubItem | NestedGroup)[] {
+  const workerItems: SubItem[] = [{ label: "Assigned Workers", view: "workers" as const }];
+  if (isFeatureModuleEnabled(flags, "calendars")) {
+    workerItems.push({ label: "Worker Calendar", view: "worker-scheduler" as const });
+  }
+
+  const items: (SubItem | NestedGroup)[] = [
     { label: "Project Dashboard", view: "dashboard" as const },
     {
       label: "Workers",
-      items: [
-        { label: "Assigned Workers", view: "workers" as const },
-        { label: "Worker Calendar", view: "worker-scheduler" as const },
-      ],
+      items: workerItems,
     },
-    {
-      label: "Plant",
-      items: [
-        { label: "Assigned Plant", view: "plant" as const },
-        { label: "Plant Calendar", view: "scheduler" as const },
-      ],
-    },
-    { label: "Assets", view: "assets" as const },
-    {
+  ];
+
+  if (isFeatureModuleEnabled(flags, "plant")) {
+    const plantItems: SubItem[] = [{ label: "Assigned Plant", view: "plant" as const }];
+    if (isFeatureModuleEnabled(flags, "calendars")) {
+      plantItems.push({ label: "Plant Calendar", view: "scheduler" as const });
+    }
+    items.push({ label: "Plant", items: plantItems });
+    items.push({ label: "Assets", view: "assets" as const });
+  }
+
+  if (isFeatureModuleEnabled(flags, "swms")) {
+    items.push({
       label: "SWMS",
       items: [
         { label: "Active SWMS", view: "swms" as const },
         { label: "Review SWMS", href: "swms/review" },
       ],
-    },
-    { label: "Forms", view: "forms" as const },
-  ];
+    });
+  }
+
+  items.push({ label: "Forms", view: "forms" as const });
+  return items;
 }
 
-function buildProjectNav(projects: DbProject[]): NestedGroup[] {
+function buildProjectNav(
+  projects: DbProject[],
+  flags: OrganisationFeatureFlags
+): NestedGroup[] {
   if (projects.length === 0) {
     return [
       {
@@ -526,7 +544,7 @@ function buildProjectNav(projects: DbProject[]): NestedGroup[] {
     ];
   }
 
-  const standardItems = buildStandardProjectNavItems();
+  const standardItems = buildStandardProjectNavItems(flags);
 
   return projects.map((project) => ({
     id: project.id,
@@ -581,6 +599,8 @@ export default function Sidebar({
     pathname.startsWith("/worker-dashboard");
   const workspace = useOrganisationWorkspace();
   const isSuperAdmin = workspace?.isSuperAdmin === true;
+  const featureFlags = workspace?.featureFlags ?? ALL_ENABLED_FEATURE_FLAGS;
+  const orgId = workspace?.activeCompany?.id ?? null;
   const effectiveRole = isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionRole;
   const showSecurity = isSuperAdmin || canManageSecuritySettings(effectiveRole);
   const accountsMenu =
@@ -611,30 +631,47 @@ export default function Sidebar({
     [roleFilteredProjects]
   );
   const projectItems = useMemo(
-    () => buildProjectNav(activeProjects),
-    [activeProjects]
+    () => buildProjectNav(activeProjects, featureFlags),
+    [activeProjects, featureFlags]
   );
   const complianceAlertCount = useComplianceAlertCount();
 
   const organisationItems: SubItem[] = useMemo(
-    () => [
-      { label: "Profile Dashboard", href: "/organisation/dashboard" },
-      { label: "Company Information", href: "/organisation/company" },
-      { label: "Insurances", href: "/organisation/insurances" },
-      { label: "Documents", href: "/organisation/documents" },
-      { label: "Forms", href: "/organisation/forms" },
-      { label: "Projects", href: "/organisation/projects" },
-      { label: "Workers", href: "/organisation/workers" },
-      { label: "Inductions", href: "/admin/forms/inductions" },
-      { label: "Plant", href: "/organisation/plant" },
-      { label: "Fleet", href: "/organisation/fleet" },
-      { label: "Alerts", href: "/organisation/alerts", badge: complianceAlertCount },
-      { label: "Assets", href: "/organisation/assets" },
-      ...(showSecurity
-        ? [{ label: "Security Settings", href: "/organisation/security" }]
-        : []),
-    ],
-    [complianceAlertCount, showSecurity]
+    () => {
+      const items: SubItem[] = [
+        { label: "Profile Dashboard", href: "/organisation/dashboard" },
+        { label: "Company Information", href: "/organisation/company" },
+      ];
+      if (isFeatureModuleEnabled(featureFlags, "insurance", orgId)) {
+        items.push({ label: "Insurances", href: "/organisation/insurances" });
+      }
+      items.push(
+        { label: "Documents", href: "/organisation/documents" },
+        { label: "Forms", href: "/organisation/forms" },
+        { label: "Projects", href: "/organisation/projects" },
+        { label: "Workers", href: "/organisation/workers" },
+        { label: "Inductions", href: "/admin/forms/inductions" }
+      );
+      if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
+        items.push({ label: "Plant", href: "/organisation/plant" });
+        items.push({ label: "Fleet", href: "/organisation/fleet" });
+      }
+      if (isFeatureModuleEnabled(featureFlags, "insurance", orgId)) {
+        items.push({
+          label: "Alerts",
+          href: "/organisation/alerts",
+          badge: complianceAlertCount,
+        });
+      }
+      if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
+        items.push({ label: "Assets", href: "/organisation/assets" });
+      }
+      if (showSecurity) {
+        items.push({ label: "Security Settings", href: "/organisation/security" });
+      }
+      return items;
+    },
+    [complianceAlertCount, featureFlags, orgId, showSecurity]
   );
 
   return (
@@ -690,31 +727,45 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
-        <ProjectsSection
-          projects={projectItems}
-          activeView={effectiveActiveView}
-          selectedProjectId={effectiveSelectedProjectId}
-          onNavigate={onNavigate}
-        />
+        {isFeatureModuleEnabled(featureFlags, "projects", orgId) ? (
+          <ProjectsSection
+            projects={projectItems}
+            activeView={effectiveActiveView}
+            selectedProjectId={effectiveSelectedProjectId}
+            onNavigate={onNavigate}
+          />
+        ) : null}
 
-        <AdministrationSection
-          activeView={effectiveActiveView}
-          pathname={pathname}
-          onNavigate={onNavigate}
-        />
+        {isFeatureModuleEnabled(featureFlags, "administration", orgId) ? (
+          <AdministrationSection
+            activeView={effectiveActiveView}
+            pathname={pathname}
+            onNavigate={onNavigate}
+            featureFlags={featureFlags}
+            organisationId={orgId}
+          />
+        ) : null}
 
-        <SubcontractorsSection activeView={effectiveActiveView} onNavigate={onNavigate} />
+        {isFeatureModuleEnabled(featureFlags, "subcontractors", orgId) ? (
+          <SubcontractorsSection activeView={effectiveActiveView} onNavigate={onNavigate} />
+        ) : null}
 
-        {accountsMenu ? <AccountsSection menu={accountsMenu} pathname={pathname} /> : null}
+        {isFeatureModuleEnabled(featureFlags, "accounts", orgId) && accountsMenu ? (
+          <AccountsSection menu={accountsMenu} pathname={pathname} />
+        ) : null}
 
-        <EmailsSection pathname={pathname} showEmails showSms />
+        {isFeatureModuleEnabled(featureFlags, "communication", orgId) ? (
+          <EmailsSection pathname={pathname} showEmails showSms />
+        ) : null}
 
-        <OrganisationSection
-          items={organisationItems}
-          activeView={effectiveActiveView}
-          pathname={pathname}
-          onNavigate={onNavigate}
-        />
+        {isFeatureModuleEnabled(featureFlags, "organisation", orgId) ? (
+          <OrganisationSection
+            items={organisationItems}
+            activeView={effectiveActiveView}
+            pathname={pathname}
+            onNavigate={onNavigate}
+          />
+        ) : null}
       </nav>
 
       <div className="mt-auto border-t border-slate-200 p-4">
@@ -1028,10 +1079,14 @@ function AdministrationSection({
   activeView,
   pathname,
   onNavigate,
+  featureFlags,
+  organisationId,
 }: {
   activeView: ActiveView;
   pathname: string | null;
   onNavigate: SidebarProps["onNavigate"];
+  featureFlags: OrganisationFeatureFlags;
+  organisationId: string | null;
 }) {
   const isAdminRoute =
     (pathname?.startsWith("/admin") ?? false) ||
@@ -1048,14 +1103,26 @@ function AdministrationSection({
     "administration-forms",
     isFormsRoute
   );
-  const items: SubItem[] = [
-    { label: "Full Plant Calendar", view: "admin-plant-calendar" },
-    { label: "Full Worker Calendar", view: "admin-worker-calendar" },
-    { label: "SWMS", view: "admin-swms" },
-    { label: "ITP / ITC", view: "admin-itc" },
+  const items: SubItem[] = [];
+  if (
+    isFeatureModuleEnabled(featureFlags, "plant", organisationId) &&
+    isFeatureModuleEnabled(featureFlags, "calendars", organisationId)
+  ) {
+    items.push({ label: "Full Plant Calendar", view: "admin-plant-calendar" });
+  }
+  if (isFeatureModuleEnabled(featureFlags, "calendars", organisationId)) {
+    items.push({ label: "Full Worker Calendar", view: "admin-worker-calendar" });
+  }
+  if (isFeatureModuleEnabled(featureFlags, "swms", organisationId)) {
+    items.push({ label: "SWMS", view: "admin-swms" });
+  }
+  if (isFeatureModuleEnabled(featureFlags, "itp_itc", organisationId)) {
+    items.push({ label: "ITP / ITC", view: "admin-itc" });
+  }
+  items.push(
     { label: "1-Click Document Pack", view: "admin-document-pack" },
-    { label: "Reporting", view: "admin-reporting" },
-  ];
+    { label: "Reporting", view: "admin-reporting" }
+  );
 
   return (
     <div className="border-b border-slate-200 pb-3">

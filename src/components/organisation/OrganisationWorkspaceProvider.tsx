@@ -11,12 +11,18 @@ import {
   mergeWorkspaceCompanies,
   type WorkspaceCompany,
 } from "@/lib/organisation-workspace";
+import {
+  ALL_ENABLED_FEATURE_FLAGS,
+  parseOrganisationFeatureFlags,
+  type OrganisationFeatureFlags,
+} from "@/lib/organisation-feature-flags";
 
 interface OrganisationWorkspaceContextValue {
   isSuperAdmin: boolean;
   ready: boolean;
   companies: WorkspaceCompany[];
   activeCompany: WorkspaceCompany | null;
+  featureFlags: OrganisationFeatureFlags;
   selectCompany: (companyId: string) => Promise<void>;
   refreshCompanies: () => Promise<void>;
 }
@@ -40,12 +46,34 @@ export default function OrganisationWorkspaceProvider({
   const [ready, setReady] = useState(false);
   const [companies, setCompanies] = useState<WorkspaceCompany[]>(KNOWN_WORKSPACE_COMPANIES);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const [featureFlags, setFeatureFlags] = useState<OrganisationFeatureFlags>(
+    ALL_ENABLED_FEATURE_FLAGS
+  );
 
   const refreshCompanies = useCallback(async () => {
     const response = await fetch("/api/super-admin/companies");
     if (!response.ok) return;
     const payload = (await response.json()) as { companies?: WorkspaceCompany[] };
     setCompanies(mergeWorkspaceCompanies(payload.companies ?? []));
+  }, []);
+
+  const refreshFeatureFlags = useCallback(async (organisationId?: string | null) => {
+    try {
+      const response = await fetch("/api/organisation/feature-flags");
+      if (!response.ok) return;
+      const payload = (await response.json()) as {
+        organisation_id?: string | null;
+        feature_flags?: unknown;
+      };
+      setFeatureFlags(
+        parseOrganisationFeatureFlags(
+          payload.feature_flags,
+          organisationId ?? payload.organisation_id
+        )
+      );
+    } catch {
+      setFeatureFlags(ALL_ENABLED_FEATURE_FLAGS);
+    }
   }, []);
 
   useEffect(() => {
@@ -67,6 +95,7 @@ export default function OrganisationWorkspaceProvider({
       if (superAdmin) {
         await refreshCompanies();
       }
+      await refreshFeatureFlags(getActiveOrganisationId());
 
       if (!cancelled) setReady(true);
     }
@@ -75,7 +104,7 @@ export default function OrganisationWorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [refreshCompanies]);
+  }, [refreshCompanies, refreshFeatureFlags]);
 
   useEffect(() => {
     if (!ready || !isSuperAdmin) return;
@@ -94,16 +123,34 @@ export default function OrganisationWorkspaceProvider({
     [activeOrgId, companies]
   );
 
+  const resolvedFlags = useMemo(
+    () =>
+      parseOrganisationFeatureFlags(
+        activeCompany?.feature_flags ?? featureFlags,
+        activeCompany?.id ?? activeOrgId
+      ),
+    [activeCompany, activeOrgId, featureFlags]
+  );
+
   const value = useMemo(
     () => ({
       isSuperAdmin,
       ready,
       companies,
       activeCompany,
+      featureFlags: resolvedFlags,
       selectCompany,
       refreshCompanies,
     }),
-    [activeCompany, companies, isSuperAdmin, ready, refreshCompanies, selectCompany]
+    [
+      activeCompany,
+      companies,
+      isSuperAdmin,
+      ready,
+      refreshCompanies,
+      resolvedFlags,
+      selectCompany,
+    ]
   );
 
   return (
