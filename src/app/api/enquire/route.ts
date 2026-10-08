@@ -6,25 +6,15 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { sendEmail } from "@/lib/email-service";
 import {
-  CUSTOM_BUILD_MODULE_ID,
+  formatSalesEnquiryModuleLabels,
   SALES_ENQUIRIES_TABLE,
-  SALES_ENQUIRY_MODULES,
   validateSalesEnquiry,
 } from "@/lib/sales-enquiry";
 
-const INQUIRY_NOTIFY_EMAIL =
-  process.env.SALES_INQUIRY_EMAIL?.trim() || "hannah@site-bolt.com.au";
+const INQUIRY_NOTIFY_EMAIL = "hannah@site-bolt.com.au";
 
-function isMissingColumnError(message: string): boolean {
-  const lower = (message || "").toLowerCase();
-  return (
-    (lower.includes("notes") || lower.includes("enquiry_type")) &&
-    (lower.includes("does not exist") ||
-      lower.includes("schema cache") ||
-      lower.includes("could not find") ||
-      lower.includes("column"))
-  );
-}
+type EnquiryPayload = NonNullable<ReturnType<typeof validateSalesEnquiry>["payload"]>;
+type EnquiryInsertRow = EnquiryPayload & { source_host: string | null; state?: string | null };
 
 function escapeHtml(value: string): string {
   return value
@@ -48,39 +38,79 @@ function formatAedtTimestamp(date = new Date()): string {
   }).format(date);
 }
 
-function moduleLabels(ids: string[]): string {
-  const labels: string[] = SALES_ENQUIRY_MODULES.filter((item) => ids.includes(item.id)).map(
-    (item) => item.label
-  );
-  if (ids.includes(CUSTOM_BUILD_MODULE_ID)) labels.push("Custom software");
-  return labels.join(", ") || "—";
+function mentionedColumn(message: string): string | null {
+  const quoted = message.match(/['"]([a-z_]+)['"]/i);
+  return quoted?.[1]?.toLowerCase() ?? null;
 }
 
-async function notifySalesTeam(payload: NonNullable<
-  ReturnType<typeof validateSalesEnquiry>["payload"]
->) {
+function isSchemaMismatchError(message: string): boolean {
+  const lower = (message || "").toLowerCase();
+  return (
+    lower.includes("does not exist") ||
+    lower.includes("schema cache") ||
+    lower.includes("could not find") ||
+    lower.includes("column") ||
+    lower.includes("violates not-null") ||
+    lower.includes("violates check constraint") ||
+    lower.includes("null value")
+  );
+}
+
+async function insertSalesEnquiry(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  row: EnquiryInsertRow
+): Promise<{ saved: boolean; error?: string }> {
+  const attempt: Record<string, unknown> = { ...row };
+  delete attempt.state;
+
+  for (let i = 0; i < 6; i += 1) {
+    const { error } = await admin.from(SALES_ENQUIRIES_TABLE).insert(attempt);
+    if (!error) return { saved: true };
+
+    const message = error.message || "Unknown insert error.";
+    if (!isSchemaMismatchError(message)) {
+      return { saved: false, error: message };
+    }
+
+    const column = mentionedColumn(message);
+    if (column && column in attempt) {
+      delete attempt[column];
+      continue;
+    }
+
+    if ("notes" in attempt || "enquiry_type" in attempt) {
+      delete attempt.notes;
+      delete attempt.enquiry_type;
+      continue;
+    }
+
+    return { saved: false, error: message };
+  }
+
+  return { saved: false, error: "Could not insert enquiry after schema retries." };
+}
+
+async function notifySalesTeam(payload: EnquiryPayload): Promise<boolean> {
   const submittedAt = formatAedtTimestamp();
   const inquiryType =
     payload.enquiry_type === "custom_build" ? "Custom software brief" : "General enquiry";
+  const modules = formatSalesEnquiryModuleLabels(payload.modules_of_interest);
   const subject = `⚡ New SiteBolt Inquiry: ${payload.full_name} / ${payload.company_name}`;
   const fields: Array<[string, string]> = [
     ["Full Name", payload.full_name],
     ["Company Name", payload.company_name],
     ["Email Address", payload.work_email],
     ["Phone Number", payload.phone ?? "—"],
-    ["State / Region", payload.state],
-    ["Team / Fleet Size", payload.fleet_team_size ?? "—"],
+    ["Number of Employees", payload.fleet_team_size ?? "—"],
     ["Inquiry Type", inquiryType],
-    ["Modules of Interest", moduleLabels(payload.modules_of_interest)],
+    ["Interested Modules", modules],
     ["Message / Brief", payload.notes?.trim() || "—"],
     ["Submitted", submittedAt],
   ];
 
-  const text = [
-    "New SiteBolt inquiry",
-    "",
-    ...fields.map(([label, value]) => `${label}: ${value}`),
-  ].join("\n");
+  const text = ["New SiteBolt inquiry", "", ...fields.map(([label, value]) => `${label}: ${value}`)].join(
+    "\n"
+  );
 
   const rows = fields
     .map(
@@ -111,9 +141,12 @@ async function notifySalesTeam(payload: NonNullable<
     html,
   });
 
-  if (!result.sent && !result.simulated) {
+  if (!result.sent) {
     console.warn("sales enquiry email not sent:", result.error);
+    return false;
   }
+
+  return true;
 }
 
 export async function POST(request: Request) {
@@ -132,52 +165,42 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!isSupabaseAdminConfigured()) {
-    return NextResponse.json(
-      { error: "Enquiry intake is temporarily unavailable. Please email hannah@site-bolt.com.au." },
-      { status: 503 }
-    );
+  let saved = false;
+  let emailed = false;
+
+  if (isSupabaseAdminConfigured()) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const insertResult = await insertSalesEnquiry(admin, {
+        ...validated.payload,
+        source_host: request.headers.get("host"),
+      });
+      saved = insertResult.saved;
+      if (!insertResult.saved) {
+        console.error("sales_enquiries insert failed:", insertResult.error);
+      }
+    } catch (error) {
+      console.error("sales_enquiries insert threw:", error);
+    }
+  } else {
+    console.warn("sales_enquiries skipped: admin client is not configured.");
   }
 
   try {
-    const admin = createSupabaseAdminClient();
-    const row = {
-      ...validated.payload,
-      source_host: request.headers.get("host"),
-    };
-    let { error } = await admin.from(SALES_ENQUIRIES_TABLE).insert(row);
-
-    if (error && isMissingColumnError(error.message)) {
-      const { notes: _notes, enquiry_type: _type, ...legacyRow } = row;
-      ({ error } = await admin.from(SALES_ENQUIRIES_TABLE).insert(legacyRow));
-    }
-
-    if (error) {
-      console.error("sales_enquiries insert failed:", error.message);
-      return NextResponse.json(
-        {
-          error:
-            "We could not save your enquiry just now. Please try again or email hannah@site-bolt.com.au.",
-        },
-        { status: 500 }
-      );
-    }
-
-    try {
-      await notifySalesTeam(validated.payload);
-    } catch (cause) {
-      console.warn("sales enquiry email notify skipped:", cause);
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("sales_enquiries insert threw:", error);
-    return NextResponse.json(
-      {
-        error:
-          "We could not save your enquiry just now. Please try again or email hannah@site-bolt.com.au.",
-      },
-      { status: 500 }
-    );
+    emailed = await notifySalesTeam(validated.payload);
+  } catch (cause) {
+    console.warn("sales enquiry email notify skipped:", cause);
   }
+
+  if (saved || emailed) {
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json(
+    {
+      error:
+        "We could not save your enquiry just now. Please try again or email hannah@site-bolt.com.au.",
+    },
+    { status: 500 }
+  );
 }

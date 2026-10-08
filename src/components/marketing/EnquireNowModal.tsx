@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { CheckCircle2, Loader2, X } from "lucide-react";
 import {
+  SALES_ENQUIRY_ALL_MODULE_ID,
   SALES_ENQUIRY_MODULES,
-  SALES_ENQUIRY_STATE_OPTIONS,
   SALES_ENQUIRY_TEAM_SIZES,
+  toggleSalesEnquiryModule,
 } from "@/lib/sales-enquiry";
 import { labelClass, modalOverlayClass } from "@/lib/ui-classes";
 
@@ -21,7 +22,6 @@ const EMPTY_FORM = {
   companyName: "",
   workEmail: "",
   phone: "",
-  state: "",
   teamSize: "",
   modules: [] as string[],
 };
@@ -36,14 +36,8 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const toggleModule = (id: string) => {
-    setForm((current) => ({
-      ...current,
-      modules: current.modules.includes(id)
-        ? current.modules.filter((item) => item !== id)
-        : [...current.modules, id],
-    }));
-  };
+  const isModuleChecked = (id: string) =>
+    form.modules.includes(SALES_ENQUIRY_ALL_MODULE_ID) || form.modules.includes(id);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -137,7 +131,7 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
               />
               <Field
                 id="enquire-email"
-                label="Work Email"
+                label="Email Address"
                 type="email"
                 required
                 error={errors.workEmail}
@@ -148,44 +142,24 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                 id="enquire-phone"
                 label="Phone Number"
                 type="tel"
+                required
+                error={errors.phone}
                 value={form.phone}
                 onChange={(value) => setForm((current) => ({ ...current, phone: value }))}
               />
 
               <div>
-                <label htmlFor="enquire-state" className={labelClass}>
-                  State <span className="text-[#FF6B00]">*</span>
-                </label>
-                <select
-                  id="enquire-state"
-                  required
-                  value={form.state}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, state: event.target.value }))
-                  }
-                  className={cn(fieldClass, "mt-1", errors.state && "border-red-400")}
-                >
-                  <option value="">Select your state</option>
-                  {SALES_ENQUIRY_STATE_OPTIONS.map((state) => (
-                    <option key={state} value={state}>
-                      {state}
-                    </option>
-                  ))}
-                </select>
-                {errors.state ? <p className="mt-1 text-xs text-red-600">{errors.state}</p> : null}
-              </div>
-
-              <div>
                 <label htmlFor="enquire-team" className={labelClass}>
-                  Fleet / Team Size
+                  Number of Employees <span className="text-[#FF6B00]">*</span>
                 </label>
                 <select
                   id="enquire-team"
+                  required
                   value={form.teamSize}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, teamSize: event.target.value }))
                   }
-                  className={cn(fieldClass, "mt-1")}
+                  className={cn(fieldClass, "mt-1", errors.teamSize && "border-red-400")}
                 >
                   <option value="">Select size</option>
                   {SALES_ENQUIRY_TEAM_SIZES.map((size) => (
@@ -194,11 +168,16 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                     </option>
                   ))}
                 </select>
+                {errors.teamSize ? (
+                  <p className="mt-1 text-xs text-red-600">{errors.teamSize}</p>
+                ) : null}
               </div>
 
               <fieldset>
-                <legend className={labelClass}>Modules of interest</legend>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <legend className={labelClass}>
+                  Interested Modules <span className="text-[#FF6B00]">*</span>
+                </legend>
+                <div className="mt-2 grid gap-2">
                   {SALES_ENQUIRY_MODULES.map((module) => (
                     <label
                       key={module.id}
@@ -206,20 +185,26 @@ export default function EnquireNowModal({ onClose }: EnquireNowModalProps) {
                     >
                       <input
                         type="checkbox"
-                        checked={form.modules.includes(module.id)}
-                        onChange={() => toggleModule(module.id)}
+                        checked={isModuleChecked(module.id)}
+                        onChange={() =>
+                          setForm((current) => ({
+                            ...current,
+                            modules: toggleSalesEnquiryModule(current.modules, module.id),
+                          }))
+                        }
                         className="rounded border-zinc-300 text-[#FF6B00] focus:ring-[#FF6B00]"
                       />
                       {module.label}
                     </label>
                   ))}
                 </div>
+                {errors.modules ? (
+                  <p className="mt-1 text-xs text-red-600">{errors.modules}</p>
+                ) : null}
               </fieldset>
             </div>
 
-            {submitError ? (
-              <p className="mt-4 text-sm text-red-600">{submitError}</p>
-            ) : null}
+            {submitError ? <p className="mt-4 text-sm text-red-600">{submitError}</p> : null}
 
             <div className="mt-6 flex gap-3">
               <button

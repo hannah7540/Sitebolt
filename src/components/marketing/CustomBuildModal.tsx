@@ -5,7 +5,6 @@ import { CheckCircle2, Loader2, X } from "lucide-react";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import {
   CUSTOM_BUILD_MODULE_ID,
-  CUSTOM_BUILD_STATE_OPTIONS,
   SALES_ENQUIRY_TEAM_SIZES,
 } from "@/lib/sales-enquiry";
 import { modalOverlayClass } from "@/lib/ui-classes";
@@ -20,7 +19,6 @@ const EMPTY_FORM = {
   companyName: "",
   workEmail: "",
   phone: "",
-  state: "",
   teamSize: "",
   notes: "",
 };
@@ -152,31 +150,8 @@ export default function CustomBuildModal({ onClose }: CustomBuildModalProps) {
             </div>
 
             <div className="mt-4">
-              <label htmlFor="custom-state" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                State <span className="text-[#FF6B00]">*</span>
-              </label>
-              <select
-                id="custom-state"
-                required
-                value={form.state}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, state: event.target.value }))
-                }
-                className={cn(fieldClass, "mt-1", errors.state && "border-red-400")}
-              >
-                <option value="">Select your state or region</option>
-                {CUSTOM_BUILD_STATE_OPTIONS.map((state) => (
-                  <option key={state.id} value={state.id} className="bg-[#1F2429] text-white">
-                    {state.label}
-                  </option>
-                ))}
-              </select>
-              {errors.state ? <p className="mt-1 text-xs text-red-400">{errors.state}</p> : null}
-            </div>
-
-            <div className="mt-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Approximate team / fleet size
+                Number of Employees
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {SALES_ENQUIRY_TEAM_SIZES.map((size) => (
