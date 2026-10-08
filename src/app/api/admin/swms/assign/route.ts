@@ -10,6 +10,7 @@ import {
 } from "@/lib/swms-admin-mutations";
 import { notifyWorkersOfSwmsAssignment } from "@/lib/swms-assignment-notify";
 import { isValidSwmsId } from "@/lib/supabase";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 export async function POST(request: Request) {
   const access = await requireSwmsAdminAccess();
@@ -159,7 +160,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const resolved = await resolveProjectMemberWorkerIdsAdmin(access.admin, projectId);
+    const orgId = await resolveActiveOrganisationIdFromCookies();
+    const resolved = await resolveProjectMemberWorkerIdsAdmin(
+      access.admin,
+      projectId,
+      orgId
+    );
     if (resolved.error) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
@@ -180,6 +186,7 @@ export async function POST(request: Request) {
     );
   }
 
+  const orgId = await resolveActiveOrganisationIdFromCookies();
   const { error, created, createdWorkerIds, skipped } = await assignSwmsWorkersAdmin(
     access.admin,
     {
@@ -187,6 +194,7 @@ export async function POST(request: Request) {
       workerIds,
       projectId,
       hints: resolutionHints,
+      organisationId: orgId,
     }
   );
 

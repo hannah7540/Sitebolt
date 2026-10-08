@@ -8,6 +8,7 @@ import {
 } from "./supabase-errors";
 import { SITE_PROJECTS } from "./projects";
 import { nullIfBlank, nullIfBlankDate, sanitizeWritePayload } from "./form-payload-utils";
+import { resolveActiveOrganisationId, withOrganisationScope } from "./tenant-scope";
 
 export const RFIS_TABLE = "rfis";
 const FORM_WORKER_ASSIGNMENTS_TABLE = "form_worker_assignments";
@@ -447,10 +448,15 @@ export async function fetchRfiProjectOptions(
 
   if (isSupabaseConfigured()) {
     try {
-      const { data, error } = await supabase
+      let assignmentQuery = supabase
         .from(FORM_WORKER_ASSIGNMENTS_TABLE)
         .select("project_id")
         .not("project_id", "is", null);
+      assignmentQuery = withOrganisationScope(
+        assignmentQuery,
+        resolveActiveOrganisationId()
+      );
+      const { data, error } = await assignmentQuery;
 
       if (!error && data?.length) {
         for (const row of data) {

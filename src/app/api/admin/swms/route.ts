@@ -58,6 +58,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "file_url is required." }, { status: 400 });
   }
 
+  const orgId = await resolveActiveOrganisationIdFromCookies();
   const { swms, error } = await createSwmsDocumentAdmin(access.admin, {
     title,
     documentDate: body.document_date,
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
     version: body.version,
     allWorkers: body.all_workers === true,
     workerIds: Array.isArray(body.worker_ids) ? body.worker_ids : [],
+    organisationId: orgId,
   });
 
   if (error || !swms) {
@@ -102,11 +104,13 @@ export async function PUT(request: Request) {
   }
 
   const fileUrl = body.file_url?.trim() || body.document_url?.trim();
+  const orgId = await resolveActiveOrganisationIdFromCookies();
   const { error } = await updateSwmsDocumentAdmin(access.admin, id, {
     title: body.title,
     documentDate: body.document_date,
     fileUrl,
     fileName: body.file_name,
+    organisationId: orgId,
   });
 
   if (error) {
@@ -125,7 +129,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id query parameter is required." }, { status: 400 });
   }
 
-  const { error } = await deleteSwmsDocumentAdmin(access.admin, id);
+  const orgId = await resolveActiveOrganisationIdFromCookies();
+  const { error } = await deleteSwmsDocumentAdmin(access.admin, id, orgId);
   if (error) {
     return NextResponse.json({ error }, { status: 400 });
   }

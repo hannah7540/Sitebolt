@@ -86,9 +86,11 @@ export async function requireAuthenticatedWorkerAccess() {
   }
 
   const admin = createSupabaseAdminClient();
+  const workerSelect =
+    "id, security_role, first_name, last_name, full_name, organisation_id";
   const authLookup = await admin
     .from("workers")
-    .select("id, security_role, first_name, last_name, full_name")
+    .select(workerSelect)
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -99,13 +101,23 @@ export async function requireAuthenticatedWorkerAccess() {
         first_name?: string | null;
         last_name?: string | null;
         full_name?: string | null;
+        organisation_id?: string | null;
       }
     | null;
+
+  if (authLookup.error && authLookup.error.message.toLowerCase().includes("organisation_id")) {
+    const retry = await admin
+      .from("workers")
+      .select("id, security_role, first_name, last_name, full_name")
+      .eq("auth_user_id", user.id)
+      .maybeSingle();
+    worker = retry.data as typeof worker;
+  }
 
   if (!worker?.id && user.email) {
     const emailLookup = await admin
       .from("workers")
-      .select("id, security_role, first_name, last_name, full_name")
+      .select(workerSelect)
       .ilike("email", user.email)
       .maybeSingle();
     worker = emailLookup.data as typeof worker;

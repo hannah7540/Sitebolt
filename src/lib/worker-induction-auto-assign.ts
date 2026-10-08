@@ -23,6 +23,13 @@ import {
   isSupabaseRelationMissingError,
   isSupabaseSchemaCacheError,
 } from "@/lib/supabase-errors";
+import {
+  filterRowsByOrganisationStrict,
+  isDemoOrganisationScopeBlocked,
+  resolveActiveOrganisationId,
+  stampOrganisationId,
+  withOrganisationScope,
+} from "@/lib/tenant-scope";
 
 export { WORKER_INDUCTIONS_CHANGED_EVENT } from "@/lib/worker-induction-events";
 
@@ -235,29 +242,52 @@ async function insertSiteInductionAssignedNotification(
   }
 }
 
+async function resolveWorkerOrganisationId(
+  client: SupabaseClient,
+  workerId: string
+): Promise<string | null> {
+  const { data } = await client
+    .from("workers")
+    .select("organisation_id")
+    .eq("id", workerId)
+    .maybeSingle();
+  const fromWorker = (data as { organisation_id?: string | null } | null)?.organisation_id;
+  if (fromWorker && String(fromWorker).trim()) {
+    return String(fromWorker).trim();
+  }
+  return resolveActiveOrganisationId();
+}
+
 async function workerAlreadyHasInductionAssignment(
   client: SupabaseClient,
   templateId: string,
   workerId: string
 ): Promise<boolean> {
-  const { data, error } = await client
+  const orgId = await resolveWorkerOrganisationId(client, workerId);
+  if (!orgId) return true;
+
+  let query = client
     .from(FORM_WORKER_ASSIGNMENTS_TABLE)
     .select("id")
     .eq("worker_id", workerId)
     .or(`form_id.eq.${templateId},form_template_id.eq.${templateId}`)
     .limit(1);
+  query = withOrganisationScope(query, orgId);
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingTableError(error.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
       return false;
     }
     if (isMissingColumnError(error.message, "form_template_id")) {
-      const fallback = await client
+      let fallbackQuery = client
         .from(FORM_WORKER_ASSIGNMENTS_TABLE)
         .select("id")
         .eq("worker_id", workerId)
         .eq("form_id", templateId)
         .limit(1);
+      fallbackQuery = withOrganisationScope(fallbackQuery, orgId);
+      const fallback = await fallbackQuery;
       if (fallback.error) {
         console.warn(
           "[induction-auto-assign] assignment lookup failed:",
@@ -307,7 +337,7 @@ async function insertInductionAssignment(
     assignedAt: now,
   });
 
-  let currentPayload: Record<string, unknown> = { ...payload };
+  let currentPayload: Record<string, unknown> = stampOrganisationId({ ...payload });
   const optionalColumns = [
     "form_template_id",
     "template_id",
@@ -398,25 +428,38 @@ function companyTemplateMatchesWorkerState(
 
 async function findActiveCompanyInductionsForState(
   client: SupabaseClient,
-  state: WorkerStateRegion
+  state: WorkerStateRegion,
+  orgId: string | null
 ): Promise<InductionTemplateRow[]> {
+  if (!orgId) return [];
+
   const selects = [
-    "id, title, project_id, scope, status, system_template_key, state, jurisdiction",
-    "id, title, project_id, scope, status, system_template_key, state",
-    "id, title, project_id, scope, status, system_template_key",
+    "id, title, project_id, scope, status, system_template_key, state, jurisdiction, organisation_id",
+    "id, title, project_id, scope, status, system_template_key, state, organisation_id",
+    "id, title, project_id, scope, status, system_template_key, organisation_id",
+    "id, title, project_id, scope, status, organisation_id",
     "id, title, project_id, scope, status",
   ];
 
   try {
     for (const select of selects) {
-      const { data, error } = await client
+      let query = client
         .from(INDUCTION_FORM_TEMPLATES_TABLE)
         .select(select)
         .eq("scope", "company")
         .eq("status", "active");
+      query = withOrganisationScope(query, orgId);
+      const { data, error } = await query;
+
+      if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
 
       if (!error) {
-        return ((data ?? []) as unknown as Record<string, unknown>[])
+        return filterRowsByOrganisationStrict(
+          (data ?? []) as unknown as Record<string, unknown>[],
+          orgId
+        )
           .filter((row) => companyTemplateMatchesWorkerState(row, state))
           .map(mapCompanyInductionRow);
       }
@@ -446,8 +489,11 @@ async function findActiveCompanyInductionsForState(
 /** Resolve all active project-scoped induction templates linked to a project. */
 export async function findActiveProjectInductionTemplates(
   client: SupabaseClient,
-  projectId: string
+  projectId: string,
+  orgId: string | null = resolveActiveOrganisationId()
 ): Promise<InductionTemplateRow[]> {
+  if (!orgId) return [];
+
   try {
     const projectKeys = new Set<string>([projectId]);
     const { data: projectRow } = await client
@@ -464,13 +510,19 @@ export async function findActiveProjectInductionTemplates(
     const matched = new Map<string, InductionTemplateRow>();
 
     for (const key of projectKeys) {
-      const { data, error } = await client
+      let templatesQuery = client
         .from(INDUCTION_FORM_TEMPLATES_TABLE)
-        .select("id, title, project_id, scope, status")
+        .select("id, title, project_id, scope, status, organisation_id")
         .eq("scope", "project")
         .eq("status", "active")
         .eq("project_id", key)
         .order("updated_at", { ascending: false });
+      templatesQuery = withOrganisationScope(templatesQuery, orgId);
+      const { data, error } = await templatesQuery;
+
+      if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
 
       if (error) {
         if (isMissingTableError(error.message, INDUCTION_FORM_TEMPLATES_TABLE)) {
@@ -480,7 +532,10 @@ export async function findActiveProjectInductionTemplates(
         continue;
       }
 
-      for (const row of (data ?? []) as Record<string, unknown>[]) {
+      for (const row of filterRowsByOrganisationStrict(
+        (data ?? []) as Record<string, unknown>[],
+        orgId
+      )) {
         if (!row?.id) continue;
         const id = String(row.id);
         if (matched.has(id)) continue;
@@ -533,7 +588,8 @@ export async function assignCompanyInductionsForWorkerState(
     return { assigned: 0, skipped: 0, warnings };
   }
 
-  const templates = await findActiveCompanyInductionsForState(client, normalized);
+  const orgId = await resolveWorkerOrganisationId(client, workerId);
+  const templates = await findActiveCompanyInductionsForState(client, normalized, orgId);
   if (templates.length === 0) {
     return { assigned: 0, skipped: 0, warnings };
   }
@@ -603,7 +659,8 @@ export async function assignProjectInductionsForWorker(
 
   for (const projectId of uniqueProjectIds) {
     try {
-      const templates = await findActiveProjectInductionTemplates(client, projectId);
+      const orgId = await resolveWorkerOrganisationId(client, workerId);
+      const templates = await findActiveProjectInductionTemplates(client, projectId, orgId);
       if (templates.length === 0) continue;
 
       const projectName =

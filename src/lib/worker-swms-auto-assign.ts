@@ -4,6 +4,12 @@ import { resolveSwmsScope } from "@/lib/swms";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { WORKER_SWMS_CHANGED_EVENT } from "@/lib/worker-swms-events";
+import {
+  filterRowsByOrganisationStrict,
+  isDemoOrganisationScopeBlocked,
+  resolveActiveOrganisationId,
+  withOrganisationScope,
+} from "@/lib/tenant-scope";
 
 export { WORKER_SWMS_CHANGED_EVENT } from "@/lib/worker-swms-events";
 
@@ -77,6 +83,22 @@ function toSwmsDocumentRow(row: Record<string, unknown>): SwmsDocumentRow {
   };
 }
 
+async function resolveWorkerOrganisationId(
+  client: SupabaseClient,
+  workerId: string
+): Promise<string | null> {
+  const { data } = await client
+    .from("workers")
+    .select("organisation_id")
+    .eq("id", workerId)
+    .maybeSingle();
+  const fromWorker = (data as { organisation_id?: string | null } | null)?.organisation_id;
+  if (fromWorker && String(fromWorker).trim()) {
+    return String(fromWorker).trim();
+  }
+  return resolveActiveOrganisationId();
+}
+
 async function fetchWorkerLookup(
   client: SupabaseClient,
   workerId: string
@@ -96,13 +118,22 @@ async function fetchWorkerLookup(
 }
 
 async function fetchActiveCompanySwms(
-  client: SupabaseClient
+  client: SupabaseClient,
+  orgId: string | null
 ): Promise<SwmsDocumentRow[]> {
+  if (!orgId) return [];
+
   try {
-    const { data, error } = await client
+    let query = client
       .from("swms_documents")
-      .select("id, title, project_id, swms_scope, is_archived, status")
+      .select("id, title, project_id, swms_scope, is_archived, status, organisation_id")
       .eq("swms_scope", "company");
+    query = withOrganisationScope(query, orgId);
+    const { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
 
     if (error) {
       if (isMissingTableError(error.message, "swms_documents")) {
@@ -110,10 +141,12 @@ async function fetchActiveCompanySwms(
       }
       // Older schemas may lack swms_scope — fall back to null project_id.
       if (error.message.toLowerCase().includes("swms_scope")) {
-        const fallback = await client
+        let fallbackQuery = client
           .from("swms_documents")
-          .select("id, title, project_id, is_archived, status")
+          .select("id, title, project_id, is_archived, status, organisation_id")
           .is("project_id", null);
+        fallbackQuery = withOrganisationScope(fallbackQuery, orgId);
+        const fallback = await fallbackQuery;
         if (fallback.error) {
           console.warn(
             "[swms-auto-assign] company SWMS lookup failed:",
@@ -121,7 +154,10 @@ async function fetchActiveCompanySwms(
           );
           return [];
         }
-        return ((fallback.data ?? []) as Record<string, unknown>[])
+        return filterRowsByOrganisationStrict(
+          (fallback.data ?? []) as Record<string, unknown>[],
+          orgId
+        )
           .filter(isActiveSwmsDocument)
           .map(toSwmsDocumentRow);
       }
@@ -129,7 +165,7 @@ async function fetchActiveCompanySwms(
       return [];
     }
 
-    return ((data ?? []) as Record<string, unknown>[])
+    return filterRowsByOrganisationStrict((data ?? []) as Record<string, unknown>[], orgId)
       .filter((row) => isActiveSwmsDocument(row) && resolveSwmsScope(row) === "company")
       .map(toSwmsDocumentRow);
   } catch (cause) {
@@ -156,17 +192,26 @@ async function resolveProjectKeys(
 /** Active site-specific SWMS linked to a project. */
 export async function findActiveProjectSwmsDocuments(
   client: SupabaseClient,
-  projectId: string
+  projectId: string,
+  orgId: string | null = resolveActiveOrganisationId()
 ): Promise<SwmsDocumentRow[]> {
+  if (!orgId) return [];
+
   try {
     const projectKeys = await resolveProjectKeys(client, projectId);
     const matched = new Map<string, SwmsDocumentRow>();
 
     for (const key of projectKeys) {
-      const { data, error } = await client
+      let docsQuery = client
         .from("swms_documents")
-        .select("id, title, project_id, swms_scope, is_archived, status")
+        .select("id, title, project_id, swms_scope, is_archived, status, organisation_id")
         .eq("project_id", key);
+      docsQuery = withOrganisationScope(docsQuery, orgId);
+      const { data, error } = await docsQuery;
+
+      if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return [];
+      }
 
       if (error) {
         if (isMissingTableError(error.message, "swms_documents")) {
@@ -176,7 +221,10 @@ export async function findActiveProjectSwmsDocuments(
         continue;
       }
 
-      for (const row of (data ?? []) as Record<string, unknown>[]) {
+      for (const row of filterRowsByOrganisationStrict(
+        (data ?? []) as Record<string, unknown>[],
+        orgId
+      )) {
         if (!row?.id || !isActiveSwmsDocument(row)) continue;
         const scope = resolveSwmsScope(row);
         if (scope !== "site_specific" && !row.project_id) continue;
@@ -240,7 +288,8 @@ export async function assignCompanySwmsForWorker(
   admin: SupabaseClient,
   workerId: string
 ): Promise<{ assigned: number; skipped: number; warnings: string[] }> {
-  const docs = await fetchActiveCompanySwms(admin);
+  const orgId = await resolveWorkerOrganisationId(admin, workerId);
+  const docs = await fetchActiveCompanySwms(admin, orgId);
   if (docs.length === 0) {
     return { assigned: 0, skipped: 0, warnings: [] };
   }
@@ -270,7 +319,8 @@ export async function assignProjectSwmsForWorker(
 
   for (const projectId of uniqueProjectIds) {
     try {
-      const docs = await findActiveProjectSwmsDocuments(admin, projectId);
+      const orgId = await resolveWorkerOrganisationId(admin, workerId);
+      const docs = await findActiveProjectSwmsDocuments(admin, projectId, orgId);
       if (docs.length === 0) continue;
       const result = await assignSwmsDocsToWorker(admin, workerId, docs);
       assigned += result.assigned;

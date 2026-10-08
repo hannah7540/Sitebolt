@@ -33,6 +33,7 @@ import {
   isOrganisationColumnMissing,
   recordMatchesActiveOrganisation,
   resolveActiveOrganisationId,
+  shouldStripOrganisationIdOnWrite,
   withOrganisationScope,
 } from "./tenant-scope";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
@@ -481,13 +482,14 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
 
 function finalizeWorkerRows(
   rows: RawWorkerRow[],
-  orgId: string,
+  orgId: string | null,
   options?: {
     onlyDeleted?: boolean;
     skipDeletedFilter?: boolean;
     skipOrganisationScope?: boolean;
   }
 ): Worker[] {
+  if (!orgId) return [];
   const scoped = options?.skipOrganisationScope
     ? rows
     : filterRowsByOrganisation(rows, orgId);
@@ -505,6 +507,7 @@ async function queryWorkerRows(options?: {
   skipOrganisationScope?: boolean;
 }): Promise<Worker[]> {
   const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
   let columns =
     cachedWorkerSelectColumns ??
     loadCachedWorkerColumnsFromStorage() ??
@@ -4345,6 +4348,7 @@ function buildSwmsInsertPayload(input: {
     throw new Error("project_id is required when swms_scope is site_specific.");
   }
 
+  const orgId = resolveActiveOrganisationId();
   const payload: Record<string, string | boolean> = {
     title: nullIfBlank(input.title) ?? "Untitled SWMS",
     document_date: selectedDate,
@@ -4358,6 +4362,9 @@ function buildSwmsInsertPayload(input: {
     swms_scope: scope === "site_specific" ? "site_specific" : "company",
     version: nullIfBlank(input.version) ?? "1.0",
   };
+  if (orgId) {
+    payload.organisation_id = orgId;
+  }
 
   const masterSwmsId = nullIfBlank(input.masterSwmsId);
   const previousVersionId = nullIfBlank(input.previousVersionId);
@@ -4419,6 +4426,18 @@ async function insertSwmsRow(
 
     if (!error) {
       return { data: (data as RawSwmsDocumentRecord | null) ?? null, error: null };
+    }
+
+    if (
+      isOrganisationColumnMissing(error.message) &&
+      "organisation_id" in currentPayload
+    ) {
+      if (!shouldStripOrganisationIdOnWrite(error.message, resolveActiveOrganisationId())) {
+        return { data: null, error: error.message };
+      }
+      const { organisation_id: _removedOrg, ...restWithoutOrg } = currentPayload;
+      currentPayload = restWithoutOrg;
+      continue;
     }
 
     const missingColumn = SWMS_OPTIONAL_INSERT_COLUMNS.find(
@@ -4674,47 +4693,59 @@ export async function fetchSwmsDocumentRecords(): Promise<SwmsDocumentRecord[]> 
   }
 }
 
+async function fetchSwmsRowsByIdsFromTable(
+  table: SwmsDocumentTable,
+  ids: string[],
+  orgId: string | null
+): Promise<SwmsDocumentRecord[]> {
+  if (ids.length === 0) return [];
+
+  let query = supabase.from(table).select("*").in("id", ids);
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query;
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return [];
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase.from(table).select("*").in("id", ids);
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error) {
+    if (!isMissingSwmsTableError(error.message, table)) {
+      console.error(`fetchSwmsDocumentRecordsByIds ${table} failed:`, error.message);
+    }
+    return [];
+  }
+
+  return filterRowsByOrganisation(data ?? [], orgId).map((row) =>
+    normalizeSwmsDocumentRecord(row as RawSwmsDocumentRecord)
+  );
+}
+
 export async function fetchSwmsDocumentRecordsByIds(
   ids: string[]
 ): Promise<Map<string, SwmsDocumentRecord>> {
   const map = new Map<string, SwmsDocumentRecord>();
   if (!ids.length || !isSupabaseConfigured()) return map;
 
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) return map;
+
   try {
     const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-
-    const { data: primaryDocs, error: primaryError } = await supabase
-      .from("swms_documents")
-      .select("*")
-      .in("id", uniqueIds);
-
-    if (!primaryError) {
-      for (const row of primaryDocs ?? []) {
-        const doc = normalizeSwmsDocumentRecord(row as RawSwmsDocumentRecord);
-        map.set(doc.id, doc);
-      }
-    } else if (!isMissingSwmsTableError(primaryError.message, "swms_documents")) {
-      console.error(
-        "fetchSwmsDocumentRecordsByIds swms_documents failed:",
-        primaryError.message
-      );
+    for (const doc of await fetchSwmsRowsByIdsFromTable("swms_documents", uniqueIds, orgId)) {
+      map.set(doc.id, doc);
     }
 
     const missingIds = uniqueIds.filter((id) => !map.has(id));
     if (missingIds.length === 0) return map;
 
-    const { data: fallbackDocs, error: fallbackError } = await supabase
-      .from("swms")
-      .select("*")
-      .in("id", missingIds);
-
-    if (!fallbackError) {
-      for (const row of fallbackDocs ?? []) {
-        const doc = normalizeSwmsDocumentRecord(row as RawSwmsDocumentRecord);
-        map.set(doc.id, doc);
-      }
-    } else if (!isMissingSwmsTableError(fallbackError.message, "swms")) {
-      console.error("fetchSwmsDocumentRecordsByIds swms failed:", fallbackError.message);
+    for (const doc of await fetchSwmsRowsByIdsFromTable("swms", missingIds, orgId)) {
+      map.set(doc.id, doc);
     }
 
     return map;
@@ -4740,6 +4771,9 @@ export async function insertSwmsDocumentRecord(input: {
 }): Promise<{ doc: SwmsDocumentRecord | null; error: string | null }> {
   if (!isSupabaseConfigured()) {
     return { doc: null, error: "Supabase is not configured." };
+  }
+  if (!resolveActiveOrganisationId()) {
+    return { doc: null, error: "Active organisation is required." };
   }
 
   try {
@@ -5027,6 +5061,7 @@ function buildSwmsAssignmentInsertPayload(input: {
 }): Record<string, string> {
   const name = input.fullName.trim();
   const tokenVal = input.signingToken.trim();
+  const orgId = resolveActiveOrganisationId();
   const payload: Record<string, string> = {
     swms_id: input.swmsId,
     assignee_type: input.assigneeType,
@@ -5043,6 +5078,9 @@ function buildSwmsAssignmentInsertPayload(input: {
 
   if (input.assigneeType === "worker") {
     payload.worker_id = input.assigneeId;
+  }
+  if (orgId) {
+    payload.organisation_id = orgId;
   }
 
   return payload;
@@ -5091,6 +5129,21 @@ async function insertSwmsAssignmentRows(
         currentRows.some((row) => column in row) &&
         isMissingSwmsColumnError(error.message, column)
     );
+
+    if (
+      isOrganisationColumnMissing(error.message) &&
+      currentRows.some((row) => "organisation_id" in row)
+    ) {
+      const orgId = resolveActiveOrganisationId();
+      if (!shouldStripOrganisationIdOnWrite(error.message, orgId)) {
+        return { error: error.message };
+      }
+      currentRows = currentRows.map((row) => {
+        const { organisation_id: _removed, ...rest } = row;
+        return rest;
+      });
+      continue;
+    }
 
     if (missingColumn) {
       currentRows = currentRows.map((row) => {
@@ -5313,20 +5366,42 @@ export async function insertSwmsAssignmentRecords(input: {
   }
 }
 
+function finalizeSwmsAssignmentRows(
+  rows: unknown[] | null,
+  orgId: string | null
+): SwmsAssignmentRecord[] {
+  return filterRowsByOrganisation(rows ?? [], orgId).map((row) =>
+    normalizeSwmsAssignmentRecord(row as RawSwmsAssignmentRecord)
+  );
+}
+
 export async function fetchSwmsAssignmentRecords(): Promise<SwmsAssignmentRecord[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
+
   try {
-    const { data, error } = await supabase.from("swms_assignments").select("*");
+    let query = supabase.from("swms_assignments").select("*");
+    query = withOrganisationScope(query, orgId);
+    let { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase.from("swms_assignments").select("*");
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.error("fetchSwmsAssignmentRecords failed:", error.message);
       return [];
     }
 
-    return (data ?? []).map((row) =>
-      normalizeSwmsAssignmentRecord(row as RawSwmsAssignmentRecord)
-    );
+    return finalizeSwmsAssignmentRows(data, orgId);
   } catch (error) {
     console.error(
       "fetchSwmsAssignmentRecords failed:",
@@ -5352,20 +5427,41 @@ export async function fetchSwmsAssignmentRecordsForWorker(
   const trimmedWorkerId = workerId.trim();
   if (!trimmedWorkerId) return [];
 
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
+
   try {
-    let { data, error } = await supabase
+    let query = supabase
       .from("swms_assignments")
       .select("*")
       .or(`assignee_id.eq.${trimmedWorkerId},worker_id.eq.${trimmedWorkerId}`)
       .order("created_at", { ascending: false });
+    query = withOrganisationScope(query, orgId);
+    let { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
 
     if (error && isMissingSwmsColumnError(error.message, "worker_id")) {
-      ({ data, error } = await supabase
+      let fallback = supabase
         .from("swms_assignments")
         .select("*")
         .eq("assignee_type", "worker")
         .eq("assignee_id", trimmedWorkerId)
-        .order("created_at", { ascending: false }));
+        .order("created_at", { ascending: false });
+      fallback = withOrganisationScope(fallback, orgId);
+      ({ data, error } = await fallback);
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase
+        .from("swms_assignments")
+        .select("*")
+        .or(`assignee_id.eq.${trimmedWorkerId},worker_id.eq.${trimmedWorkerId}`)
+        .order("created_at", { ascending: false });
+      data = retry.data;
+      error = retry.error;
     }
 
     if (error) {
@@ -5373,9 +5469,9 @@ export async function fetchSwmsAssignmentRecordsForWorker(
       return [];
     }
 
-    return (data ?? [])
-      .map((row) => normalizeSwmsAssignmentRecord(row as RawSwmsAssignmentRecord))
-      .filter((row) => matchesWorkerSwmsAssignment(row, trimmedWorkerId));
+    return finalizeSwmsAssignmentRows(data, orgId).filter((row) =>
+      matchesWorkerSwmsAssignment(row, trimmedWorkerId)
+    );
   } catch (error) {
     console.error(
       "fetchSwmsAssignmentRecordsForWorker failed:",
@@ -5390,21 +5486,38 @@ export async function fetchSwmsAssignmentRecordsForSwms(
 ): Promise<SwmsAssignmentRecord[]> {
   if (!isSupabaseConfigured() || !isValidSwmsId(swmsId)) return [];
 
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
+
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("swms_assignments")
       .select("*")
       .eq("swms_id", swmsId.trim())
       .order("created_at", { ascending: true });
+    query = withOrganisationScope(query, orgId);
+    let { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return [];
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase
+        .from("swms_assignments")
+        .select("*")
+        .eq("swms_id", swmsId.trim())
+        .order("created_at", { ascending: true });
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.error("fetchSwmsAssignmentRecordsForSwms failed:", error.message);
       return [];
     }
 
-    return (data ?? []).map((row) =>
-      normalizeSwmsAssignmentRecord(row as RawSwmsAssignmentRecord)
-    );
+    return finalizeSwmsAssignmentRows(data, orgId);
   } catch (error) {
     console.error(
       "fetchSwmsAssignmentRecordsForSwms failed:",
@@ -6023,18 +6136,39 @@ export async function deleteSwmsDocumentCascade(
   }
 
   try {
-    const { error: assignmentsError } = await supabase
-      .from("swms_assignments")
-      .delete()
-      .eq("swms_id", id);
+    const orgId = resolveActiveOrganisationId();
+    if (!orgId) {
+      return { error: "Active organisation is required." };
+    }
+
+    let assignmentsQuery = supabase.from("swms_assignments").delete().eq("swms_id", id);
+    assignmentsQuery = withOrganisationScope(assignmentsQuery, orgId);
+    const { error: assignmentsError } = await assignmentsQuery;
 
     if (assignmentsError) {
-      return { error: assignmentsError.message };
+      if (isDemoOrganisationScopeBlocked(assignmentsError.message, orgId)) {
+        return { error: "Active organisation is required." };
+      }
+      if (!isOrganisationColumnMissing(assignmentsError.message)) {
+        return { error: assignmentsError.message };
+      }
+      const unscoped = await supabase.from("swms_assignments").delete().eq("swms_id", id);
+      if (unscoped.error) {
+        return { error: unscoped.error.message };
+      }
     }
 
     const tables: SwmsDocumentTable[] = ["swms_documents", "swms"];
     for (const table of tables) {
-      const { error } = await supabase.from(table).delete().eq("id", id);
+      let deleteQuery = supabase.from(table).delete().eq("id", id);
+      deleteQuery = withOrganisationScope(deleteQuery, orgId);
+      const { error } = await deleteQuery;
+      if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+        return { error: "Active organisation is required." };
+      }
+      if (error && isOrganisationColumnMissing(error.message)) {
+        continue;
+      }
       if (error && !isMissingSwmsTableError(error.message, table)) {
         return { error: error.message };
       }

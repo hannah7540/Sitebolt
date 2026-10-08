@@ -1,5 +1,16 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { normalizeLogicRule } from "./induction-form-logic";
+import {
+  filterRowsByOrganisationStrict,
+  isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
+  recordBelongsToOrganisationStrict,
+  resolveActiveOrganisationId,
+  shouldStripOrganisationIdOnWrite,
+  stampOrganisationId,
+  tenantCacheKey,
+  withOrganisationScope,
+} from "./tenant-scope";
 
 export type InductionFormBlockType =
   | "section_header"
@@ -126,6 +137,7 @@ export const FORM_WORKER_ASSIGNMENT_SAVE_COLUMNS = [
   "status",
   "assigned_at",
   "updated_at",
+  "organisation_id",
 ] as const;
 
 /** Alias/metadata columns stripped automatically when absent from the DB schema. */
@@ -324,26 +336,47 @@ export async function fetchFormTemplateAssignments(
     };
   }
 
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { assignments: [], error: null };
+  }
+
   try {
     let query = supabase
       .from(FORM_WORKER_ASSIGNMENTS_TABLE)
       .select("*")
       .eq("form_id", templateId)
       .order("assigned_at", { ascending: false });
+    query = withOrganisationScope(query, orgId);
 
     let { data, error } = await query;
 
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return { assignments: [], error: null };
+    }
+
     if (error) {
-      const fallback = await supabase
+      let fallback = supabase
         .from(FORM_WORKER_ASSIGNMENTS_TABLE)
         .select("*")
         .or(
           `form_id.eq.${templateId},form_template_id.eq.${templateId},template_id.eq.${templateId}`
         )
         .order("assigned_at", { ascending: false });
+      fallback = withOrganisationScope(fallback, orgId);
+      const retried = await fallback;
+      data = retried.data;
+      error = retried.error;
+    }
 
-      data = fallback.data;
-      error = fallback.error;
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const unscoped = await supabase
+        .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+        .select("*")
+        .eq("form_id", templateId)
+        .order("assigned_at", { ascending: false });
+      data = unscoped.data;
+      error = unscoped.error;
     }
 
     if (error) {
@@ -364,7 +397,7 @@ export async function fetchFormTemplateAssignments(
     }
 
     return {
-      assignments: mapAssignmentQueryRows(data),
+      assignments: mapAssignmentQueryRows(finalizeInductionRows(data, orgId)),
       error: null,
     };
   } catch (cause) {
@@ -409,10 +442,17 @@ export async function remindFormWorkerAssignment(
   }
 
   try {
-    const { error } = await supabase
+    const orgId = resolveInductionOrgId();
+    if (!orgId) {
+      return { error: "Active organisation is required." };
+    }
+
+    let updateQuery = supabase
       .from(FORM_WORKER_ASSIGNMENTS_TABLE)
       .update(payload)
       .eq("id", id);
+    updateQuery = withOrganisationScope(updateQuery, orgId);
+    const { error } = await updateQuery;
 
     if (error) {
       return {
@@ -434,14 +474,6 @@ export interface FetchOutstandingAssignmentsInput {
   alternateNames?: string[];
   /** When true, return all pending rows if the user-specific query is empty (dev default). */
   devFallback?: boolean;
-}
-
-function isOutstandingAssignmentsDevFallbackEnabled(
-  input: FetchOutstandingAssignmentsInput
-): boolean {
-  if (input.devFallback === false) return false;
-  if (input.devFallback === true) return true;
-  return process.env.NODE_ENV === "development";
 }
 
 export function resolveAssignmentFormTemplateId(
@@ -545,12 +577,18 @@ export async function fetchCompletedInductionAssignments(options?: {
   const fetchCount = pageSize + 1;
   const projectId = options?.projectId?.trim() || null;
 
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { assignments: [], hasMore: false, error: null };
+  }
+
   const applyCompletedFilters = <T extends {
     in: (col: string, values: string[]) => T;
     eq: (col: string, val: string) => T;
     gte: (col: string, val: string) => T;
     lte: (col: string, val: string) => T;
     range: (from: number, to: number) => T;
+    or?: (filters: string) => T;
   }>(query: T): T => {
     let next = query.in("status", [
       "completed",
@@ -575,13 +613,20 @@ export async function fetchCompletedInductionAssignments(options?: {
     orderColumn: "completed_at" | "assigned_at"
   ) =>
     applyCompletedFilters(
-      supabase
-        .from(FORM_WORKER_ASSIGNMENTS_TABLE)
-        .select(selectClause)
-        .order(orderColumn, { ascending: false, nullsFirst: false })
+      withOrganisationScope(
+        supabase
+          .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+          .select(selectClause)
+          .order(orderColumn, { ascending: false, nullsFirst: false }),
+        orgId
+      )
     );
 
   let { data, error } = await buildQuery(selectWithJoin, "completed_at");
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { assignments: [], hasMore: false, error: null };
+  }
 
   if (error) {
     ({ data, error } = await buildQuery("*", "completed_at"));
@@ -601,7 +646,9 @@ export async function fetchCompletedInductionAssignments(options?: {
     };
   }
 
-  const mapped = mapAssignmentQueryRows(data as unknown[] | null);
+  const mapped = mapAssignmentQueryRows(
+    finalizeInductionRows(data as unknown[] | null, orgId)
+  );
   return {
     assignments: mapped.slice(0, pageSize),
     hasMore: mapped.length > pageSize,
@@ -609,16 +656,37 @@ export async function fetchCompletedInductionAssignments(options?: {
   };
 }
 
-/** Fetch all outstanding rows — select('*') only, no FK join or worker/project filters. */
+/** Fetch outstanding rows for the active organisation only. */
 async function fetchAllPendingFormWorkerAssignmentRows(): Promise<{
   assignments: FormWorkerAssignment[];
   error: string | null;
 }> {
-  const { data, error } = await supabase
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { assignments: [], error: null };
+  }
+
+  let query = supabase
     .from(FORM_WORKER_ASSIGNMENTS_TABLE)
     .select("*")
     .in("status", [...OUTSTANDING_ASSIGNMENT_STATUS_VALUES])
     .order("assigned_at", { ascending: false });
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query;
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { assignments: [], error: null };
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+      .select("*")
+      .in("status", [...OUTSTANDING_ASSIGNMENT_STATUS_VALUES])
+      .order("assigned_at", { ascending: false });
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     return {
@@ -627,7 +695,10 @@ async function fetchAllPendingFormWorkerAssignmentRows(): Promise<{
     };
   }
 
-  return { assignments: mapAssignmentQueryRows(data), error: null };
+  return {
+    assignments: mapAssignmentQueryRows(finalizeInductionRows(data, orgId)),
+    error: null,
+  };
 }
 
 function mergeAssignmentWithTemplate(
@@ -693,10 +764,17 @@ async function hydrateFormWorkerAssignmentsWithTemplates(
     return assignments;
   }
 
-  const { data, error } = await supabase
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return assignments.map(hydrateAssignmentFromLocalForms);
+  }
+
+  let hydrateQuery = supabase
     .from(INDUCTION_FORM_TEMPLATES_TABLE)
     .select("*")
     .in("id", formIds);
+  hydrateQuery = withOrganisationScope(hydrateQuery, orgId);
+  const { data, error } = await hydrateQuery;
 
   if (error) {
     console.warn("hydrateFormWorkerAssignmentsWithTemplates failed:", error.message);
@@ -704,9 +782,9 @@ async function hydrateFormWorkerAssignmentsWithTemplates(
   }
 
   const templateById = new Map(
-    (data ?? []).map((row) => [
-      String((row as Record<string, unknown>).id),
-      normalizeForm(row as Record<string, unknown>),
+    finalizeInductionRows(data as Record<string, unknown>[] | null, orgId).map((row) => [
+      String(row.id),
+      normalizeForm(row),
     ])
   );
 
@@ -818,25 +896,6 @@ function resolveOutstandingAssignmentsWithFallbacks(
   const localMatches = filterLocalOutstandingAssignments(input);
   if (localMatches.length > 0) {
     return localMatches;
-  }
-
-  if (isOutstandingAssignmentsDevFallbackEnabled(input) && allPending.length > 0) {
-    console.info(
-      "fetchOutstandingWorkerFormAssignments: using dev fallback (all pending assignments)."
-    );
-    return allPending;
-  }
-
-  if (isOutstandingAssignmentsDevFallbackEnabled(input)) {
-    const allLocal = readLocalAssignments().filter((row) =>
-      isOutstandingAssignmentStatus(row.status)
-    );
-    if (allLocal.length > 0) {
-      console.info(
-        "fetchOutstandingWorkerFormAssignments: using dev fallback (all pending local assignments)."
-      );
-      return dedupeFormWorkerAssignments(allLocal);
-    }
   }
 
   return [];
@@ -966,7 +1025,9 @@ export function sanitizeFormWorkerAssignmentRow(input: {
   }
 
   return finalizeAssignmentWritePayload(
-    stripNullAndUndefinedFromRecord(pickAssignmentSaveColumns(draft))
+    stampOrganisationId(
+      stripNullAndUndefinedFromRecord(pickAssignmentSaveColumns(draft))
+    )
   );
 }
 
@@ -980,8 +1041,16 @@ export function formatFormWorkerAssignmentSaveError(cause: unknown): string {
   return "Could not assign form to workers. Please try again.";
 }
 
-const LOCAL_FORMS_KEY = "sitebolt_induction_forms_local";
-const LOCAL_ASSIGNMENTS_KEY = "sitebolt_form_worker_assignments_local";
+const LOCAL_FORMS_KEY_PREFIX = "sitebolt_induction_forms_local";
+const LOCAL_ASSIGNMENTS_KEY_PREFIX = "sitebolt_form_worker_assignments_local";
+
+function localFormsStorageKey(): string {
+  return tenantCacheKey(LOCAL_FORMS_KEY_PREFIX, resolveActiveOrganisationId());
+}
+
+function localAssignmentsStorageKey(): string {
+  return tenantCacheKey(LOCAL_ASSIGNMENTS_KEY_PREFIX, resolveActiveOrganisationId());
+}
 
 /** Canonical Supabase table for induction form templates. */
 export const INDUCTION_FORM_TEMPLATES_TABLE = "induction_form_templates";
@@ -1004,6 +1073,7 @@ export const INDUCTION_FORM_SAVE_COLUMNS = [
   "status",
   "is_active",
   "updated_at",
+  "organisation_id",
 ] as const;
 
 export type InductionFormSaveInput = {
@@ -1104,7 +1174,7 @@ export function sanitizeInductionFormSavePayload(
   payload.copied_from_id = input.copied_from_id ?? null;
   payload.updated_at = now;
 
-  return payload;
+  return stampOrganisationId(payload);
 }
 
 export function formatInductionFormQueryError(
@@ -1141,6 +1211,14 @@ function isMissingColumnError(message: string, column: string): boolean {
       lower.includes("does not exist") ||
       (lower.includes("column") && lower.includes(col)))
   );
+}
+
+function resolveInductionOrgId(): string | null {
+  return resolveActiveOrganisationId();
+}
+
+function finalizeInductionRows<T>(rows: T[] | null | undefined, orgId: string | null): T[] {
+  return filterRowsByOrganisationStrict(rows ?? [], orgId);
 }
 
 /** Resolve form blocks from either blocks or schema_fields (prefers non-empty). */
@@ -1186,7 +1264,7 @@ export function resolveInductionFormBlocks(
 function readLocalForms(): InductionFormTemplate[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(LOCAL_FORMS_KEY);
+    const raw = window.localStorage.getItem(localFormsStorageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -1202,13 +1280,13 @@ function readLocalForms(): InductionFormTemplate[] {
 
 function writeLocalForms(forms: InductionFormTemplate[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(LOCAL_FORMS_KEY, JSON.stringify(forms));
+  window.localStorage.setItem(localFormsStorageKey(), JSON.stringify(forms));
 }
 
 function readLocalAssignments(): FormWorkerAssignment[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(LOCAL_ASSIGNMENTS_KEY);
+    const raw = window.localStorage.getItem(localAssignmentsStorageKey());
     return raw ? (JSON.parse(raw) as FormWorkerAssignment[]) : [];
   } catch {
     return [];
@@ -1217,7 +1295,7 @@ function readLocalAssignments(): FormWorkerAssignment[] {
 
 function writeLocalAssignments(rows: FormWorkerAssignment[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(rows));
+  window.localStorage.setItem(localAssignmentsStorageKey(), JSON.stringify(rows));
 }
 
 function normalizeBlock(raw: unknown, index: number): InductionFormBlock | null {
@@ -1344,6 +1422,8 @@ export async function fetchInductionForms(): Promise<{
   forms: InductionFormTemplate[];
   error: string | null;
 }> {
+  const orgId = resolveInductionOrgId();
+
   if (!isSupabaseConfigured()) {
     return {
       forms: readLocalForms().sort(
@@ -1353,10 +1433,29 @@ export async function fetchInductionForms(): Promise<{
     };
   }
 
-  const { data, error } = await supabase
+  if (!orgId) {
+    return { forms: [], error: null };
+  }
+
+  let query = supabase
     .from(INDUCTION_FORM_TEMPLATES_TABLE)
     .select("*")
     .order("updated_at", { ascending: false });
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query;
+
+  if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+    return { forms: [], error: null };
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    const retry = await supabase
+      .from(INDUCTION_FORM_TEMPLATES_TABLE)
+      .select("*")
+      .order("updated_at", { ascending: false });
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     const fallback = readLocalForms().sort(
@@ -1372,7 +1471,9 @@ export async function fetchInductionForms(): Promise<{
   }
 
   return {
-    forms: (data ?? []).map((row) => normalizeForm(row as Record<string, unknown>)),
+    forms: finalizeInductionRows(data as Record<string, unknown>[] | null, orgId).map(
+      (row) => normalizeForm(row)
+    ),
     error: null,
   };
 }
@@ -1445,11 +1546,22 @@ export async function saveInductionForm(
 
       for (let attempt = 0; attempt <= OPTIONAL_INDUCTION_FORM_DB_COLUMNS.length; attempt++) {
         try {
+          const orgId = resolveInductionOrgId();
+          if (!orgId) {
+            return {
+              data: null,
+              error: { message: "Active organisation is required." },
+            };
+          }
+
           const result = input.id
-            ? await supabase
-                .from(INDUCTION_FORM_TEMPLATES_TABLE)
-                .update(current)
-                .eq("id", input.id)
+            ? await withOrganisationScope(
+                supabase
+                  .from(INDUCTION_FORM_TEMPLATES_TABLE)
+                  .update(current)
+                  .eq("id", input.id),
+                orgId
+              )
                 .select("*")
                 .single()
             : await supabase
@@ -1467,6 +1579,23 @@ export async function saveInductionForm(
               data: null,
               error: { message: input.id ? "Update failed" : "Create failed" },
             };
+          }
+
+          if (
+            isOrganisationColumnMissing(result.error.message) &&
+            "organisation_id" in current
+          ) {
+            if (
+              !shouldStripOrganisationIdOnWrite(
+                result.error.message,
+                resolveInductionOrgId()
+              )
+            ) {
+              return { data: null, error: result.error };
+            }
+            const { organisation_id: _removedOrg, ...rest } = current;
+            current = rest;
+            continue;
           }
 
           const columnToDrop = OPTIONAL_INDUCTION_FORM_DB_COLUMNS.find(
@@ -1555,10 +1684,17 @@ export async function deleteInductionForm(formId: string): Promise<{ error: stri
       return { error: null };
     }
 
-    const { error } = await supabase
+    const orgId = resolveInductionOrgId();
+    if (!orgId) {
+      return { error: "Active organisation is required." };
+    }
+
+    let deleteQuery = supabase
       .from(INDUCTION_FORM_TEMPLATES_TABLE)
       .delete()
       .eq("id", formId);
+    deleteQuery = withOrganisationScope(deleteQuery, orgId);
+    const { error } = await deleteQuery;
 
     return {
       error: error ? formatInductionFormQueryError("delete from", error) : null,
@@ -1594,19 +1730,28 @@ async function fetchExistingAssignmentWorkerIds(
 ): Promise<Set<string>> {
   if (workerIds.length === 0) return new Set();
 
+  const orgId = resolveInductionOrgId();
+  if (!orgId) return new Set();
+
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from(FORM_WORKER_ASSIGNMENTS_TABLE)
-      .select("worker_id")
+      .select("worker_id, organisation_id")
       .eq("form_id", formId)
       .in("worker_id", workerIds);
+    query = withOrganisationScope(query, orgId);
+    const { data, error } = await query;
 
     if (error) {
       console.warn("fetchExistingAssignmentWorkerIds failed:", error.message);
       return new Set();
     }
 
-    return new Set((data ?? []).map((row) => String(row.worker_id)));
+    return new Set(
+      finalizeInductionRows(data as Record<string, unknown>[] | null, orgId).map((row) =>
+        String((row as { worker_id?: string }).worker_id)
+      )
+    );
   } catch {
     return new Set();
   }
@@ -1728,6 +1873,26 @@ export async function assignFormToWorkers(input: {
 
             if (!error) {
               return { data: (data ?? []) as { id: string }[], error: null };
+            }
+
+            if (
+              isOrganisationColumnMissing(error.message) &&
+              currentRows.some((row) => "organisation_id" in row)
+            ) {
+              if (
+                !shouldStripOrganisationIdOnWrite(
+                  error.message,
+                  resolveInductionOrgId()
+                )
+              ) {
+                return { data: null, error };
+              }
+              currentRows = currentRows.map((row) => {
+                const next = { ...row };
+                delete next.organisation_id;
+                return next;
+              });
+              break;
             }
 
             const columnToDrop = OPTIONAL_FORM_WORKER_ASSIGNMENT_COLUMNS.find((column) =>
@@ -1886,11 +2051,15 @@ export async function fetchWorkerFormAssignments(
     });
   }
 
+  const orgId = resolveInductionOrgId();
+  if (!orgId) return [];
+
   let query = supabase
     .from(FORM_WORKER_ASSIGNMENTS_TABLE)
     .select(`*, ${INDUCTION_FORM_TEMPLATES_TABLE}(title, blocks, schema_fields, logic_rules)`)
     .eq("worker_id", workerId)
     .order("assigned_at", { ascending: false });
+  query = withOrganisationScope(query, orgId);
 
   if (status) {
     if (status === "pending") {
@@ -1916,8 +2085,8 @@ export async function fetchWorkerFormAssignments(
     });
   }
 
-  return (data ?? []).map((row) =>
-    mapFormWorkerAssignmentRow(row as Record<string, unknown>)
+  return finalizeInductionRows(data as Record<string, unknown>[] | null, orgId).map(
+    (row) => mapFormWorkerAssignmentRow(row)
   );
 }
 
@@ -1981,14 +2150,21 @@ export async function fetchWorkerInductionAssignments(
     return { assignments: hydrated, error: null };
   }
 
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { assignments: [], error: null };
+  }
+
   try {
     let merged: FormWorkerAssignment[] = [];
 
-    const { data: byWorkerId, error: byWorkerIdError } = await supabase
+    let byWorkerQuery = supabase
       .from(FORM_WORKER_ASSIGNMENTS_TABLE)
       .select("*")
       .eq("worker_id", workerId)
       .order("assigned_at", { ascending: false });
+    byWorkerQuery = withOrganisationScope(byWorkerQuery, orgId);
+    const { data: byWorkerId, error: byWorkerIdError } = await byWorkerQuery;
 
     if (byWorkerIdError) {
       if (isMissingTableError(byWorkerIdError.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
@@ -1999,34 +2175,38 @@ export async function fetchWorkerInductionAssignments(
         return { assignments: hydrated, error: null };
       }
     } else {
-      merged = mapAssignmentQueryRows(byWorkerId);
+      merged = mapAssignmentQueryRows(finalizeInductionRows(byWorkerId, orgId));
     }
 
     const fullName = input.workerFullName?.trim();
     if (fullName) {
-      const { data: byName } = await supabase
+      let byNameQuery = supabase
         .from(FORM_WORKER_ASSIGNMENTS_TABLE)
         .select("*")
         .ilike("worker_name", fullName)
         .order("assigned_at", { ascending: false });
+      byNameQuery = withOrganisationScope(byNameQuery, orgId);
+      const { data: byName } = await byNameQuery;
       merged = dedupeFormWorkerAssignments([
         ...merged,
-        ...mapAssignmentQueryRows(byName),
+        ...mapAssignmentQueryRows(finalizeInductionRows(byName, orgId)),
       ]);
     }
 
     const email = input.workerEmail?.trim();
     if (email) {
-      const { data: byEmail, error: byEmailError } = await supabase
+      let byEmailQuery = supabase
         .from(FORM_WORKER_ASSIGNMENTS_TABLE)
         .select("*")
         .eq("worker_email", email)
         .order("assigned_at", { ascending: false });
+      byEmailQuery = withOrganisationScope(byEmailQuery, orgId);
+      const { data: byEmail, error: byEmailError } = await byEmailQuery;
 
       if (!byEmailError) {
         merged = dedupeFormWorkerAssignments([
           ...merged,
-          ...mapAssignmentQueryRows(byEmail),
+          ...mapAssignmentQueryRows(finalizeInductionRows(byEmail, orgId)),
         ]);
       }
     }
@@ -2089,11 +2269,17 @@ export async function fetchInductionFormById(
     };
   }
 
-  const { data, error } = await supabase
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { form: null, error: null };
+  }
+
+  let formQuery = supabase
     .from(INDUCTION_FORM_TEMPLATES_TABLE)
     .select("*")
-    .eq("id", formId)
-    .maybeSingle();
+    .eq("id", formId);
+  formQuery = withOrganisationScope(formQuery, orgId);
+  const { data, error } = await formQuery.maybeSingle();
 
   if (error) {
     const local = readLocalForms().find((row) => row.id === formId) ?? null;
@@ -2108,6 +2294,10 @@ export async function fetchInductionFormById(
       form: readLocalForms().find((row) => row.id === formId) ?? null,
       error: null,
     };
+  }
+
+  if (!recordBelongsToOrganisationStrict(data, orgId)) {
+    return { form: null, error: null };
   }
 
   return { form: normalizeForm(data as Record<string, unknown>), error: null };
