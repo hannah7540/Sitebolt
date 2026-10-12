@@ -30,6 +30,7 @@ import { isAppHostname, requestHostHeader } from "@/lib/site-domains";
 import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
+import { linkWorkerProfile } from "@/lib/link-worker-profile";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -159,6 +160,19 @@ async function resolveWorkerCategory(
   return category || null;
 }
 
+async function linkWorkerForSession(
+  user: User
+): Promise<{ workerId: string | null; securityRole: string | null }> {
+  if (!user.email) return { workerId: null, securityRole: null };
+  try {
+    const linked = await linkWorkerProfile(user.email, user.id);
+    return { workerId: linked.workerId, securityRole: linked.securityRole };
+  } catch (error) {
+    console.warn("[auth-proxy] worker profile link failed", error);
+    return { workerId: null, securityRole: null };
+  }
+}
+
 async function resolveWorkerOnboardingCompleted(
   supabase: ReturnType<typeof createServerClient>,
   workerId: string
@@ -222,7 +236,10 @@ async function resolveAuthContext(
     .maybeSingle();
 
   if (profile?.role) {
-    const workerId = profile.worker_id ?? null;
+    let workerId = profile.worker_id ?? null;
+    if (!workerId && !accessRevoked) {
+      workerId = (await linkWorkerForSession(user)).workerId;
+    }
     const onboardingCompleted = workerId
       ? await resolveWorkerOnboardingCompleted(supabase, workerId)
       : true;
@@ -252,6 +269,24 @@ async function resolveAuthContext(
       accessRevoked,
       workerCategory: await resolveWorkerCategory(supabase, match.workerId),
     };
+  }
+
+  if (!accessRevoked) {
+    const linked = await linkWorkerForSession(user);
+    if (linked.workerId) {
+      const onboardingCompleted = await resolveWorkerOnboardingCompleted(
+        supabase,
+        linked.workerId
+      );
+      return {
+        user,
+        role: normalizeSecurityRole(linked.securityRole),
+        workerId: linked.workerId,
+        onboardingCompleted,
+        accessRevoked,
+        workerCategory: await resolveWorkerCategory(supabase, linked.workerId),
+      };
+    }
   }
 
   const metadata = user.user_metadata as Record<string, unknown> | undefined;

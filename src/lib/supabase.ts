@@ -36,6 +36,8 @@ import {
   shouldStripOrganisationIdOnWrite,
   withOrganisationScope,
 } from "./tenant-scope";
+import { setActiveOrganisationId } from "./active-organisation";
+import { fetchSessionWorkerRecord } from "./fetch-session-worker";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
 import {
   asPrestartTemplate,
@@ -501,10 +503,11 @@ function finalizeWorkerRows(
     skipOrganisationScope?: boolean;
   }
 ): Worker[] {
-  if (!orgId) return [];
-  const scoped = options?.skipOrganisationScope
-    ? rows
-    : filterRowsByOrganisation(rows, orgId);
+  if (!orgId && !options?.skipOrganisationScope) return [];
+  const scoped =
+    !orgId || options?.skipOrganisationScope
+      ? rows
+      : filterRowsByOrganisation(rows, orgId);
   const workers = scoped.map(normalizeWorkerRow);
   if (options?.onlyDeleted) return workers.filter(isWorkerDeleted);
   if (!options?.skipDeletedFilter) return workers.filter((worker) => !isWorkerDeleted(worker));
@@ -519,7 +522,8 @@ async function queryWorkerRows(options?: {
   skipOrganisationScope?: boolean;
 }): Promise<Worker[]> {
   const orgId = resolveActiveOrganisationId();
-  if (!orgId) return [];
+  const identityOnly = options?.skipOrganisationScope === true;
+  if (!orgId && !identityOnly) return [];
   let columns =
     cachedWorkerSelectColumns ??
     loadCachedWorkerColumnsFromStorage() ??
@@ -690,8 +694,17 @@ async function fetchWorkerRowById(id: string): Promise<Worker | null> {
 /** Signed-in identity only — not tenant-scoped, so Super-Admin keeps their role in Demo. */
 export async function fetchAuthenticatedWorkerById(id: string): Promise<Worker | null> {
   if (!isSupabaseConfigured() || !id.trim()) return null;
-  const rows = await queryWorkerRows({ id: id.trim(), skipOrganisationScope: true });
-  return rows[0] ?? null;
+  const requestedId = id.trim();
+  const rows = await queryWorkerRows({ id: requestedId, skipOrganisationScope: true });
+  if (rows[0]) return rows[0];
+
+  const record = await fetchSessionWorkerRecord();
+  if (!record || String(record.id ?? "") !== requestedId) return null;
+  const worker = normalizeWorkerRow(record as RawWorkerRow);
+  if (worker.organisation_id && !resolveActiveOrganisationId()) {
+    setActiveOrganisationId(worker.organisation_id);
+  }
+  return worker;
 }
 
 export interface WorkerScheduleEntry {

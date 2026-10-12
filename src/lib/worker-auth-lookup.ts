@@ -144,35 +144,107 @@ export function pickWorkerAuthRow(
   return emailMatches[0] ?? null;
 }
 
+function escapeIlikeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function escapePosixRegex(value: string): string {
+  return value.replace(/[\\.^$|?*+()[\]{}]/g, "\\$&");
+}
+
+type WorkerFilterQuery = {
+  limit: (count: number) => PromiseLike<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+};
+
+async function selectWorkerRowsWithFilter(
+  supabase: SupabaseClient,
+  apply: (select: string) => WorkerFilterQuery
+): Promise<{ rows: WorkerAuthLookupRow[]; error: string | null }> {
+  let select = WORKER_AUTH_SELECT;
+  let { data, error } = await apply(select).limit(20);
+  if (error && isMissingColumnError(error.message, "user_id")) {
+    select = WORKER_AUTH_SELECT_NO_USER_ID;
+    ({ data, error } = await apply(select).limit(20));
+  }
+  if (
+    error &&
+    (isMissingColumnError(error.message, "deleted_at") ||
+      isMissingColumnError(error.message, "status"))
+  ) {
+    select = WORKER_AUTH_SELECT_MINIMAL;
+    ({ data, error } = await apply(select).limit(20));
+  }
+  if (error) {
+    return { rows: [], error: error.message };
+  }
+  return { rows: (data ?? []) as unknown as WorkerAuthLookupRow[], error: null };
+}
+
+/**
+ * Match public.workers.email with LOWER(TRIM(email)) = the normalized session email.
+ * Exact ilike misses rows that still have surrounding whitespace.
+ */
+async function selectWorkersByNormalizedEmail(
+  supabase: SupabaseClient,
+  email: string
+): Promise<WorkerAuthLookupRow[]> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const exact = await selectWorkerRowsWithFilter(supabase, (select) =>
+    supabase.from("workers").select(select).ilike("email", escapeIlikeLiteral(normalized))
+  );
+  if (exact.error) {
+    logWorkerLookupFailure("worker lookup query failed", {
+      column: "email",
+      message: exact.error,
+    });
+  }
+  const exactMatches = exact.rows.filter((row) => emailsMatchExactly(row.email, normalized));
+  if (exactMatches.length > 0) return exactMatches;
+
+  const pattern = `^[[:space:]]*${escapePosixRegex(normalized)}[[:space:]]*$`;
+  const trimmed = await selectWorkerRowsWithFilter(supabase, (select) =>
+    supabase.from("workers").select(select).filter("email", "imatch", pattern)
+  );
+  if (trimmed.error) {
+    logWorkerLookupFailure("LOWER(TRIM(email)) worker lookup failed", {
+      column: "email",
+      message: trimmed.error,
+    });
+    return [];
+  }
+
+  return trimmed.rows.filter((row) => emailsMatchExactly(row.email, normalized));
+}
+
 async function selectWorkerRows(
   supabase: SupabaseClient,
   column: "auth_user_id" | "user_id" | "email",
   value: string
 ): Promise<WorkerAuthLookupRow[]> {
-  const applyFilter = (select: string) => {
-    const query = supabase.from("workers").select(select);
-    return column === "email" ? query.ilike("email", value) : query.eq(column, value);
-  };
+  if (column === "email") {
+    return selectWorkersByNormalizedEmail(supabase, value);
+  }
 
-  let { data, error } = await applyFilter(WORKER_AUTH_SELECT).limit(20);
-  if (error && isMissingColumnError(error.message, "user_id")) {
-    ({ data, error } = await applyFilter(WORKER_AUTH_SELECT_NO_USER_ID).limit(20));
-  }
-  if (error && (isMissingColumnError(error.message, "deleted_at") || isMissingColumnError(error.message, "status"))) {
-    ({ data, error } = await applyFilter(WORKER_AUTH_SELECT_MINIMAL).limit(20));
-  }
-  if (error && column === "user_id" && isMissingColumnError(error.message, "user_id")) {
+  const filtered = await selectWorkerRowsWithFilter(supabase, (select) =>
+    supabase.from("workers").select(select).eq(column, value)
+  );
+  if (filtered.error && column === "user_id" && isMissingColumnError(filtered.error, "user_id")) {
     return [];
   }
-  if (error) {
+  if (filtered.error) {
     logWorkerLookupFailure("worker lookup query failed", {
       column,
-      message: error.message,
+      message: filtered.error,
     });
     return [];
   }
 
-  return (data ?? []) as unknown as WorkerAuthLookupRow[];
+  return filtered.rows;
 }
 
 export async function matchWorkerForAuthUser(

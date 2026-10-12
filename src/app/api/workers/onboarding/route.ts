@@ -2,11 +2,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { NextResponse } from "next/server";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+import { resolveRequestAuthUser } from "@/lib/auth-request-user";
+import { profileApiJson } from "@/lib/profile-api-response";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
 import {
   buildFallbackOnboardingRecord,
@@ -198,57 +198,51 @@ async function resolveOnboardingWorker(user: User | null) {
   return { error: null, status: 200 as const, worker };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!isSupabaseAdminConfigured()) {
-    return NextResponse.json(
+    return profileApiJson(
       { error: "Server configuration error." },
       { status: 500 }
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await resolveRequestAuthUser(req);
 
   const result = await resolveOnboardingWorker(user);
   if (result.error || !result.worker) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+    return profileApiJson({ error: result.error }, { status: result.status });
   }
 
-  return NextResponse.json({ worker: result.worker });
+  return profileApiJson({ worker: result.worker });
 }
 
 export async function POST(req: Request) {
   if (!isSupabaseAdminConfigured()) {
-    return NextResponse.json(
+    return profileApiJson(
       { error: "Server configuration error." },
       { status: 500 }
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await resolveRequestAuthUser(req);
 
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+    return profileApiJson({ error: "Not authenticated." }, { status: 401 });
   }
 
   const payload = parseOnboardingPayload(await req.json().catch(() => null));
   if (!payload) {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return profileApiJson({ error: "Invalid request body." }, { status: 400 });
   }
 
   const validationError = validateOnboardingPayload(payload);
   if (validationError) {
-    return NextResponse.json({ error: validationError }, { status: 400 });
+    return profileApiJson({ error: validationError }, { status: 400 });
   }
 
   const resolved = await resolveOnboardingWorker(user);
   if (resolved.error || !resolved.worker) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+    return profileApiJson({ error: resolved.error }, { status: resolved.status });
   }
 
   const workerId = resolved.worker.id;
@@ -267,7 +261,7 @@ export async function POST(req: Request) {
   }
 
   if (!isValidProfilePhotoUrl(photoUrl)) {
-    return NextResponse.json(
+    return profileApiJson(
       { error: PROFILE_PHOTO_API_REQUIRED_MESSAGE },
       { status: 400 }
     );
@@ -327,7 +321,7 @@ export async function POST(req: Request) {
     .eq("id", workerId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 400 });
+    return profileApiJson({ error: updateError.message }, { status: 400 });
   }
 
   // Pay rule is never submitted from the form — derive template from worker state/region.
@@ -349,7 +343,7 @@ export async function POST(req: Request) {
 
   const vocError = await replaceWorkerVocs(admin, workerId, payload.vocs);
   if (vocError) {
-    return NextResponse.json({ error: vocError }, { status: 400 });
+    return profileApiJson({ error: vocError }, { status: 400 });
   }
 
   const activationResult = await markWorkerAccountActivated(admin, workerId, {
@@ -357,7 +351,7 @@ export async function POST(req: Request) {
   });
 
   if (activationResult.error) {
-    return NextResponse.json({ error: activationResult.error }, { status: 400 });
+    return profileApiJson({ error: activationResult.error }, { status: 400 });
   }
 
   const { data: workerMeta } = await admin
@@ -377,5 +371,5 @@ export async function POST(req: Request) {
         : null,
   });
 
-  return NextResponse.json({ success: true, workerId });
+  return profileApiJson({ success: true, workerId });
 }

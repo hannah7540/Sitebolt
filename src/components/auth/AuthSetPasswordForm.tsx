@@ -16,6 +16,7 @@ import {
   passwordRequirementsLabel,
   validatePassword,
 } from "@/lib/password-validation";
+import { browserAuthHeaders } from "@/lib/browser-auth-headers";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface AuthSetPasswordFormProps {
@@ -242,7 +243,9 @@ export default function AuthSetPasswordForm({
       if (ensureWorkerProfileOnSuccess && user) {
         const ensureResponse = await fetch("/api/workers/ensure-profile", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: await browserAuthHeaders(),
           body: JSON.stringify({ passwordAccepted: true }),
         });
         const ensurePayload: unknown = await ensureResponse.json().catch(() => null);

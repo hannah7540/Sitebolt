@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, HardHat, Loader2 } from "lucide-react";
 import StateRegionSelector from "@/components/workers/StateRegionSelector";
 import VocListEditor from "@/components/workers/VocListEditor";
+import { browserAuthHeaders } from "@/lib/browser-auth-headers";
 import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 import type { WorkerStateRegion } from "@/lib/worker-state-region";
 import type { WorkerOnboardingRecord } from "@/lib/worker-onboarding";
@@ -314,14 +315,33 @@ export default function OnboardingForm() {
 
     async function loadWorker() {
       try {
-        await fetch("/api/workers/ensure-profile", { method: "POST" });
+        const headers = await browserAuthHeaders();
+        await fetch("/api/workers/ensure-profile", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers,
+        });
 
-        const response = await fetch("/api/workers/onboarding");
+        const response = await fetch("/api/workers/onboarding", {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers,
+        });
         let payload: unknown = await response.json().catch(() => null);
 
         if (!response.ok) {
-          await fetch("/api/workers/ensure-profile", { method: "POST" });
-          const retryResponse = await fetch("/api/workers/onboarding");
+          await fetch("/api/workers/ensure-profile", {
+            method: "POST",
+            cache: "no-store",
+            credentials: "same-origin",
+            headers,
+          });
+          const retryResponse = await fetch("/api/workers/onboarding", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers,
+          });
           payload = await retryResponse.json().catch(() => null);
 
           if (!retryResponse.ok) {

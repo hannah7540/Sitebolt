@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import AuthSetPasswordForm from "@/components/auth/AuthSetPasswordForm";
+import { browserAuthHeaders } from "@/lib/browser-auth-headers";
 
 interface AcceptInviteClientProps {
   initialHasSession: boolean;
@@ -10,7 +11,15 @@ interface AcceptInviteClientProps {
 export default function AcceptInviteClient({ initialHasSession }: AcceptInviteClientProps) {
   useEffect(() => {
     if (!initialHasSession) return;
-    void fetch("/api/workers/ensure-profile", { method: "POST" });
+    void (async () => {
+      const headers = await browserAuthHeaders();
+      await fetch("/api/workers/ensure-profile", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers,
+      });
+    })();
   }, [initialHasSession]);
 
   return (

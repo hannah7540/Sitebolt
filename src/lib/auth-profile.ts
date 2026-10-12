@@ -106,19 +106,12 @@ async function linkWorkerProfileViaAdminApi(user: User): Promise<{
 } | null> {
   if (typeof window === "undefined") return null;
   try {
-    const supabase = createSupabaseBrowserClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (session?.access_token) {
-      headers.Authorization = `Bearer ${session.access_token}`;
-    }
+    const { browserAuthHeaders } = await import("@/lib/browser-auth-headers");
+    const headers = await browserAuthHeaders();
 
     const response = await fetch("/api/workers/link-profile", {
       method: "POST",
+      cache: "no-store",
       headers,
       credentials: "same-origin",
       body: JSON.stringify({}),

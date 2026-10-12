@@ -556,10 +556,20 @@ export async function loadWorkerForOnboardingRecord(
 export async function ensureWorkerProfileForAuthUser(
   admin: SupabaseClient,
   user: User
-): Promise<{ workerId: string | null; organisationId: string | null; error: string | null }> {
+): Promise<{
+  workerId: string | null;
+  organisationId: string | null;
+  worker: Record<string, unknown> | null;
+  error: string | null;
+}> {
   const email = user.email?.trim();
   if (!email) {
-    return { workerId: null, organisationId: null, error: "Auth user email is required." };
+    return {
+      workerId: null,
+      organisationId: null,
+      worker: null,
+      error: "Auth user email is required.",
+    };
   }
 
   const linked = await linkWorkerProfile(email, user.id);
@@ -567,6 +577,7 @@ export async function ensureWorkerProfileForAuthUser(
     return {
       workerId: linked.workerId,
       organisationId: linked.organisationId,
+      worker: linked.worker,
       error: null,
     };
   }
@@ -577,7 +588,8 @@ export async function ensureWorkerProfileForAuthUser(
     return {
       workerId: retry.workerId ?? workerId,
       organisationId: retry.organisationId,
-      error: retry.error,
+      worker: retry.worker,
+      error: retry.error && !retry.workerId ? retry.error : null,
     };
   }
 
@@ -588,6 +600,7 @@ export async function ensureWorkerProfileForAuthUser(
   return {
     workerId: null,
     organisationId: null,
+    worker: null,
     error: linked.error ?? "Worker profile not found.",
   };
 }
