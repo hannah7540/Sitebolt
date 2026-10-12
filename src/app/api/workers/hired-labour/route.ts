@@ -116,7 +116,41 @@ async function updateHiredLabour(
   return error?.message ?? null;
 }
 
-async function hardDeleteHiredLabour(workerId: string, authUserId: string | null) {
+function isMissingAuthUser(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("not found") ||
+    lower.includes("user not found") ||
+    lower.includes("does not exist")
+  );
+}
+
+/** Auth deletion is best-effort. A missing or never-created login must not block the worker row delete. */
+async function deleteAuthUserIfPresent(authUserId: string | null): Promise<void> {
+  const authId = authUserId?.trim() ?? "";
+  if (!authId) return;
+  try {
+    const admin = createSupabaseAdminClient();
+    const { error } = await admin.auth.admin.deleteUser(authId);
+    if (error && !isMissingAuthUser(error.message)) {
+      console.warn("[hired-labour] auth delete ignored:", error.message);
+    }
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "Auth user delete failed.";
+    if (!isMissingAuthUser(message)) {
+      console.warn("[hired-labour] auth delete ignored:", message);
+    }
+  }
+}
+
+async function hardDeleteHiredLabour(
+  workerId: string,
+  organisationId: string,
+  authUserId: string | null,
+  email: string | null
+) {
+  await deleteAuthUserIfPresent(authUserId);
+
   const admin = createSupabaseAdminClient();
   for (const table of HIRED_LABOUR_CHILD_TABLES) {
     const { error } = await admin.from(table).delete().eq("worker_id", workerId);
@@ -127,17 +161,23 @@ async function hardDeleteHiredLabour(workerId: string, authUserId: string | null
 
   await admin.from("profiles").update({ worker_id: null }).eq("worker_id", workerId);
 
-  const { error: workerError } = await admin.from("workers").delete().eq("id", workerId);
-  if (workerError) return workerError.message;
+  const { error: workerError } = await admin
+    .from("workers")
+    .delete()
+    .eq("id", workerId)
+    .eq("organisation_id", organisationId);
+  if (!workerError) return null;
 
-  const authId = authUserId?.trim() ?? "";
-  if (authId) {
-    const { error: authError } = await admin.auth.admin.deleteUser(authId);
-    if (authError && !/not found/i.test(authError.message)) {
-      return authError.message;
-    }
-  }
-  return null;
+  const trimmedEmail = email?.trim() ?? "";
+  if (!trimmedEmail) return workerError.message;
+
+  const { error: emailError } = await admin
+    .from("workers")
+    .delete()
+    .eq("organisation_id", organisationId)
+    .eq("worker_category", HIRED_LABOUR_CATEGORY)
+    .ilike("email", trimmedEmail);
+  return emailError?.message ?? null;
 }
 
 export async function POST(req: Request) {
@@ -322,7 +362,9 @@ export async function POST(req: Request) {
   if (action === "delete") {
     const deleteError = await hardDeleteHiredLabour(
       workerId,
-      loaded.worker.auth_user_id ?? null
+      orgId,
+      loaded.worker.auth_user_id ?? null,
+      loaded.worker.email ?? null
     );
     if (deleteError) return profileApiJson({ error: deleteError }, 400);
     return profileApiJson({ success: true });
