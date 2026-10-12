@@ -13,7 +13,7 @@ import {
   normalizeSecurityRole,
 } from "@/lib/security-roles";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
-import { onWorkerProjectAssigned } from "@/lib/services/worker-assignment";
+import { onWorkerOnboardingCompleted, onWorkerProjectAssigned } from "@/lib/services/worker-assignment";
 
 const HIRED_LABOUR_CATEGORY = "hired_labour";
 
@@ -308,10 +308,16 @@ export async function POST(req: Request) {
       onboarding_completed: true,
     });
     if (updateError) return profileApiJson({ error: updateError }, 400);
-    await onWorkerProjectAssigned(admin, workerId, {
-      state: loaded.worker.state,
-      projectIds: loaded.worker.assigned_project_id ? [loaded.worker.assigned_project_id] : [],
-    });
+    try {
+      await onWorkerOnboardingCompleted(admin, workerId, {
+        state: loaded.worker.state,
+        projectIds: loaded.worker.assigned_project_id
+          ? [loaded.worker.assigned_project_id]
+          : [],
+      });
+    } catch (cause) {
+      console.warn("[hired-labour] SWMS and induction assignment failed:", cause);
+    }
     return profileApiJson({ success: true, hiredLabourStatus: "approved" });
   }
 
