@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CompanyLogo from "@/components/ui/CompanyLogo";
@@ -58,6 +58,12 @@ import {
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { useHiredLabourPendingCount } from "@/hooks/useHiredLabourPendingCount";
 import { usePersistedSidebarSection } from "@/hooks/usePersistedSidebarSection";
+import {
+  SidebarCollapseProvider,
+  SidebarCollapseToggle,
+  SidebarSectionShell,
+  useSidebarIconOnly,
+} from "@/components/sidebar/SidebarCollapse";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import ThemePicker from "@/components/theme/ThemePicker";
@@ -252,18 +258,23 @@ function NavLink({
   badge?: number;
   badgeTone?: "default" | "red";
 }) {
+  const iconOnly = useSidebarIconOnly();
+
   return (
     <button
       type="button"
       onClick={onClick}
+      title={iconOnly ? label : undefined}
+      aria-label={iconOnly ? label : undefined}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+        "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
         active
           ? "bg-orange-500 font-bold text-white shadow-sm"
           : "text-slate-700 hover:bg-orange-50 hover:text-orange-600",
         depth === 0 && "font-medium",
-        depth === 1 && "pl-6 text-slate-600",
-        depth === 2 && "pl-9 text-xs text-slate-500"
+        !iconOnly && depth === 1 && "pl-6 text-slate-600",
+        !iconOnly && depth === 2 && "pl-9 text-xs text-slate-500",
+        iconOnly && "justify-center px-0"
       )}
     >
       {Icon ? (
@@ -273,16 +284,26 @@ function NavLink({
             active ? "text-white" : "text-slate-400"
           )}
         />
+      ) : iconOnly ? (
+        <span
+          className={cn(
+            "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold",
+            active ? "text-white" : "text-slate-500"
+          )}
+        >
+          {label.slice(0, 1)}
+        </span>
       ) : null}
-      <span className="truncate flex-1">{label}</span>
+      <span className={cn("flex-1 truncate", iconOnly && "sr-only")}>{label}</span>
       {badge && badge > 0 ? (
         <span
           className={cn(
-            "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+            "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+            iconOnly ? "absolute right-1 top-1 h-2 w-2 p-0" : "ml-auto",
             active && badgeTone !== "red" ? "bg-white/25 text-white" : "bg-red-500 text-white"
           )}
         >
-          {badge > 99 ? "99+" : badge}
+          {iconOnly ? <span className="sr-only">{badge}</span> : badge > 99 ? "99+" : badge}
         </span>
       ) : null}
     </button>
@@ -681,56 +702,15 @@ export default function Sidebar({
   );
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-80">
-      <button
-        type="button"
-        onClick={handleProfileClick}
-        className={cn(
-          "w-full border-b border-slate-200 p-4 text-left transition-colors",
-          profileActive
-            ? "bg-orange-500 shadow-sm hover:bg-orange-600"
-            : "hover:bg-orange-50"
-        )}
-        aria-label="Open my worker profile"
-        aria-current={profileActive ? "page" : undefined}
-      >
-        <div className="flex items-center gap-3">
-          <WorkerProfileAvatar
-            photoUrl={profilePhotoUrl}
-            displayName={profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
-            size="md"
-            enableLightbox={false}
-            ringClassName={cn(
-              "ring-2",
-              profileActive ? "ring-white/40" : "ring-orange-200"
-            )}
-          />
-          <div className="min-w-0 flex-1">
-            <p
-              className={cn(
-                "truncate text-sm font-semibold",
-                profileActive ? "text-white" : "text-slate-900"
-              )}
-            >
-              {profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
-            </p>
-            <span
-              className={cn(
-                "mt-1 inline-block rounded px-2 py-0.5 text-[10px] font-bold tracking-widest",
-                profileActive
-                  ? "bg-white/20 text-white"
-                  : "bg-orange-100 text-orange-600"
-              )}
-            >
-              MY PROFILE
-            </span>
-          </div>
-        </div>
-      </button>
-
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
-        <CompanyLogo size="md" showFallback />
-      </div>
+    <SidebarCollapseProvider>
+    <SidebarFrame
+      profileActive={profileActive}
+      profileName={profileName}
+      profilePhotoUrl={profilePhotoUrl}
+      profileLoading={profileLoading}
+      onProfileClick={handleProfileClick}
+      onSignOut={handleSignOut}
+    >
 
       <nav className="flex-1 overflow-y-auto py-2">
         {isFeatureModuleEnabled(featureFlags, "projects", orgId) ? (
@@ -774,28 +754,146 @@ export default function Sidebar({
         ) : null}
       </nav>
 
-      <div className="mt-auto border-t border-slate-200 p-4">
-        <div className="mb-3 flex items-center gap-2">
+    </SidebarFrame>
+    </SidebarCollapseProvider>
+  );
+}
+
+function SidebarFrame({
+  profileActive,
+  profileName,
+  profilePhotoUrl,
+  profileLoading,
+  onProfileClick,
+  onSignOut,
+  children,
+}: {
+  profileActive: boolean;
+  profileName: string;
+  profilePhotoUrl?: string | null;
+  profileLoading: boolean;
+  onProfileClick: () => void;
+  onSignOut: () => void;
+  children: ReactNode;
+}) {
+  const iconOnly = useSidebarIconOnly();
+
+  return (
+    <aside
+      className={cn(
+        "flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-[width] duration-200 ease-in-out",
+        iconOnly ? "w-72 lg:w-20" : "w-72 lg:w-80"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center border-b border-slate-200",
+          iconOnly ? "justify-center px-1 py-2" : "justify-end px-2 py-1.5"
+        )}
+      >
+        <SidebarCollapseToggle />
+      </div>
+
+      <button
+        type="button"
+        onClick={onProfileClick}
+        title={iconOnly ? profileName : undefined}
+        className={cn(
+          "w-full border-b border-slate-200 text-left transition-colors",
+          iconOnly ? "p-2" : "p-4",
+          profileActive
+            ? "bg-orange-500 shadow-sm hover:bg-orange-600"
+            : "hover:bg-orange-50"
+        )}
+        aria-label="Open my worker profile"
+        aria-current={profileActive ? "page" : undefined}
+      >
+        <div className={cn("flex items-center", iconOnly ? "justify-center" : "gap-3")}>
+          <WorkerProfileAvatar
+            photoUrl={profilePhotoUrl}
+            displayName={profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
+            size={iconOnly ? "sm" : "md"}
+            enableLightbox={false}
+            ringClassName={cn(
+              "ring-2",
+              profileActive ? "ring-white/40" : "ring-orange-200"
+            )}
+          />
+          <div className={cn("min-w-0 flex-1", iconOnly && "sr-only")}>
+            <p
+              className={cn(
+                "truncate text-sm font-semibold",
+                profileActive ? "text-white" : "text-slate-900"
+              )}
+            >
+              {profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
+            </p>
+            <span
+              className={cn(
+                "mt-1 inline-block rounded px-2 py-0.5 text-[10px] font-bold tracking-widest",
+                profileActive
+                  ? "bg-white/20 text-white"
+                  : "bg-orange-100 text-orange-600"
+              )}
+            >
+              MY PROFILE
+            </span>
+          </div>
+        </div>
+      </button>
+
+      <div
+        className={cn(
+          "flex items-center border-b border-slate-200",
+          iconOnly ? "justify-center px-1 py-2" : "gap-2 px-4 py-3"
+        )}
+      >
+        {iconOnly ? (
+          <CompanyLogo size="sm" showFallback className="max-w-[40px]" />
+        ) : (
+          <CompanyLogo size="md" showFallback />
+        )}
+      </div>
+
+      {children}
+
+      <div className={cn("mt-auto border-t border-slate-200", iconOnly ? "p-2" : "p-4")}>
+        <div className={cn("mb-3 flex items-center gap-2", iconOnly && "flex-col")}>
           <ThemePicker />
-          <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+          <div
+            className={cn(
+              "grid min-w-0 flex-1 gap-2",
+              iconOnly ? "grid-cols-1" : "grid-cols-2"
+            )}
+          >
             <Link
               href="/account/update-password"
-              className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+              title="Change Password"
+              className={cn(
+                "flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700",
+                iconOnly ? "h-10 w-10 px-0" : "px-3 py-2.5"
+              )}
             >
               <KeyRound className="h-4 w-4 shrink-0" />
-              <span className="truncate">Change Password</span>
+              <span className={cn("truncate", iconOnly && "sr-only")}>Change Password</span>
             </Link>
             <button
               type="button"
-              onClick={handleSignOut}
-              className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+              onClick={onSignOut}
+              title="Sign Out"
+              className={cn(
+                "flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700",
+                iconOnly ? "h-10 w-10 px-0" : "px-3 py-2.5"
+              )}
             >
               <LogOut className="h-4 w-4 shrink-0" />
-              <span className="truncate">Sign Out</span>
+              <span className={cn("truncate", iconOnly && "sr-only")}>Sign Out</span>
             </button>
           </div>
         </div>
-        <p className="text-xs text-slate-400">Construction Safety Platform</p>
+        <p className={cn("text-xs text-slate-400", iconOnly && "sr-only")}>
+          Construction Safety Platform
+        </p>
       </div>
     </aside>
   );
@@ -814,44 +912,53 @@ function ProjectsSection({
 }) {
   const [open, setOpen] = useState(false);
   const [expandedProjectKey, setExpandedProjectKey] = useState<string | null>(null);
+  const iconOnly = useSidebarIconOnly();
+
+  const items = (
+    <div className="space-y-1 px-2">
+      {projects.map((project) => {
+        const projectKey = project.id ?? project.label;
+        return (
+          <ProjectAccordion
+            key={projectKey}
+            project={project}
+            open={expandedProjectKey === projectKey}
+            onToggle={() =>
+              setExpandedProjectKey((current) =>
+                current === projectKey ? null : projectKey
+              )
+            }
+            activeView={activeView}
+            selectedProjectId={selectedProjectId}
+            onNavigate={onNavigate}
+          />
+        );
+      })}
+    </div>
+  );
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-2">
-          <FolderKanban className="h-4 w-4" />
-          PROJECTS ({projects.length})
-        </span>
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-      </button>
-      {open && (
-        <div className="space-y-1 px-2">
-          {projects.map((project) => {
-            const projectKey = project.id ?? project.label;
-            return (
-              <ProjectAccordion
-                key={projectKey}
-                project={project}
-                open={expandedProjectKey === projectKey}
-                onToggle={() =>
-                  setExpandedProjectKey((current) =>
-                    current === projectKey ? null : projectKey
-                  )
-                }
-                activeView={activeView}
-                selectedProjectId={selectedProjectId}
-                onNavigate={onNavigate}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <SidebarSectionShell
+      id="projects"
+      icon={FolderKanban}
+      label={`Projects (${projects.length})`}
+      header={
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-2">
+            <FolderKanban className="h-4 w-4" />
+            PROJECTS ({projects.length})
+          </span>
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+      }
+    >
+      {(open || iconOnly) && items}
+    </SidebarSectionShell>
   );
 }
 
@@ -871,25 +978,33 @@ function SubcontractorsSection({
     "subcontractors",
     activeView === "subcontractors" || hiredLabourActive
   );
+  const iconOnly = useSidebarIconOnly();
   const items: SubItem[] = [
     { label: "View All Subcontractors", view: "subcontractors" },
     { label: "Add New Subcontractor", view: "subcontractors", openAdd: true },
   ];
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={toggleOpen}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
-      >
-        <span className="flex items-center gap-2">
-          <Truck className="h-4 w-4" />
-          SUBCONTRACTORS
-        </span>
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-      </button>
-      {open && (
+    <SidebarSectionShell
+      id="subcontractors"
+      icon={Truck}
+      label="Subcontractors"
+      active={activeView === "subcontractors" || hiredLabourActive}
+      header={
+        <button
+          type="button"
+          onClick={toggleOpen}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
+        >
+          <span className="flex items-center gap-2">
+            <Truck className="h-4 w-4" />
+            SUBCONTRACTORS
+          </span>
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+      }
+    >
+      {(open || iconOnly) && (
         <div className="space-y-1 px-2">
           {items.map((item) => (
             <NavLink
@@ -915,7 +1030,7 @@ function SubcontractorsSection({
           />
         </div>
       )}
-    </div>
+    </SidebarSectionShell>
   );
 }
 
@@ -933,31 +1048,39 @@ function AccountsSection({
     menu.defaultExpanded
   );
   const SectionIcon = menu.icon;
+  const iconOnly = useSidebarIconOnly();
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={() => menu.isCollapsible && toggleOpen()}
-        className={cn(
-          "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
-          isAccountsRoute ? "text-orange-700" : "text-orange-600"
-        )}
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-2">
-          <SectionIcon className="h-4 w-4" />
-          {menu.title}
-        </span>
-        {menu.isCollapsible ? (
-          open ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )
-        ) : null}
-      </button>
-      {open && (
+    <SidebarSectionShell
+      id="accounts"
+      icon={SectionIcon}
+      label={menu.title}
+      active={isAccountsRoute}
+      header={
+        <button
+          type="button"
+          onClick={() => menu.isCollapsible && toggleOpen()}
+          className={cn(
+            "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
+            isAccountsRoute ? "text-orange-700" : "text-orange-600"
+          )}
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-2">
+            <SectionIcon className="h-4 w-4" />
+            {menu.title}
+          </span>
+          {menu.isCollapsible ? (
+            open ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )
+          ) : null}
+        </button>
+      }
+    >
+      {(open || iconOnly) && (
         <div className="space-y-1 px-2">
           {menu.children.map((item) => {
             const isActive =
@@ -975,7 +1098,7 @@ function AccountsSection({
           })}
         </div>
       )}
-    </div>
+    </SidebarSectionShell>
   );
 }
 
@@ -1026,31 +1149,39 @@ function CommunicationSection({
     menu.defaultExpanded
   );
   const SectionIcon = menu.icon;
+  const iconOnly = useSidebarIconOnly();
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={() => menu.isCollapsible && toggleOpen()}
-        className={cn(
-          "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
-          isCommunicationRoute ? "text-orange-700" : "text-orange-600"
-        )}
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-2">
-          <SectionIcon className="h-4 w-4" />
-          {menu.title}
-        </span>
-        {menu.isCollapsible ? (
-          open ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )
-        ) : null}
-      </button>
-      {open && (
+    <SidebarSectionShell
+      id="communication"
+      icon={SectionIcon}
+      label={menu.title}
+      active={isCommunicationRoute}
+      header={
+        <button
+          type="button"
+          onClick={() => menu.isCollapsible && toggleOpen()}
+          className={cn(
+            "flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider",
+            isCommunicationRoute ? "text-orange-700" : "text-orange-600"
+          )}
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-2">
+            <SectionIcon className="h-4 w-4" />
+            {menu.title}
+          </span>
+          {menu.isCollapsible ? (
+            open ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )
+          ) : null}
+        </button>
+      }
+    >
+      {(open || iconOnly) && (
         <div className="space-y-1 px-2">
           {menu.children.map((item) => {
             const isActive =
@@ -1070,7 +1201,7 @@ function CommunicationSection({
           })}
         </div>
       )}
-    </div>
+    </SidebarSectionShell>
   );
 }
 
@@ -1141,21 +1272,29 @@ function AdministrationSection({
     { label: "1-Click Document Pack", view: "admin-document-pack" },
     { label: "Reporting", view: "admin-reporting" }
   );
+  const iconOnly = useSidebarIconOnly();
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={toggleOpen}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
-      >
-        <span className="flex items-center gap-2">
-          <Shield className="h-4 w-4" />
-          ADMINISTRATION
-        </span>
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-      </button>
-      {open && (
+    <SidebarSectionShell
+      id="administration"
+      icon={Shield}
+      label="Administration"
+      active={isAdminRoute}
+      header={
+        <button
+          type="button"
+          onClick={toggleOpen}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
+        >
+          <span className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            ADMINISTRATION
+          </span>
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+      }
+    >
+      {(open || iconOnly) && (
         <div className="space-y-1 px-2">
           <RouteNavLink
             label="Master Project Dashboard"
@@ -1183,7 +1322,7 @@ function AdministrationSection({
                 <ChevronRight className="h-4 w-4 text-slate-400" />
               )}
             </button>
-            {formsOpen ? (
+            {formsOpen || iconOnly ? (
               <div className="space-y-1 pb-1">
                 <RouteNavLink
                   label="RFI"
@@ -1235,7 +1374,7 @@ function AdministrationSection({
           ))}
         </div>
       )}
-    </div>
+    </SidebarSectionShell>
   );
 }
 
@@ -1256,21 +1395,29 @@ function OrganisationSection({
     "organisation",
     isOrganisationRoute
   );
+  const iconOnly = useSidebarIconOnly();
 
   return (
-    <div className="border-b border-slate-200 pb-3">
-      <button
-        type="button"
-        onClick={toggleOpen}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
-      >
-        <span className="flex items-center gap-2">
-          <Building2 className="h-4 w-4" />
-          ORGANISATION
-        </span>
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-      </button>
-      {open && (
+    <SidebarSectionShell
+      id="organisation"
+      icon={Building2}
+      label="Organisation"
+      active={isOrganisationRoute}
+      header={
+        <button
+          type="button"
+          onClick={toggleOpen}
+          className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold tracking-wider text-orange-600"
+        >
+          <span className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            ORGANISATION
+          </span>
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+      }
+    >
+      {(open || iconOnly) && (
         <div className="relative z-30 space-y-1 px-2">
           {items.map((item) => (
             <RouteNavLink
@@ -1283,6 +1430,6 @@ function OrganisationSection({
           ))}
         </div>
       )}
-    </div>
+    </SidebarSectionShell>
   );
 }

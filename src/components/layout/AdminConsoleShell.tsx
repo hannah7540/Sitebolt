@@ -487,7 +487,7 @@ export default function AdminConsoleShell({
         >
           <Suspense
             fallback={
-              <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-80" />
+              <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 ease-in-out lg:w-80" />
             }
           >
             <Sidebar
