@@ -107,21 +107,27 @@ export interface Worker {
   emergency_contact_number?: string | null;
   emergency_contact_relationship: string | null;
   worker_category?: string | null;
+  hired_labour_status?: string | null;
+  rejection_notes?: string | null;
   white_card_provided?: boolean;
   silica_cert_provided?: boolean;
   dob: string | null;
   white_card_number: string | null;
   white_card_issue_date: string | null;
+  white_card_date?: string | null;
   white_card_photo_url: string | null;
   white_card_doc_url: string | null;
+  white_card_file_url?: string | null;
   drivers_licence_number: string | null;
   drivers_licence_class: string | null;
   drivers_licence_expiry: string | null;
   drivers_licence_photo_url: string | null;
   silica_cert_number: string | null;
   silica_cert_issue_date: string | null;
+  silica_cert_date?: string | null;
   silica_cert_photo_url: string | null;
   silica_cert_doc_url: string | null;
+  silica_cert_file_url?: string | null;
   voc_details: string | null;
   voc_title: string | null;
   voc_issuing_org: string | null;
@@ -194,11 +200,15 @@ const WORKER_SELECT_COLUMNS = [
   "emergency_contact_number",
   "emergency_contact_relationship",
   "worker_category",
+  "hired_labour_status",
+  "rejection_notes",
   "white_card_provided",
   "silica_cert_provided",
   "dob",
   "white_card_number",
   "white_card_issue_date",
+  "white_card_date",
+  "white_card_file_url",
   "white_card_photo_url",
   "white_card_doc_url",
   "drivers_licence_number",
@@ -207,6 +217,8 @@ const WORKER_SELECT_COLUMNS = [
   "drivers_licence_photo_url",
   "silica_cert_number",
   "silica_cert_issue_date",
+  "silica_cert_date",
+  "silica_cert_file_url",
   "silica_cert_photo_url",
   "silica_cert_doc_url",
   "voc_details",
@@ -415,21 +427,27 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     emergency_contact_number: row.emergency_contact_number ?? row.emergency_contact_phone ?? null,
     emergency_contact_relationship: row.emergency_contact_relationship ?? null,
     worker_category: row.worker_category ? String(row.worker_category) : "internal",
+    hired_labour_status: row.hired_labour_status ? String(row.hired_labour_status) : null,
+    rejection_notes: row.rejection_notes ? String(row.rejection_notes) : null,
     white_card_provided: row.white_card_provided === true,
     silica_cert_provided: row.silica_cert_provided === true,
     dob: row.dob ?? null,
     white_card_number: row.white_card_number ?? null,
-    white_card_issue_date: row.white_card_issue_date ?? null,
+    white_card_issue_date: row.white_card_issue_date ?? row.white_card_date ?? null,
+    white_card_date: row.white_card_date ?? row.white_card_issue_date ?? null,
     white_card_photo_url: row.white_card_photo_url ?? null,
     white_card_doc_url: row.white_card_doc_url ?? row.white_card_photo_url ?? null,
+    white_card_file_url: row.white_card_file_url ?? row.white_card_doc_url ?? null,
     drivers_licence_number: row.drivers_licence_number ?? null,
     drivers_licence_class: row.drivers_licence_class ?? null,
     drivers_licence_expiry: row.drivers_licence_expiry ?? null,
     drivers_licence_photo_url: row.drivers_licence_photo_url ?? null,
     silica_cert_number: row.silica_cert_number ?? null,
-    silica_cert_issue_date: row.silica_cert_issue_date ?? null,
+    silica_cert_issue_date: row.silica_cert_issue_date ?? row.silica_cert_date ?? null,
+    silica_cert_date: row.silica_cert_date ?? row.silica_cert_issue_date ?? null,
     silica_cert_photo_url: row.silica_cert_photo_url ?? null,
     silica_cert_doc_url: row.silica_cert_doc_url ?? row.silica_cert_photo_url ?? null,
+    silica_cert_file_url: row.silica_cert_file_url ?? row.silica_cert_doc_url ?? null,
     voc_details: row.voc_details ?? null,
     voc_title: row.voc_title ?? null,
     voc_issuing_org: row.voc_issuing_org ?? null,
@@ -1916,7 +1934,7 @@ export async function addWorker(
     .select("id")
     .single();
 
-  if (error && /invite_status|onboarding_completed|worker_category|white_card_provided|silica_cert_provided|emergency_contact_number/i.test(error.message)) {
+  if (error && /invite_status|onboarding_completed|worker_category|hired_labour_status|white_card_provided|silica_cert_provided|emergency_contact_number/i.test(error.message)) {
     const fallbackPayload = { ...insertPayload };
     delete fallbackPayload.invite_status;
     if (/onboarding_completed/i.test(error.message)) {
@@ -1924,6 +1942,9 @@ export async function addWorker(
     }
     if (/worker_category/i.test(error.message)) {
       delete fallbackPayload.worker_category;
+    }
+    if (/hired_labour_status/i.test(error.message)) {
+      delete fallbackPayload.hired_labour_status;
     }
     if (/white_card_provided/i.test(error.message)) {
       delete fallbackPayload.white_card_provided;

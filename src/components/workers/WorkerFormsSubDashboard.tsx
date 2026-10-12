@@ -191,11 +191,13 @@ export default function WorkerFormsSubDashboard({
           <WorkerRequestTile onClick={openRequestForm} />
         ) : null}
         <WorkerIncidentReportTile onClick={openIncidentForm} />
-        <WorkerOtherFormsSection
-          worker={worker}
-          projects={projects}
-          defaultProjectId={defaultProjectId}
-        />
+        {!isHiredLabourWorker(worker) ? (
+          <WorkerOtherFormsSection
+            worker={worker}
+            projects={projects}
+            defaultProjectId={defaultProjectId}
+          />
+        ) : null}
       </div>
 
       <button

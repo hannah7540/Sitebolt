@@ -108,8 +108,14 @@ const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
   "safety_walk",
 ]);
 
-/** Hired labour must not see timesheets on the worker dashboard. */
-const HIRED_LABOUR_HIDDEN_WIDGET_IDS = new Set(["timesheets"]);
+/** Hired labour only see compliance tools, not timesheets, leave, or ITCs. */
+const HIRED_LABOUR_ALLOWED_WIDGET_IDS = ["forms_hub", "inductions", "swms"] as const;
+const HIRED_LABOUR_HIDDEN_WIDGET_IDS = new Set([
+  "timesheets",
+  "leave",
+  "itcs",
+  "details",
+]);
 
 interface DashboardWidget {
   id: string;
@@ -253,7 +259,9 @@ export default function WorkerDashboardView({
     [sessionRole, worker?.security_role]
   );
   const canCustomize =
-    canCustomizeDashboardLayout(resolvedRole) && !isNativeMobileApp();
+    canCustomizeDashboardLayout(resolvedRole) &&
+    !isNativeMobileApp() &&
+    !isHiredLabourWorker(worker);
   const layout = useDashboardLayout({
     userId: effectiveWorkerId,
     role: resolvedRole,
@@ -993,6 +1001,13 @@ export default function WorkerDashboardView({
   };
 
   const widgetsToRender = useMemo(() => {
+    if (isHiredLabourWorker(worker)) {
+      const pool = [...layout.orderedWidgets, ...layout.hiddenWidgets];
+      return HIRED_LABOUR_ALLOWED_WIDGET_IDS.map(
+        (id) => pool.find((widget) => widget.id === id) ?? { id, position: 0, isVisible: true }
+      );
+    }
+
     const source = layout.editMode ? layout.orderedWidgets : layout.visibleWidgets;
     const filtered = source.filter(
       (widget) =>
@@ -1022,6 +1037,7 @@ export default function WorkerDashboardView({
     layout.editMode,
     layout.orderedWidgets,
     layout.visibleWidgets,
+    layout.hiddenWidgets,
     pendingInductions.length,
     pendingSwmsCount,
     worker,

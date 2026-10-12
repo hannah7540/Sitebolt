@@ -27,7 +27,9 @@ import {
   workerDashboardUrl,
 } from "@/lib/user-session";
 import {
+  fetchHiredLabourAccess,
   HIRED_LABOUR_ONBOARDING_PATH,
+  hiredLabourCanAccessApp,
   isHiredLabourWorker,
 } from "@/lib/hired-labour";
 
@@ -73,13 +75,12 @@ function WorkerDashboardContent() {
             : null;
         const sessionRole = normalizeSecurityRole(sessionWorker?.security_role);
 
-        if (
-          sessionWorker &&
-          isHiredLabourWorker(sessionWorker) &&
-          !sessionWorker.onboarding_completed
-        ) {
-          router.replace(HIRED_LABOUR_ONBOARDING_PATH);
-          return;
+        if (sessionWorker && isHiredLabourWorker(sessionWorker)) {
+          const access = await fetchHiredLabourAccess(sessionWorker.id);
+          if (!hiredLabourCanAccessApp(access)) {
+            router.replace(HIRED_LABOUR_ONBOARDING_PATH);
+            return;
+          }
         }
 
         if (

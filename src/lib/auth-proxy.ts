@@ -31,6 +31,7 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import { linkWorkerProfile } from "@/lib/link-worker-profile";
+import { resolveHiredLabourAccessStatus } from "@/lib/hired-labour-status";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -143,21 +144,40 @@ interface AuthContext {
   onboardingCompleted: boolean;
   accessRevoked: boolean;
   workerCategory: string | null;
+  hiredLabourStatus: string | null;
 }
 
-async function resolveWorkerCategory(
+async function resolveWorkerAccess(
   supabase: ReturnType<typeof createServerClient>,
   workerId: string | null
-): Promise<string | null> {
-  if (!workerId) return null;
-  const { data, error } = await supabase
+): Promise<{ category: string | null; hiredLabourStatus: string | null }> {
+  if (!workerId) return { category: null, hiredLabourStatus: null };
+  let { data, error } = await supabase
     .from("workers")
-    .select("worker_category")
+    .select("worker_category, hired_labour_status, onboarding_completed")
     .eq("id", workerId)
     .maybeSingle();
-  if (error || !data) return null;
-  const category = String((data as { worker_category?: string | null }).worker_category ?? "").trim();
-  return category || null;
+  if (error && /hired_labour_status/i.test(error.message)) {
+    ({ data, error } = await supabase
+      .from("workers")
+      .select("worker_category, onboarding_completed")
+      .eq("id", workerId)
+      .maybeSingle());
+  }
+  if (error || !data) return { category: null, hiredLabourStatus: null };
+  const row = data as {
+    worker_category?: string | null;
+    hired_labour_status?: string | null;
+    onboarding_completed?: boolean | null;
+  };
+  const category = String(row.worker_category ?? "").trim() || null;
+  const isHired = category?.toLowerCase() === "hired_labour";
+  return {
+    category,
+    hiredLabourStatus: isHired
+      ? resolveHiredLabourAccessStatus(row.hired_labour_status, row.onboarding_completed)
+      : null,
+  };
 }
 
 async function linkWorkerForSession(
@@ -224,6 +244,7 @@ async function resolveAuthContext(
       onboardingCompleted: true,
       accessRevoked: false,
       workerCategory: null,
+      hiredLabourStatus: null,
     };
   }
 
@@ -240,6 +261,7 @@ async function resolveAuthContext(
     if (!workerId && !accessRevoked) {
       workerId = (await linkWorkerForSession(user)).workerId;
     }
+    const access = await resolveWorkerAccess(supabase, workerId);
     const onboardingCompleted = workerId
       ? await resolveWorkerOnboardingCompleted(supabase, workerId)
       : true;
@@ -250,7 +272,8 @@ async function resolveAuthContext(
       workerId,
       onboardingCompleted,
       accessRevoked,
-      workerCategory: await resolveWorkerCategory(supabase, workerId),
+      workerCategory: access.category,
+      hiredLabourStatus: access.hiredLabourStatus,
     };
   }
 
@@ -261,13 +284,15 @@ async function resolveAuthContext(
       match.workerId
     );
 
+    const access = await resolveWorkerAccess(supabase, match.workerId);
     return {
       user,
       role: normalizeSecurityRole(match.securityRole),
       workerId: match.workerId,
       onboardingCompleted,
       accessRevoked,
-      workerCategory: await resolveWorkerCategory(supabase, match.workerId),
+      workerCategory: access.category,
+      hiredLabourStatus: access.hiredLabourStatus,
     };
   }
 
@@ -278,13 +303,15 @@ async function resolveAuthContext(
         supabase,
         linked.workerId
       );
+      const access = await resolveWorkerAccess(supabase, linked.workerId);
       return {
         user,
         role: normalizeSecurityRole(linked.securityRole),
         workerId: linked.workerId,
         onboardingCompleted,
         accessRevoked,
-        workerCategory: await resolveWorkerCategory(supabase, linked.workerId),
+        workerCategory: access.category,
+        hiredLabourStatus: access.hiredLabourStatus,
       };
     }
   }
@@ -299,6 +326,7 @@ async function resolveAuthContext(
     onboardingCompleted: true,
     accessRevoked,
     workerCategory: null,
+    hiredLabourStatus: null,
   };
 }
 
@@ -312,7 +340,7 @@ function resolveAuthenticatedHomePath(
 ): string {
   if (
     String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
-    !context.onboardingCompleted
+    context.hiredLabourStatus !== "approved"
   ) {
     return "/onboarding/hired-labour";
   }
@@ -469,13 +497,12 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     }
   }
 
-  const hiredLabourIncomplete =
-    Boolean(context.user) &&
-    String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
-    !context.onboardingCompleted;
+  const isHiredLabour =
+    String(context.workerCategory ?? "").toLowerCase() === "hired_labour";
+  const hiredLabourBlocked = isHiredLabour && context.hiredLabourStatus !== "approved";
   const hiredLabourOnboardingPath = "/onboarding/hired-labour";
   if (
-    hiredLabourIncomplete &&
+    hiredLabourBlocked &&
     !pathname.startsWith(hiredLabourOnboardingPath) &&
     !pathname.startsWith("/setyourpassword") &&
     !pathname.startsWith("/reset-password") &&
@@ -537,15 +564,16 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   }
 
   if (context.user && context.role === "general_worker") {
-    const incompleteOnboardingPath = hiredLabourIncomplete
+    const incompleteOnboardingPath = isHiredLabour
       ? hiredLabourOnboardingPath
       : "/onboarding";
 
-    if (hiredLabourIncomplete && !pathname.startsWith(hiredLabourOnboardingPath)) {
+    if (hiredLabourBlocked && !pathname.startsWith(hiredLabourOnboardingPath)) {
       return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
     }
 
     if (
+      !isHiredLabour &&
       !context.onboardingCompleted &&
       (pathname === GENERAL_WORKER_HOME_PATH ||
         pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`) ||
@@ -554,7 +582,10 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       return redirectWithCookies(request, incompleteOnboardingPath, sessionResponse);
     }
 
-    if (context.onboardingCompleted && pathname.startsWith("/onboarding")) {
+    if (
+      ((isHiredLabour && !hiredLabourBlocked) || (!isHiredLabour && context.onboardingCompleted)) &&
+      pathname.startsWith("/onboarding")
+    ) {
       return redirectWithCookies(
         request,
         resolveGeneralWorkerHomePath(context),
@@ -565,9 +596,13 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     if (!isGeneralWorkerAllowedPath(pathname)) {
       return redirectWithCookies(
         request,
-        context.onboardingCompleted
-          ? resolveGeneralWorkerHomePath(context)
-          : incompleteOnboardingPath,
+        isHiredLabour
+          ? hiredLabourBlocked
+            ? hiredLabourOnboardingPath
+            : resolveGeneralWorkerHomePath(context)
+          : context.onboardingCompleted
+            ? resolveGeneralWorkerHomePath(context)
+            : incompleteOnboardingPath,
         sessionResponse
       );
     }

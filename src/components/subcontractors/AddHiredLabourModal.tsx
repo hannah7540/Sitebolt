@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createHiredLabourWorker } from "@/lib/hired-labour";
+import { fetchProjects, type DbProject } from "@/lib/project-resolver";
+import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
 import {
   inputClass,
   labelClass,
@@ -25,8 +27,15 @@ export default function AddHiredLabourModal({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [state, setState] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<DbProject[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -37,6 +46,8 @@ export default function AddHiredLabourModal({
       lastName,
       email,
       phone,
+      state,
+      projectId,
     });
     setSubmitting(false);
     if (result.error || !result.workerId) {
@@ -114,6 +125,40 @@ export default function AddHiredLabourModal({
                 required
               />
             </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className={labelClass}>State</span>
+                <select
+                  className={inputClass}
+                  value={state}
+                  onChange={(event) => setState(event.target.value)}
+                  required
+                >
+                  <option value="">Select state</option>
+                  {WORKER_STATE_REGION_OPTIONS.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className={labelClass}>Project</span>
+                <select
+                  className={inputClass}
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value)}
+                  required
+                >
+                  <option value="">Select project</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           <div className={modalStickyFooterClass + " flex justify-end gap-2 pb-4"}>
             <button

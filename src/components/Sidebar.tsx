@@ -56,6 +56,7 @@ import {
   isOrganisationNavActive,
 } from "@/lib/organisation-nav-routes";
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
+import { useHiredLabourPendingCount } from "@/hooks/useHiredLabourPendingCount";
 import { usePersistedSidebarSection } from "@/hooks/usePersistedSidebarSection";
 import { cn } from "@/lib/utils";
 import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
@@ -241,6 +242,7 @@ function NavLink({
   icon: Icon,
   onClick,
   badge,
+  badgeTone = "default",
 }: {
   label: string;
   depth?: number;
@@ -248,6 +250,7 @@ function NavLink({
   icon?: LucideIcon;
   onClick?: () => void;
   badge?: number;
+  badgeTone?: "default" | "red";
 }) {
   return (
     <button
@@ -276,7 +279,7 @@ function NavLink({
         <span
           className={cn(
             "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
-            active ? "bg-white/25 text-white" : "bg-red-500 text-white"
+            active && badgeTone !== "red" ? "bg-white/25 text-white" : "bg-red-500 text-white"
           )}
         >
           {badge > 99 ? "99+" : badge}
@@ -293,6 +296,7 @@ function RouteNavLink({
   active,
   icon,
   badge,
+  badgeTone,
 }: {
   label: string;
   href: string;
@@ -300,6 +304,7 @@ function RouteNavLink({
   active?: boolean;
   icon?: LucideIcon;
   badge?: number;
+  badgeTone?: "default" | "red";
 }) {
   const router = useRouter();
 
@@ -310,6 +315,7 @@ function RouteNavLink({
       active={active}
       icon={icon}
       badge={badge}
+      badgeTone={badgeTone}
       onClick={() => router.push(href)}
     />
   );
@@ -857,6 +863,7 @@ function SubcontractorsSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const pathname = usePathname();
+  const hiredLabourPendingCount = useHiredLabourPendingCount();
   const hiredLabourActive =
     pathname === "/dashboard/subcontractors/hired-labour" ||
     pathname?.startsWith("/dashboard/subcontractors/hired-labour/") === true;
@@ -903,6 +910,8 @@ function SubcontractorsSection({
             label="Hired Labour"
             href="/dashboard/subcontractors/hired-labour"
             active={hiredLabourActive}
+            badge={hiredLabourPendingCount}
+            badgeTone="red"
           />
         </div>
       )}
