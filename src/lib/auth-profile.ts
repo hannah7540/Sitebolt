@@ -77,7 +77,11 @@ export async function fetchWorkerIdForAuthUser(
   needsAuthLink: boolean;
 }> {
   const supabase = createSupabaseBrowserClient();
-  const match = await matchWorkerForAuthUser(supabase, { id: userId, email });
+  const match = await matchWorkerForAuthUser(
+    supabase,
+    { id: userId, email },
+    { skipEmailLookup: true }
+  );
   if (!match) {
     return {
       workerId: null,
@@ -95,29 +99,53 @@ export async function fetchWorkerIdForAuthUser(
   };
 }
 
-async function linkWorkerProfileViaEnsureApi(): Promise<{
+async function linkWorkerProfileViaAdminApi(user: User): Promise<{
   workerId: string | null;
   organisationId: string | null;
+  securityRole: string | null;
 } | null> {
   if (typeof window === "undefined") return null;
   try {
-    const response = await fetch("/api/workers/ensure-profile", {
+    const supabase = createSupabaseBrowserClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+
+    const response = await fetch("/api/workers/link-profile", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       credentials: "same-origin",
       body: JSON.stringify({}),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      console.warn("[auth-profile] service-role profile auto-link failed", {
+        status: response.status,
+        error: payload?.error ?? null,
+        userId: user.id,
+      });
+      return null;
+    }
     const json = (await response.json()) as {
       workerId?: string | null;
       organisationId?: string | null;
+      securityRole?: string | null;
     };
     return {
       workerId: json.workerId ?? null,
       organisationId: json.organisationId ?? null,
+      securityRole: json.securityRole ?? null,
     };
   } catch (error) {
-    console.warn("[auth-profile] ensure-profile auto-link failed", error);
+    console.warn("[auth-profile] service-role profile auto-link failed", error);
     return null;
   }
 }
@@ -129,12 +157,12 @@ async function resolveLinkedWorkerForAuthUser(user: User): Promise<{
 }> {
   let worker = await fetchWorkerIdForAuthUser(user.id, user.email);
   if (!worker.workerId || worker.needsAuthLink) {
-    const linked = await linkWorkerProfileViaEnsureApi();
+    const linked = await linkWorkerProfileViaAdminApi(user);
     if (linked?.workerId) {
       const refreshed = await fetchWorkerIdForAuthUser(user.id, user.email);
       return {
         workerId: refreshed.workerId ?? linked.workerId,
-        securityRole: refreshed.securityRole ?? worker.securityRole,
+        securityRole: refreshed.securityRole ?? linked.securityRole ?? worker.securityRole,
         organisationId: refreshed.organisationId ?? linked.organisationId,
       };
     }
@@ -190,7 +218,7 @@ export async function resolveRoleForAuthUser(user: User): Promise<ProfileRole> {
   const profile = await fetchUserProfile(user.id);
   if (profile?.role) return normalizeProfileRole(profile.role);
 
-  const worker = await fetchWorkerIdForAuthUser(user.id, user.email);
+  const worker = await resolveLinkedWorkerForAuthUser(user);
   if (worker.securityRole) return normalizeProfileRole(worker.securityRole);
 
   return extractRoleFromAuthMetadata(

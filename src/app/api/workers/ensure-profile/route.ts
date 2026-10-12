@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -13,6 +14,26 @@ import {
 } from "@/lib/ensure-worker-profile";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
+async function resolveAuthenticatedUser(req: Request): Promise<User | null> {
+  const admin = createSupabaseAdminClient();
+  const authHeader = req.headers.get("authorization");
+  const token =
+    authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+
+  if (token) {
+    const { data, error } = await admin.auth.getUser(token);
+    if (!error && data.user) {
+      return data.user;
+    }
+  }
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await server.auth.getUser();
+  return user;
+}
+
 export async function POST(req: Request) {
   if (!isSupabaseAdminConfigured()) {
     return NextResponse.json(
@@ -21,10 +42,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await resolveAuthenticatedUser(req);
 
   if (!user) {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });

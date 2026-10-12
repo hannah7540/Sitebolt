@@ -6,11 +6,7 @@ import {
 } from "@/lib/worker-onboarding";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
-import { A_PLUS_ORGANISATION_ID } from "@/lib/active-organisation";
-import {
-  emailsMatchExactly,
-  matchWorkerForAuthUser,
-} from "@/lib/worker-auth-lookup";
+import { linkWorkerProfile } from "@/lib/link-worker-profile";
 
 export interface EnsureWorkerInviteInput {
   email: string;
@@ -566,82 +562,22 @@ export async function ensureWorkerProfileForAuthUser(
     return { workerId: null, organisationId: null, error: "Auth user email is required." };
   }
 
-  const match = await matchWorkerForAuthUser(admin, user, {
-    activeOrgId: A_PLUS_ORGANISATION_ID,
-  });
-
-  if (match?.workerId) {
-    const { data: workerRow } = await admin
-      .from("workers")
-      .select("email, organisation_id, auth_user_id, user_id")
-      .eq("id", match.workerId)
-      .maybeSingle();
-
-    const rowEmail = String((workerRow as { email?: string | null } | null)?.email ?? "");
-    if (!emailsMatchExactly(rowEmail, email)) {
-      console.warn("[ensure-worker-profile] refused auto-link because emails do not match", {
-        userId: user.id,
-        authEmail: email,
-        workerId: match.workerId,
-        workerEmail: rowEmail || null,
-      });
-      return {
-        workerId: null,
-        organisationId: null,
-        error: "Worker profile email does not match this account.",
-      };
-    }
-
-    if (match.needsAuthLink) {
-      const linkResult = await linkWorkerAuthAccount(admin, {
-        workerId: match.workerId,
-        authUserId: user.id,
-        email,
-        fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
-        securityRole: match.securityRole ?? DEFAULT_WORKER_SECURITY_ROLE,
-      });
-      if (linkResult.error) {
-        return {
-          workerId: null,
-          organisationId: match.organisationId,
-          error: linkResult.error,
-        };
-      }
-    }
-
-    return { workerId: match.workerId, organisationId: match.organisationId, error: null };
+  const linked = await linkWorkerProfile(email, user.id);
+  if (linked.workerId) {
+    return {
+      workerId: linked.workerId,
+      organisationId: linked.organisationId,
+      error: null,
+    };
   }
 
   const workerId = await findWorkerIdForAuthUser(admin, user.id, email);
   if (workerId) {
-    const { data: existing } = await admin
-      .from("workers")
-      .select("email, organisation_id")
-      .eq("id", workerId)
-      .maybeSingle();
-    const existingEmail = String((existing as { email?: string | null } | null)?.email ?? "");
-    if (existingEmail && !emailsMatchExactly(existingEmail, email)) {
-      return {
-        workerId: null,
-        organisationId: null,
-        error: "Worker profile email does not match this account.",
-      };
-    }
-
-    await linkWorkerAuthAccount(admin, {
-      workerId,
-      authUserId: user.id,
-      email,
-      fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
-      securityRole: DEFAULT_WORKER_SECURITY_ROLE,
-    });
-
+    const retry = await linkWorkerProfile(email, user.id);
     return {
-      workerId,
-      organisationId:
-        String((existing as { organisation_id?: string | null } | null)?.organisation_id ?? "").trim() ||
-        null,
-      error: null,
+      workerId: retry.workerId ?? workerId,
+      organisationId: retry.organisationId,
+      error: retry.error,
     };
   }
 
@@ -649,5 +585,9 @@ export async function ensureWorkerProfileForAuthUser(
     userId: user.id,
     email,
   });
-  return { workerId: null, organisationId: null, error: "Worker profile not found." };
+  return {
+    workerId: null,
+    organisationId: null,
+    error: linked.error ?? "Worker profile not found.",
+  };
 }

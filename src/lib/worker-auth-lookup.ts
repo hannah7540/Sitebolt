@@ -178,7 +178,7 @@ async function selectWorkerRows(
 export async function matchWorkerForAuthUser(
   supabase: SupabaseClient,
   user: { id: string; email?: string | null },
-  options?: { activeOrgId?: string | null }
+  options?: { activeOrgId?: string | null; skipEmailLookup?: boolean }
 ): Promise<WorkerAuthMatch | null> {
   const email = user.email?.trim() || "";
   const activeOrgId = options?.activeOrgId ?? (typeof window === "undefined" ? null : getActiveOrganisationId());
@@ -191,7 +191,7 @@ export async function matchWorkerForAuthUser(
     row = pickWorkerAuthRow(byUserId, { userId: user.id, email, activeOrgId });
   }
 
-  if (!row && email) {
+  if (!row && email && !options?.skipEmailLookup) {
     const byEmail = await selectWorkerRows(supabase, "email", email);
     row = pickWorkerAuthRow(byEmail, { userId: user.id, email, activeOrgId });
     if (!row && byEmail.length === 0) {
