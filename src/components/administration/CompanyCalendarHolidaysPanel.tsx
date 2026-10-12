@@ -18,6 +18,7 @@ import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
+import { syncPublicHolidaysForAllWorkers } from "@/app/actions/sync-public-holidays";
 
 function formatDisplayDate(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString("en-AU", {
@@ -67,6 +68,17 @@ export default function CompanyCalendarHolidaysPanel() {
       return true;
     });
   }, [days, stateFilter, typeFilter, yearFilter]);
+
+  const handleSyncAll = async () => {
+    setBusy(true);
+    const result = await syncPublicHolidaysForAllWorkers();
+    setBusy(false);
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+    showSuccess(`Successfully synced holidays for ${result.workerCount} workers.`);
+  };
 
   const handlePreload = async () => {
     setBusy(true);
@@ -138,6 +150,15 @@ export default function CompanyCalendarHolidaysPanel() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleSyncAll()}
+              className="inline-flex min-h-10 items-center rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Sync Holidays to All Workers
+            </button>
             <button
               type="button"
               disabled={busy}

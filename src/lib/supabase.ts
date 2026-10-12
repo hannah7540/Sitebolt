@@ -1992,25 +1992,10 @@ export async function addWorker(
     }
 
     try {
-      const { assignUpcomingPublicHolidaysToWorker } = await import(
-        "./company-calendar-days"
-      );
-      await assignUpcomingPublicHolidaysToWorker({
-        id: workerId,
-        first_name: worker.first_name,
-        last_name: worker.last_name,
-        full_name: worker.full_name,
-        worker_name: worker.worker_name,
-        email: worker.email,
-        trade: worker.trade ?? null,
-        state: worker.state ?? null,
-        worker_type: worker.worker_type ?? null,
-        employment_type: worker.employment_type ?? null,
-        assigned_project_id: resolvedProjectId,
-        assigned_project_name: worker.assigned_project_name ?? null,
-      });
+      const { syncPublicHolidaysForWorker } = await import("./public-holiday-sync");
+      await syncPublicHolidaysForWorker(workerId);
     } catch (cause) {
-      console.warn("[addWorker] public holiday assign skipped:", cause);
+      console.warn("[addWorker] public holiday sync skipped:", cause);
     }
   }
 
