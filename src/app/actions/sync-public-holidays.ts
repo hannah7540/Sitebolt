@@ -19,7 +19,9 @@ export async function syncPublicHolidaysForAllWorkers(): Promise<{
   const session = await createSupabaseServerClient();
   const {
     data: { user },
+    error: authError,
   } = await session.auth.getUser();
+  if (authError) return { workerCount: 0, error: authError.message };
   if (!user) return { workerCount: 0, error: "Not authenticated." };
 
   const cookieStore = await cookies();
@@ -66,9 +68,17 @@ export async function syncPublicHolidaysForAllWorkers(): Promise<{
     .filter(Boolean);
 
   let workerCount = 0;
-  for (const id of ids) {
-    const result = await syncPublicHolidaysForWorker(id, admin, orgId);
-    if (!result.error) workerCount += 1;
+  try {
+    for (const id of ids) {
+      const result = await syncPublicHolidaysForWorker(id, admin, orgId);
+      if (result.error) {
+        return { workerCount, error: result.error };
+      }
+      workerCount += 1;
+    }
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "Holiday sync failed.";
+    return { workerCount, error: message };
   }
 
   return { workerCount, error: null };

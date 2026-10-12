@@ -7,6 +7,11 @@ import {
 import { PUBLIC_HOLIDAY_EVENT_STYLE } from "@/lib/leave-type-calendar";
 import { resolveLeaveTimesheetDaySpec } from "@/lib/leave-timesheet-rules";
 import { formatDateOnly } from "@/lib/scheduler-utils";
+import {
+  filterRowsByOrganisationStrict,
+  isOrganisationColumnMissing,
+  withOrganisationScope,
+} from "@/lib/tenant-scope";
 
 const HIRED_LABOUR_CATEGORY = "hired_labour";
 
@@ -34,38 +39,47 @@ function isDuplicate(message: string): boolean {
   return lower.includes("duplicate") || lower.includes("unique") || lower.includes("already exists");
 }
 
+function isMissingColumnMessage(message: string, column: string): boolean {
+  const lower = message.toLowerCase();
+  if (!lower.includes(column.toLowerCase())) return false;
+  return /does not exist|schema cache|could not find/.test(lower);
+}
+
+function throwIfError(error: { message: string } | null): void {
+  if (error) throw new Error(error.message);
+}
+
 async function insertWithColumnFallback(
   client: SupabaseClient,
   table: string,
   payload: Record<string, unknown>
-): Promise<string | null> {
+): Promise<void> {
   const next: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
-    if (value !== null && value !== undefined) next[key] = value;
+    if (key === "organisation_id" || (value !== null && value !== undefined)) {
+      next[key] = value;
+    }
   }
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const { error } = await client.from(table).insert([next]);
-    if (!error) return null;
-    if (isDuplicate(error.message)) return null;
-    const mentioned = Object.keys(next).find((key) =>
-      error.message.toLowerCase().includes(key.toLowerCase())
+    if (!error) return;
+    if (isDuplicate(error.message)) return;
+    const mentioned = Object.keys(next).find(
+      (key) => key !== "organisation_id" && isMissingColumnMessage(error.message, key)
     );
-    if (
-      mentioned &&
-      /does not exist|schema cache|could not find|column/i.test(error.message)
-    ) {
+    if (mentioned) {
       delete next[mentioned];
       continue;
     }
-    return error.message;
+    throw new Error(error.message);
   }
-  return "Insert failed.";
+  throw new Error(`Insert into ${table} failed.`);
 }
 
 async function loadWorker(
   client: SupabaseClient,
   workerId: string
-): Promise<{ worker: Record<string, unknown> | null; error: string | null }> {
+): Promise<Record<string, unknown>> {
   const columns = [
     "id, worker_category, state, trade, worker_type, employment_type, first_name, last_name, full_name, worker_name, email, assigned_project_id, assigned_project_name, organisation_id, status, deleted_at",
     "id, worker_category, state, trade, worker_type, employment_type, first_name, last_name, full_name, email, assigned_project_id, organisation_id, status",
@@ -75,14 +89,14 @@ async function loadWorker(
   for (const select of columns) {
     const { data, error } = await client.from("workers").select(select).eq("id", workerId).maybeSingle();
     if (!error && data) {
-      return { worker: data as unknown as Record<string, unknown>, error: null };
+      return data as unknown as Record<string, unknown>;
     }
     if (error) lastError = error.message;
     if (error && !/column|schema cache|does not exist/i.test(error.message)) {
-      return { worker: null, error: error.message };
+      throw new Error(error.message);
     }
   }
-  return { worker: null, error: lastError };
+  throw new Error(lastError);
 }
 
 async function loadUpcomingHolidays(
@@ -97,19 +111,38 @@ async function loadUpcomingHolidays(
     .gte("date", today)
     .order("date", { ascending: true });
   if (organisationId) {
-    query = query.eq("organisation_id", organisationId);
+    query = withOrganisationScope(query, organisationId);
   }
-  let { data, error } = await query;
-  if (error && organisationId && /organisation_id/i.test(error.message)) {
-    ({ data, error } = await client
+  const { data, error } = await query;
+  if (error && organisationId && isOrganisationColumnMissing(error.message)) {
+    const retry = await client
       .from("company_calendar_days")
       .select("*")
       .eq("day_type", "public_holiday")
       .gte("date", today)
-      .order("date", { ascending: true }));
+      .order("date", { ascending: true });
+    throwIfError(retry.error);
+    return filterRowsByOrganisationStrict(retry.data ?? [], organisationId).map((row) =>
+      normalizeCompanyCalendarDay(row as Record<string, unknown>)
+    );
   }
-  if (error || !data) return [];
-  return (data as unknown as Record<string, unknown>[]).map((row) => normalizeCompanyCalendarDay(row));
+  throwIfError(error);
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) =>
+    normalizeCompanyCalendarDay(row)
+  );
+}
+
+function resolveWorkerOrganisationId(
+  worker: Record<string, unknown>,
+  organisationId?: string | null
+): string {
+  const fromWorker = worker.organisation_id ? String(worker.organisation_id).trim() : "";
+  const fromCaller = organisationId?.trim() ?? "";
+  const orgId = fromWorker || fromCaller;
+  if (!orgId) {
+    throw new Error("Worker is missing organisation_id.");
+  }
+  return orgId;
 }
 
 /**
@@ -123,28 +156,17 @@ export async function syncPublicHolidaysForWorker(
 ): Promise<PublicHolidaySyncResult> {
   const trimmedId = workerId.trim();
   if (!trimmedId) {
-    return { calendarInserted: 0, timesheetsInserted: 0, error: "Worker id is required." };
+    throw new Error("Worker id is required.");
   }
 
   const db = client ?? (await import("./supabase")).supabase;
-  const loaded = await loadWorker(db, trimmedId);
-  if (loaded.error || !loaded.worker) {
-    return {
-      calendarInserted: 0,
-      timesheetsInserted: 0,
-      error: loaded.error ?? "Worker not found.",
-    };
-  }
-
-  const worker = loaded.worker;
+  const worker = await loadWorker(db, trimmedId);
   if (worker.deleted_at || String(worker.status ?? "").trim().toLowerCase() === "deleted") {
     return { calendarInserted: 0, timesheetsInserted: 0, error: null };
   }
 
   const today = todayIso();
-  const orgId =
-    organisationId?.trim() ||
-    (worker.organisation_id ? String(worker.organisation_id) : null);
+  const orgId = resolveWorkerOrganisationId(worker, organisationId);
   const holidays = (await loadUpcomingHolidays(db, orgId, today)).filter((day) =>
     calendarDayAppliesToWorker(day, {
       state: worker.state ? String(worker.state) : null,
@@ -159,15 +181,19 @@ export async function syncPublicHolidaysForWorker(
 
   const dates = holidays.map((day) => day.date);
   const existingCalendar = new Set<string>();
-  const { data: calendarRows, error: calendarLookupError } = await db
+  const calendarLookup = await db
     .from("worker_calendar_events")
     .select("start_date, display_code, leave_kind")
     .eq("worker_id", trimmedId)
     .gte("start_date", today);
-  if (calendarLookupError && !/leave_kind|display_code/i.test(calendarLookupError.message)) {
-    return { calendarInserted: 0, timesheetsInserted: 0, error: calendarLookupError.message };
+  const calendarColumnsMissing =
+    Boolean(calendarLookup.error) &&
+    /leave_kind|display_code/i.test(calendarLookup.error?.message ?? "") &&
+    /does not exist|schema cache|could not find/i.test(calendarLookup.error?.message ?? "");
+  if (calendarLookup.error && !calendarColumnsMissing) {
+    throw new Error(calendarLookup.error.message);
   }
-  for (const row of calendarRows ?? []) {
+  for (const row of calendarColumnsMissing ? [] : (calendarLookup.data ?? [])) {
     const record = row as { start_date?: string; display_code?: string; leave_kind?: string };
     const code = String(record.display_code ?? "").trim().toUpperCase();
     const kind = String(record.leave_kind ?? "").trim().toLowerCase();
@@ -186,7 +212,7 @@ export async function syncPublicHolidaysForWorker(
   let calendarInserted = 0;
   for (const day of holidays) {
     if (existingCalendar.has(day.date)) continue;
-    const error = await insertWithColumnFallback(db, "worker_calendar_events", {
+    await insertWithColumnFallback(db, "worker_calendar_events", {
       worker_id: trimmedId,
       worker_name: workerName,
       project_id: projectId,
@@ -203,9 +229,6 @@ export async function syncPublicHolidaysForWorker(
       leave_kind: "public_holiday",
       leave_status: "Approved",
     });
-    if (error) {
-      return { calendarInserted, timesheetsInserted: 0, error };
-    }
     existingCalendar.add(day.date);
     calendarInserted += 1;
   }
@@ -214,15 +237,13 @@ export async function syncPublicHolidaysForWorker(
     return { calendarInserted, timesheetsInserted: 0, error: null };
   }
 
-  const existingTimesheets = new Set<string>();
   const { data: timesheetRows, error: timesheetLookupError } = await db
     .from("worker_timesheets")
     .select("work_date")
     .eq("worker_id", trimmedId)
     .in("work_date", dates);
-  if (timesheetLookupError) {
-    return { calendarInserted, timesheetsInserted: 0, error: timesheetLookupError.message };
-  }
+  throwIfError(timesheetLookupError);
+  const existingTimesheets = new Set<string>();
   for (const row of timesheetRows ?? []) {
     const date = formatDateOnly((row as { work_date?: string }).work_date);
     if (date) existingTimesheets.add(date);
@@ -234,12 +255,12 @@ export async function syncPublicHolidaysForWorker(
     if (existingTimesheets.has(day.date)) continue;
     const spec = resolveLeaveTimesheetDaySpec("Public Holiday", day.date);
     if (spec.totalHours <= 0) continue;
-    const error = await insertWithColumnFallback(db, "worker_timesheets", {
+    await insertWithColumnFallback(db, "worker_timesheets", {
       worker_id: trimmedId,
       work_date: day.date,
       project_id: projectId,
       project_name: projectName,
-      ...(orgId ? { organisation_id: orgId } : {}),
+      organisation_id: orgId,
       start_time: spec.startTime,
       finish_time: spec.finishTime,
       break_minutes: 0,
@@ -254,9 +275,6 @@ export async function syncPublicHolidaysForWorker(
       submitted_at: now,
       updated_at: now,
     });
-    if (error) {
-      return { calendarInserted, timesheetsInserted, error };
-    }
     existingTimesheets.add(day.date);
     timesheetsInserted += 1;
   }
