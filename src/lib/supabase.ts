@@ -5115,7 +5115,6 @@ function buildSwmsAssignmentInsertPayload(input: {
 }): Record<string, string> {
   const name = input.fullName.trim();
   const tokenVal = input.signingToken.trim();
-  const orgId = resolveActiveOrganisationId();
   const payload: Record<string, string> = {
     swms_id: input.swmsId,
     assignee_type: input.assigneeType,
@@ -5132,9 +5131,6 @@ function buildSwmsAssignmentInsertPayload(input: {
 
   if (input.assigneeType === "worker") {
     payload.worker_id = input.assigneeId;
-  }
-  if (orgId) {
-    payload.organisation_id = orgId;
   }
 
   return payload;
@@ -5188,10 +5184,6 @@ async function insertSwmsAssignmentRows(
       isOrganisationColumnMissing(error.message) &&
       currentRows.some((row) => "organisation_id" in row)
     ) {
-      const orgId = resolveActiveOrganisationId();
-      if (!shouldStripOrganisationIdOnWrite(error.message, orgId)) {
-        return { error: error.message };
-      }
       currentRows = currentRows.map((row) => {
         const { organisation_id: _removed, ...rest } = row;
         return rest;

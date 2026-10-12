@@ -704,7 +704,7 @@ async function createSwmsAssignmentsAdmin(
   workerIds: string[],
   hints?: Record<string, unknown> | null,
   projectId?: string | null,
-  organisationId?: string | null
+  _organisationId?: string | null
 ): Promise<SwmsAssignResult> {
   if (!isValidSwmsId(swmsId) || workerIds.length === 0) {
     return { error: null, created: 0, createdWorkerIds: [], skipped: 0 };
@@ -825,10 +825,6 @@ async function createSwmsAssignmentsAdmin(
     if (trimmedProjectId && isValidSwmsId(trimmedProjectId)) {
       row.project_id = trimmedProjectId;
     }
-    const orgId = resolveMutationOrgId(organisationId);
-    if (orgId) {
-      row.organisation_id = orgId;
-    }
     return row;
   });
 
@@ -887,14 +883,6 @@ async function createSwmsAssignmentsAdmin(
       isOrganisationColumnMissing(error.message) &&
       currentRows.some((row) => "organisation_id" in row)
     ) {
-      if (!shouldStripOrganisationIdOnWrite(error.message, resolveActiveOrganisationId())) {
-        return {
-          error: error.message,
-          created: 0,
-          createdWorkerIds: [],
-          skipped,
-        };
-      }
       currentRows = currentRows.map((row) => {
         const { organisation_id: _removed, ...rest } = row;
         return rest;

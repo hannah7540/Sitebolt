@@ -1879,14 +1879,6 @@ export async function assignFormToWorkers(input: {
               isOrganisationColumnMissing(error.message) &&
               currentRows.some((row) => "organisation_id" in row)
             ) {
-              if (
-                !shouldStripOrganisationIdOnWrite(
-                  error.message,
-                  resolveInductionOrgId()
-                )
-              ) {
-                return { data: null, error };
-              }
               currentRows = currentRows.map((row) => {
                 const next = { ...row };
                 delete next.organisation_id;

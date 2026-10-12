@@ -26,6 +26,7 @@ import {
 import {
   filterRowsByOrganisationStrict,
   isDemoOrganisationScopeBlocked,
+  isOrganisationColumnMissing,
   resolveActiveOrganisationId,
   stampOrganisationId,
   withOrganisationScope,
@@ -381,6 +382,16 @@ async function insertInductionAssignment(
     // Unique (form_id, worker_id) — already assigned; treat as idempotent success.
     if (isUniqueViolation(error.message)) {
       return false;
+    }
+
+    if (
+      isOrganisationColumnMissing(error.message) &&
+      "organisation_id" in currentPayload
+    ) {
+      const nextPayload = { ...currentPayload };
+      delete nextPayload.organisation_id;
+      currentPayload = nextPayload;
+      continue;
     }
 
     const columnToDrop = optionalColumns.find(
