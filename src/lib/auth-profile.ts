@@ -314,10 +314,21 @@ export async function resolvePostAuthPathForUser(user: User): Promise<string> {
   const bound = await bindAuthSessionForUser(user);
   if (bound.ok && bound.workerId && isGeneralWorkerRole(bound.role)) {
     const completed = await fetchWorkerOnboardingCompleted(bound.workerId);
+    const { createSupabaseBrowserClient } = await import("@/lib/supabase/client");
+    const supabase = createSupabaseBrowserClient();
+    const { data: categoryRow } = await supabase
+      .from("workers")
+      .select("worker_category")
+      .eq("id", bound.workerId)
+      .maybeSingle();
     return resolvePostInvitePasswordPath({
       onboardingCompleted: completed,
       workerId: bound.workerId,
       role: bound.role,
+      workerCategory:
+        categoryRow && typeof (categoryRow as { worker_category?: string }).worker_category === "string"
+          ? (categoryRow as { worker_category?: string }).worker_category
+          : null,
     });
   }
   return resolveDefaultLandingPathForRole(bound.role, bound.workerId);

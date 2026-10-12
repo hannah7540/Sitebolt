@@ -73,6 +73,9 @@ export function isActiveTimesheetWorker(worker: Worker | null | undefined): bool
   if (!worker?.id) return false;
   if (isWorkerRevoked(worker)) return false;
   if (worker.is_archived === true) return false;
+  if (String(worker.worker_category ?? "").trim().toLowerCase() === "hired_labour") {
+    return false;
+  }
   return true;
 }
 

@@ -9,12 +9,14 @@ export interface WorkerAuthInviteResponse {
 
 export async function requestWorkerAuthInvite(
   email: string,
-  workerId?: string
+  workerId?: string,
+  firstName?: string,
+  lastName?: string
 ): Promise<WorkerAuthInviteResponse> {
   const response = await fetch("/api/workers/invite", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, workerId }),
+    body: JSON.stringify({ email, workerId, firstName, lastName }),
   });
 
   const data = (await response.json()) as WorkerAuthInviteResponse;

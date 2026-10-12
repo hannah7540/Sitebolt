@@ -25,6 +25,7 @@ import {
   type PlantAsset,
   type Worker,
 } from "@/lib/supabase";
+import { isHiredLabourWorker, isUniformRequestForm } from "@/lib/hired-labour";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
 import {
@@ -151,7 +152,15 @@ export default function WorkerOtherFormsSection({
         setLoadError(error);
         setTemplates([]);
       } else {
-        setTemplates(data.filter((template) => template.is_active));
+        setTemplates(
+          data.filter((template) => {
+            if (!template.is_active) return false;
+            if (isHiredLabourWorker(worker) && isUniformRequestForm(template.title)) {
+              return false;
+            }
+            return true;
+          })
+        );
       }
       setLoading(false);
     };
@@ -159,7 +168,7 @@ export default function WorkerOtherFormsSection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [worker]);
 
   const filteredTemplates = useMemo(() => {
     const query = search.trim().toLowerCase();

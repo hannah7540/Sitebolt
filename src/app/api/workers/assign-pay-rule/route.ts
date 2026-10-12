@@ -45,11 +45,28 @@ export async function POST(req: Request) {
 
   const admin = createSupabaseAdminClient();
 
-  const { data: targetWorker, error: targetError } = await admin
+  type TargetWorkerRow = {
+    id: string;
+    auth_user_id?: string | null;
+    worker_category?: string | null;
+  };
+  const initialTarget = await admin
     .from("workers")
-    .select("id, auth_user_id")
+    .select("id, auth_user_id, worker_category")
     .eq("id", workerId)
     .maybeSingle();
+  let targetError = initialTarget.error;
+  let targetWorker = (initialTarget.data ?? null) as TargetWorkerRow | null;
+
+  if (targetError && /worker_category/i.test(targetError.message)) {
+    const retry = await admin
+      .from("workers")
+      .select("id, auth_user_id")
+      .eq("id", workerId)
+      .maybeSingle();
+    targetError = retry.error;
+    targetWorker = (retry.data ?? null) as TargetWorkerRow | null;
+  }
 
   if (targetError) {
     return NextResponse.json({ error: targetError.message }, { status: 400 });
@@ -57,6 +74,18 @@ export async function POST(req: Request) {
 
   if (!targetWorker?.id) {
     return NextResponse.json({ error: "Worker not found." }, { status: 404 });
+  }
+
+  if (
+    String((targetWorker as { worker_category?: string | null }).worker_category ?? "")
+      .trim()
+      .toLowerCase() === "hired_labour"
+  ) {
+    return NextResponse.json({
+      success: true,
+      templateId: null,
+      templateName: null,
+    });
   }
 
   const isSelf = targetWorker.auth_user_id === user.id;

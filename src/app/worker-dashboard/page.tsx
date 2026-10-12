@@ -26,6 +26,10 @@ import {
   resolveDashboardWorkerId,
   workerDashboardUrl,
 } from "@/lib/user-session";
+import {
+  HIRED_LABOUR_ONBOARDING_PATH,
+  isHiredLabourWorker,
+} from "@/lib/hired-labour";
 
 function WorkerDashboardContent() {
   const searchParams = useSearchParams();
@@ -68,6 +72,15 @@ function WorkerDashboardContent() {
               null
             : null;
         const sessionRole = normalizeSecurityRole(sessionWorker?.security_role);
+
+        if (
+          sessionWorker &&
+          isHiredLabourWorker(sessionWorker) &&
+          !sessionWorker.onboarding_completed
+        ) {
+          router.replace(HIRED_LABOUR_ONBOARDING_PATH);
+          return;
+        }
 
         if (
           sessionWorker &&

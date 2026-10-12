@@ -7,6 +7,7 @@ import AccountsNav from "@/components/accounts/AccountsNav";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
 import { fetchAllWorkers, isWorkerDeleted, type Worker } from "@/lib/supabase";
 import {
   fetchTimesheetFormOptions,
@@ -46,6 +47,7 @@ function resolveWorkerUuid(worker: Worker | null | undefined): string | null {
 
 function isActiveWorker(worker: Worker): boolean {
   if (isWorkerDeleted(worker)) return false;
+  if (isHiredLabourWorker(worker)) return false;
   return worker.status !== "Revoked" && !worker.is_revoked && !worker.is_archived;
 }
 

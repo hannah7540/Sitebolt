@@ -102,7 +102,11 @@ export interface Worker {
   emergency_contact: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
+  emergency_contact_number?: string | null;
   emergency_contact_relationship: string | null;
+  worker_category?: string | null;
+  white_card_provided?: boolean;
+  silica_cert_provided?: boolean;
   dob: string | null;
   white_card_number: string | null;
   white_card_issue_date: string | null;
@@ -185,7 +189,11 @@ const WORKER_SELECT_COLUMNS = [
   "emergency_contact",
   "emergency_contact_name",
   "emergency_contact_phone",
+  "emergency_contact_number",
   "emergency_contact_relationship",
+  "worker_category",
+  "white_card_provided",
+  "silica_cert_provided",
   "dob",
   "white_card_number",
   "white_card_issue_date",
@@ -401,8 +409,12 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     postcode: row.postcode ?? null,
     emergency_contact: row.emergency_contact ?? null,
     emergency_contact_name: row.emergency_contact_name ?? null,
-    emergency_contact_phone: row.emergency_contact_phone ?? null,
+    emergency_contact_phone: row.emergency_contact_phone ?? row.emergency_contact_number ?? null,
+    emergency_contact_number: row.emergency_contact_number ?? row.emergency_contact_phone ?? null,
     emergency_contact_relationship: row.emergency_contact_relationship ?? null,
+    worker_category: row.worker_category ? String(row.worker_category) : "internal",
+    white_card_provided: row.white_card_provided === true,
+    silica_cert_provided: row.silica_cert_provided === true,
     dob: row.dob ?? null,
     white_card_number: row.white_card_number ?? null,
     white_card_issue_date: row.white_card_issue_date ?? null,
@@ -1865,6 +1877,15 @@ export async function addWorker(
     resolvedProjectId = id;
   }
 
+  const orgId = resolveActiveOrganisationId();
+  const workerCategory = String(worker.worker_category ?? "internal").trim().toLowerCase();
+  if (workerCategory === "hired_labour" && !orgId) {
+    return {
+      error: "Select an organisation before adding hired labour.",
+      workerId: null,
+    };
+  }
+
   const insertPayload = prepareWorkerWritePayload({
     ...worker,
     security_role: worker.security_role ?? DEFAULT_WORKER_SECURITY_ROLE,
@@ -1872,6 +1893,8 @@ export async function addWorker(
     status,
     onboarding_completed: worker.onboarding_completed ?? false,
     invite_status: worker.invite_status ?? "pending",
+    worker_category: workerCategory || "internal",
+    ...(orgId ? { organisation_id: orgId } : {}),
   });
 
   let { data, error } = await supabase
@@ -1880,11 +1903,23 @@ export async function addWorker(
     .select("id")
     .single();
 
-  if (error && /invite_status|onboarding_completed/i.test(error.message)) {
+  if (error && /invite_status|onboarding_completed|worker_category|white_card_provided|silica_cert_provided|emergency_contact_number/i.test(error.message)) {
     const fallbackPayload = { ...insertPayload };
     delete fallbackPayload.invite_status;
     if (/onboarding_completed/i.test(error.message)) {
       delete fallbackPayload.onboarding_completed;
+    }
+    if (/worker_category/i.test(error.message)) {
+      delete fallbackPayload.worker_category;
+    }
+    if (/white_card_provided/i.test(error.message)) {
+      delete fallbackPayload.white_card_provided;
+    }
+    if (/silica_cert_provided/i.test(error.message)) {
+      delete fallbackPayload.silica_cert_provided;
+    }
+    if (/emergency_contact_number/i.test(error.message)) {
+      delete fallbackPayload.emergency_contact_number;
     }
     ({ data, error } = await supabase
       .from("workers")
@@ -1898,7 +1933,7 @@ export async function addWorker(
   }
 
   const workerId = data?.id ?? null;
-  if (workerId && worker.state) {
+  if (workerId && worker.state && workerCategory !== "hired_labour") {
     const { assignDefaultPayRuleToWorker } = await import("./worker-pay-rule-assignment");
     await assignDefaultPayRuleToWorker(
       workerId,

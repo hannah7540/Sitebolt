@@ -856,9 +856,13 @@ function SubcontractorsSection({
   activeView: ActiveView;
   onNavigate: SidebarProps["onNavigate"];
 }) {
+  const pathname = usePathname();
+  const hiredLabourActive =
+    pathname === "/dashboard/subcontractors/hired-labour" ||
+    pathname?.startsWith("/dashboard/subcontractors/hired-labour/") === true;
   const [open, toggleOpen] = usePersistedSidebarSection(
     "subcontractors",
-    activeView === "subcontractors"
+    activeView === "subcontractors" || hiredLabourActive
   );
   const items: SubItem[] = [
     { label: "View All Subcontractors", view: "subcontractors" },
@@ -884,7 +888,7 @@ function SubcontractorsSection({
             <NavLink
               key={item.label}
               label={item.label}
-              active={item.view === activeView && !item.openAdd}
+              active={item.view === activeView && !item.openAdd && !hiredLabourActive}
               onClick={
                 item.view
                   ? () =>
@@ -895,6 +899,11 @@ function SubcontractorsSection({
               }
             />
           ))}
+          <RouteNavLink
+            label="Hired Labour"
+            href="/dashboard/subcontractors/hired-labour"
+            active={hiredLabourActive}
+          />
         </div>
       )}
     </div>

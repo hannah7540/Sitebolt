@@ -33,6 +33,7 @@ const OPERATIONAL_APP_PREFIXES = [
   "/pre-start/",
   "/scan/",
   "/select-company",
+  "/dashboard",
 ] as const;
 
 export function hostnameFromHost(host: string | null | undefined): string {

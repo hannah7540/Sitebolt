@@ -94,6 +94,7 @@ import {
   prioritizeWorkerDashboardWidgets,
 } from "@/lib/worker-deep-links";
 import { useSearchParams } from "next/navigation";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
 
 const LOADING_TIMEOUT_MS = DASHBOARD_LOADING_TIMEOUT_MS;
 
@@ -106,6 +107,9 @@ const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
   "toolbox",
   "safety_walk",
 ]);
+
+/** Hired labour must not see timesheets on the worker dashboard. */
+const HIRED_LABOUR_HIDDEN_WIDGET_IDS = new Set(["timesheets"]);
 
 interface DashboardWidget {
   id: string;
@@ -866,6 +870,7 @@ export default function WorkerDashboardView({
     }
 
     if (widgetId === "timesheets") {
+      if (isHiredLabourWorker(worker)) return null;
       return (
         <WorkerTimesheetsWidget
           payWeekStart={payWeek.start}
@@ -992,7 +997,8 @@ export default function WorkerDashboardView({
     const filtered = source.filter(
       (widget) =>
         !FORMS_HUB_RELOCATED_WIDGET_IDS.has(widget.id) &&
-        !REMOVED_PROFILE_WIDGET_IDS.has(widget.id)
+        !REMOVED_PROFILE_WIDGET_IDS.has(widget.id) &&
+        !(isHiredLabourWorker(worker) && HIRED_LABOUR_HIDDEN_WIDGET_IDS.has(widget.id))
     );
 
     if (layout.editMode) return filtered;
@@ -1018,8 +1024,13 @@ export default function WorkerDashboardView({
     layout.visibleWidgets,
     pendingInductions.length,
     pendingSwmsCount,
+    worker,
   ]);
-  const hiddenWidgetIds = layout.hiddenWidgets.map((widget) => widget.id);
+  const hiddenWidgetIds = layout.hiddenWidgets
+    .map((widget) => widget.id)
+    .filter(
+      (id) => !(isHiredLabourWorker(worker) && HIRED_LABOUR_HIDDEN_WIDGET_IDS.has(id))
+    );
 
   if ((loading || resolvingWorker) && !loadingTimedOut && !worker) {
     return (
@@ -1301,7 +1312,7 @@ export default function WorkerDashboardView({
         />
       )}
 
-      {worker && showTimesheetSubmit && (
+      {worker && showTimesheetSubmit && !isHiredLabourWorker(worker) && (
         <WorkerTimesheetModal
           worker={worker}
           projectId={selectedProjectId}
@@ -1312,7 +1323,7 @@ export default function WorkerDashboardView({
         />
       )}
 
-      {showTimesheetHistory && (
+      {showTimesheetHistory && !isHiredLabourWorker(worker) && (
         <WorkerTimesheetHistoryDrawer
           timesheets={timesheets}
           onClose={() => setShowTimesheetHistory(false)}

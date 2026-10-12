@@ -24,6 +24,7 @@ import WorkerIncidentReportModal from "@/components/workers/WorkerIncidentReport
 import WorkerIncidentReportTile from "@/components/workers/WorkerIncidentReportTile";
 import WorkerPastSubmissionsPanel from "@/components/workers/WorkerPastSubmissionsPanel";
 import WorkerOtherFormsSection from "@/components/workers/WorkerOtherFormsSection";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -186,7 +187,9 @@ export default function WorkerFormsSubDashboard({
           </button>
         ))}
         <WorkerRFITile assignedCount={assignedRfiCount} onClick={openRfiForm} />
-        <WorkerRequestTile onClick={openRequestForm} />
+        {!isHiredLabourWorker(worker) ? (
+          <WorkerRequestTile onClick={openRequestForm} />
+        ) : null}
         <WorkerIncidentReportTile onClick={openIncidentForm} />
         <WorkerOtherFormsSection
           worker={worker}
@@ -231,7 +234,7 @@ export default function WorkerFormsSubDashboard({
         />
       ) : null}
 
-      {selectedForm === "request" ? (
+      {selectedForm === "request" && !isHiredLabourWorker(worker) ? (
         <WorkerRequestModal
           worker={worker}
           seedProjects={projects}

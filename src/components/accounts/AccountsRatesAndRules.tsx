@@ -22,6 +22,7 @@ import {
   type PayRateRuleInput,
 } from "@/lib/pay-rates-and-rules";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
 import { fetchAllWorkers, type Worker } from "@/lib/supabase";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ function formatCurrency(value: number): string {
 }
 
 function isActiveWorker(worker: Worker): boolean {
+  if (isHiredLabourWorker(worker)) return false;
   return !worker.is_revoked && !worker.is_archived && worker.status !== "Revoked";
 }
 

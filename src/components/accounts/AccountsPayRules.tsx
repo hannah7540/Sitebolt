@@ -12,6 +12,7 @@ import {
 } from "@/lib/pay-rule-templates";
 import { workerMatchesPayRuleTemplate } from "@/lib/worker-pay-rule-assignment";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
 import { fetchAllWorkers, isSupabaseConfigured, type Worker } from "@/lib/supabase";
 import { cardClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,7 @@ export const PAY_RULE_TEMPLATES = [
 ] as const;
 
 function isActiveWorker(worker: Worker): boolean {
+  if (isHiredLabourWorker(worker)) return false;
   return !worker.is_revoked && !worker.is_archived && worker.status !== "Revoked";
 }
 

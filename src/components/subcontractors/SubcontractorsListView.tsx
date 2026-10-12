@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Archive, ArchiveRestore, Loader2, Plus } from "lucide-react";
 import {
   fetchSubcontractorById,
@@ -151,6 +152,13 @@ export default function SubcontractorsListView({
             Manage subcontractor companies, workers, plant, and documents.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href="/dashboard/subcontractors/hired-labour"
+          className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+        >
+          Hired Labour
+        </Link>
         <button
           type="button"
           onClick={() => setShowAdd(true)}
@@ -159,6 +167,7 @@ export default function SubcontractorsListView({
           <Plus className="h-4 w-4" />
           Add New Subcontractor
         </button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">

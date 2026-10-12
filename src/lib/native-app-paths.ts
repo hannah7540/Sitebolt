@@ -54,6 +54,7 @@ export function resolveNativeWorkerDashboardPath(
 
 export function isNativeAllowedPath(pathname: string): boolean {
   if (pathname === NATIVE_WORKER_HOME_PATH) return true;
+  if (pathname === "/dashboard") return true;
   if (isPlantPrestartPath(pathname)) return true;
   return NATIVE_ALLOWED_PATH_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(prefix)

@@ -21,8 +21,12 @@ export function resolvePostInvitePasswordPath(options: {
   onboardingCompleted: boolean;
   workerId?: string | null;
   role?: string | null;
+  workerCategory?: string | null;
 }): string {
   if (!options.onboardingCompleted) {
+    if (String(options.workerCategory ?? "").trim().toLowerCase() === "hired_labour") {
+      return "/onboarding/hired-labour";
+    }
     return WORKER_ONBOARDING_PATH;
   }
 

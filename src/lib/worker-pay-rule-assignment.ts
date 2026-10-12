@@ -147,14 +147,40 @@ export async function syncWorkerPayRuleTemplateFromStateAdmin(
 
   let state = stateOverride ?? null;
 
-  const { data: workerRow, error: fetchError } = await admin
+  type PayRuleWorkerRow = {
+    state?: string | null;
+    pay_rule_template_id?: string | null;
+    pay_rule_id?: string | null;
+    worker_category?: string | null;
+  };
+  const initialWorker = await admin
     .from("workers")
-    .select("state, pay_rule_template_id, pay_rule_id")
+    .select("state, pay_rule_template_id, pay_rule_id, worker_category")
     .eq("id", trimmedId)
     .maybeSingle();
+  let fetchError = initialWorker.error;
+  let workerRow = (initialWorker.data ?? null) as PayRuleWorkerRow | null;
+
+  if (fetchError && /worker_category/i.test(fetchError.message)) {
+    const retry = await admin
+      .from("workers")
+      .select("state, pay_rule_template_id, pay_rule_id")
+      .eq("id", trimmedId)
+      .maybeSingle();
+    fetchError = retry.error;
+    workerRow = (retry.data ?? null) as PayRuleWorkerRow | null;
+  }
 
   if (fetchError) {
     console.warn("[pay-rule-assignment] Worker fetch failed:", fetchError.message);
+    return { templateId: null, updated: false };
+  }
+
+  if (
+    String((workerRow as { worker_category?: string | null } | null)?.worker_category ?? "")
+      .trim()
+      .toLowerCase() === "hired_labour"
+  ) {
     return { templateId: null, updated: false };
   }
 
@@ -206,10 +232,28 @@ export async function syncWorkerPayRuleTemplateFromStateAdmin(
 export async function syncAllWorkersPayRuleTemplatesAdmin(
   admin: SupabaseClient
 ): Promise<{ synced: number; scanned: number }> {
-  const { data, error } = await admin
+  type PayRuleWorkerScanRow = {
+    id: unknown;
+    state?: string | null;
+    pay_rule_template_id?: string | null;
+    worker_category?: string | null;
+  };
+  let data: PayRuleWorkerScanRow[] | null = null;
+  const initialScan = await admin
     .from("workers")
-    .select("id, state, pay_rule_template_id")
+    .select("id, state, pay_rule_template_id, worker_category")
     .not("state", "is", null);
+  let error = initialScan.error;
+  data = (initialScan.data ?? null) as PayRuleWorkerScanRow[] | null;
+
+  if (error && /worker_category/i.test(error.message)) {
+    const retry = await admin
+      .from("workers")
+      .select("id, state, pay_rule_template_id")
+      .not("state", "is", null);
+    error = retry.error;
+    data = (retry.data ?? null) as PayRuleWorkerScanRow[] | null;
+  }
 
   if (error) {
     console.warn("[pay-rule-assignment] Worker scan failed:", error.message);
@@ -223,6 +267,13 @@ export async function syncAllWorkersPayRuleTemplatesAdmin(
     const workerId = String(row.id);
     const state = typeof row.state === "string" ? row.state : null;
     if (!state) continue;
+    if (
+      String((row as { worker_category?: string | null }).worker_category ?? "")
+        .trim()
+        .toLowerCase() === "hired_labour"
+    ) {
+      continue;
+    }
 
     const needsSync = !row.pay_rule_template_id;
     if (!needsSync) continue;

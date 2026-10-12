@@ -64,6 +64,13 @@ export function parseConsoleRoute(
     return { view: "admin-master-dashboard" };
   }
 
+  if (
+    pathname === "/dashboard/subcontractors/hired-labour" ||
+    pathname?.startsWith("/dashboard/subcontractors/hired-labour/")
+  ) {
+    return { view: "subcontractors" };
+  }
+
   return null;
 }
 

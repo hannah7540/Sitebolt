@@ -66,6 +66,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/emails",
   "/sms",
   "/select-company",
+  "/dashboard",
 ] as const;
 
 /** Admin console roles land on the Master Project Dashboard, not a specific project. */
@@ -106,6 +107,7 @@ function isGeneralWorkerAllowedPath(pathname: string): boolean {
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/set-password") ||
     pathname.startsWith("/onboarding") ||
+    pathname === "/dashboard" ||
     pathname === "/worker/dashboard" ||
     pathname.startsWith("/portal/") ||
     pathname.startsWith("/scan/") ||
@@ -139,6 +141,22 @@ interface AuthContext {
   workerId: string | null;
   onboardingCompleted: boolean;
   accessRevoked: boolean;
+  workerCategory: string | null;
+}
+
+async function resolveWorkerCategory(
+  supabase: ReturnType<typeof createServerClient>,
+  workerId: string | null
+): Promise<string | null> {
+  if (!workerId) return null;
+  const { data, error } = await supabase
+    .from("workers")
+    .select("worker_category")
+    .eq("id", workerId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const category = String((data as { worker_category?: string | null }).worker_category ?? "").trim();
+  return category || null;
 }
 
 async function resolveWorkerOnboardingCompleted(
@@ -191,6 +209,7 @@ async function resolveAuthContext(
       workerId: null,
       onboardingCompleted: true,
       accessRevoked: false,
+      workerCategory: null,
     };
   }
 
@@ -214,6 +233,7 @@ async function resolveAuthContext(
       workerId,
       onboardingCompleted,
       accessRevoked,
+      workerCategory: await resolveWorkerCategory(supabase, workerId),
     };
   }
 
@@ -230,6 +250,7 @@ async function resolveAuthContext(
       workerId: match.workerId,
       onboardingCompleted,
       accessRevoked,
+      workerCategory: await resolveWorkerCategory(supabase, match.workerId),
     };
   }
 
@@ -242,6 +263,7 @@ async function resolveAuthContext(
     workerId: null,
     onboardingCompleted: true,
     accessRevoked,
+    workerCategory: null,
   };
 }
 
@@ -253,6 +275,12 @@ function resolveAuthenticatedHomePath(
   context: AuthContext,
   request: NextRequest
 ): string {
+  if (
+    String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
+    !context.onboardingCompleted
+  ) {
+    return "/onboarding/hired-labour";
+  }
   if (isNativeAppRequest(request)) {
     return resolveNativeWorkerDashboardPath(context.workerId);
   }
@@ -285,8 +313,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   if (
     pathname.includes("/setyourpassword") ||
     pathname.includes("/reset-password") ||
-    pathname.includes("/onboarding") ||
-    isPublicAuthFlowPath(pathname)
+    (isPublicAuthFlowPath(pathname) && !pathname.startsWith("/onboarding"))
   ) {
     return NextResponse.next({ request });
   }
@@ -407,6 +434,24 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     }
   }
 
+  const hiredLabourIncomplete =
+    Boolean(context.user) &&
+    String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
+    !context.onboardingCompleted;
+  const hiredLabourOnboardingPath = "/onboarding/hired-labour";
+  if (
+    hiredLabourIncomplete &&
+    !pathname.startsWith(hiredLabourOnboardingPath) &&
+    !pathname.startsWith("/setyourpassword") &&
+    !pathname.startsWith("/reset-password") &&
+    !pathname.startsWith("/set-password") &&
+    !pathname.startsWith("/update-password") &&
+    !pathname.startsWith("/accept-invite") &&
+    !pathname.startsWith("/auth/")
+  ) {
+    return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
+  }
+
   if (isPublicPath(pathname)) {
     return sessionResponse;
   }
@@ -457,12 +502,21 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   }
 
   if (context.user && context.role === "general_worker") {
+    const incompleteOnboardingPath = hiredLabourIncomplete
+      ? hiredLabourOnboardingPath
+      : "/onboarding";
+
+    if (hiredLabourIncomplete && !pathname.startsWith(hiredLabourOnboardingPath)) {
+      return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
+    }
+
     if (
       !context.onboardingCompleted &&
       (pathname === GENERAL_WORKER_HOME_PATH ||
-        pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`))
+        pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`) ||
+        pathname === "/dashboard")
     ) {
-      return redirectWithCookies(request, "/onboarding", sessionResponse);
+      return redirectWithCookies(request, incompleteOnboardingPath, sessionResponse);
     }
 
     if (context.onboardingCompleted && pathname.startsWith("/onboarding")) {
@@ -478,7 +532,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
         request,
         context.onboardingCompleted
           ? resolveGeneralWorkerHomePath(context)
-          : "/onboarding",
+          : incompleteOnboardingPath,
         sessionResponse
       );
     }
