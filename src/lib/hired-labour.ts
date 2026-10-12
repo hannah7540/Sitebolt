@@ -203,18 +203,42 @@ export async function fetchHiredLabourAccess(workerId: string): Promise<HiredLab
   return resolveHiredLabourAccessStatus(row.hired_labour_status, row.onboarding_completed);
 }
 
+function hiredLabourDocumentExtension(file: File): string {
+  const fromName = file.name.includes(".")
+    ? (file.name.split(".").pop() ?? "").toLowerCase()
+    : "";
+  if (fromName === "jpeg" || fromName === "jpg") return "jpg";
+  if (["png", "webp", "gif", "heic", "heif", "pdf"].includes(fromName)) return fromName;
+  if (file.type === "application/pdf") return "pdf";
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/gif") return "gif";
+  if (file.type === "image/heic" || file.type === "image/heif") return "heic";
+  return "jpg";
+}
+
+function hiredLabourDocumentContentType(file: File, extension: string): string {
+  if (file.type) return file.type;
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  if (extension === "gif") return "image/gif";
+  if (extension === "heic" || extension === "heif") return "image/heic";
+  return "image/jpeg";
+}
+
 export async function uploadHiredLabourDocument(
   file: File,
   path: string
 ): Promise<{ url: string | null; error: string | null }> {
   try {
-    const ext = file.name.split(".").pop() ?? "pdf";
-    const fullPath = path.includes(".") ? path : `${path}.${ext}`;
+    const extension = hiredLabourDocumentExtension(file);
+    const fullPath = path.includes(".") ? path : `${path}.${extension}`;
     const { error: uploadError } = await supabase.storage
       .from("worker_documents")
       .upload(fullPath, file, {
         upsert: true,
-        contentType: file.type || undefined,
+        contentType: hiredLabourDocumentContentType(file, extension),
       });
     if (uploadError) return { url: null, error: uploadError.message };
     const { data } = supabase.storage.from("worker_documents").getPublicUrl(fullPath);

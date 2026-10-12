@@ -14,6 +14,7 @@ import type { HiredLabourStatus } from "@/lib/hired-labour-status";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { fetchAuthenticatedWorkerById, type Worker } from "@/lib/supabase";
 import { redirectToLogin } from "@/lib/auth-guard";
+import HiredLabourCertCapture from "@/components/onboarding/HiredLabourCertCapture";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
 function HiredLabourOnboardingForm() {
@@ -210,10 +211,11 @@ function HiredLabourOnboardingForm() {
             <span className={labelClass}>Date</span>
             <input type="date" className={inputClass} value={whiteCardDate} onChange={(event) => setWhiteCardDate(event.target.value)} required />
           </label>
-          <label className="block">
-            <span className={labelClass}>File</span>
-            <input type="file" accept="image/*,.pdf" className={inputClass} onChange={(event) => setWhiteCardFile(event.target.files?.[0] ?? null)} />
-          </label>
+          <HiredLabourCertCapture
+            file={whiteCardFile}
+            onFileChange={setWhiteCardFile}
+            existingUrl={worker?.white_card_file_url ?? worker?.white_card_doc_url ?? null}
+          />
         </div>
 
         <div className="space-y-3 rounded-lg border border-slate-200 p-3">
@@ -226,10 +228,11 @@ function HiredLabourOnboardingForm() {
             <span className={labelClass}>Date</span>
             <input type="date" className={inputClass} value={silicaCertDate} onChange={(event) => setSilicaCertDate(event.target.value)} required />
           </label>
-          <label className="block">
-            <span className={labelClass}>File</span>
-            <input type="file" accept="image/*,.pdf" className={inputClass} onChange={(event) => setSilicaCertFile(event.target.files?.[0] ?? null)} />
-          </label>
+          <HiredLabourCertCapture
+            file={silicaCertFile}
+            onFileChange={setSilicaCertFile}
+            existingUrl={worker?.silica_cert_file_url ?? worker?.silica_cert_doc_url ?? null}
+          />
         </div>
 
         <label className="block">
