@@ -7,9 +7,9 @@ const config: CapacitorConfig = {
   server: {
     // Live production origin: APK loads this URL on launch, so main/Vercel
     // deploys reach workers without a new store or sideload install.
-    url: "https://www.site-bolt.com.au",
+    url: "https://app.site-bolt.com.au/login",
     androidScheme: "https",
-    cleartext: false,
+    cleartext: true,
   },
   plugins: {
     SplashScreen: {
@@ -20,9 +20,6 @@ const config: CapacitorConfig = {
     StatusBar: {
       style: "DARK",
       overlaysWebView: false,
-    },
-    PushNotifications: {
-      presentationOptions: ["badge", "sound", "alert"],
     },
   },
 };

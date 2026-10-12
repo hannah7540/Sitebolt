@@ -94,6 +94,7 @@ import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
 import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
+import { Capacitor } from "@capacitor/core";
 
 function isAppSubdomainHost(): boolean {
   if (typeof window === "undefined") return false;
@@ -754,11 +755,25 @@ function RootEntry() {
   const pathname = usePathname();
   const [isAppHost, setIsAppHost] = useState(false);
   const [hostReady, setHostReady] = useState(false);
+  const [isNativeApp, setIsNativeApp] = useState(false);
 
   useEffect(() => {
+    const native = Capacitor.isNativePlatform();
+    setIsNativeApp(native);
     setIsAppHost(isAppSubdomainHost());
     setHostReady(true);
+    if (native) {
+      window.location.replace("/login");
+    }
   }, []);
+
+  if (isNativeApp) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+      </div>
+    );
+  }
 
   const isMarketingRoot =
     pathname === "/" ||

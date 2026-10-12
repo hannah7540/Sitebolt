@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/layout/AppShell";
+import NativeAppBootstrap from "@/components/layout/NativeAppBootstrap";
 import ThemeProvider from "@/components/theme/ThemeProvider";
 import { UI_THEME_BOOTSTRAP_SCRIPT } from "@/lib/ui-theme";
 import "./globals.css";
@@ -46,6 +47,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <script dangerouslySetInnerHTML={{ __html: UI_THEME_BOOTSTRAP_SCRIPT }} />
         <ThemeProvider>
+          <NativeAppBootstrap />
           <AppShell>{children}</AppShell>
         </ThemeProvider>
       </body>

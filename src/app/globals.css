@@ -161,10 +161,15 @@ body {
   background: linear-gradient(to right, var(--primary-accent), var(--primary-accent-hover));
 }
 
+/* Capacitor native shell only — web marketing/browser layout is unchanged */
+html.capacitor-native {
+  padding-top: env(safe-area-inset-top, 24px);
+}
+
 /* Capacitor / mobile safe-area insets — mobile only; desktop/tablet (lg+) unchanged */
 @media (max-width: 1023px) {
   .mobile-safe-area-top {
-    padding-top: max(12px, env(safe-area-inset-top));
+    padding-top: max(12px, env(safe-area-inset-top, 24px));
   }
 
   .mobile-safe-area-bottom {
