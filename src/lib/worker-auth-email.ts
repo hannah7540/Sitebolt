@@ -121,13 +121,35 @@ export async function linkWorkerAuthAccount(
     securityRole?: string | null;
   }
 ): Promise<{ error: string | null }> {
-  const { error: workerError } = await admin
+  const existing = await loadWorkerLinkContext(admin, options.workerId);
+  if (
+    existing?.email &&
+    existing.email.trim().toLowerCase() !== options.email.trim().toLowerCase()
+  ) {
+    return { error: "Worker email does not match authenticated user." };
+  }
+
+  const payload: Record<string, unknown> = {
+    auth_user_id: options.authUserId,
+    user_id: options.authUserId,
+    updated_at: new Date().toISOString(),
+  };
+
+  let { error: workerError } = await admin
     .from("workers")
-    .update({
-      auth_user_id: options.authUserId,
-      updated_at: new Date().toISOString(),
-    })
+    .update(payload)
     .eq("id", options.workerId);
+
+  if (workerError) {
+    const message = workerError.message.toLowerCase();
+    if (message.includes("user_id") && (message.includes("schema cache") || message.includes("does not exist") || message.includes("could not find"))) {
+      delete payload.user_id;
+      ({ error: workerError } = await admin
+        .from("workers")
+        .update(payload)
+        .eq("id", options.workerId));
+    }
+  }
 
   if (workerError) {
     const message = workerError.message.toLowerCase();

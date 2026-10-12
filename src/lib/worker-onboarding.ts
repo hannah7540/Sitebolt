@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { WorkerOnboardingRecord } from "@/lib/worker-onboarding-types";
+import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 
 export type { WorkerOnboardingFormPayload, WorkerOnboardingRecord } from "@/lib/worker-onboarding-types";
 
@@ -21,30 +22,8 @@ export async function findWorkerIdForAuthUser(
     return profileLookup.data.worker_id as string;
   }
 
-  const authLookup = await supabase
-    .from("workers")
-    .select("id")
-    .eq("auth_user_id", userId)
-    .maybeSingle();
-
-  if (!authLookup.error && authLookup.data?.id) {
-    return authLookup.data.id as string;
-  }
-
-  const trimmedEmail = email?.trim();
-  if (trimmedEmail) {
-    const emailLookup = await supabase
-      .from("workers")
-      .select("id")
-      .ilike("email", trimmedEmail)
-      .limit(1);
-
-    if (!emailLookup.error && emailLookup.data?.[0]?.id) {
-      return emailLookup.data[0].id as string;
-    }
-  }
-
-  return null;
+  const match = await matchWorkerForAuthUser(supabase, { id: userId, email });
+  return match?.workerId ?? null;
 }
 
 export async function fetchWorkerOnboardingCompleted(

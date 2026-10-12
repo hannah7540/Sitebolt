@@ -6,6 +6,11 @@ import {
 } from "@/lib/worker-onboarding";
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
+import { A_PLUS_ORGANISATION_ID } from "@/lib/active-organisation";
+import {
+  emailsMatchExactly,
+  matchWorkerForAuthUser,
+} from "@/lib/worker-auth-lookup";
 
 export interface EnsureWorkerInviteInput {
   email: string;
@@ -555,43 +560,94 @@ export async function loadWorkerForOnboardingRecord(
 export async function ensureWorkerProfileForAuthUser(
   admin: SupabaseClient,
   user: User
-): Promise<{ workerId: string | null; error: string | null }> {
+): Promise<{ workerId: string | null; organisationId: string | null; error: string | null }> {
   const email = user.email?.trim();
   if (!email) {
-    return { workerId: null, error: "Auth user email is required." };
+    return { workerId: null, organisationId: null, error: "Auth user email is required." };
   }
 
-  const inviteResult = await ensureWorkerInviteRecord(admin, {
-    email,
-    authUserId: user.id,
-    fullName: readUserFullName(user),
+  const match = await matchWorkerForAuthUser(admin, user, {
+    activeOrgId: A_PLUS_ORGANISATION_ID,
   });
 
-  if (inviteResult.workerId) {
-    const linkResult = await linkWorkerAuthAccount(admin, {
-      workerId: inviteResult.workerId,
+  if (match?.workerId) {
+    const { data: workerRow } = await admin
+      .from("workers")
+      .select("email, organisation_id, auth_user_id, user_id")
+      .eq("id", match.workerId)
+      .maybeSingle();
+
+    const rowEmail = String((workerRow as { email?: string | null } | null)?.email ?? "");
+    if (!emailsMatchExactly(rowEmail, email)) {
+      console.warn("[ensure-worker-profile] refused auto-link because emails do not match", {
+        userId: user.id,
+        authEmail: email,
+        workerId: match.workerId,
+        workerEmail: rowEmail || null,
+      });
+      return {
+        workerId: null,
+        organisationId: null,
+        error: "Worker profile email does not match this account.",
+      };
+    }
+
+    if (match.needsAuthLink) {
+      const linkResult = await linkWorkerAuthAccount(admin, {
+        workerId: match.workerId,
+        authUserId: user.id,
+        email,
+        fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
+        securityRole: match.securityRole ?? DEFAULT_WORKER_SECURITY_ROLE,
+      });
+      if (linkResult.error) {
+        return {
+          workerId: null,
+          organisationId: match.organisationId,
+          error: linkResult.error,
+        };
+      }
+    }
+
+    return { workerId: match.workerId, organisationId: match.organisationId, error: null };
+  }
+
+  const workerId = await findWorkerIdForAuthUser(admin, user.id, email);
+  if (workerId) {
+    const { data: existing } = await admin
+      .from("workers")
+      .select("email, organisation_id")
+      .eq("id", workerId)
+      .maybeSingle();
+    const existingEmail = String((existing as { email?: string | null } | null)?.email ?? "");
+    if (existingEmail && !emailsMatchExactly(existingEmail, email)) {
+      return {
+        workerId: null,
+        organisationId: null,
+        error: "Worker profile email does not match this account.",
+      };
+    }
+
+    await linkWorkerAuthAccount(admin, {
+      workerId,
       authUserId: user.id,
       email,
       fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
       securityRole: DEFAULT_WORKER_SECURITY_ROLE,
     });
 
-    if (linkResult.error) {
-      await upsertProfileRow(admin, {
-        authUserId: user.id,
-        email,
-        fullName: readUserFullName(user) || email.split("@")[0] || "Worker",
-        workerId: inviteResult.workerId,
-      });
-    }
-
-    return inviteResult;
+    return {
+      workerId,
+      organisationId:
+        String((existing as { organisation_id?: string | null } | null)?.organisation_id ?? "").trim() ||
+        null,
+      error: null,
+    };
   }
 
-  let workerId = await findWorkerIdForAuthUser(admin, user.id, email);
-  if (workerId) {
-    return { workerId, error: null };
-  }
-
-  return inviteResult;
+  console.warn("[ensure-worker-profile] no public.workers row matched auth user", {
+    userId: user.id,
+    email,
+  });
+  return { workerId: null, organisationId: null, error: "Worker profile not found." };
 }

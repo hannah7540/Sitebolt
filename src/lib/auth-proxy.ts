@@ -29,6 +29,7 @@ import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import { isAppHostname, requestHostHeader } from "@/lib/site-domains";
 import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
+import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 
 const PUBLIC_PATH_PREFIXES = [
   "/login",
@@ -216,49 +217,20 @@ async function resolveAuthContext(
     };
   }
 
-  const { data: workerByAuth } = await supabase
-    .from("workers")
-    .select("id, security_role")
-    .eq("auth_user_id", user.id)
-    .maybeSingle();
-
-  if (workerByAuth?.id) {
+  const match = await matchWorkerForAuthUser(supabase, user);
+  if (match?.workerId) {
     const onboardingCompleted = await resolveWorkerOnboardingCompleted(
       supabase,
-      workerByAuth.id
+      match.workerId
     );
 
     return {
       user,
-      role: normalizeSecurityRole(workerByAuth.security_role),
-      workerId: workerByAuth.id,
+      role: normalizeSecurityRole(match.securityRole),
+      workerId: match.workerId,
       onboardingCompleted,
       accessRevoked,
     };
-  }
-
-  const email = user.email?.trim();
-  if (email) {
-    const { data: workerByEmail } = await supabase
-      .from("workers")
-      .select("id, security_role")
-      .ilike("email", email)
-      .maybeSingle();
-
-    if (workerByEmail?.id) {
-      const onboardingCompleted = await resolveWorkerOnboardingCompleted(
-        supabase,
-        workerByEmail.id
-      );
-
-      return {
-        user,
-        role: normalizeSecurityRole(workerByEmail.security_role),
-        workerId: workerByEmail.id,
-        onboardingCompleted,
-        accessRevoked,
-      };
-    }
   }
 
   const metadata = user.user_metadata as Record<string, unknown> | undefined;

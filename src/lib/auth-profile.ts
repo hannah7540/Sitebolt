@@ -20,9 +20,14 @@ import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
 import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import {
+  getActiveOrganisationId,
+  setActiveOrganisationId,
+} from "@/lib/active-organisation";
+import {
   WORKER_REVOKED_LOGIN_MESSAGE,
   fetchWorkerAccessRevokedForAuthUser,
 } from "@/lib/worker-revocation";
+import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 
 export interface UserProfileRow {
   role: string;
@@ -65,39 +70,120 @@ export async function fetchUserProfile(
 export async function fetchWorkerIdForAuthUser(
   userId: string,
   email: string | null | undefined
-): Promise<{ workerId: string | null; securityRole: string | null }> {
+): Promise<{
+  workerId: string | null;
+  securityRole: string | null;
+  organisationId: string | null;
+  needsAuthLink: boolean;
+}> {
   const supabase = createSupabaseBrowserClient();
-
-  const authLookup = await supabase
-    .from("workers")
-    .select("id, security_role")
-    .eq("auth_user_id", userId)
-    .maybeSingle();
-
-  if (!authLookup.error && authLookup.data?.id) {
+  const match = await matchWorkerForAuthUser(supabase, { id: userId, email });
+  if (!match) {
     return {
-      workerId: authLookup.data.id as string,
-      securityRole: (authLookup.data.security_role as string) ?? null,
+      workerId: null,
+      securityRole: null,
+      organisationId: null,
+      needsAuthLink: false,
     };
   }
 
-  const trimmedEmail = email?.trim();
-  if (trimmedEmail) {
-    const emailLookup = await supabase
-      .from("workers")
-      .select("id, security_role")
-      .ilike("email", trimmedEmail)
-      .maybeSingle();
+  return {
+    workerId: match.workerId,
+    securityRole: match.securityRole,
+    organisationId: match.organisationId,
+    needsAuthLink: match.needsAuthLink,
+  };
+}
 
-    if (!emailLookup.error && emailLookup.data?.id) {
+async function linkWorkerProfileViaEnsureApi(): Promise<{
+  workerId: string | null;
+  organisationId: string | null;
+} | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const response = await fetch("/api/workers/ensure-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) return null;
+    const json = (await response.json()) as {
+      workerId?: string | null;
+      organisationId?: string | null;
+    };
+    return {
+      workerId: json.workerId ?? null,
+      organisationId: json.organisationId ?? null,
+    };
+  } catch (error) {
+    console.warn("[auth-profile] ensure-profile auto-link failed", error);
+    return null;
+  }
+}
+
+async function resolveLinkedWorkerForAuthUser(user: User): Promise<{
+  workerId: string | null;
+  securityRole: string | null;
+  organisationId: string | null;
+}> {
+  let worker = await fetchWorkerIdForAuthUser(user.id, user.email);
+  if (!worker.workerId || worker.needsAuthLink) {
+    const linked = await linkWorkerProfileViaEnsureApi();
+    if (linked?.workerId) {
+      const refreshed = await fetchWorkerIdForAuthUser(user.id, user.email);
       return {
-        workerId: emailLookup.data.id as string,
-        securityRole: (emailLookup.data.security_role as string) ?? null,
+        workerId: refreshed.workerId ?? linked.workerId,
+        securityRole: refreshed.securityRole ?? worker.securityRole,
+        organisationId: refreshed.organisationId ?? linked.organisationId,
       };
     }
   }
+  return worker;
+}
 
-  return { workerId: null, securityRole: null };
+async function persistSessionOrganisationId(organisationId: string): Promise<void> {
+  setActiveOrganisationId(organisationId);
+  if (typeof window === "undefined") return;
+  try {
+    await fetch("/api/set-active-company", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organisation_id: organisationId }),
+      credentials: "same-origin",
+    });
+  } catch {
+    // Client cookie/localStorage still carry the workspace.
+  }
+}
+
+/** Bind non-super-admin sessions from the worker row — never query-default to A Plus. */
+async function bindHomeOrganisationForUser(
+  user: User,
+  organisationId: string | null,
+  workerId: string | null
+): Promise<void> {
+  if (
+    isSuperAdminAccount({
+      email: user.email,
+      metadata: (user.user_metadata ?? null) as Record<string, unknown> | null,
+    })
+  ) {
+    return;
+  }
+
+  const homeOrg = organisationId?.trim();
+  if (homeOrg) {
+    await persistSessionOrganisationId(homeOrg);
+    return;
+  }
+
+  if (workerId && !getActiveOrganisationId()) {
+    console.warn(
+      "[auth-profile] worker has no organisation_id and no active workspace cookie",
+      { workerId }
+    );
+  }
 }
 
 export async function resolveRoleForAuthUser(user: User): Promise<ProfileRole> {
@@ -134,7 +220,9 @@ export async function bindAdminSessionForUser(user: User): Promise<{
     };
   }
 
-  const workerId = await resolveWorkerIdForAuthUser(user);
+  const profile = await fetchUserProfile(user.id);
+  const worker = await resolveLinkedWorkerForAuthUser(user);
+  const workerId = profile?.worker_id ?? worker.workerId;
   if (!workerId) {
     return {
       ok: false,
@@ -145,6 +233,7 @@ export async function bindAdminSessionForUser(user: User): Promise<{
 
   setAdminWorkerId(workerId);
   setStoredWorkerId(workerId);
+  await bindHomeOrganisationForUser(user, worker.organisationId, workerId);
   return { ok: true, workerId };
 }
 
@@ -168,7 +257,9 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   }
 
   const role = await resolveRoleForAuthUser(user);
-  const workerId = await resolveWorkerIdForAuthUser(user);
+  const profile = await fetchUserProfile(user.id);
+  const worker = await resolveLinkedWorkerForAuthUser(user);
+  const workerId = profile?.worker_id ?? worker.workerId;
 
   if (workerId) {
     setStoredWorkerId(workerId);
@@ -176,6 +267,8 @@ export async function bindAuthSessionForUser(user: User): Promise<{
       setAdminWorkerId(workerId);
     }
   }
+
+  await bindHomeOrganisationForUser(user, worker.organisationId, workerId);
 
   return { ok: true, workerId, role };
 }
@@ -206,7 +299,7 @@ async function resolveWorkerIdForAuthUser(user: User): Promise<string | null> {
   const profile = await fetchUserProfile(user.id);
   if (profile?.worker_id) return profile.worker_id;
 
-  const worker = await fetchWorkerIdForAuthUser(user.id, user.email);
+  const worker = await resolveLinkedWorkerForAuthUser(user);
   return worker.workerId;
 }
 

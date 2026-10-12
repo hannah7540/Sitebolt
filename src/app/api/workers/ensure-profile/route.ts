@@ -36,11 +36,11 @@ export async function POST(req: Request) {
   );
 
   const admin = createSupabaseAdminClient();
-  const { workerId, error } = await ensureWorkerProfileForAuthUser(admin, user);
+  const { workerId, organisationId, error } = await ensureWorkerProfileForAuthUser(admin, user);
 
   if (error || !workerId) {
     return NextResponse.json(
-      { error: error ?? "Failed to create worker profile." },
+      { error: error ?? "Worker profile not found." },
       { status: 400 }
     );
   }
@@ -53,5 +53,10 @@ export async function POST(req: Request) {
     await syncWorkerStatusFromAuthUser(admin, user, workerId);
   }
 
-  return NextResponse.json({ success: true, workerId, status: "active" });
+  return NextResponse.json({
+    success: true,
+    workerId,
+    organisationId,
+    status: "active",
+  });
 }

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc, WorkerTimesheet, LeaveRequest } from "@/lib/supabase";
 import {
-  fetchWorkerById,
+  fetchAuthenticatedWorkerById,
   fetchLeaveRequests,
   fetchWorkerSchedules,
   fetchWorkerTimesheets,
@@ -348,7 +348,7 @@ export default function WorkerDashboardView({
 
       let workerData: Worker | null = null;
       try {
-        workerData = await fetchWorkerById(resolvedWorkerId);
+        workerData = await fetchAuthenticatedWorkerById(resolvedWorkerId);
       } catch (workerError) {
         if (isNetworkFetchError(workerError)) {
           hadConnectionFailure = true;
