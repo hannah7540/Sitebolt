@@ -25,7 +25,14 @@ import {
   resolveWorkerAssignedProjectName,
   setWorkerProjectAssignments,
 } from "@/lib/project-assignments";
-import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
+import {
+  fetchProjects,
+  filterActiveProjects,
+  getCachedProjects,
+  type DbProject,
+} from "@/lib/project-resolver";
+import AutocompleteField from "@/components/ui/AutocompleteField";
+import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
 import AssignToProjectsModal from "@/components/organisation/AssignToProjectsModal";
 import {
   getExpiryWarningText,
@@ -52,7 +59,7 @@ import {
   useOrganisationEntityDeepLink,
 } from "@/hooks/useOrganisationEntityDeepLink";
 import { cn } from "@/lib/utils";
-import { inputClass } from "@/lib/ui-classes";
+import { inputClass, labelClass } from "@/lib/ui-classes";
 
 type WorkerTabFilter = "Current" | "Revoked" | "Deleted" | "All";
 type WorkerProfileTab = "basic" | "cards" | "inductions" | "financial";
@@ -210,6 +217,8 @@ export default function WorkerDirectoryPanel({
     Record<string, string | null>
   >({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+  const [projectFilterId, setProjectFilterId] = useState<string | null>(null);
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   useEffect(() => {
@@ -285,12 +294,42 @@ export default function WorkerDirectoryPanel({
     });
   }, [workerList, workerTab]);
 
-  const filteredWorkers = useMemo(() => {
-    if (!searchQuery.trim()) return tabFilteredWorkers;
+  const activeProjects = useMemo(
+    () => filterActiveProjects(projects),
+    [projects]
+  );
 
+  const projectFilterOptions = useMemo(
+    () =>
+      activeProjects.map((project) => ({
+        id: project.id,
+        label: project.name,
+        description: [project.project_code, project.state].filter(Boolean).join(" · ") || undefined,
+      })),
+    [activeProjects]
+  );
+
+  const hasListFilters = Boolean(
+    searchQuery.trim() || stateFilter || projectFilterId
+  );
+
+  const filteredWorkers = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    const selectedState = stateFilter.trim().toUpperCase();
 
     return tabFilteredWorkers.filter((item) => {
+      if (selectedState) {
+        const workerState = (item.state ?? "").trim().toUpperCase();
+        if (workerState !== selectedState) return false;
+      }
+
+      if (projectFilterId) {
+        const activeProjectIds = workerProjectMap.get(item.id) ?? [];
+        if (!activeProjectIds.includes(projectFilterId)) return false;
+      }
+
+      if (!q) return true;
+
       const firstName = (item.first_name || "").toLowerCase();
       const lastName = (item.last_name || "").toLowerCase();
       const fullName = (item.full_name || "").toLowerCase();
@@ -317,7 +356,13 @@ export default function WorkerDirectoryPanel({
         workerNumber.includes(q)
       );
     });
-  }, [tabFilteredWorkers, searchQuery]);
+  }, [tabFilteredWorkers, searchQuery, stateFilter, projectFilterId, workerProjectMap]);
+
+  const clearListFilters = () => {
+    setSearchQuery("");
+    setStateFilter("");
+    setProjectFilterId(null);
+  };
 
   useEffect(() => {
     if (initialShowAdd) setShowModal(true);
@@ -545,29 +590,61 @@ export default function WorkerDirectoryPanel({
         ))}
       </div>
 
-      <div className="relative mb-4">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search workers by Name, Email, Phone, Role/Trade, or Worker #..."
-          className={cn(inputClass, "w-full py-2.5 pl-10", searchQuery ? "pr-10" : "pr-4")}
-          aria-label="Search workers"
-        />
-        {searchQuery ? (
-          <button
-            type="button"
-            onClick={() => setSearchQuery("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Clear search"
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_minmax(14rem,18rem)] lg:items-end">
+        <div className="relative min-w-0">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search workers by Name, Email, Phone, Role/Trade, or Worker #..."
+            className={cn(inputClass, "w-full py-2.5 pl-10", searchQuery ? "pr-10" : "pr-4")}
+            aria-label="Search workers"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <label className="block min-w-0 space-y-2">
+          <span className={labelClass}>State</span>
+          <select
+            className={cn(inputClass, "py-2.5")}
+            value={stateFilter}
+            onChange={(event) => setStateFilter(event.target.value)}
+            aria-label="Filter workers by state"
           >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
+            <option value="">All States</option>
+            {WORKER_STATE_REGION_OPTIONS.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="min-w-0">
+          <AutocompleteField
+            label="Project"
+            mode="single"
+            allowClear
+            selected={projectFilterId}
+            onChange={setProjectFilterId}
+            options={projectFilterOptions}
+            pinnedOption={{ id: "__all_projects__", label: "All Projects" }}
+            placeholder="All Projects"
+            emptyMessage="No active projects."
+            noMatchesMessage="No projects match your search."
+          />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -690,22 +767,26 @@ export default function WorkerDirectoryPanel({
                 </tr>
               );
             })}
-            {filteredWorkers.length === 0 && !loading && searchQuery.trim() ? (
+            {filteredWorkers.length === 0 && !loading && hasListFilters ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center text-slate-500">
-                  <p>No workers match &quot;{searchQuery.trim()}&quot;.</p>
+                  <p>
+                    {searchQuery.trim()
+                      ? `No workers match "${searchQuery.trim()}" with the selected filters.`
+                      : "No workers match the selected state or project filters."}
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setSearchQuery("")}
+                    onClick={clearListFilters}
                     className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
                   >
                     <X className="h-4 w-4" />
-                    Clear Search
+                    Clear filters
                   </button>
                 </td>
               </tr>
             ) : null}
-            {filteredWorkers.length === 0 && !loading && !searchQuery.trim() ? (
+            {filteredWorkers.length === 0 && !loading && !hasListFilters ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center text-slate-500">
                   {workerTab === "Current"
