@@ -150,7 +150,8 @@ export function resolveScheduleProjectAssignment(
 
 /**
  * Resolve the project block for a day cell.
- * Schedule rows take precedence over the worker's default assigned project.
+ * Standard / open-ended project assignments render Monday–Friday only.
+ * RDO, Other Leave, and other explicit calendar events are handled separately.
  */
 export function resolveDayProjectAssignment(
   worker: Worker,
@@ -162,6 +163,8 @@ export function resolveDayProjectAssignment(
   workerProjectMap?: WorkerProjectMap,
   datedAssignments?: ProjectWorkerAssignment[]
 ): WorkerProjectAssignment | null {
+  if (!isWeekdayIso(dayIso)) return null;
+
   const fromDated = resolveDatedJunctionAssignment(
     datedAssignments,
     dayIso,
@@ -177,8 +180,6 @@ export function resolveDayProjectAssignment(
     weekDays
   );
   if (fromSchedule) return fromSchedule;
-
-  if (!isWeekdayIso(dayIso)) return null;
 
   return resolveWorkerDefaultProject(worker, projects, projectFilterSet, workerProjectMap);
 }

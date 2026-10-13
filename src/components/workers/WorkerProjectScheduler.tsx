@@ -23,6 +23,7 @@ import {
   getCalendarRangeEnd,
   getCalendarRangeStart,
   getDefaultCalendarAnchor,
+  isWeekdayIso,
   startOfWeekMonday,
   type CalendarDay,
 } from "@/lib/scheduler-utils";
@@ -731,7 +732,9 @@ export default function WorkerProjectScheduler({
       );
 
       const projectAssignment =
-        visibleDayEvents.length === 0 && !dayLeaveSchedule
+        visibleDayEvents.length === 0 &&
+        !dayLeaveSchedule &&
+        isWeekdayIso(cellDateStr)
           ? resolveDayProjectAssignment(
               worker,
               workerSchedules,
