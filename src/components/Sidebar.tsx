@@ -679,6 +679,9 @@ export default function Sidebar({
         { label: "Workers", href: "/organisation/workers" },
         { label: "Inductions", href: "/admin/forms/inductions" }
       );
+      if (isFeatureModuleEnabled(featureFlags, "swms", orgId)) {
+        items.push({ label: "SWMS", view: "admin-swms" });
+      }
       if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
         items.push({ label: "Plant", href: "/organisation/plant" });
         items.push({ label: "Fleet", href: "/organisation/fleet" });
@@ -1262,9 +1265,6 @@ function AdministrationSection({
   if (isFeatureModuleEnabled(featureFlags, "calendars", organisationId)) {
     items.push({ label: "Full Worker Calendar", view: "admin-worker-calendar" });
   }
-  if (isFeatureModuleEnabled(featureFlags, "swms", organisationId)) {
-    items.push({ label: "SWMS", view: "admin-swms" });
-  }
   if (isFeatureModuleEnabled(featureFlags, "itp_itc", organisationId)) {
     items.push({ label: "ITP / ITC", view: "admin-itc" });
   }
@@ -1390,7 +1390,11 @@ function OrganisationSection({
   onNavigate: SidebarProps["onNavigate"];
 }) {
   const isOrganisationRoute =
-    (pathname?.startsWith("/organisation") ?? false) || isInductionsPath(pathname);
+    (pathname?.startsWith("/organisation") ?? false) ||
+    isInductionsPath(pathname) ||
+    activeView === "admin-swms" ||
+    pathname === "/admin/swms" ||
+    (pathname?.startsWith("/admin/swms/") ?? false);
   const [open, toggleOpen] = usePersistedSidebarSection(
     "organisation",
     isOrganisationRoute
@@ -1419,15 +1423,25 @@ function OrganisationSection({
     >
       {(open || iconOnly) && (
         <div className="relative z-30 space-y-1 px-2">
-          {items.map((item) => (
-            <RouteNavLink
-              key={item.label}
-              label={item.label}
-              href={item.href ?? "/organisation/dashboard"}
-              badge={item.badge}
-              active={isOrganisationNavActive(pathname, item.href ?? "")}
-            />
-          ))}
+          {items.map((item) =>
+            item.href ? (
+              <RouteNavLink
+                key={item.label}
+                label={item.label}
+                href={item.href}
+                badge={item.badge}
+                active={isOrganisationNavActive(pathname, item.href)}
+              />
+            ) : (
+              <NavLink
+                key={item.label}
+                label={item.label}
+                badge={item.badge}
+                active={item.view === activeView}
+                onClick={item.view ? () => onNavigate(item.view!) : undefined}
+              />
+            )
+          )}
         </div>
       )}
     </SidebarSectionShell>
