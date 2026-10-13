@@ -66,6 +66,7 @@ import {
   resolveWorkerDefaultProject,
   scheduleLeaveOnDay,
   scheduleLeaveToCalendarEvent,
+  workerHasActiveProjectAssignment,
   workerVisibleInCalendarFilter,
   type WorkerDatedAssignmentMap,
   type WorkerProjectMap,
@@ -663,7 +664,11 @@ export default function WorkerProjectScheduler({
             <p className="mt-0.5 truncate text-xs font-medium text-slate-600">
               {defaultProject.projectName}
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-0.5 truncate text-xs font-medium text-slate-400">
+              Unassigned
+            </p>
+          )}
           {workerPendingLeaves.map((req) => {
             const startDate = getLeaveStartDate(req);
             const totalDays = req.number_of_days || 1;
@@ -754,6 +759,15 @@ export default function WorkerProjectScheduler({
           })
         : null;
       const hasOverlays = visibleDayEvents.length > 0 || Boolean(dayLeaveSchedule);
+      const showUnassignedPlaceholder =
+        !projectAssignment &&
+        !hasOverlays &&
+        isWeekdayIso(cellDateStr) &&
+        !workerHasActiveProjectAssignment(
+          worker,
+          workerProjectMap,
+          datedWorkerAssignments.get(worker.id)
+        );
 
       return (
         <>
@@ -779,6 +793,11 @@ export default function WorkerProjectScheduler({
               badgeClass={projectTone.badgeClass}
               compact={hasOverlays}
             />
+          ) : null}
+          {showUnassignedPlaceholder ? (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Unassigned
+            </span>
           ) : null}
         </>
       );
@@ -822,6 +841,7 @@ export default function WorkerProjectScheduler({
         projectFilterSet,
         workerProjectMap,
         datedAssignments: datedWorkerAssignments.get(worker.id),
+        projects,
       })
     );
   }, [
@@ -833,6 +853,7 @@ export default function WorkerProjectScheduler({
     projectFilterSet,
     workerProjectMap,
     datedWorkerAssignments,
+    projects,
   ]);
 
   return (

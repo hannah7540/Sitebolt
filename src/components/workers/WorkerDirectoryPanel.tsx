@@ -17,6 +17,10 @@ import {
 import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
 import { requestWorkerSoftDelete } from "@/lib/worker-delete-client";
 import {
+  applyUnassignedWorkerFields,
+  requestWorkerUnassignAll,
+} from "@/lib/worker-unassign-client";
+import {
   loadAssignmentMaps,
   resolveWorkerAssignedProjectName,
   setWorkerProjectAssignments,
@@ -380,6 +384,40 @@ export default function WorkerDirectoryPanel({
     });
   };
 
+  const handleUnassign = async (worker: Worker) => {
+    const confirmed = window.confirm(
+      `Unassign ${worker.full_name} from all projects? Historical timesheets stay on the previous projects.`
+    );
+    if (!confirmed) return;
+
+    const snapshot = worker;
+    const unassigned = applyUnassignedWorkerFields(worker);
+    setActionId(worker.id);
+    setWorkerList((prev) =>
+      prev.map((row) => (row.id === worker.id ? { ...row, ...unassigned } : row))
+    );
+
+    const { error, message } = await requestWorkerUnassignAll(worker.id);
+    setActionId(null);
+
+    if (error) {
+      setWorkerList((prev) =>
+        prev.map((row) => (row.id === worker.id ? snapshot : row))
+      );
+      showError(error);
+      return;
+    }
+
+    setWorkerProjectMap((prev) => {
+      const next = new Map(prev);
+      next.delete(worker.id);
+      return next;
+    });
+    showSuccess(message ?? "Worker unassigned from all projects.");
+    onWorkerUpdated?.(unassigned);
+    await loadAssignments();
+  };
+
   const handleConfirmDeleteWorker = async () => {
     if (!deleteWorker) return;
     setDeleting(true);
@@ -637,6 +675,7 @@ export default function WorkerDirectoryPanel({
                       actionId={actionId}
                       onEdit={() => setEditingWorker(w)}
                       onAssign={() => setAssignWorker(w)}
+                      onUnassign={() => void handleUnassign(w)}
                       onRevoke={() => void handleRevokeToggle(w)}
                       onDelete={() => setDeleteWorker(w)}
                       onInviteSuccess={(message, inviteSentAt) => {

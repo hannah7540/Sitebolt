@@ -8,8 +8,10 @@ import { matchesProjectFilter } from "./project-filter-utils";
 import { resolveLeaveCalendarPresentation } from "./leave-type-calendar";
 import {
   assignmentCoversDay,
+  isActiveProjectWorkerAssignment,
   type ProjectWorkerAssignment,
 } from "./project-assignments";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
 
 export type WorkerProjectMap = Map<string, string[]>;
 export type WorkerDatedAssignmentMap = Map<string, ProjectWorkerAssignment[]>;
@@ -31,6 +33,60 @@ export function getWorkerCalendarProjectIds(
   }
 
   return [...ids];
+}
+
+/** Currently active project IDs only — excludes closed / historical assignments. */
+export function getActiveWorkerProjectIds(
+  worker: Worker,
+  workerProjectMap?: WorkerProjectMap,
+  datedAssignments?: ProjectWorkerAssignment[]
+): string[] {
+  const ids = new Set<string>();
+
+  for (const projectId of getWorkerAssignedProjectIds(worker)) {
+    if (projectId.trim()) ids.add(projectId.trim());
+  }
+
+  const legacyProjectId = worker.project_id?.trim() || worker.assigned_project_id?.trim();
+  if (legacyProjectId) ids.add(legacyProjectId);
+
+  for (const projectId of workerProjectMap?.get(worker.id) ?? []) {
+    if (projectId?.trim()) ids.add(projectId.trim());
+  }
+
+  for (const row of datedAssignments ?? []) {
+    if (isActiveProjectWorkerAssignment(row) && row.project_id?.trim()) {
+      ids.add(row.project_id.trim());
+    }
+  }
+
+  return [...ids];
+}
+
+export function workerHasActiveProjectAssignment(
+  worker: Worker,
+  workerProjectMap?: WorkerProjectMap,
+  datedAssignments?: ProjectWorkerAssignment[]
+): boolean {
+  return getActiveWorkerProjectIds(worker, workerProjectMap, datedAssignments).length > 0;
+}
+
+export function selectedProjectStates(
+  projectFilterSet: Set<string>,
+  projects: DbProject[]
+): Set<string> {
+  const states = new Set<string>();
+  for (const project of projects) {
+    if (
+      !matchesProjectFilter(project.id, projectFilterSet) &&
+      !matchesProjectFilter(project.slug, projectFilterSet)
+    ) {
+      continue;
+    }
+    const state = normalizeWorkerStateRegion(project.state);
+    if (state) states.add(state);
+  }
+  return states;
 }
 
 export interface WorkerProjectAssignment {
@@ -239,42 +295,33 @@ export function workerVisibleInCalendarFilter(input: {
   projectFilterSet: Set<string>;
   workerProjectMap?: WorkerProjectMap;
   datedAssignments?: ProjectWorkerAssignment[];
+  projects?: DbProject[];
 }): boolean {
   const {
     worker,
-    schedules,
-    events,
-    weekDays,
     projectFilterSet,
     workerProjectMap,
     datedAssignments,
+    projects = [],
   } = input;
 
   if (projectFilterSet.size === 0) return true;
 
-  const assignedIds = getWorkerCalendarProjectIds(worker, workerProjectMap);
+  const assignedIds = getActiveWorkerProjectIds(
+    worker,
+    workerProjectMap,
+    datedAssignments
+  );
   if (assignedIds.some((id) => matchesProjectFilter(id, projectFilterSet))) {
     return true;
   }
 
-  const hasDatedAssignment = (datedAssignments ?? []).some(
-    (row) =>
-      matchesProjectFilter(row.project_id, projectFilterSet) &&
-      weekDays.some((day) => assignmentCoversDay(row, day.iso))
-  );
-  if (hasDatedAssignment) return true;
+  if (assignedIds.length > 0) return false;
 
-  const hasSchedule = schedules.some(
-    (entry) =>
-      weekDays.some((day) => scheduleOnDay(entry, day.iso)) &&
-      matchesProjectFilter(entry.project_id, projectFilterSet)
-  );
+  const workerState = normalizeWorkerStateRegion(worker.state);
+  if (!workerState) return false;
 
-  if (hasSchedule) return true;
-
-  return events.some((event) =>
-    weekDays.some((day) => eventOnDay(event.start_date, event.end_date, day.iso))
-  );
+  return selectedProjectStates(projectFilterSet, projects).has(workerState);
 }
 
 export function scheduleLeaveOnDay(

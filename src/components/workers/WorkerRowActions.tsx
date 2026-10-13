@@ -1,6 +1,6 @@
 "use client";
 
-import { Link2, Pencil, Trash2, UserCheck, UserX } from "lucide-react";
+import { Link2, Pencil, Trash2, Unlink, UserCheck, UserX } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import { ResendInviteButton } from "@/components/workers/ResendInviteButton";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ export function WorkerRowActions({
   actionId,
   onEdit,
   onAssign,
+  onUnassign,
   onRevoke,
   onDelete,
   onInviteSuccess,
@@ -26,6 +27,7 @@ export function WorkerRowActions({
   actionId?: string | null;
   onEdit: () => void;
   onAssign?: () => void;
+  onUnassign?: () => void;
   onRevoke: () => void;
   onDelete: () => void;
   onInviteSuccess: (message: string, inviteSentAt: string | null) => void;
@@ -51,6 +53,17 @@ export function WorkerRowActions({
         >
           <Link2 className="h-3.5 w-3.5" />
           Assign
+        </button>
+      ) : null}
+      {!revoked && onUnassign ? (
+        <button
+          type="button"
+          disabled={actionId === worker.id}
+          onClick={onUnassign}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600 disabled:opacity-50"
+        >
+          <Unlink className="h-3.5 w-3.5" />
+          Unassign
         </button>
       ) : null}
       <ResendInviteButton

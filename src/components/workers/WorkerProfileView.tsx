@@ -11,6 +11,7 @@ import {
   Phone,
   Save,
   Trash2,
+  Unlink,
 } from "lucide-react";
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
@@ -25,6 +26,10 @@ import {
 } from "@/lib/supabase";
 import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
 import { requestWorkerSoftDelete } from "@/lib/worker-delete-client";
+import {
+  applyUnassignedWorkerFields,
+  requestWorkerUnassignAll,
+} from "@/lib/worker-unassign-client";
 import { setWorkerProjectAssignments } from "@/lib/project-assignments";
 import {
   hydrateCardsVocsFromWorker,
@@ -187,6 +192,7 @@ export default function WorkerProfileView({
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [unassigning, setUnassigning] = useState(false);
   const [vocs, setVocs] = useState<WorkerVoc[]>(initialVocs);
   const [loadingVocs, setLoadingVocs] = useState(initialVocs.length === 0);
   const [cardEntries, setCardEntries] = useState<WorkerCardVocEntry[]>(() =>
@@ -261,6 +267,26 @@ export default function WorkerProfileView({
     onWorkerDeleted?.();
   };
 
+  const handleUnassignAll = async () => {
+    const confirmed = window.confirm(
+      `Unassign ${currentWorker.full_name} from all projects? Historical timesheets stay on the previous projects.`
+    );
+    if (!confirmed) return;
+
+    setUnassigning(true);
+    const { error, message } = await requestWorkerUnassignAll(currentWorker.id);
+    setUnassigning(false);
+
+    if (error) {
+      showError(error);
+      return;
+    }
+
+    const updated = applyUnassignedWorkerFields(currentWorker);
+    patchWorker(updated);
+    showSuccess(message ?? "Worker unassigned from all projects.");
+  };
+
   return (
     <div>
       <button
@@ -314,6 +340,21 @@ export default function WorkerProfileView({
                 }}
                 onError={showError}
               />
+            ) : null}
+            {!isWorkerDeleted(currentWorker) && !isWorkerRevoked(currentWorker) ? (
+              <button
+                type="button"
+                disabled={unassigning}
+                onClick={() => void handleUnassignAll()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600 disabled:opacity-50"
+              >
+                {unassigning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Unlink className="h-3.5 w-3.5" />
+                )}
+                Unassign
+              </button>
             ) : null}
             {!isWorkerDeleted(currentWorker) ? (
               <button
