@@ -29,6 +29,8 @@ export const PROJECT_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
   { id: "plant_prestarts", position: 8, isVisible: true },
   { id: "safety_walks", position: 9, isVisible: true },
   { id: "submitted_forms", position: 10, isVisible: true },
+  { id: "swms_waiting", position: 11, isVisible: true },
+  { id: "incomplete_inductions", position: 12, isVisible: true },
 ];
 
 export const ORGANISATION_DASHBOARD_DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
@@ -63,6 +65,8 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   plant_prestarts: "Pre-Starts",
   safety_walks: "Safety Walks",
   submitted_forms: "Submitted Forms",
+  swms_waiting: "SWMS Waiting Sign Off",
+  incomplete_inductions: "Incomplete Inductions",
   company_profile: "Company Profile",
   workers_summary: "Workers Overview",
   plant_summary: "Plant Overview",

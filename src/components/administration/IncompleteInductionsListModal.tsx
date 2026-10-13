@@ -23,9 +23,9 @@ export default function IncompleteInductionsListModal({
   onClose,
 }: IncompleteInductionsListModalProps) {
   return (
-    <div className={modalOverlayClass} onClick={onClose}>
+    <div className={cn(modalOverlayClass, "z-[60]")} onClick={onClose}>
       <div
-        className={cn(modalClass, "max-w-3xl")}
+        className={cn(modalClass, "max-w-5xl sm:w-[90vw]")}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -87,7 +87,7 @@ export default function IncompleteInductionsListModal({
                           ) : (
                             <Bell className="h-3.5 w-3.5" />
                           )}
-                          Send Notification
+                          Send Reminder
                         </button>
                       </td>
                     </tr>

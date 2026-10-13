@@ -39,8 +39,11 @@ import {
   markPlantPrestartRead,
 } from "@/lib/plant-prestart-mutations";
 import { markSiteFormViewed } from "@/lib/site-form-mutations";
-import { sendInductionReminderNotification } from "@/lib/induction-reminder-notifications";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+import {
+  formatComplianceReminderToast,
+  postComplianceReminders,
+} from "@/lib/compliance-tracking-client";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -56,8 +59,9 @@ import type { PastSubmissionWidgetType } from "@/lib/past-submissions";
 import SiteFormDetailRouter from "@/components/dashboard/SiteFormDetailRouter";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
 import SubmittedFormsWidget from "@/components/dashboard/SubmittedFormsWidget";
-import MasterDashboardInfoModal from "@/components/administration/MasterDashboardInfoModal";
 import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
+import SwmsWaitingSignOffListModal from "@/components/administration/SwmsWaitingSignOffListModal";
+import DashboardOutstandingCountCard from "@/components/dashboard/DashboardOutstandingCountCard";
 import ExecutiveMetricBar from "@/components/dashboard/ExecutiveMetricBar";
 import type { IncidentReportRecord } from "@/lib/incident-reports";
 import type { PlantPrestart } from "@/lib/supabase";
@@ -122,7 +126,7 @@ type ExpandedView =
   | { type: "prestart"; record: PlantPrestart }
   | { type: "siteForm"; record: SiteFormSubmission }
   | { type: "leave"; record: LeaveRequest }
-  | { type: "swms"; record: SwmsAssignmentRecord }
+  | { type: "swmsWaiting" }
   | { type: "inductions" };
 
 function WidgetCard({
@@ -219,6 +223,7 @@ export default function MasterProjectDashboard() {
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [leaveActingId, setLeaveActingId] = useState<string | null>(null);
   const [sendingInductionId, setSendingInductionId] = useState<string | null>(null);
+  const [sendingSwmsId, setSendingSwmsId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -372,17 +377,44 @@ export default function MasterProjectDashboard() {
   const handleSendInductionNotification = async (assignment: FormWorkerAssignment) => {
     const workerName = resolveWorkerName(assignment.worker_id, assignment.worker_name);
     setSendingInductionId(assignment.id);
-    const result = await sendInductionReminderNotification({
-      workerId: assignment.worker_id,
-      inductionTitle: assignment.form_title?.trim() || "your assigned induction",
-      templateId: assignment.form_id,
+    const result = await postComplianceReminders({
+      kind: "induction",
+      workerIds: [assignment.worker_id],
+      documentTitle: assignment.form_title?.trim() || "Induction",
+      documentId: assignment.form_id,
     });
     setSendingInductionId(null);
-    if (result.error) {
-      showError(result.error);
+    if (!result.ok) {
+      showError(result.error ?? "Could not send reminder.");
       return;
     }
-    showSuccess(`Notification sent to ${workerName}`);
+    showSuccess(`${formatComplianceReminderToast(result)} ${workerName}`);
+  };
+
+  const handleSendSwmsReminder = async (assignment: SwmsAssignmentRecord) => {
+    const workerId = String(
+      assignment.worker_id ||
+        (assignment.assignee_type === "worker" ? assignment.assignee_id : "") ||
+        ""
+    ).trim();
+    const workerName = resolveWorkerName(workerId, assignment.assignee_name);
+    const documentTitle =
+      snapshot.swmsDocuments.find(
+        (doc) => doc.id === assignment.swms_id || doc.swms_id === assignment.swms_id
+      )?.title ?? "SWMS";
+    setSendingSwmsId(assignment.id);
+    const result = await postComplianceReminders({
+      kind: "swms",
+      workerIds: [workerId],
+      documentTitle,
+      documentId: assignment.swms_id,
+    });
+    setSendingSwmsId(null);
+    if (!result.ok) {
+      showError(result.error ?? "Could not send reminder.");
+      return;
+    }
+    showSuccess(`${formatComplianceReminderToast(result)} ${workerName}`);
   };
 
   const formatInductionDueDate = (assignment: FormWorkerAssignment) => {
@@ -465,7 +497,31 @@ export default function MasterProjectDashboard() {
               projects={projects}
               workers={workers}
             />
-            {LEFT_WIDGETS.map((widget) => (
+            {LEFT_WIDGETS.map((widget) =>
+              widget.key === "swmsWaitingSignOff" ||
+              widget.key === "incompleteInductions" ? (
+                <DashboardOutstandingCountCard
+                  key={widget.key}
+                  title={widget.title}
+                  count={data[widget.key]?.count ?? 0}
+                  icon={widget.icon}
+                  iconClassName={widget.iconClassName}
+                  onClick={() =>
+                    setExpanded(
+                      widget.key === "swmsWaitingSignOff"
+                        ? { type: "swmsWaiting" }
+                        : { type: "inductions" }
+                    )
+                  }
+                  extra={
+                    widget.key === "incompleteInductions" ? (
+                      <PastSubmissionsTrigger
+                        onClick={() => setPastSubmissionsType("inductions")}
+                      />
+                    ) : null
+                  }
+                />
+              ) : (
               <WidgetCard
                 key={widget.key}
                 title={widget.title}
@@ -489,26 +545,11 @@ export default function MasterProjectDashboard() {
                     if (record) setExpanded({ type: "leave", record });
                     return;
                   }
-                  if (widget.key === "swmsWaitingSignOff") {
-                    const record = filteredSnapshot.swmsWaitingSignOff.find(
-                      (row) => row.id === id
-                    );
-                    if (record) setExpanded({ type: "swms", record });
-                    return;
-                  }
-                  setExpanded({ type: "inductions" });
                 }}
-                onHeaderClick={
-                  widget.key === "incompleteInductions"
-                    ? () => setExpanded({ type: "inductions" })
-                    : undefined
-                }
                 onPastSubmissions={
-                  widget.key === "incompleteInductions"
-                    ? () => setPastSubmissionsType("inductions")
-                    : widget.key === "safetyWalks"
-                      ? () => setPastSubmissionsType("safety_walks")
-                      : undefined
+                  widget.key === "safetyWalks"
+                    ? () => setPastSubmissionsType("safety_walks")
+                    : undefined
                 }
                 renderActions={
                   widget.key === "leaveRequests"
@@ -544,7 +585,8 @@ export default function MasterProjectDashboard() {
                     : undefined
                 }
               />
-            ))}
+              )
+            )}
           </div>
 
           <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-[380px] xl:w-[420px]">
@@ -619,24 +661,13 @@ export default function MasterProjectDashboard() {
         />
       ) : null}
 
-      {expanded?.type === "swms" ? (
-        <MasterDashboardInfoModal
-          title="SWMS waiting sign-off"
-          subtitle={expanded.record.assignee_name || "Worker"}
-          rows={[
-            { label: "Assignee", value: expanded.record.assignee_name || "—" },
-            { label: "Status", value: expanded.record.status || "pending" },
-            {
-              label: "Document",
-              value:
-                snapshot.swmsDocuments.find(
-                  (doc) =>
-                    doc.id === expanded.record.swms_id ||
-                    doc.swms_id === expanded.record.swms_id
-                )?.title ?? expanded.record.swms_id,
-            },
-            { label: "Signed at", value: expanded.record.signed_at || "Not signed" },
-          ]}
+      {expanded?.type === "swmsWaiting" ? (
+        <SwmsWaitingSignOffListModal
+          assignments={filteredSnapshot.swmsWaitingSignOff}
+          documents={snapshot.swmsDocuments}
+          sendingId={sendingSwmsId}
+          resolveWorkerName={resolveWorkerName}
+          onSendReminder={(assignment) => void handleSendSwmsReminder(assignment)}
           onClose={() => setExpanded(null)}
         />
       ) : null}

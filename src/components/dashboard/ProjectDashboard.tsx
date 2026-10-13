@@ -6,6 +6,8 @@ import {
   HardHat,
   AlertTriangle,
   CheckCircle,
+  ClipboardCheck,
+  FileSignature,
   Loader2,
 } from "lucide-react";
 import type { PlantAsset, PlantPrestart, Worker } from "@/lib/supabase";
@@ -56,6 +58,24 @@ import { canCustomizeDashboardLayout, type SecurityRole } from "@/lib/security-r
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 import { resolvePlantAssignedProjectId } from "@/lib/project-assignments";
+import {
+  createEmptyMasterProjectDashboardSnapshot,
+  fetchMasterProjectDashboardSnapshot,
+  filterMasterDashboardSnapshot,
+  type MasterProjectDashboardSnapshot,
+} from "@/lib/master-project-dashboard";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
+import {
+  formatComplianceReminderToast,
+  postComplianceReminders,
+} from "@/lib/compliance-tracking-client";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
+import DashboardOutstandingCountCard from "@/components/dashboard/DashboardOutstandingCountCard";
+import IncompleteInductionsListModal from "@/components/administration/IncompleteInductionsListModal";
+import SwmsWaitingSignOffListModal from "@/components/administration/SwmsWaitingSignOffListModal";
+import type { FormWorkerAssignment } from "@/lib/induction-form-builder";
+import type { SwmsAssignmentRecord } from "@/lib/supabase";
 
 interface ProjectDashboardProps {
   projectId: string | null;
@@ -108,6 +128,16 @@ export default function ProjectDashboard({
   );
   const [showPlantPrestartsList, setShowPlantPrestartsList] = useState(false);
   const [showLeaveRequestsModal, setShowLeaveRequestsModal] = useState(false);
+  const [showSwmsWaitingModal, setShowSwmsWaitingModal] = useState(false);
+  const [showIncompleteInductionsModal, setShowIncompleteInductionsModal] =
+    useState(false);
+  const [complianceSnapshot, setComplianceSnapshot] =
+    useState<MasterProjectDashboardSnapshot>(
+      createEmptyMasterProjectDashboardSnapshot()
+    );
+  const [sendingInductionId, setSendingInductionId] = useState<string | null>(null);
+  const [sendingSwmsId, setSendingSwmsId] = useState<string | null>(null);
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
   const [pastSubmissionsType, setPastSubmissionsType] =
     useState<PastSubmissionWidgetType | null>(null);
   const [showSafetyWalksModal, setShowSafetyWalksModal] = useState(false);
@@ -194,6 +224,83 @@ export default function ProjectDashboard({
   useEffect(() => {
     loadPlantPrestarts();
   }, [loadPlantPrestarts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchMasterProjectDashboardSnapshot().then((next) => {
+      if (!cancelled) setComplianceSnapshot(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const filteredCompliance = useMemo(() => {
+    if (!projectId) return createEmptyMasterProjectDashboardSnapshot();
+    return filterMasterDashboardSnapshot(complianceSnapshot, [projectId], {
+      projects: project ? [project] : [],
+      workers,
+    });
+  }, [complianceSnapshot, projectId, project, workers]);
+
+  const resolveDashboardWorkerName = (
+    workerId: string,
+    fallback?: string | null
+  ) => {
+    const worker = workers.find((row) => row.id === workerId);
+    return fallback?.trim() || (worker ? getWorkerDisplayName(worker) : "Worker");
+  };
+
+  const formatInductionDueDate = (assignment: FormWorkerAssignment) => {
+    const raw = assignment.due_date || assignment.assigned_at;
+    return raw?.slice(0, 10) || "—";
+  };
+
+  const handleSendInductionReminder = async (assignment: FormWorkerAssignment) => {
+    const workerName = resolveDashboardWorkerName(
+      assignment.worker_id,
+      assignment.worker_name
+    );
+    setSendingInductionId(assignment.id);
+    const result = await postComplianceReminders({
+      kind: "induction",
+      workerIds: [assignment.worker_id],
+      documentTitle: assignment.form_title?.trim() || "Induction",
+      documentId: assignment.form_id,
+    });
+    setSendingInductionId(null);
+    if (!result.ok) {
+      showError(result.error ?? "Could not send reminder.");
+      return;
+    }
+    showSuccess(`${formatComplianceReminderToast(result)} ${workerName}`);
+  };
+
+  const handleSendSwmsReminder = async (assignment: SwmsAssignmentRecord) => {
+    const workerId = String(
+      assignment.worker_id ||
+        (assignment.assignee_type === "worker" ? assignment.assignee_id : "") ||
+        ""
+    ).trim();
+    const workerName = resolveDashboardWorkerName(workerId, assignment.assignee_name);
+    const documentTitle =
+      filteredCompliance.swmsDocuments.find(
+        (doc) => doc.id === assignment.swms_id || doc.swms_id === assignment.swms_id
+      )?.title ?? "SWMS";
+    setSendingSwmsId(assignment.id);
+    const result = await postComplianceReminders({
+      kind: "swms",
+      workerIds: [workerId],
+      documentTitle,
+      documentId: assignment.swms_id,
+    });
+    setSendingSwmsId(null);
+    if (!result.ok) {
+      showError(result.error ?? "Could not send reminder.");
+      return;
+    }
+    showSuccess(`${formatComplianceReminderToast(result)} ${workerName}`);
+  };
 
   const loadAssignments = useCallback(async () => {
     setAssignmentsLoading(true);
@@ -404,6 +511,26 @@ export default function ProjectDashboard({
         );
       case "submitted_forms":
         return <SubmittedFormsWidget projectId={projectId} />;
+      case "swms_waiting":
+        return (
+          <DashboardOutstandingCountCard
+            title="SWMS waiting sign-off"
+            count={filteredCompliance.swmsWaitingSignOff.length}
+            icon={FileSignature}
+            iconClassName="text-orange-600"
+            onClick={() => setShowSwmsWaitingModal(true)}
+          />
+        );
+      case "incomplete_inductions":
+        return (
+          <DashboardOutstandingCountCard
+            title="Incomplete Inductions"
+            count={filteredCompliance.incompleteInductions.length}
+            icon={ClipboardCheck}
+            iconClassName="text-emerald-600"
+            onClick={() => setShowIncompleteInductionsModal(true)}
+          />
+        );
       default:
         return null;
     }
@@ -596,6 +723,32 @@ export default function ProjectDashboard({
           onClose={() => setShowLeaveRequestsModal(false)}
           onUpdated={handleLeaveUpdated}
         />
+      ) : null}
+
+      {showSwmsWaitingModal ? (
+        <SwmsWaitingSignOffListModal
+          assignments={filteredCompliance.swmsWaitingSignOff}
+          documents={filteredCompliance.swmsDocuments}
+          sendingId={sendingSwmsId}
+          resolveWorkerName={resolveDashboardWorkerName}
+          onSendReminder={(assignment) => void handleSendSwmsReminder(assignment)}
+          onClose={() => setShowSwmsWaitingModal(false)}
+        />
+      ) : null}
+
+      {showIncompleteInductionsModal ? (
+        <IncompleteInductionsListModal
+          assignments={filteredCompliance.incompleteInductions}
+          sendingId={sendingInductionId}
+          resolveWorkerName={resolveDashboardWorkerName}
+          formatDueDate={formatInductionDueDate}
+          onSendNotification={(assignment) => void handleSendInductionReminder(assignment)}
+          onClose={() => setShowIncompleteInductionsModal(false)}
+        />
+      ) : null}
+
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
       ) : null}
     </div>
   );
