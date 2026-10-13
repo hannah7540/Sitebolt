@@ -53,11 +53,7 @@ export function redirectToLogin(
       return;
     }
     if (hasAuthHashFragment() || hasAuthCodeQuery()) {
-      window.location.replace(
-        hasAuthCodeQuery()
-          ? `/auth/callback${window.location.search}${window.location.hash}`
-          : resetPasswordLocationWithHash()
-      );
+      window.location.replace(resetPasswordLocationWithHash());
       return;
     }
   }

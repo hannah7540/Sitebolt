@@ -175,7 +175,7 @@ function LoginPageContent() {
 
     if (hasAuthCodeQuery()) {
       window.location.replace(
-        `/auth/callback${window.location.search}${window.location.hash}`
+        `/reset-password${window.location.search}${window.location.hash}`
       );
       return;
     }

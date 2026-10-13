@@ -47,8 +47,12 @@ export async function proxy(request: NextRequest) {
   if (hasAuthPayload && !alreadyOnTokenPage) {
     const dest = request.nextUrl.clone();
     const type = (request.nextUrl.searchParams.get("type") || "").toLowerCase();
+    const next = request.nextUrl.searchParams.get("next") || "";
+    const isInvite =
+      type === "invite" || type === "signup" || type === "magiclink" || next.includes("/accept-invite");
     const isRecovery =
       type === "recovery" ||
+      (!isInvite && request.nextUrl.searchParams.has("code")) ||
       (!type && request.nextUrl.searchParams.has("token_hash"));
     dest.pathname = isRecovery
       ? "/reset-password"

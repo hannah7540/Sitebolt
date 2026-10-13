@@ -60,19 +60,36 @@ export default function ResetPasswordForm() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      await supabase.auth.signOut();
-      const result = await consumeAuthTokenAndUpdatePassword(supabase, {
-        password,
-        tokenHash,
-        code: authCode,
-        otpToken: hasLinkToken ? "" : otpToken,
-        email: hasLinkToken ? "" : email,
-        otpType,
-      });
 
-      if (result.error) {
-        setError(result.error);
-        return;
+      if (authCode) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+          authCode
+        );
+        if (exchangeError) {
+          setError(exchangeError.message);
+          return;
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password,
+        });
+        if (updateError) {
+          setError(updateError.message);
+          return;
+        }
+      } else {
+        const result = await consumeAuthTokenAndUpdatePassword(supabase, {
+          password,
+          tokenHash,
+          otpToken: hasLinkToken ? "" : otpToken,
+          email: hasLinkToken ? "" : email,
+          otpType,
+        });
+
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
       }
 
       await supabase.auth.signOut();
