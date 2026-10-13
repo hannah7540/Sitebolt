@@ -22,11 +22,16 @@ import {
 import { getCachedProjects, resolveProjectId } from "./project-resolver";
 import { formatDateOnly } from "./scheduler-utils";
 import { applyPermanentProjectAssignmentTransfer } from "./project-worker-assignment-transfer";
+import { applyPermanentPlantAssignmentTransfer } from "./project-plant-assignment-transfer";
 
 export interface ProjectPlantAssignment {
   id: string;
   project_id: string;
   plant_id: string;
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  project_name?: string | null;
 }
 
 export interface ProjectWorkerAssignment {
@@ -53,6 +58,34 @@ export function isActiveProjectWorkerAssignment(
 
 export function assignmentCoversDay(
   row: ProjectWorkerAssignment,
+  dayIso: string
+): boolean {
+  if (row.status === "Unassigned") return false;
+  const day = formatDateOnly(dayIso);
+  if (!day) return false;
+  const start = formatDateOnly(row.start_date);
+  const end = formatDateOnly(row.end_date);
+  if (row.status === "Transferred" && !end) return false;
+  if (start && start > day) return false;
+  if (end && end < day) return false;
+  return true;
+}
+
+export function isActiveProjectPlantAssignment(
+  row: ProjectPlantAssignment,
+  onDate: string = formatDateOnly(new Date())
+): boolean {
+  if (row.status === "Transferred" || row.status === "Unassigned") return false;
+  const start = formatDateOnly(row.start_date);
+  const end = formatDateOnly(row.end_date);
+  if (start && start > onDate) return false;
+  if (end && end < onDate) return false;
+  return true;
+}
+
+/** `end_date IS NULL` is an open-ended assignment that continues indefinitely. */
+export function plantAssignmentCoversDay(
+  row: ProjectPlantAssignment,
   dayIso: string
 ): boolean {
   if (row.status === "Unassigned") return false;
@@ -116,19 +149,37 @@ function buildProjectAssignmentSource(
 export async function fetchProjectPlantAssignments(): Promise<ProjectPlantAssignment[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const datedSelect =
+    "id, project_id, plant_id, status, start_date, end_date, project_name";
+  const legacySelect = "id, project_id, plant_id, status";
+
   try {
     const { data, error } = await supabase
       .from("project_plant_assignments")
-      .select("id, project_id, plant_id");
+      .select(datedSelect);
 
-    if (error) {
-      if (!isMissingTableError(error.message, "project_plant_assignments")) {
-        console.warn("fetchProjectPlantAssignments failed:", error.message);
-      }
-      return [];
+    if (!error) {
+      return (data ?? []) as ProjectPlantAssignment[];
     }
 
-    return (data ?? []) as ProjectPlantAssignment[];
+    const missingDates =
+      error.message.toLowerCase().includes("start_date") ||
+      error.message.toLowerCase().includes("end_date") ||
+      error.message.toLowerCase().includes("project_name");
+
+    if (missingDates) {
+      const fallback = await supabase
+        .from("project_plant_assignments")
+        .select(legacySelect);
+      if (!fallback.error) {
+        return (fallback.data ?? []) as ProjectPlantAssignment[];
+      }
+    }
+
+    if (!isMissingTableError(error.message, "project_plant_assignments")) {
+      console.warn("fetchProjectPlantAssignments failed:", error.message);
+    }
+    return [];
   } catch (error) {
     console.warn("fetchProjectPlantAssignments threw:", error);
     return [];
@@ -179,8 +230,21 @@ export function buildPlantProjectMap(
 ): Map<string, string[]> {
   const map = new Map<string, string[]>();
   for (const row of assignments) {
+    if (!isActiveProjectPlantAssignment(row)) continue;
     const list = map.get(row.plant_id) ?? [];
     if (!list.includes(row.project_id)) list.push(row.project_id);
+    map.set(row.plant_id, list);
+  }
+  return map;
+}
+
+export function buildDatedPlantAssignmentMap(
+  assignments: ProjectPlantAssignment[]
+): Map<string, ProjectPlantAssignment[]> {
+  const map = new Map<string, ProjectPlantAssignment[]>();
+  for (const row of assignments) {
+    const list = map.get(row.plant_id) ?? [];
+    list.push(row);
     map.set(row.plant_id, list);
   }
   return map;
@@ -274,23 +338,24 @@ export async function setPlantProjectAssignments(
       primaryProject?.name ?? null
     );
 
-    let existingRows: Array<{ id: string; project_id: string }> = [];
+    let existingRows: ProjectPlantAssignment[] = [];
     const plantId = verifyMasterPlantId(plant).plantId;
     if (plantId) {
       const { data, error: readError } = await supabase
         .from("project_plant_assignments")
-        .select("id, project_id")
+        .select("id, project_id, plant_id, status, start_date, end_date")
         .eq("plant_id", plantId);
 
       if (readError && !isMissingTableError(readError.message, "project_plant_assignments")) {
         console.warn("setPlantProjectAssignments read failed:", readError.message);
       } else {
-        existingRows = (data ?? []) as Array<{ id: string; project_id: string }>;
+        existingRows = (data ?? []) as ProjectPlantAssignment[];
       }
     }
 
-    const toRemove = existingRows.filter((row) => !uniqueIds.includes(row.project_id));
-    const existingProjectIds = existingRows.map((row) => row.project_id);
+    const openRows = existingRows.filter((row) => isActiveProjectPlantAssignment(row));
+    const toRemove = openRows.filter((row) => !uniqueIds.includes(row.project_id));
+    const existingProjectIds = openRows.map((row) => row.project_id);
     const toAdd = uniqueIds.filter((id) => !existingProjectIds.includes(id));
 
     for (const row of toRemove) {
@@ -488,6 +553,62 @@ export async function assignWorkersToProjectBatch(
   } catch (error) {
     console.warn("assignWorkersToProjectBatch failed:", error);
     return { error: null };
+  }
+}
+
+/** Transfer plant to a project from an effective date (open-ended, no end date). */
+export async function transferPlantToProject(input: {
+  plant: PlantAsset | PlantAssignmentSource;
+  toProjectId: string | null;
+  effectiveFrom: string;
+}): Promise<{ error: string | null }> {
+  try {
+    const plantId = verifyMasterPlantId(input.plant).plantId;
+    const effectiveFrom = formatDateOnly(input.effectiveFrom);
+    if (!plantId) return { error: "Select a machine." };
+    if (!effectiveFrom) return { error: "Effective From Date is required." };
+
+    let toId: string | null = null;
+    let toProjectName = "";
+    if (input.toProjectId) {
+      const { id, error: toError } = await resolveProjectId(input.toProjectId);
+      if (toError || !id) {
+        return { error: toError ?? "Invalid project selection." };
+      }
+      toId = id;
+      toProjectName = getCachedProjects().find((p) => p.id === toId)?.name ?? "";
+    }
+
+    const plantRecord = input.plant as PlantAsset;
+    const plantName =
+      plantRecord.unit_number?.trim() ||
+      plantRecord.name?.trim() ||
+      null;
+
+    const assignmentError = await applyPermanentPlantAssignmentTransfer(supabase, {
+      plantId,
+      projectId: toId,
+      projectName: toProjectName,
+      plantName,
+      effectiveFrom,
+    });
+
+    if (assignmentError) {
+      return { error: assignmentError };
+    }
+
+    await syncPlantProjectAssignmentFields(
+      plantId,
+      toId,
+      toId ? toProjectName || null : null
+    );
+
+    return { error: null };
+  } catch (error) {
+    console.warn("transferPlantToProject failed:", error);
+    return {
+      error: error instanceof Error ? error.message : "Failed to transfer plant.",
+    };
   }
 }
 

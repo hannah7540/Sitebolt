@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, Loader2, Truck, Wrench } from "lucide-react";
 import type { PlantAsset, PlantPrestart } from "@/lib/supabase";
-import { assignPlantToProject, fetchPlantPrestarts, resolvePlantPrestartDefect, syncPlantProjectAssignmentFields } from "@/lib/supabase";
+import { fetchPlantPrestarts, resolvePlantPrestartDefect } from "@/lib/supabase";
 import {
   buildPlantServiceCreateInput,
   createPlantServiceSchedule,
@@ -21,6 +21,7 @@ import { plantHasHydrovacCategory } from "@/lib/plant-categories";
 import { SERVICE_TYPES } from "@/lib/projects";
 import {
   fetchProjects,
+  filterActiveProjects,
   getCachedProjects,
   type DbProject,
 } from "@/lib/project-resolver";
@@ -30,7 +31,6 @@ import {
   CALENDAR_WEEKDAY_SCROLL_EXTEND,
   filterWeekdayCalendarDays,
   formatDateOnly,
-  formatWeekRange,
   getCalendarDaysInRange,
   getCalendarRangeEnd,
   getCalendarRangeStart,
@@ -45,8 +45,13 @@ import {
   matchesProjectFilter,
 } from "@/lib/project-filter-utils";
 import {
+  buildDatedPlantAssignmentMap,
+  fetchProjectPlantAssignments,
+  plantAssignmentCoversDay,
   resolvePlantAssignedProjectId,
   resolvePlantAssignedProjectName,
+  transferPlantToProject,
+  type ProjectPlantAssignment,
 } from "@/lib/project-assignments";
 import { resolveProjectCalendarTone } from "@/lib/project-colors";
 import HorizontalCalendarGrid, {
@@ -85,7 +90,7 @@ import {
   isResolvedPrestartDefect,
 } from "@/lib/plant-prestart-utils";
 import { cn } from "@/lib/utils";
-import { cardClass, inputClass } from "@/lib/ui-classes";
+import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface PlantFleetSchedulerProps {
   plant: PlantAsset[];
@@ -196,12 +201,17 @@ function PlantDefectBadge({
   );
 }
 
+function todayIso(): string {
+  return formatDateOnly(new Date());
+}
+
 function resolveDayPlantProjectAssignment(
   asset: PlantAsset,
   dayIso: string,
   projectFilterSet: Set<string>,
   allocations: PlantProjectAllocation[],
-  projects: DbProject[]
+  projects: DbProject[],
+  datedAssignments: ProjectPlantAssignment[] = []
 ): { projectId: string; projectName: string } | null {
   // Default project badges Mon–Fri only; weekend cells stay blank unless
   // an explicit defect or service event exists for that date.
@@ -209,12 +219,45 @@ function resolveDayPlantProjectAssignment(
     return null;
   }
 
+  const covering = datedAssignments.filter((row) =>
+    plantAssignmentCoversDay(row, dayIso)
+  );
+  if (covering.length > 0) {
+    const match =
+      covering.find((row) => matchesProjectFilter(row.project_id, projectFilterSet)) ??
+      covering.sort((a, b) =>
+        formatDateOnly(b.start_date).localeCompare(formatDateOnly(a.start_date))
+      )[0];
+    if (
+      match?.project_id &&
+      matchesProjectFilter(match.project_id, projectFilterSet)
+    ) {
+      const projectName =
+        match.project_name?.trim() ||
+        projects.find((project) => project.id === match.project_id)?.name ||
+        resolvePlantAssignedProjectName(asset);
+      if (!projectName || projectName === "Unassigned") return null;
+      return { projectId: match.project_id, projectName };
+    }
+    if (projectFilterSet.size > 0) return null;
+  }
+
+  const hasClosedJunctionHistory = datedAssignments.some(
+    (row) =>
+      row.status === "Unassigned" ||
+      row.status === "Transferred" ||
+      Boolean(formatDateOnly(row.end_date))
+  );
+
   let projectId = resolvePlantAssignedProjectId(asset);
   let projectName = resolvePlantAssignedProjectName(asset);
 
   if (plantHasProjectAllocations(allocations, asset.id)) {
     const allocation = resolvePlantAllocationForDate(allocations, asset.id, dayIso);
     if (!allocation) {
+      if (hasClosedJunctionHistory && covering.length === 0) {
+        return null;
+      }
       projectId = "";
       projectName = YARD_PROJECT_LABEL;
     } else {
@@ -223,6 +266,8 @@ function resolveDayPlantProjectAssignment(
         ? projects.find((project) => project.id === projectId)?.name ?? projectName
         : YARD_PROJECT_LABEL;
     }
+  } else if (hasClosedJunctionHistory && covering.length === 0) {
+    return null;
   }
 
   if (!projectId) {
@@ -312,6 +357,10 @@ export default function PlantFleetScheduler({
   const [eventDeleting, setEventDeleting] = useState(false);
   const [eventError, setEventError] = useState<string | null>(null);
   const [allocations, setAllocations] = useState<PlantProjectAllocation[]>([]);
+  const [datedAssignments, setDatedAssignments] = useState<ProjectPlantAssignment[]>(
+    []
+  );
+  const [effectiveFromDate, setEffectiveFromDate] = useState(() => todayIso());
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -350,9 +399,19 @@ export default function PlantFleetScheduler({
     setAllocations(result.data);
   }, [plant]);
 
+  const loadDatedAssignments = useCallback(async () => {
+    const rows = await fetchProjectPlantAssignments();
+    const plantIds = new Set(plant.map((asset) => asset.id));
+    setDatedAssignments(rows.filter((row) => plantIds.has(row.plant_id)));
+  }, [plant]);
+
   useEffect(() => {
     void loadAllocations();
   }, [loadAllocations]);
+
+  useEffect(() => {
+    void loadDatedAssignments();
+  }, [loadDatedAssignments]);
 
   useEffect(() => {
     if (!successToast) return;
@@ -438,12 +497,13 @@ export default function PlantFleetScheduler({
   useEffect(() => {
     fetchProjects().then((list) => {
       setProjects(list);
-      if (list.length > 0 && !targetProjectId) {
+      setTargetProjectId((current) => {
+        if (current) return current;
         const def = list.find((p) => p.slug === "project-3") ?? list[0];
-        setTargetProjectId(def.id);
-      }
+        return def?.id ?? "";
+      });
     });
-  }, [targetProjectId]);
+  }, []);
 
   useEffect(() => {
     if (plant.length > 0 && !selectedPlantId) {
@@ -607,6 +667,18 @@ export default function PlantFleetScheduler({
     setAssignError(null);
     setActionMessage(null);
 
+    const { error: transferError } = await transferPlantToProject({
+      plant: selected,
+      toProjectId: input.projectId,
+      effectiveFrom: input.effectiveFrom,
+    });
+
+    if (transferError) {
+      setActionLoading(false);
+      setAssignError(transferError);
+      return;
+    }
+
     const allocationResult = await reassignPlantProjectAllocation({
       plantId: selected.id,
       currentProjectId,
@@ -620,19 +692,7 @@ export default function PlantFleetScheduler({
       return;
     }
 
-    const { error: assignErrorMessage } = input.projectId && targetProject
-      ? await assignPlantToProject({
-          plant: selected,
-          projectId: targetProject.id,
-          projectName: targetProject.name,
-        })
-      : await syncPlantProjectAssignmentFields(selected.id, null, null);
-
     setActionLoading(false);
-    if (assignErrorMessage) {
-      setAssignError(assignErrorMessage);
-      return;
-    }
 
     setAllocations((current) => {
       const remaining = current.filter((row) => row.plant_id !== selected.id);
@@ -651,14 +711,19 @@ export default function PlantFleetScheduler({
     setSelectedPlantId(selected.id);
     setTargetProjectId(input.projectId ?? "");
     setAssignModalOpen(false);
+    const effectiveLabel = new Date(`${input.effectiveFrom}T12:00:00`).toLocaleDateString(
+      "en-AU",
+      { day: "numeric", month: "short", year: "numeric" }
+    );
     setSuccessToast(
-      `Assigned ${plantName} to ${projectName} effective ${formatPlantCalendarDotDate(input.effectiveFrom)}`
+      `${plantName} transferred to ${projectName} from ${effectiveLabel} (permanent).`
     );
     setActionMessage(
-      `Assigned ${plantName} to ${projectName} effective ${formatPlantCalendarDotDate(input.effectiveFrom)}`
+      `${plantName} transferred to ${projectName} from ${effectiveLabel} (permanent).`
     );
     onRefresh();
     void loadAllocations();
+    void loadDatedAssignments();
   };
 
   const handleLogService = async (e: React.FormEvent) => {
@@ -695,13 +760,55 @@ export default function PlantFleetScheduler({
     [filterProjectIds, projects]
   );
 
-  const visiblePlant = useMemo(
-    () =>
-      calendarPlant.filter((asset) =>
-        matchesProjectFilter(resolvePlantAssignedProjectId(asset), projectFilterSet)
-      ),
-    [calendarPlant, projectFilterSet]
+  const datedAssignmentMap = useMemo(
+    () => buildDatedPlantAssignmentMap(datedAssignments),
+    [datedAssignments]
   );
+
+  const visiblePlant = useMemo(() => {
+    const rangeStartIso = formatDateOnly(rangeStart);
+    const rangeEndIso = formatDateOnly(rangeEnd);
+    return calendarPlant.filter((asset) => {
+      if (projectFilterSet.size === 0) return true;
+      const rows = datedAssignmentMap.get(asset.id) ?? [];
+      if (
+        rows.some(
+          (row) =>
+            matchesProjectFilter(row.project_id, projectFilterSet) &&
+            (plantAssignmentCoversDay(row, todayIso()) ||
+              plantAssignmentCoversDay(row, rangeStartIso) ||
+              plantAssignmentCoversDay(row, rangeEndIso) ||
+              (!formatDateOnly(row.end_date) &&
+                (!formatDateOnly(row.start_date) ||
+                  formatDateOnly(row.start_date) <= rangeEndIso)))
+        )
+      ) {
+        return true;
+      }
+      if (plantHasProjectAllocations(allocations, asset.id)) {
+        if (
+          allocations.some(
+            (allocation) =>
+              allocation.plant_id === asset.id &&
+              matchesProjectFilter(allocation.project_id ?? "", projectFilterSet)
+          )
+        ) {
+          return true;
+        }
+      }
+      return matchesProjectFilter(
+        resolvePlantAssignedProjectId(asset),
+        projectFilterSet
+      );
+    });
+  }, [
+    allocations,
+    calendarPlant,
+    datedAssignmentMap,
+    projectFilterSet,
+    rangeEnd,
+    rangeStart,
+  ]);
 
   const latestPrestartByPlant = latestPrestartsByPlant;
 
@@ -989,7 +1096,8 @@ export default function PlantFleetScheduler({
         day.iso,
         projectFilterSet,
         allocations,
-        projects
+        projects,
+        datedAssignmentMap.get(asset.id) ?? []
       );
       const cellEvents = calendarEventsByPlantDate.get(`${asset.id}:${dateKey}`) ?? [];
       const hasOverlays =
@@ -1041,7 +1149,16 @@ export default function PlantFleetScheduler({
         </div>
       );
     },
-    [allocations, calendarEventsByPlantDate, openAddEvent, prestartsByPlantDate, projectFilterSet, projects, schedulesByPlantDate]
+    [
+      allocations,
+      calendarEventsByPlantDate,
+      datedAssignmentMap,
+      openAddEvent,
+      prestartsByPlantDate,
+      projectFilterSet,
+      projects,
+      schedulesByPlantDate,
+    ]
   );
 
   const renderHeaderDayExtra = useCallback(
@@ -1152,14 +1269,18 @@ export default function PlantFleetScheduler({
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!selectedPlantId) return;
+                if (!selectedPlantId || !effectiveFromDate) return;
                 setAssignError(null);
-                setAssignModalOpen(true);
+                void handleAssignToProject({
+                  plantId: selectedPlantId,
+                  projectId: targetProjectId || null,
+                  effectiveFrom: effectiveFromDate,
+                });
               }}
               className="mb-6 space-y-3"
             >
               <h3 className="text-xs font-semibold uppercase text-slate-500">
-                Move Plant / Assign to Project
+                Move Plant to Project
               </h3>
               <select
                 value={selectedPlantId}
@@ -1175,15 +1296,46 @@ export default function PlantFleetScheduler({
                   </option>
                 ))}
               </select>
+              <select
+                value={targetProjectId}
+                onChange={(e) => setTargetProjectId(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">{YARD_PROJECT_LABEL}</option>
+                {filterActiveProjects(projects).map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <div>
+                <label htmlFor="plant-effective-from" className={labelClass}>
+                  Effective From Date
+                </label>
+                <input
+                  id="plant-effective-from"
+                  type="date"
+                  value={effectiveFromDate}
+                  onChange={(e) => setEffectiveFromDate(e.target.value)}
+                  className={inputClass}
+                  required
+                />
+              </div>
               <p className="text-xs text-slate-500">
-                Visible week: {formatWeekRange(focusedWeekStart)}
+                Permanent transfer from the selected date forward. Historical
+                assignment on the previous project is kept until the day before.
               </p>
+              {assignError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  {assignError}
+                </p>
+              ) : null}
               <button
                 type="submit"
-                disabled={actionLoading || !selectedPlantId}
+                disabled={actionLoading || !selectedPlantId || !effectiveFromDate}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
               >
-                Assign to Project
+                {actionLoading ? "Saving…" : "Move to Project"}
               </button>
             </form>
 

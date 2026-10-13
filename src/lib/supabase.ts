@@ -1147,6 +1147,8 @@ const PLANT_JUNCTION_OPTIONAL_COLUMNS = [
   "plant_name",
   "project_name",
   "status",
+  "start_date",
+  "end_date",
 ] as const;
 
 const WORKER_JUNCTION_OPTIONAL_COLUMNS = [
@@ -1441,6 +1443,8 @@ export async function assignMasterPlantToProject(input: {
         plant_name: plantName,
         project_name: projectName,
         status: "Assigned",
+        start_date: formatDateOnly(new Date()),
+        end_date: null,
       },
       "project_id,plant_id",
       PLANT_JUNCTION_OPTIONAL_COLUMNS

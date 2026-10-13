@@ -117,9 +117,10 @@ export default function PlantAssignToProjectModal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Assign to Project</h2>
+            <h2 className="text-lg font-bold text-slate-900">Move Plant to Project</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Move plant with an open-ended assignment from a required effective date.
+              Permanent transfer from the selected date forward. Historical assignment
+              on the previous project is kept until the day before.
             </p>
           </div>
           <button
@@ -176,7 +177,7 @@ export default function PlantAssignToProjectModal({
           </label>
 
           <label className="block">
-            <span className={labelClass}>Effective From Date (required)</span>
+            <span className={labelClass}>Effective From Date</span>
             <input
               type="date"
               required
@@ -213,7 +214,7 @@ export default function PlantAssignToProjectModal({
             className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Assign to Project
+            Move to Project
           </button>
         </div>
       </div>
