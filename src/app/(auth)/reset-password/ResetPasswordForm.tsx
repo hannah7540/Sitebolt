@@ -61,7 +61,24 @@ export default function ResetPasswordForm() {
     try {
       const supabase = createSupabaseBrowserClient();
 
-      if (authCode) {
+      if (tokenHash) {
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
+        if (verifyError) {
+          setError(verifyError.message);
+          return;
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password,
+        });
+        if (updateError) {
+          setError(updateError.message);
+          return;
+        }
+      } else if (authCode) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
           authCode
         );
@@ -81,8 +98,8 @@ export default function ResetPasswordForm() {
         const result = await consumeAuthTokenAndUpdatePassword(supabase, {
           password,
           tokenHash,
-          otpToken: hasLinkToken ? "" : otpToken,
-          email: hasLinkToken ? "" : email,
+          otpToken,
+          email,
           otpType,
         });
 
