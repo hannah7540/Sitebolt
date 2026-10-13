@@ -48,7 +48,7 @@ import {
   resolvePlantAssignedProjectId,
   resolvePlantAssignedProjectName,
 } from "@/lib/project-assignments";
-import { resolvePlantCalendarProjectTone } from "@/lib/plant-calendar-project-colors";
+import { resolveProjectCalendarTone } from "@/lib/project-colors";
 import HorizontalCalendarGrid, {
   SCROLL_EXTEND_DAYS,
 } from "@/components/shared/HorizontalCalendarGrid";
@@ -904,7 +904,7 @@ export default function PlantFleetScheduler({
         scheduledService != null &&
         isUpcomingHeaderBookedService(scheduledService, formatDateOnly(new Date()));
 
-      const projectTone = resolvePlantCalendarProjectTone({
+      const projectTone = resolveProjectCalendarTone({
         projectId: resolvePlantAssignedProjectId(asset),
         projectName: resolvePlantAssignedProjectName(asset),
       });
@@ -1016,7 +1016,7 @@ export default function PlantFleetScheduler({
             <PlantProjectAssignmentCell
               projectName={projectAssignment.projectName}
               badgeClass={
-                resolvePlantCalendarProjectTone(projectAssignment).badgeClass
+                resolveProjectCalendarTone(projectAssignment).badgeClass
               }
               compact={hasOverlays}
             />
@@ -1107,7 +1107,7 @@ export default function PlantFleetScheduler({
                 return "bg-red-50/60";
               }
               return (
-                resolvePlantCalendarProjectTone({
+                resolveProjectCalendarTone({
                   projectId: resolvePlantAssignedProjectId(asset),
                   projectName: resolvePlantAssignedProjectName(asset),
                 }).rowClass || undefined

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
 import { fetchWorkerSchedules, isWorkerDeleted } from "@/lib/supabase";
-import { getProjectColor } from "@/lib/projects";
+import { resolveProjectCalendarTone } from "@/lib/project-colors";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
   addDays,
@@ -164,20 +164,25 @@ function CalendarLegendBar() {
 
 function ProjectAssignmentCell({
   projectName,
-  projectColor,
+  badgeClass,
+  compact = false,
 }: {
   projectName: string;
-  projectColor: string;
+  badgeClass: string;
+  compact?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex h-full min-h-[52px] flex-col items-center justify-center rounded-md border px-0.5 py-1 text-center text-[9px] font-bold uppercase leading-tight tracking-wide text-white",
-        projectColor
+        "flex flex-col items-center justify-center rounded-md px-0.5 py-1 text-center text-[9px] font-bold uppercase leading-tight tracking-wide",
+        badgeClass,
+        compact ? "mb-0.5 w-full" : "h-full min-h-[52px]"
       )}
       title={projectName}
     >
-      <span className="line-clamp-3 break-words">{projectName}</span>
+      <span className={cn(compact ? "line-clamp-2" : "line-clamp-3", "break-words")}>
+        {projectName}
+      </span>
     </div>
   );
 }
@@ -721,9 +726,13 @@ export default function WorkerProjectScheduler({
             )
           : null;
 
-      const projectColor = projectAssignment
-        ? getProjectColor(projectAssignment.projectId, projects)
-        : "bg-slate-200/80 border-slate-300";
+      const projectTone = projectAssignment
+        ? resolveProjectCalendarTone({
+            projectId: projectAssignment.projectId,
+            projectName: projectAssignment.projectName,
+          })
+        : null;
+      const hasOverlays = visibleDayEvents.length > 0 || Boolean(dayLeaveSchedule);
 
       return (
         <>
@@ -743,10 +752,11 @@ export default function WorkerProjectScheduler({
               event={scheduleLeaveToCalendarEvent(dayLeaveSchedule, worker)}
             />
           ) : null}
-          {projectAssignment ? (
+          {projectAssignment && projectTone ? (
             <ProjectAssignmentCell
               projectName={projectAssignment.projectName}
-              projectColor={projectColor}
+              badgeClass={projectTone.badgeClass}
+              compact={hasOverlays}
             />
           ) : null}
         </>

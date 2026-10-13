@@ -1,4 +1,5 @@
 import type { WorkerCalendarEvent } from "./worker-calendar-events";
+import { resolveProjectCalendarTone } from "./project-colors";
 
 export type CalendarLeaveKind =
   | "sick"
@@ -221,7 +222,7 @@ export const CALENDAR_LEGEND_ITEMS = [
   {
     key: "project",
     label: "Project Assignment",
-    className: "bg-blue-600/80 border border-blue-500 text-white",
+    className: resolveProjectCalendarTone({ projectName: "Project Assignment" }).badgeClass,
     sample: "Project",
   },
   {
