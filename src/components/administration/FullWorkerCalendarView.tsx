@@ -28,7 +28,7 @@ import {
   type BulkRdoInput,
   type WorkerCalendarEvent,
 } from "@/lib/worker-calendar-events";
-import { fetchWorkerSchedules } from "@/lib/supabase";
+import { fetchWorkers, fetchWorkerSchedules } from "@/lib/supabase";
 import type {
   WorkerDatedAssignmentMap,
   WorkerProjectMap,
@@ -67,6 +67,7 @@ export default function FullWorkerCalendarView({
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [pendingLeaveRequests, setPendingLeaveRequests] = useState<LeaveRequest[]>([]);
   const [schedules, setSchedules] = useState<WorkerScheduleEntry[]>([]);
+  const [calendarWorkers, setCalendarWorkers] = useState<Worker[]>(workers);
   const calendarAnchor = useMemo(() => getDefaultCalendarAnchor(), []);
   const [rangeStart, setRangeStart] = useState(() =>
     getCalendarRangeStart(calendarAnchor)
@@ -111,8 +112,15 @@ export default function FullWorkerCalendarView({
     try {
       await primeWorkerCalendarEventsSchema();
 
-      const [projectRows, scheduleData, projectList, leaveData, pendingLeaveData] =
-        await Promise.all([
+      const [
+        allWorkers,
+        projectRows,
+        scheduleData,
+        projectList,
+        leaveData,
+        pendingLeaveData,
+      ] = await Promise.all([
+        fetchWorkers(),
         fetchProjectWorkerAssignments(),
         fetchWorkerSchedules(rangeStartIso, rangeEndIso),
         fetchProjects(),
@@ -123,7 +131,10 @@ export default function FullWorkerCalendarView({
       const assignmentMap = buildWorkerProjectMap(projectRows);
       const datedMap = buildDatedWorkerAssignmentMap(projectRows);
       const safeSchedules = scheduleData ?? [];
+      const mergedWorkers =
+        allWorkers.length > 0 ? allWorkers : workers;
 
+      setCalendarWorkers(mergedWorkers);
       setProjects(projectList);
       setWorkerProjectMap(assignmentMap);
       setDatedWorkerAssignments(datedMap);
@@ -146,11 +157,23 @@ export default function FullWorkerCalendarView({
     } finally {
       setCalendarLoading(false);
     }
-  }, [rangeStartIso, rangeEndIso, fetchCalendarEvents]);
+  }, [rangeStartIso, rangeEndIso, fetchCalendarEvents, workers]);
 
   useEffect(() => {
     void loadCalendarData();
   }, [loadCalendarData, refreshToken]);
+
+  useEffect(() => {
+    setCalendarWorkers((current) => {
+      if (workers.length === 0) return current;
+      if (current.length === 0) return workers;
+      const byId = new Map(current.map((worker) => [worker.id, worker]));
+      for (const worker of workers) {
+        if (!byId.has(worker.id)) byId.set(worker.id, worker);
+      }
+      return [...byId.values()];
+    });
+  }, [workers]);
 
   useEffect(() => {
     return subscribeLeaveRequestsUpdated(() => {
@@ -249,7 +272,7 @@ export default function FullWorkerCalendarView({
       }
     >
       <WorkerProjectScheduler
-        workers={workers}
+        workers={calendarWorkers.length > 0 ? calendarWorkers : workers}
         workerVocs={workerVocs}
         loading={loading || calendarLoading}
         onRefresh={() => void loadCalendarData()}

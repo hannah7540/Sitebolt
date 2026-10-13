@@ -748,7 +748,7 @@ export default function WorkerProjectScheduler({
               projectFilterSet,
               weekDays,
               workerProjectMap,
-              datedWorkerAssignments.get(worker.id)
+              datedWorkerAssignments.get(worker.id) ?? []
             )
           : null;
 
@@ -766,7 +766,7 @@ export default function WorkerProjectScheduler({
         !workerHasActiveProjectAssignment(
           worker,
           workerProjectMap,
-          datedWorkerAssignments.get(worker.id)
+          datedWorkerAssignments.get(worker.id) ?? []
         );
 
       return (
@@ -840,7 +840,7 @@ export default function WorkerProjectScheduler({
         weekDays: calendarDays,
         projectFilterSet,
         workerProjectMap,
-        datedAssignments: datedWorkerAssignments.get(worker.id),
+        datedAssignments: datedWorkerAssignments.get(worker.id) ?? [],
         projects,
       })
     );

@@ -11,7 +11,7 @@ import {
   isActiveProjectWorkerAssignment,
   type ProjectWorkerAssignment,
 } from "./project-assignments";
-import { normalizeWorkerStateRegion } from "./worker-state-region";
+import { normalizeCalendarStateCode } from "./worker-state-region";
 
 export type WorkerProjectMap = Map<string, string[]>;
 export type WorkerDatedAssignmentMap = Map<string, ProjectWorkerAssignment[]>;
@@ -35,22 +35,15 @@ export function getWorkerCalendarProjectIds(
   return [...ids];
 }
 
-/** Currently active project IDs only — excludes closed / historical assignments. */
-export function getActiveWorkerProjectIds(
-  worker: Worker,
+/** Active IDs from `project_worker_assignments` only (ignores stale worker-row fields). */
+export function getJunctionActiveProjectIds(
+  workerId: string,
   workerProjectMap?: WorkerProjectMap,
   datedAssignments?: ProjectWorkerAssignment[]
 ): string[] {
   const ids = new Set<string>();
 
-  for (const projectId of getWorkerAssignedProjectIds(worker)) {
-    if (projectId.trim()) ids.add(projectId.trim());
-  }
-
-  const legacyProjectId = worker.project_id?.trim() || worker.assigned_project_id?.trim();
-  if (legacyProjectId) ids.add(legacyProjectId);
-
-  for (const projectId of workerProjectMap?.get(worker.id) ?? []) {
+  for (const projectId of workerProjectMap?.get(workerId) ?? []) {
     if (projectId?.trim()) ids.add(projectId.trim());
   }
 
@@ -63,12 +56,44 @@ export function getActiveWorkerProjectIds(
   return [...ids];
 }
 
+/** Currently active project IDs — junction first, then leftover worker-row fields. */
+export function getActiveWorkerProjectIds(
+  worker: Worker,
+  workerProjectMap?: WorkerProjectMap,
+  datedAssignments?: ProjectWorkerAssignment[]
+): string[] {
+  const ids = new Set(
+    getJunctionActiveProjectIds(worker.id, workerProjectMap, datedAssignments)
+  );
+
+  for (const projectId of getWorkerAssignedProjectIds(worker)) {
+    if (projectId.trim()) ids.add(projectId.trim());
+  }
+
+  const legacyProjectId = worker.project_id?.trim() || worker.assigned_project_id?.trim();
+  if (legacyProjectId) ids.add(legacyProjectId);
+
+  return [...ids];
+}
+
 export function workerHasActiveProjectAssignment(
   worker: Worker,
   workerProjectMap?: WorkerProjectMap,
   datedAssignments?: ProjectWorkerAssignment[]
 ): boolean {
-  return getActiveWorkerProjectIds(worker, workerProjectMap, datedAssignments).length > 0;
+  return (
+    getJunctionActiveProjectIds(worker.id, workerProjectMap, datedAssignments).length >
+    0
+  );
+}
+
+export function resolveProjectFilterState(
+  project: Pick<DbProject, "state" | "location">
+): string | null {
+  return (
+    normalizeCalendarStateCode(project.state) ??
+    normalizeCalendarStateCode(project.location)
+  );
 }
 
 export function selectedProjectStates(
@@ -83,7 +108,7 @@ export function selectedProjectStates(
     ) {
       continue;
     }
-    const state = normalizeWorkerStateRegion(project.state);
+    const state = resolveProjectFilterState(project);
     if (state) states.add(state);
   }
   return states;
@@ -237,6 +262,14 @@ export function resolveDayProjectAssignment(
   );
   if (fromSchedule) return fromSchedule;
 
+  const hasClosedJunctionHistory = (datedAssignments ?? []).some(
+    (row) =>
+      row.status === "Unassigned" ||
+      row.status === "Transferred" ||
+      Boolean(formatDateOnly(row.end_date))
+  );
+  if (hasClosedJunctionHistory) return null;
+
   return resolveWorkerDefaultProject(worker, projects, projectFilterSet, workerProjectMap);
 }
 
@@ -307,18 +340,26 @@ export function workerVisibleInCalendarFilter(input: {
 
   if (projectFilterSet.size === 0) return true;
 
-  const assignedIds = getActiveWorkerProjectIds(
-    worker,
+  const junctionIds = getJunctionActiveProjectIds(
+    worker.id,
     workerProjectMap,
     datedAssignments
   );
-  if (assignedIds.some((id) => matchesProjectFilter(id, projectFilterSet))) {
+  const rowIds = getWorkerAssignedProjectIds(worker);
+  const legacyId = worker.project_id?.trim() || worker.assigned_project_id?.trim();
+  const selectedAssignmentIds = [
+    ...junctionIds,
+    ...rowIds,
+    ...(legacyId ? [legacyId] : []),
+  ];
+
+  if (selectedAssignmentIds.some((id) => matchesProjectFilter(id, projectFilterSet))) {
     return true;
   }
 
-  if (assignedIds.length > 0) return false;
+  if (junctionIds.length > 0) return false;
 
-  const workerState = normalizeWorkerStateRegion(worker.state);
+  const workerState = normalizeCalendarStateCode(worker.state);
   if (!workerState) return false;
 
   return selectedProjectStates(projectFilterSet, projects).has(workerState);

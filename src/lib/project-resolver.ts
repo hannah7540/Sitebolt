@@ -1,6 +1,9 @@
 import { supabase } from "./supabase";
 import { sanitizeWritePayload } from "./form-payload-utils";
-import { normalizeWorkerStateRegion } from "./worker-state-region";
+import {
+  normalizeCalendarStateCode,
+  normalizeWorkerStateRegion,
+} from "./worker-state-region";
 import { onActiveOrganisationChange } from "./active-organisation";
 import {
   filterRowsByOrganisation,
@@ -78,7 +81,7 @@ function normalizeProject(row: RawProjectRow): DbProject {
     is_active: isProjectActive(row.is_active) && !is_archived,
     is_archived,
     status: row.status ?? (is_archived ? "Archived" : "Active"),
-    state: normalizeWorkerStateRegion(row.state),
+    state: normalizeCalendarStateCode(row.state) ?? normalizeWorkerStateRegion(row.state),
   };
 }
 
