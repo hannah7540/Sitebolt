@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root,
 html.theme-orange {
   --background: #f8fafc;
@@ -19,6 +21,8 @@ html.theme-orange {
   --border: #e2e8f0;
   --text-body: #334155;
   --text-muted: #64748b;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
   --plumbing-bg-image: url("https://curuixppplfwwfmheflw.supabase.co/storage/v1/object/public/Assets/Plumbing%20Background%20Picture.png");
   --plumbing-bg-overlay: rgba(248, 250, 252, 0.9);
 }
@@ -75,11 +79,87 @@ html.theme-yellow {
   --accent-dark: var(--primary-accent-hover);
 }
 
+html.dark,
+html.theme-dark {
+  color-scheme: dark;
+  --background: hsl(222.2 84% 4.9%);
+  --foreground: hsl(210 40% 98%);
+  --primary-accent: #ff6b00;
+  --primary-accent-hover: #e85f00;
+  --primary-accent-50: color-mix(in srgb, #ff6b00 16%, #020817);
+  --primary-accent-100: color-mix(in srgb, #ff6b00 22%, #020817);
+  --primary-accent-200: color-mix(in srgb, #ff6b00 32%, #020817);
+  --primary-accent-300: #fdba74;
+  --primary-accent-400: #ff8a3d;
+  --primary-accent-700: #fdba74;
+  --accent: var(--primary-accent);
+  --accent-dark: var(--primary-accent-hover);
+  --surface: hsl(222.2 47.4% 11.2%);
+  --surface-elevated: hsl(217.2 32.6% 17.5%);
+  --border: hsl(217.2 32.6% 17.5%);
+  --text-body: hsl(210 40% 96%);
+  --text-muted: hsl(215 20.2% 65.1%);
+  --muted: hsl(217.2 32.6% 17.5%);
+  --muted-foreground: hsl(215 20.2% 65.1%);
+  --plumbing-bg-overlay: rgba(2, 8, 23, 0.92);
+  --color-white: hsl(222.2 47.4% 11.2%);
+  --color-slate-50: hsl(217.2 32.6% 17.5%);
+  --color-slate-100: hsl(217.2 32.6% 17.5%);
+  --color-slate-200: hsl(217.2 32.6% 22%);
+  --color-slate-300: hsl(215 19% 32%);
+  --color-slate-400: hsl(215 16% 57%);
+  --color-slate-500: hsl(215 16% 65%);
+  --color-slate-600: hsl(214 20% 80%);
+  --color-slate-700: hsl(214 20% 88%);
+  --color-slate-800: hsl(210 40% 96%);
+  --color-slate-900: hsl(210 40% 98%);
+  --color-slate-950: hsl(210 40% 98%);
+  --color-amber-50: hsl(36 40% 14%);
+  --color-amber-900: hsl(43 96% 77%);
+  --color-red-50: hsl(0 40% 14%);
+  --color-red-900: hsl(0 86% 80%);
+  --color-emerald-50: hsl(160 40% 12%);
+  --color-emerald-900: hsl(160 70% 75%);
+}
+
+html.dark [class*="text-white"],
+html.theme-dark [class*="text-white"] {
+  color: #ffffff;
+}
+
+html.dark .border-white,
+html.theme-dark .border-white {
+  border-color: #ffffff;
+}
+
+html.dark .fill-white,
+html.theme-dark .fill-white {
+  fill: #ffffff;
+}
+
+html.dark .ring-white\/40,
+html.theme-dark .ring-white\/40 {
+  --tw-ring-color: rgb(255 255 255 / 0.4);
+}
+
+html.dark .bg-white\/20,
+html.theme-dark .bg-white\/20 {
+  background-color: rgb(255 255 255 / 0.2);
+}
+
+html.dark .bg-white\/25,
+html.theme-dark .bg-white\/25 {
+  background-color: rgb(255 255 255 / 0.25);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-accent: var(--accent);
   --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted, var(--surface-elevated));
+  --color-muted-foreground: var(--muted-foreground, var(--text-muted));
   --color-orange-50: var(--primary-accent-50);
   --color-orange-100: var(--primary-accent-100);
   --color-orange-200: var(--primary-accent-200);
@@ -131,8 +211,18 @@ body {
   border-radius: 3px;
 }
 
+html.dark ::-webkit-scrollbar-thumb,
+html.theme-dark ::-webkit-scrollbar-thumb {
+  background: hsl(215 16% 35%);
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover,
+html.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(215 16% 50%);
 }
 
 .calendar-scroll-x {

@@ -1,6 +1,6 @@
 export const UI_THEME_STORAGE_KEY = "sitebolt_theme";
 
-export const ACCENT_THEMES = ["orange", "blue", "green", "pink", "yellow"] as const;
+export const ACCENT_THEMES = ["orange", "blue", "green", "pink", "yellow", "dark"] as const;
 
 export type AccentTheme = (typeof ACCENT_THEMES)[number];
 
@@ -58,7 +58,19 @@ export const ACCENT_THEME_OPTIONS: AccentThemeOption[] = [
     hover: "#A16207",
     checkOnSwatch: "charcoal",
   },
+  {
+    id: "dark",
+    label: "Dark Theme",
+    swatch: "#0B1220",
+    accent: "#FF6B00",
+    hover: "#E85F00",
+    checkOnSwatch: "white",
+  },
 ];
+
+export const COLOR_ACCENT_THEME_OPTIONS = ACCENT_THEME_OPTIONS.filter(
+  (option) => option.id !== "dark"
+);
 
 const THEME_CLASS_LIST = ACCENT_THEMES.map((theme) => `theme-${theme}`);
 
@@ -92,12 +104,15 @@ export function applyAccentThemeToDocument(theme: AccentTheme): void {
   if (typeof document === "undefined") return;
   const option = ACCENT_THEME_OPTIONS.find((row) => row.id === theme) ?? ACCENT_THEME_OPTIONS[0];
   const root = document.documentElement;
-  root.classList.remove(...THEME_CLASS_LIST);
+  root.classList.remove("dark", ...THEME_CLASS_LIST);
   root.classList.add(`theme-${theme}`);
+  if (theme === "dark") {
+    root.classList.add("dark");
+  }
   root.setAttribute("data-theme", theme);
   root.style.setProperty("--primary-accent", option.accent);
   root.style.setProperty("--primary-accent-hover", option.hover);
 }
 
 /** Runs before paint so the stored accent is visible on first frame. */
-export const UI_THEME_BOOTSTRAP_SCRIPT = `(function(){try{var k=${JSON.stringify(UI_THEME_STORAGE_KEY)};var a=${JSON.stringify([...ACCENT_THEMES])};var t=localStorage.getItem(k);if(a.indexOf(t)<0)t=${JSON.stringify(DEFAULT_ACCENT_THEME)};var r=document.documentElement;r.classList.remove(${THEME_CLASS_LIST.map((c) => JSON.stringify(c)).join(",")});r.classList.add("theme-"+t);r.setAttribute("data-theme",t);}catch(e){document.documentElement.classList.add("theme-${DEFAULT_ACCENT_THEME}");}})();`;
+export const UI_THEME_BOOTSTRAP_SCRIPT = `(function(){try{var k=${JSON.stringify(UI_THEME_STORAGE_KEY)};var a=${JSON.stringify([...ACCENT_THEMES])};var t=localStorage.getItem(k);if(a.indexOf(t)<0)t=${JSON.stringify(DEFAULT_ACCENT_THEME)};var r=document.documentElement;r.classList.remove("dark",${THEME_CLASS_LIST.map((c) => JSON.stringify(c)).join(",")});r.classList.add("theme-"+t);if(t==="dark")r.classList.add("dark");r.setAttribute("data-theme",t);}catch(e){document.documentElement.classList.add("theme-${DEFAULT_ACCENT_THEME}");}})();`;

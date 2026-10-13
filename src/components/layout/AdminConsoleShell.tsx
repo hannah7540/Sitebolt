@@ -480,7 +480,7 @@ export default function AdminConsoleShell({
         >
           <Suspense
             fallback={
-              <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 ease-in-out lg:w-80" />
+              <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ease-in-out lg:w-80" />
             }
           >
             <Sidebar
@@ -504,7 +504,7 @@ export default function AdminConsoleShell({
         <div className="flex min-w-0 flex-1 flex-col">
           <AppScreenHeader />
 
-          <div className="mobile-safe-area-y flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+          <div className="mobile-safe-area-y flex items-center gap-3 border-b border-border bg-surface px-4 py-3 text-foreground lg:hidden">
             <button
               type="button"
               onClick={() => setSidebarOpen(!sidebarOpen)}

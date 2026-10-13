@@ -781,7 +781,7 @@ function SidebarFrame({
   return (
     <aside
       className={cn(
-        "flex h-full shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-[width] duration-200 ease-in-out",
+        "flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-surface text-foreground transition-[width] duration-200 ease-in-out",
         iconOnly ? "w-72 lg:w-20" : "w-72 lg:w-80"
       )}
     >

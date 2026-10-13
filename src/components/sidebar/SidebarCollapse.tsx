@@ -146,7 +146,7 @@ function SidebarFlyout({
       />
       <div
         ref={panelRef}
-        className="fixed z-[70] w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+        className="fixed z-[70] w-64 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-foreground shadow-xl"
         style={{ left: rect.right + 8, top, maxHeight }}
         role="menu"
       >

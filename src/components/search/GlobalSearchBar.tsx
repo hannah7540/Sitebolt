@@ -43,8 +43,8 @@ export default function GlobalSearchBar() {
           onChange={(event) => search.setQuery(event.target.value)}
           placeholder="Search workers, plant, fleet, ITPs, ITCs, projects... (Press Enter)"
           className={cn(
-            "h-10 w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-10 text-sm text-slate-900 outline-none transition",
-            "placeholder:text-slate-400 focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100"
+            "h-10 w-full rounded-full border border-border bg-muted py-2 pl-10 pr-10 text-sm text-foreground outline-none transition",
+            "placeholder:text-muted-foreground focus:border-orange-400 focus:bg-surface focus:ring-2 focus:ring-orange-100"
           )}
         />
         {search.query ? (
