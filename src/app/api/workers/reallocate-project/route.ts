@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "workerId, projectId, projectName, and startDate are required.",
+            "workerId, projectId, projectName, and effective from date are required.",
         },
         { status: 400 }
       );

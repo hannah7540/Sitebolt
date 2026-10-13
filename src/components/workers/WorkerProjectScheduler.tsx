@@ -9,12 +9,16 @@ import {
 } from "lucide-react";
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
 import { fetchWorkerSchedules, isWorkerDeleted } from "@/lib/supabase";
+import {
+  buildDatedWorkerAssignmentMap,
+  fetchProjectWorkerAssignments,
+  type ProjectWorkerAssignment,
+} from "@/lib/project-assignments";
 import { resolveProjectCalendarTone } from "@/lib/project-colors";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
   addDays,
   CALENDAR_DAY_COLUMN_WIDTH,
-  formatWeekRange,
   getCalendarDaysInRange,
   getCalendarRangeEnd,
   getCalendarRangeStart,
@@ -62,6 +66,7 @@ import {
   scheduleLeaveOnDay,
   scheduleLeaveToCalendarEvent,
   workerVisibleInCalendarFilter,
+  type WorkerDatedAssignmentMap,
   type WorkerProjectMap,
 } from "@/lib/worker-calendar-grid";
 import { formatDateOnly } from "@/lib/scheduler-utils";
@@ -83,6 +88,8 @@ interface WorkerProjectSchedulerProps {
   adminCalendarMode?: boolean;
   /** Junction table + default assignment map (Full Worker Calendar). */
   workerProjectMap?: WorkerProjectMap;
+  /** Dated project_worker_assignments rows keyed by worker (open-ended end_date included). */
+  datedWorkerAssignments?: WorkerDatedAssignmentMap;
   /** Pre-fetched calendar events (optional — when omitted, fetched internally). */
   calendarEvents?: WorkerCalendarEvent[];
   /** Pre-fetched schedule rows (optional — when omitted, fetched internally). */
@@ -197,6 +204,7 @@ export default function WorkerProjectScheduler({
   subtitle = "Site allocations · project assignments · compliance overview",
   adminCalendarMode = false,
   workerProjectMap,
+  datedWorkerAssignments: datedWorkerAssignmentsProp,
   calendarEvents: calendarEventsProp,
   schedules: schedulesProp,
   leaveRequests: leaveRequestsProp,
@@ -291,6 +299,9 @@ export default function WorkerProjectScheduler({
   const projects = projectsProp ?? projectsInternal;
   const [roleOnSite, setRoleOnSite] = useState("");
   const [moveStartDate, setMoveStartDate] = useState(() => formatDateOnly(new Date()));
+  const [datedAssignmentsInternal, setDatedAssignmentsInternal] = useState<
+    WorkerDatedAssignmentMap
+  >(new Map());
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [showRdos, setShowRdos] = useState(true);
@@ -305,7 +316,6 @@ export default function WorkerProjectScheduler({
 
   const rangeStartIso = formatDateOnly(rangeStart);
   const rangeEndIso = formatDateOnly(rangeEnd);
-  const focusedWeekStartIso = formatDateOnly(focusedWeekStart);
 
   useEffect(() => {
     if (!rangeStartIso || !rangeEndIso) return;
@@ -321,9 +331,8 @@ export default function WorkerProjectScheduler({
     };
   }, [rangeStartIso, rangeEndIso]);
 
-  useEffect(() => {
-    setMoveStartDate(focusedWeekStartIso);
-  }, [focusedWeekStartIso]);
+  const datedWorkerAssignments =
+    datedWorkerAssignmentsProp ?? datedAssignmentsInternal;
 
   const handleRangeExtendPast = useCallback(() => {
     if (extendingPastRef.current) return;
@@ -361,17 +370,21 @@ export default function WorkerProjectScheduler({
     setSchedulesLoading(true);
     await primeWorkerCalendarEventsSchema();
     const projectFilterId = filterProjectIds.length === 1 ? filterProjectIds[0] : undefined;
-    const [scheduleData, eventData, leaveData] = await Promise.all([
+    const [scheduleData, eventData, leaveData, assignmentRows] = await Promise.all([
       fetchWorkerSchedules(rangeStartIso, rangeEndIso),
       fetchWorkerCalendarEvents(rangeStartIso, rangeEndIso),
       fetchLeaveRequestsForCalendarRange(rangeStartIso, rangeEndIso, {
         projectId: projectFilterId,
       }),
+      fetchProjectWorkerAssignments(),
     ]);
 
     setSchedulesInternal(scheduleData ?? []);
     setCalendarEventsInternal(eventData ?? []);
     setLeaveRequestsInternal(leaveData ?? []);
+    setDatedAssignmentsInternal(
+      buildDatedWorkerAssignmentMap((assignmentRows ?? []) as ProjectWorkerAssignment[])
+    );
     setSchedulesLoading(false);
   }, [
     rangeStartIso,
@@ -462,7 +475,7 @@ export default function WorkerProjectScheduler({
   const handleMove = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedWorkerId || !targetProjectId || !moveStartDate) {
-      setActionMessage("Select a worker, destination project, and start date.");
+      setActionMessage("Select a worker, destination project, and effective from date.");
       return;
     }
 
@@ -501,8 +514,12 @@ export default function WorkerProjectScheduler({
         return;
       }
 
+      const effectiveLabel = new Date(`${moveStartDate}T12:00:00`).toLocaleDateString(
+        "en-AU",
+        { day: "numeric", month: "short", year: "numeric" }
+      );
       setActionMessage(
-        `Worker assigned to ${project.name} from ${formatWeekRange(new Date(`${moveStartDate}T12:00:00`))}.`
+        `Worker transferred to ${project.name} from ${effectiveLabel} (permanent).`
       );
       await loadSchedules();
       onRefresh();
@@ -722,7 +739,8 @@ export default function WorkerProjectScheduler({
               projects,
               projectFilterSet,
               weekDays,
-              workerProjectMap
+              workerProjectMap,
+              datedWorkerAssignments.get(worker.id)
             )
           : null;
 
@@ -771,6 +789,7 @@ export default function WorkerProjectScheduler({
       showLeaves,
       showRdos,
       workerProjectMap,
+      datedWorkerAssignments,
       handleLeaveEventClick,
     ]
   );
@@ -799,6 +818,7 @@ export default function WorkerProjectScheduler({
         weekDays: calendarDays,
         projectFilterSet,
         workerProjectMap,
+        datedAssignments: datedWorkerAssignments.get(worker.id),
       })
     );
   }, [
@@ -809,6 +829,7 @@ export default function WorkerProjectScheduler({
     calendarDays,
     projectFilterSet,
     workerProjectMap,
+    datedWorkerAssignments,
   ]);
 
   return (
@@ -927,11 +948,11 @@ export default function WorkerProjectScheduler({
                 ))}
               </select>
               <div>
-                <label htmlFor="move-start-date" className={labelClass}>
-                  Start Date
+                <label htmlFor="move-effective-from" className={labelClass}>
+                  Effective From Date
                 </label>
                 <input
-                  id="move-start-date"
+                  id="move-effective-from"
                   type="date"
                   value={moveStartDate}
                   onChange={(e) => setMoveStartDate(e.target.value)}
@@ -947,8 +968,8 @@ export default function WorkerProjectScheduler({
                 className={inputClass}
               />
               <p className="text-xs text-slate-500">
-                Creates a schedule from the selected start date through the end of
-                that calendar week. Past shifts before the start date are kept.
+                Permanent transfer from the selected date forward. Historical
+                assignment on the previous project is kept until the day before.
               </p>
               <button
                 type="submit"

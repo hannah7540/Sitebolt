@@ -6,8 +6,13 @@ import { getProjectDisplayName } from "./project-resolver";
 import { eventOnDay, formatDateOnly, isWeekdayIso } from "./scheduler-utils";
 import { matchesProjectFilter } from "./project-filter-utils";
 import { resolveLeaveCalendarPresentation } from "./leave-type-calendar";
+import {
+  assignmentCoversDay,
+  type ProjectWorkerAssignment,
+} from "./project-assignments";
 
 export type WorkerProjectMap = Map<string, string[]>;
+export type WorkerDatedAssignmentMap = Map<string, ProjectWorkerAssignment[]>;
 
 /** Merge worker row fields with project_worker_assignments junction rows. */
 export function getWorkerCalendarProjectIds(
@@ -50,9 +55,10 @@ export function shouldShowWeekendProjectAssignment(
   const friday = weekDays[4]?.iso;
   if (!monday || !friday) return true;
 
+  const end = formatDateOnly(entry.end_date);
   const coversStandardWeek =
     formatDateOnly(entry.start_date) <= monday &&
-    formatDateOnly(entry.end_date) >= friday;
+    (!end || end >= friday);
 
   return !coversStandardWeek;
 }
@@ -82,6 +88,40 @@ export function resolveWorkerDefaultProject(
     "Project";
 
   return { projectId, projectName, source: "default" };
+}
+
+export function resolveDatedJunctionAssignment(
+  assignments: ProjectWorkerAssignment[] | undefined,
+  dayIso: string,
+  projects: DbProject[],
+  projectFilterSet: Set<string>
+): WorkerProjectAssignment | null {
+  if (!assignments?.length) return null;
+
+  const covering = assignments.filter((row) => assignmentCoversDay(row, dayIso));
+  if (covering.length === 0) return null;
+
+  const match =
+    covering.find((row) => matchesProjectFilter(row.project_id, projectFilterSet)) ??
+    covering.sort((a, b) =>
+      formatDateOnly(b.start_date).localeCompare(formatDateOnly(a.start_date))
+    )[0];
+
+  if (!match?.project_id || !matchesProjectFilter(match.project_id, projectFilterSet)) {
+    return null;
+  }
+
+  const projectName =
+    match.project_name?.trim() ||
+    getProjectDisplayName(match.project_id, projects) ||
+    projects.find((project) => project.id === match.project_id)?.name ||
+    "Project";
+
+  return {
+    projectId: match.project_id,
+    projectName,
+    source: "schedule",
+  };
 }
 
 export function resolveScheduleProjectAssignment(
@@ -119,8 +159,17 @@ export function resolveDayProjectAssignment(
   projects: DbProject[],
   projectFilterSet: Set<string>,
   weekDays: { iso: string }[],
-  workerProjectMap?: WorkerProjectMap
+  workerProjectMap?: WorkerProjectMap,
+  datedAssignments?: ProjectWorkerAssignment[]
 ): WorkerProjectAssignment | null {
+  const fromDated = resolveDatedJunctionAssignment(
+    datedAssignments,
+    dayIso,
+    projects,
+    projectFilterSet
+  );
+  if (fromDated) return fromDated;
+
   const fromSchedule = resolveScheduleProjectAssignment(
     schedules,
     dayIso,
@@ -188,9 +237,17 @@ export function workerVisibleInCalendarFilter(input: {
   weekDays: { iso: string }[];
   projectFilterSet: Set<string>;
   workerProjectMap?: WorkerProjectMap;
+  datedAssignments?: ProjectWorkerAssignment[];
 }): boolean {
-  const { worker, schedules, events, weekDays, projectFilterSet, workerProjectMap } =
-    input;
+  const {
+    worker,
+    schedules,
+    events,
+    weekDays,
+    projectFilterSet,
+    workerProjectMap,
+    datedAssignments,
+  } = input;
 
   if (projectFilterSet.size === 0) return true;
 
@@ -198,6 +255,13 @@ export function workerVisibleInCalendarFilter(input: {
   if (assignedIds.some((id) => matchesProjectFilter(id, projectFilterSet))) {
     return true;
   }
+
+  const hasDatedAssignment = (datedAssignments ?? []).some(
+    (row) =>
+      matchesProjectFilter(row.project_id, projectFilterSet) &&
+      weekDays.some((day) => assignmentCoversDay(row, day.iso))
+  );
+  if (hasDatedAssignment) return true;
 
   const hasSchedule = schedules.some(
     (entry) =>
@@ -242,7 +306,7 @@ export function scheduleLeaveToCalendarEvent(
     project_name: entry.project_name,
     event_type: presentation.event_type,
     start_date: entry.start_date,
-    end_date: entry.end_date,
+    end_date: entry.end_date || entry.start_date,
     is_full_day: true,
     start_time: null,
     end_time: null,

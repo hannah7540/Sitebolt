@@ -92,15 +92,17 @@ export function enumerateDateRange(startDate: string, endDate: string): string[]
 }
 
 export function eventOnDay(
-  startDate: string,
-  endDate: string,
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
   dayIso: string
 ): boolean {
   const start = toISODateString(startDate);
   const end = toISODateString(endDate);
   const day = toISODateString(dayIso);
-  if (!start || !end || !day) return false;
-  return start <= day && end >= day;
+  if (!start || !day) return false;
+  if (start > day) return false;
+  if (end && end < day) return false;
+  return true;
 }
 
 /** Monday–Friday using local date (cellDateStr is YYYY-MM-DD). */

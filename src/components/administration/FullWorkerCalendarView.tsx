@@ -9,6 +9,7 @@ import CalendarExpandShell from "@/components/administration/CalendarExpandShell
 import type { Worker, WorkerScheduleEntry, WorkerVoc } from "@/lib/supabase";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import {
+  buildDatedWorkerAssignmentMap,
   buildWorkerProjectMap,
   fetchProjectWorkerAssignments,
 } from "@/lib/project-assignments";
@@ -28,7 +29,10 @@ import {
   type WorkerCalendarEvent,
 } from "@/lib/worker-calendar-events";
 import { fetchWorkerSchedules } from "@/lib/supabase";
-import type { WorkerProjectMap } from "@/lib/worker-calendar-grid";
+import type {
+  WorkerDatedAssignmentMap,
+  WorkerProjectMap,
+} from "@/lib/worker-calendar-grid";
 import {
   formatDateOnly,
   getCalendarRangeEnd,
@@ -57,6 +61,8 @@ export default function FullWorkerCalendarView({
   const [workerProjectMap, setWorkerProjectMap] = useState<WorkerProjectMap>(
     () => new Map()
   );
+  const [datedWorkerAssignments, setDatedWorkerAssignments] =
+    useState<WorkerDatedAssignmentMap>(() => new Map());
   const [calendarEvents, setCalendarEvents] = useState<WorkerCalendarEvent[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [pendingLeaveRequests, setPendingLeaveRequests] = useState<LeaveRequest[]>([]);
@@ -115,10 +121,12 @@ export default function FullWorkerCalendarView({
       ]);
 
       const assignmentMap = buildWorkerProjectMap(projectRows);
+      const datedMap = buildDatedWorkerAssignmentMap(projectRows);
       const safeSchedules = scheduleData ?? [];
 
       setProjects(projectList);
       setWorkerProjectMap(assignmentMap);
+      setDatedWorkerAssignments(datedMap);
       setSchedules(safeSchedules);
       setLeaveRequests(leaveData ?? []);
       setPendingLeaveRequests(pendingLeaveData ?? []);
@@ -134,6 +142,7 @@ export default function FullWorkerCalendarView({
       setPendingLeaveRequests([]);
       setSchedules([]);
       setWorkerProjectMap(new Map());
+      setDatedWorkerAssignments(new Map());
     } finally {
       setCalendarLoading(false);
     }
@@ -253,6 +262,7 @@ export default function FullWorkerCalendarView({
           expanded ? "max-h-[calc(92vh-16rem)]" : undefined
         }
         workerProjectMap={workerProjectMap}
+        datedWorkerAssignments={datedWorkerAssignments}
         calendarEvents={calendarEvents}
         leaveRequests={leaveRequests}
         pendingLeaveRequests={pendingLeaveRequests}

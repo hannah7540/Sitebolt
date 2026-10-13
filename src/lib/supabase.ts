@@ -38,6 +38,7 @@ import {
 } from "./tenant-scope";
 import { setActiveOrganisationId } from "./active-organisation";
 import { fetchSessionWorkerRecord } from "./fetch-session-worker";
+import { formatDateOnly } from "./scheduler-utils";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
 import {
   asPrestartTemplate,
@@ -731,7 +732,7 @@ export interface WorkerScheduleEntry {
   project_id: string;
   project_name: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
   role_on_site: string | null;
   leave_request_id?: string | null;
   schedule_kind?: string | null;
@@ -1152,6 +1153,8 @@ const WORKER_JUNCTION_OPTIONAL_COLUMNS = [
   "worker_name",
   "project_name",
   "status",
+  "start_date",
+  "end_date",
 ] as const;
 
 function isMissingPlantTableError(message: string, table: string): boolean {
@@ -1491,6 +1494,8 @@ export async function assignMasterWorkerToProject(input: {
         worker_name: workerName,
         project_name: projectName,
         status: "Active",
+        start_date: formatDateOnly(new Date()),
+        end_date: null,
       },
       "project_id,worker_id",
       WORKER_JUNCTION_OPTIONAL_COLUMNS
@@ -3110,7 +3115,7 @@ export async function fetchWorkerSchedules(
       .from("worker_schedule")
       .select("*")
       .lte("start_date", endDate)
-      .gte("end_date", startDate)
+      .or(`end_date.gte.${startDate},end_date.is.null`)
       .order("start_date");
 
     if (error) {

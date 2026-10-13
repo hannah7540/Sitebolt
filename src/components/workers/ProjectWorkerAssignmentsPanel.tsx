@@ -122,7 +122,7 @@ export default function ProjectWorkerAssignmentsPanel({
     onRefresh();
   };
 
-  const handleTransfer = async (toProjectId: string) => {
+  const handleTransfer = async (toProjectId: string, effectiveFrom: string) => {
     if (!projectId || !transferWorker) return { error: "Missing project context." };
 
     const worker = transferWorker;
@@ -134,6 +134,7 @@ export default function ProjectWorkerAssignmentsPanel({
       worker,
       fromProjectId: projectId,
       toProjectId,
+      effectiveFrom,
     });
 
     setActionId(null);

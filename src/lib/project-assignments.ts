@@ -20,6 +20,8 @@ import {
   type WorkerAssignmentSource,
 } from "./supabase";
 import { getCachedProjects, resolveProjectId } from "./project-resolver";
+import { formatDateOnly } from "./scheduler-utils";
+import { applyPermanentProjectAssignmentTransfer } from "./project-worker-assignment-transfer";
 
 export interface ProjectPlantAssignment {
   id: string;
@@ -32,6 +34,36 @@ export interface ProjectWorkerAssignment {
   project_id: string;
   worker_id: string;
   status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  project_name?: string | null;
+}
+
+export function isActiveProjectWorkerAssignment(
+  row: ProjectWorkerAssignment,
+  onDate: string = formatDateOnly(new Date())
+): boolean {
+  if (row.status === "Transferred" || row.status === "Unassigned") return false;
+  const start = formatDateOnly(row.start_date);
+  const end = formatDateOnly(row.end_date);
+  if (start && start > onDate) return false;
+  if (end && end < onDate) return false;
+  return true;
+}
+
+export function assignmentCoversDay(
+  row: ProjectWorkerAssignment,
+  dayIso: string
+): boolean {
+  if (row.status === "Unassigned") return false;
+  const day = formatDateOnly(dayIso);
+  if (!day) return false;
+  const start = formatDateOnly(row.start_date);
+  const end = formatDateOnly(row.end_date);
+  if (row.status === "Transferred" && !end) return false;
+  if (start && start > day) return false;
+  if (end && end < day) return false;
+  return true;
 }
 
 function isMissingTableError(message: string, table: string): boolean {
@@ -106,19 +138,36 @@ export async function fetchProjectPlantAssignments(): Promise<ProjectPlantAssign
 export async function fetchProjectWorkerAssignments(): Promise<ProjectWorkerAssignment[]> {
   if (!isSupabaseConfigured()) return [];
 
+  const datedSelect = "id, project_id, worker_id, status, start_date, end_date, project_name";
+  const legacySelect = "id, project_id, worker_id, status";
+
   try {
     const { data, error } = await supabase
       .from("project_worker_assignments")
-      .select("id, project_id, worker_id, status");
+      .select(datedSelect);
 
-    if (error) {
-      if (!isMissingTableError(error.message, "project_worker_assignments")) {
-        console.warn("fetchProjectWorkerAssignments failed:", error.message);
-      }
-      return [];
+    if (!error) {
+      return (data ?? []) as ProjectWorkerAssignment[];
     }
 
-    return (data ?? []) as ProjectWorkerAssignment[];
+    const missingDates =
+      error.message.toLowerCase().includes("start_date") ||
+      error.message.toLowerCase().includes("end_date") ||
+      error.message.toLowerCase().includes("project_name");
+
+    if (missingDates) {
+      const fallback = await supabase
+        .from("project_worker_assignments")
+        .select(legacySelect);
+      if (!fallback.error) {
+        return (fallback.data ?? []) as ProjectWorkerAssignment[];
+      }
+    }
+
+    if (!isMissingTableError(error.message, "project_worker_assignments")) {
+      console.warn("fetchProjectWorkerAssignments failed:", error.message);
+    }
+    return [];
   } catch (error) {
     console.warn("fetchProjectWorkerAssignments threw:", error);
     return [];
@@ -143,9 +192,21 @@ export function buildWorkerProjectMap(
 {
   const map = new Map<string, string[]>();
   for (const row of assignments) {
-    if (row.status === "Transferred") continue;
+    if (!isActiveProjectWorkerAssignment(row)) continue;
     const list = map.get(row.worker_id) ?? [];
     if (!list.includes(row.project_id)) list.push(row.project_id);
+    map.set(row.worker_id, list);
+  }
+  return map;
+}
+
+export function buildDatedWorkerAssignmentMap(
+  assignments: ProjectWorkerAssignment[]
+): Map<string, ProjectWorkerAssignment[]> {
+  const map = new Map<string, ProjectWorkerAssignment[]>();
+  for (const row of assignments) {
+    const list = map.get(row.worker_id) ?? [];
+    list.push(row);
     map.set(row.worker_id, list);
   }
   return map;
@@ -180,7 +241,7 @@ export async function fetchWorkerIdsForProject(projectId: string): Promise<strin
 
     const junction = await fetchProjectWorkerAssignments();
     return junction
-      .filter((row) => row.project_id === resolvedId)
+      .filter((row) => row.project_id === resolvedId && isActiveProjectWorkerAssignment(row))
       .map((row) => row.worker_id);
   } catch (error) {
     console.warn("fetchWorkerIdsForProject failed:", error);
@@ -435,9 +496,11 @@ export async function transferWorkerToProject(input: {
   worker: Worker;
   fromProjectId: string;
   toProjectId: string;
+  effectiveFrom: string;
 }): Promise<{ error: string | null }> {
   try {
     const workerId = input.worker.id;
+    const effectiveFrom = formatDateOnly(input.effectiveFrom);
     const { id: fromId, error: fromError } = await resolveProjectId(input.fromProjectId);
     const { id: toId, error: toError } = await resolveProjectId(input.toProjectId);
 
@@ -449,17 +512,23 @@ export async function transferWorkerToProject(input: {
       return { error: "Select a different project to transfer this worker." };
     }
 
+    if (!effectiveFrom) {
+      return { error: "Effective From Date is required." };
+    }
+
     const projects = getCachedProjects();
     const toProjectName = projects.find((p) => p.id === toId)?.name ?? null;
 
-    try {
-      await supabase
-        .from("project_worker_assignments")
-        .update({ status: "Transferred" })
-        .eq("worker_id", workerId)
-        .eq("project_id", fromId);
-    } catch (error) {
-      console.warn("transferWorkerToProject old junction update failed:", error);
+    const assignmentError = await applyPermanentProjectAssignmentTransfer(supabase, {
+      workerId,
+      projectId: toId,
+      projectName: toProjectName ?? "",
+      workerName: input.worker.full_name,
+      effectiveFrom,
+    });
+
+    if (assignmentError) {
+      return { error: assignmentError };
     }
 
     const currentIds = getWorkerAssignedProjectIds(input.worker).filter(
@@ -473,13 +542,18 @@ export async function transferWorkerToProject(input: {
       console.warn("transferWorkerToProject assigned_project_ids failed:", error);
     }
 
-    const assignResult = await assignMasterWorkerToProject({
-      worker: input.worker,
-      project: buildProjectAssignmentSource(toId, toProjectName),
-    });
-
-    if (assignResult.error) {
-      return { error: assignResult.error };
+    try {
+      await supabase
+        .from("workers")
+        .update({
+          assigned_project_id: toId,
+          assigned_project_name: toProjectName,
+          project_id: toId,
+          project_name: toProjectName,
+        })
+        .eq("id", workerId);
+    } catch (error) {
+      console.warn("transferWorkerToProject worker project fields failed:", error);
     }
 
     return { error: null };

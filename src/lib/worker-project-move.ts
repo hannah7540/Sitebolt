@@ -1,9 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  addDays,
-  formatDateOnly,
-  startOfWeekMonday,
-} from "@/lib/scheduler-utils";
+import { formatDateOnly } from "@/lib/scheduler-utils";
+import { applyPermanentProjectAssignmentTransfer } from "@/lib/project-worker-assignment-transfer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { computeWorkerStatusFromExpiries } from "@/lib/worker-utils";
@@ -33,11 +30,13 @@ type ScheduleRow = {
   project_id: string;
   project_name: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
   role_on_site: string | null;
   schedule_kind?: string | null;
   leave_request_id?: string | null;
 };
+
+const OPEN_ENDED_SCHEDULE_SENTINEL = "9999-12-31";
 
 function isMissingTableError(message: string, table: string): boolean {
   const lower = message.toLowerCase();
@@ -46,6 +45,17 @@ function isMissingTableError(message: string, table: string): boolean {
     (lower.includes("does not exist") ||
       lower.includes("could not find") ||
       lower.includes("schema cache"))
+  );
+}
+
+function isNotNullEndDateError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("end_date") &&
+    (lower.includes("null value") ||
+      lower.includes("not-null") ||
+      lower.includes("not null") ||
+      lower.includes("violates not-null"))
   );
 }
 
@@ -93,19 +103,9 @@ function dayBefore(isoDate: string): string {
   return formatDateOnly(date);
 }
 
-function endOfWeekForDate(isoDate: string): string {
-  const monday = startOfWeekMonday(new Date(`${isoDate.slice(0, 10)}T12:00:00`));
-  return formatDateOnly(addDays(monday, 6));
-}
-
-function scheduleOverlapsRange(
-  entry: ScheduleRow,
-  rangeStart: string,
-  rangeEnd: string
-): boolean {
-  const start = formatDateOnly(entry.start_date);
+function scheduleContinuesFrom(entry: ScheduleRow, rangeStart: string): boolean {
   const end = formatDateOnly(entry.end_date);
-  return start <= rangeEnd && end >= rangeStart;
+  return !end || end >= rangeStart;
 }
 
 function isLeaveSchedule(entry: ScheduleRow): boolean {
@@ -122,7 +122,6 @@ async function applyWorkerScheduleMove(
     projectId: string;
     projectName: string;
     startDate: string;
-    endDate: string;
     roleOnSite?: string | null;
   }
 ): Promise<string | null> {
@@ -132,7 +131,7 @@ async function applyWorkerScheduleMove(
       "id, worker_id, project_id, project_name, start_date, end_date, role_on_site, schedule_kind, leave_request_id"
     )
     .eq("worker_id", input.workerId)
-    .gte("end_date", input.startDate);
+    .or(`end_date.gte.${input.startDate},end_date.is.null`);
 
   if (error) {
     if (isMissingTableError(error.message, "worker_schedule")) {
@@ -144,7 +143,7 @@ async function applyWorkerScheduleMove(
   const overlapping = ((data ?? []) as ScheduleRow[]).filter(
     (entry) =>
       !isLeaveSchedule(entry) &&
-      scheduleOverlapsRange(entry, input.startDate, input.endDate)
+      scheduleContinuesFrom(entry, input.startDate)
   );
 
   for (const entry of overlapping) {
@@ -173,27 +172,41 @@ async function applyWorkerScheduleMove(
     }
   }
 
-  const { error: insertError } = await admin.from("worker_schedule").insert([
-    {
-      worker_id: input.workerId,
-      project_id: input.projectId,
-      project_name: input.projectName,
-      start_date: input.startDate,
-      end_date: input.endDate,
-      role_on_site: input.roleOnSite?.trim() || null,
-    },
-  ]);
+  const schedulePayload = {
+    worker_id: input.workerId,
+    project_id: input.projectId,
+    project_name: input.projectName,
+    start_date: input.startDate,
+    end_date: null as string | null,
+    role_on_site: input.roleOnSite?.trim() || null,
+  };
 
-  return insertError?.message ?? null;
+  const { error: insertError } = await admin.from("worker_schedule").insert([schedulePayload]);
+
+  if (!insertError) return null;
+  if (isNotNullEndDateError(insertError.message)) {
+    const { error: sentinelError } = await admin.from("worker_schedule").insert([
+      {
+        ...schedulePayload,
+        end_date: OPEN_ENDED_SCHEDULE_SENTINEL,
+      },
+    ]);
+    return sentinelError?.message ?? null;
+  }
+
+  return insertError.message;
 }
 
-async function resolveWorkerActiveStatus(
+async function resolveWorkerRow(
   admin: SupabaseClient,
   workerId: string
-): Promise<"active" | "expired_ticket"> {
+): Promise<{
+  status: "active" | "expired_ticket";
+  fullName: string | null;
+}> {
   const { data: workerRow } = await admin
     .from("workers")
-    .select("drivers_licence_expiry")
+    .select("drivers_licence_expiry, full_name, first_name, last_name")
     .eq("id", workerId)
     .maybeSingle();
 
@@ -209,7 +222,18 @@ async function resolveWorkerActiveStatus(
     ),
   ]);
 
-  return status === "expired_ticket" ? "expired_ticket" : "active";
+  const fullName =
+    (typeof workerRow?.full_name === "string" && workerRow.full_name.trim()) ||
+    [workerRow?.first_name, workerRow?.last_name]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join(" ")
+      .trim() ||
+    null;
+
+  return {
+    status: status === "expired_ticket" ? "expired_ticket" : "active",
+    fullName,
+  };
 }
 
 export async function moveWorkerToProject(
@@ -222,7 +246,7 @@ export async function moveWorkerToProject(
   if (!workerId || !input.projectId.trim() || !projectName || !startDate) {
     return {
       ok: false,
-      error: "Worker, project, and start date are required.",
+      error: "Worker, project, and effective from date are required.",
       reallocation: null,
     };
   }
@@ -247,13 +271,25 @@ export async function moveWorkerToProject(
     };
   }
 
-  const endDate = endOfWeekForDate(startDate);
+  const workerRow = await resolveWorkerRow(admin, workerId);
+
+  const assignmentError = await applyPermanentProjectAssignmentTransfer(admin, {
+    workerId,
+    projectId: resolvedProjectId,
+    projectName,
+    workerName: workerRow.fullName,
+    effectiveFrom: startDate,
+  });
+
+  if (assignmentError) {
+    return { ok: false, error: assignmentError, reallocation: null };
+  }
+
   const scheduleError = await applyWorkerScheduleMove(admin, {
     workerId,
     projectId: resolvedProjectId,
     projectName,
     startDate,
-    endDate,
     roleOnSite: input.roleOnSite,
   });
 
@@ -261,7 +297,6 @@ export async function moveWorkerToProject(
     return { ok: false, error: scheduleError, reallocation: null };
   }
 
-  const workerStatus = await resolveWorkerActiveStatus(admin, workerId);
   const { error: workerError } = await admin
     .from("workers")
     .update({
@@ -269,7 +304,7 @@ export async function moveWorkerToProject(
       assigned_project_name: projectName,
       project_id: resolvedProjectId,
       project_name: projectName,
-      status: workerStatus,
+      status: workerRow.status,
     })
     .eq("id", workerId);
 

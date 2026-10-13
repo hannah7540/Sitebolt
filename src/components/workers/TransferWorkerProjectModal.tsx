@@ -5,13 +5,17 @@ import { ArrowRightLeft, Loader2, X } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import { filterActiveProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { modalClass, modalOverlayClass, labelClass, inputClass } from "@/lib/ui-classes";
+import { formatDateOnly } from "@/lib/scheduler-utils";
 
 interface TransferWorkerProjectModalProps {
   worker: Worker;
   currentProjectId: string;
   currentProjectName: string;
   onClose: () => void;
-  onTransfer: (toProjectId: string) => Promise<{ error: string | null }>;
+  onTransfer: (
+    toProjectId: string,
+    effectiveFrom: string
+  ) => Promise<{ error: string | null }>;
 }
 
 export default function TransferWorkerProjectModal({
@@ -22,6 +26,7 @@ export default function TransferWorkerProjectModal({
   onTransfer,
 }: TransferWorkerProjectModalProps) {
   const [targetProjectId, setTargetProjectId] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState(() => formatDateOnly(new Date()));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,9 +43,14 @@ export default function TransferWorkerProjectModal({
       return;
     }
 
+    if (!effectiveFrom) {
+      setError("Effective From Date is required.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
-    const result = await onTransfer(targetProjectId);
+    const result = await onTransfer(targetProjectId, effectiveFrom);
     setSaving(false);
 
     if (result.error) {
@@ -63,8 +73,10 @@ export default function TransferWorkerProjectModal({
               Transfer / Re-assign Worker
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Move <span className="font-semibold text-slate-700">{worker.full_name}</span>{" "}
-              from {currentProjectName} to another active project.
+              Permanently move{" "}
+              <span className="font-semibold text-slate-700">{worker.full_name}</span>{" "}
+              from {currentProjectName} to another active project from the selected date
+              forward.
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
@@ -89,6 +101,21 @@ export default function TransferWorkerProjectModal({
               ))}
             </select>
           </label>
+
+          <label className="block space-y-1">
+            <span className={labelClass}>Effective From Date</span>
+            <input
+              type="date"
+              className={inputClass}
+              value={effectiveFrom}
+              onChange={(event) => setEffectiveFrom(event.target.value)}
+              required
+            />
+          </label>
+          <p className="text-xs text-slate-500">
+            The current project assignment ends the day before this date. The new
+            assignment has no end date.
+          </p>
 
           {activeProjects.length === 0 && (
             <p className="text-sm text-amber-700">
