@@ -50,6 +50,7 @@ function TimesheetReportWorkerCombobox({
   );
   const [query, setQuery] = useState(selectedWorker?.name ?? "");
   const [open, setOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
 
   useEffect(() => {
     if (selectedWorker) {
@@ -74,6 +75,10 @@ function TimesheetReportWorkerCombobox({
   }, [query, workers]);
 
   const showMenu = open && query.trim().length >= 1;
+
+  useEffect(() => {
+    setHighlightIndex(0);
+  }, [query]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -135,9 +140,21 @@ function TimesheetReportWorkerCombobox({
               if (selectedWorker) setQuery(selectedWorker.name);
               return;
             }
-            if (event.key === "Enter" && showMenu && filteredWorkers[0]) {
+            if (event.key === "ArrowDown" && showMenu && filteredWorkers.length > 0) {
               event.preventDefault();
-              selectWorker(filteredWorkers[0]);
+              setHighlightIndex((current) => (current + 1) % filteredWorkers.length);
+              return;
+            }
+            if (event.key === "ArrowUp" && showMenu && filteredWorkers.length > 0) {
+              event.preventDefault();
+              setHighlightIndex((current) =>
+                (current - 1 + filteredWorkers.length) % filteredWorkers.length
+              );
+              return;
+            }
+            if (event.key === "Enter" && showMenu && filteredWorkers[highlightIndex]) {
+              event.preventDefault();
+              selectWorker(filteredWorkers[highlightIndex]);
             }
           }}
         />
@@ -163,10 +180,11 @@ function TimesheetReportWorkerCombobox({
             ) : filteredWorkers.length === 0 ? (
               <div className="px-3 py-2 text-sm text-slate-500">No matching workers</div>
             ) : (
-              filteredWorkers.map((worker) => {
+              filteredWorkers.map((worker, index) => {
                 const archived = worker.statusLabel !== "Active";
                 const subtitle = worker.trade || worker.email || "—";
                 const isSelected = worker.id === selectedWorkerId;
+                const highlighted = index === highlightIndex;
                 return (
                   <button
                     key={worker.id}
@@ -175,8 +193,10 @@ function TimesheetReportWorkerCombobox({
                     aria-selected={isSelected}
                     className={cn(
                       "flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-accent/15",
-                      isSelected ? "bg-accent/10" : ""
+                      isSelected ? "bg-accent/10" : "",
+                      highlighted ? "bg-orange-50" : ""
                     )}
+                    onMouseEnter={() => setHighlightIndex(index)}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => selectWorker(worker)}
                   >

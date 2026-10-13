@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Search, Send, Users, UserRound, X } from "lucide-react";
+import { Loader2, Send, Users, UserRound, X } from "lucide-react";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
 import {
   filterWorkersForProject,
@@ -18,7 +18,8 @@ import {
 import { notifySwmsAssignmentsClientSide } from "@/lib/swms-assignment-notify-client";
 import type { Worker } from "@/lib/supabase";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
-import { modalOverlayClass, modalClass, inputClass, labelClass } from "@/lib/ui-classes";
+import AutocompleteField from "@/components/ui/AutocompleteField";
+import { modalOverlayClass, modalClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
 type AssignMode = "full_project" | "specific_workers";
@@ -46,7 +47,6 @@ export default function AssignSwmsToProjectModal({
   const [projectId, setProjectId] = useState(
     linkedProjectId || activeProjects[0]?.id || ""
   );
-  const [projectQuery, setProjectQuery] = useState("");
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,15 +63,14 @@ export default function AssignSwmsToProjectModal({
     [workers]
   );
 
-  const filteredProjects = useMemo(() => {
-    const q = projectQuery.trim().toLowerCase();
-    if (!q) return activeProjects;
-    return activeProjects.filter(
-      (project) =>
-        project.name.toLowerCase().includes(q) ||
-        project.id.toLowerCase().includes(q)
-    );
-  }, [activeProjects, projectQuery]);
+  const projectOptions = useMemo(
+    () =>
+      activeProjects.map((project) => ({
+        id: project.id,
+        label: project.name,
+      })),
+    [activeProjects]
+  );
 
   const handleAssign = async () => {
     setSaving(true);
@@ -325,37 +324,18 @@ export default function AssignSwmsToProjectModal({
 
             {mode === "full_project" ? (
               <div className="space-y-3">
-                <label className="block space-y-1">
-                  <span className={labelClass}>Search projects</span>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="search"
-                      value={projectQuery}
-                      onChange={(event) => setProjectQuery(event.target.value)}
-                      placeholder="Filter by project name…"
-                      className={cn(inputClass, "pl-9")}
-                    />
-                  </div>
-                </label>
-                <label className="block space-y-1">
-                  <span className={labelClass}>Target Project *</span>
-                  <select
-                    className={inputClass}
-                    value={projectId}
-                    onChange={(event) => setProjectId(event.target.value)}
-                  >
-                    {filteredProjects.length === 0 ? (
-                      <option value="">No matching projects</option>
-                    ) : (
-                      filteredProjects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
+                <AutocompleteField
+                  mode="single"
+                  label="Target Project"
+                  required
+                  options={projectOptions}
+                  selected={projectId || null}
+                  onChange={(id) => setProjectId(id ?? "")}
+                  placeholder="Search projects…"
+                  emptyMessage="No matching projects"
+                  noMatchesMessage="No projects match your search."
+                  allowClear={false}
+                />
                 <p className="text-xs text-slate-500">
                   All workers currently attached to the project will receive a pending
                   sign-off
@@ -399,7 +379,7 @@ export default function AssignSwmsToProjectModal({
                 disabled={
                   saving ||
                   (mode === "full_project"
-                    ? filteredProjects.length === 0
+                    ? !projectId
                     : selectedWorkerIds.length === 0)
                 }
                 onClick={() => void handleAssign()}
