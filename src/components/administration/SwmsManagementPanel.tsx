@@ -29,12 +29,24 @@ import {
   type SwmsDocumentSummary,
 } from "@/lib/swms";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
-import type { Worker } from "@/lib/supabase";
+import { resolveSwmsAssigneeName, type Worker } from "@/lib/supabase";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
+import {
+  formatComplianceReminderToast,
+  postComplianceReminders,
+  postComplianceRemindersGrouped,
+} from "@/lib/compliance-tracking-client";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
 import UploadSwmsModal from "./UploadSwmsModal";
 import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
+import ComplianceTrackingPanel, {
+  type ComplianceTrackingRow,
+} from "./ComplianceTrackingPanel";
+import SwmsAssignmentResultModal from "./SwmsAssignmentResultModal";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +69,16 @@ function projectLabel(
   return projects.find((project) => project.id === projectId)?.name ?? projectId.slice(0, 8);
 }
 
+function trackingWorkerName(
+  workers: Worker[],
+  workerId: string,
+  fallback: string
+): string {
+  const worker = workers.find((row) => row.id === workerId);
+  if (!worker) return fallback;
+  return getWorkerDisplayName(worker, fallback);
+}
+
 export default function SwmsManagementPanel({
   workers,
   projects,
@@ -74,8 +96,86 @@ export default function SwmsManagementPanel({
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState("");
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [remindingAll, setRemindingAll] = useState(false);
+  const [resultRow, setResultRow] = useState<ComplianceTrackingRow | null>(null);
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   const activeProjects = useMemo(() => filterActiveProjects(projects), [projects]);
+
+  const trackingRows = useMemo<ComplianceTrackingRow[]>(() => {
+    const rows: ComplianceTrackingRow[] = [];
+    for (const doc of swmsList) {
+      for (const assignment of doc.assignments ?? []) {
+        const workerId = String(
+          assignment.worker_id ?? assignment.assignee_id ?? ""
+        ).trim();
+        const completed =
+          assignment.status === "Signed" || Boolean(assignment.signed_at);
+        const isWorker = assignment.assignee_type !== "subcontractor";
+        const fallbackName =
+          resolveSwmsAssigneeName(assignment) || "Unknown worker";
+        rows.push({
+          id: assignment.id,
+          documentId: doc.id,
+          documentTitle: doc.title,
+          workerId,
+          workerName: trackingWorkerName(workers, workerId, fallbackName),
+          assignedAt: assignment.created_at ?? null,
+          completedAt: assignment.signed_at ?? null,
+          status: completed ? "Completed" : "Pending",
+          canRemind: !completed && isWorker && Boolean(workerId),
+        });
+      }
+    }
+    return rows;
+  }, [swmsList, workers]);
+
+  const resultAssignment = useMemo(() => {
+    if (!resultRow) return null;
+    for (const doc of swmsList) {
+      const assignment = (doc.assignments ?? []).find(
+        (row) => row.id === resultRow.id
+      );
+      if (assignment) {
+        return { doc, assignment };
+      }
+    }
+    return null;
+  }, [resultRow, swmsList]);
+
+  const handleRemind = async (row: ComplianceTrackingRow) => {
+    setRemindingId(row.id);
+    try {
+      const result = await postComplianceReminders({
+        kind: "swms",
+        workerIds: [row.workerId],
+        documentTitle: row.documentTitle,
+        documentId: row.documentId,
+      });
+      if (!result.ok) {
+        showError(result.error ?? "Could not send reminder.");
+        return;
+      }
+      showSuccess(formatComplianceReminderToast(result));
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
+  const handleRemindAllPending = async (pendingRows: ComplianceTrackingRow[]) => {
+    setRemindingAll(true);
+    try {
+      const result = await postComplianceRemindersGrouped("swms", pendingRows);
+      if (!result.ok) {
+        showError(result.error ?? "Could not send reminders.");
+        return;
+      }
+      showSuccess(formatComplianceReminderToast(result));
+    } finally {
+      setRemindingAll(false);
+    }
+  };
 
   const fetchSwmsListData = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -454,6 +554,20 @@ export default function SwmsManagementPanel({
         </div>
       )}
 
+      <div className="mt-8">
+        <ComplianceTrackingPanel
+          kind="swms"
+          title="SWMS completion tracking"
+          rows={trackingRows}
+          loading={loading}
+          remindingId={remindingId}
+          remindingAll={remindingAll}
+          onViewResults={setResultRow}
+          onRemind={(row) => void handleRemind(row)}
+          onRemindAllPending={(rows) => void handleRemindAllPending(rows)}
+        />
+      </div>
+
       {showUpload ? (
         <UploadSwmsModal
           onClose={() => setShowUpload(false)}
@@ -496,6 +610,26 @@ export default function SwmsManagementPanel({
             if (!deleting) setDeleteTarget(null);
           }}
           onConfirm={handleDeleteConfirm}
+        />
+      ) : null}
+
+      {resultRow && resultAssignment ? (
+        <SwmsAssignmentResultModal
+          workerName={resultRow.workerName}
+          documentTitle={resultAssignment.doc.title}
+          signedAt={resultAssignment.assignment.signed_at}
+          signatureUrl={resultAssignment.assignment.signature_url}
+          documentUrl={getSwmsDocumentUrl(resultAssignment.doc) || null}
+          acknowledgedRisks={resultAssignment.assignment.acknowledged_risks}
+          onClose={() => setResultRow(null)}
+        />
+      ) : null}
+
+      {toast ? (
+        <Toast
+          message={toast.message}
+          variant={toast.variant}
+          onDismiss={dismissToast}
         />
       ) : null}
     </div>

@@ -410,6 +410,70 @@ export async function fetchFormTemplateAssignments(
   }
 }
 
+/** Org-wide induction assignments from form_worker_assignments (pending + completed). */
+export async function fetchAllFormWorkerAssignments(): Promise<{
+  assignments: FormWorkerAssignment[];
+  error: string | null;
+}> {
+  if (!isSupabaseConfigured()) {
+    return {
+      assignments: readLocalAssignments().sort(
+        (a, b) =>
+          new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime()
+      ),
+      error: null,
+    };
+  }
+
+  const orgId = resolveInductionOrgId();
+  if (!orgId) {
+    return { assignments: [], error: null };
+  }
+
+  try {
+    let query = supabase
+      .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+      .select("*")
+      .order("assigned_at", { ascending: false });
+    query = withOrganisationScope(query, orgId);
+
+    let { data, error } = await query;
+
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return { assignments: [], error: null };
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase
+        .from(FORM_WORKER_ASSIGNMENTS_TABLE)
+        .select("*")
+        .order("assigned_at", { ascending: false });
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      if (isMissingTableError(error.message, FORM_WORKER_ASSIGNMENTS_TABLE)) {
+        return { assignments: readLocalAssignments(), error: null };
+      }
+      return {
+        assignments: [],
+        error: formatAssignmentQueryError("load form assignments from", error),
+      };
+    }
+
+    return {
+      assignments: mapAssignmentQueryRows(finalizeInductionRows(data, orgId)),
+      error: null,
+    };
+  } catch (cause) {
+    return {
+      assignments: readLocalAssignments(),
+      error: formatFormWorkerAssignmentSaveError(cause),
+    };
+  }
+}
+
 export async function remindFormWorkerAssignment(
   assignmentId: string
 ): Promise<{ error: string | null }> {

@@ -17,15 +17,27 @@ import type { Worker } from "@/lib/supabase";
 import {
   deleteInductionForm,
   duplicateInductionForm,
+  fetchAllFormWorkerAssignments,
   fetchInductionForms,
   filterInductionForms,
   formatInductionFormUpdatedAt,
+  type FormWorkerAssignment,
   type InductionFormTemplate,
 } from "@/lib/induction-form-builder";
+import {
+  formatComplianceReminderToast,
+  postComplianceReminders,
+  postComplianceRemindersGrouped,
+} from "@/lib/compliance-tracking-client";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
 import ConfirmDeletionDialog from "@/components/ui/ConfirmDeletionDialog";
 import AssignFormModal from "@/components/administration/forms/AssignFormModal";
 import InductionTrackerModal from "@/components/administration/forms/InductionTrackerModal";
+import InductionAssignmentDetailModal from "@/components/administration/forms/InductionAssignmentDetailModal";
 import FormsAdminTabs from "@/components/administration/forms/FormsAdminTabs";
+import ComplianceTrackingPanel, {
+  type ComplianceTrackingRow,
+} from "@/components/administration/ComplianceTrackingPanel";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import { cardClass, inputClass } from "@/lib/ui-classes";
@@ -40,6 +52,40 @@ interface InductionFormsPanelProps {
 function projectLabel(projectId: string | null, projects: DbProject[]): string {
   if (!projectId) return "—";
   return projects.find((project) => project.id === projectId)?.name ?? projectId.slice(0, 8);
+}
+
+function trackingWorkerName(
+  workers: Worker[],
+  workerId: string,
+  fallback: string
+): string {
+  const worker = workers.find((row) => row.id === workerId);
+  if (!worker) return fallback;
+  return getWorkerDisplayName(worker, fallback);
+}
+
+function formForAssignment(
+  assignment: FormWorkerAssignment,
+  forms: InductionFormTemplate[]
+): InductionFormTemplate {
+  const found = forms.find((form) => form.id === assignment.form_id);
+  if (found) return found;
+  const blocks = assignment.blocks ?? assignment.schema_fields ?? [];
+  return {
+    id: assignment.form_id,
+    title: assignment.form_title ?? "Induction",
+    description: null,
+    form_type: "Induction",
+    scope: assignment.project_id ? "project" : "company",
+    project_id: assignment.project_id,
+    status: "active",
+    blocks,
+    schema_fields: blocks,
+    logic_rules: assignment.logic_rules ?? [],
+    copied_from_id: null,
+    created_at: assignment.assigned_at,
+    updated_at: assignment.completed_at ?? assignment.assigned_at,
+  };
 }
 
 export default function InductionFormsPanel({
@@ -59,6 +105,12 @@ export default function InductionFormsPanel({
   const [formToDelete, setFormToDelete] = useState<InductionFormTemplate | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [assignments, setAssignments] = useState<FormWorkerAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [assignmentsError, setAssignmentsError] = useState<string | null>(null);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [remindingAll, setRemindingAll] = useState(false);
+  const [resultAssignment, setResultAssignment] = useState<FormWorkerAssignment | null>(null);
 
   const loadForms = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -80,9 +132,29 @@ export default function InductionFormsPanel({
     }
   }, [showError]);
 
+  const loadAssignments = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setAssignmentsLoading(true);
+    try {
+      const { assignments: rows, error } = await fetchAllFormWorkerAssignments();
+      setAssignments(rows);
+      setAssignmentsError(error);
+    } catch (cause) {
+      setAssignments([]);
+      setAssignmentsError(
+        cause instanceof Error ? cause.message : "Failed to load induction assignments."
+      );
+    } finally {
+      if (!options?.silent) setAssignmentsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadForms();
   }, [loadForms]);
+
+  useEffect(() => {
+    void loadAssignments();
+  }, [loadAssignments]);
 
   const assignedByUser = useMemo(() => {
     if (!assignedBy) return { id: null, full_name: "Admin" };
@@ -108,6 +180,71 @@ export default function InductionFormsPanel({
     }
     return list;
   }, [forms, searchQuery, projectFilterId, projects]);
+
+  const trackingRows = useMemo<ComplianceTrackingRow[]>(() => {
+    const titleById = new Map(forms.map((form) => [form.id, form.title]));
+    return assignments.map((assignment) => {
+      const completed = assignment.status === "completed" || Boolean(assignment.completed_at);
+      const fallbackName = assignment.worker_name?.trim() || "Unknown worker";
+      return {
+        id: assignment.id,
+        documentId: assignment.form_id,
+        documentTitle:
+          titleById.get(assignment.form_id) ??
+          assignment.form_title ??
+          "Induction",
+        workerId: assignment.worker_id,
+        workerName: trackingWorkerName(workers, assignment.worker_id, fallbackName),
+        assignedAt: assignment.assigned_at,
+        completedAt: assignment.completed_at,
+        status: completed ? "Completed" : "Pending",
+        canRemind: !completed && Boolean(assignment.worker_id),
+      };
+    });
+  }, [assignments, forms, workers]);
+
+  const resultForm = useMemo(() => {
+    if (!resultAssignment) return null;
+    return formForAssignment(resultAssignment, forms);
+  }, [resultAssignment, forms]);
+
+  const handleRemind = async (row: ComplianceTrackingRow) => {
+    setRemindingId(row.id);
+    try {
+      const result = await postComplianceReminders({
+        kind: "induction",
+        workerIds: [row.workerId],
+        documentTitle: row.documentTitle,
+        documentId: row.documentId,
+      });
+      if (!result.ok) {
+        showError(result.error ?? "Could not send reminder.");
+        return;
+      }
+      showSuccess(formatComplianceReminderToast(result));
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
+  const handleRemindAllPending = async (pendingRows: ComplianceTrackingRow[]) => {
+    setRemindingAll(true);
+    try {
+      const result = await postComplianceRemindersGrouped("induction", pendingRows);
+      if (!result.ok) {
+        showError(result.error ?? "Could not send reminders.");
+        return;
+      }
+      showSuccess(formatComplianceReminderToast(result));
+    } finally {
+      setRemindingAll(false);
+    }
+  };
+
+  const handleViewResults = (row: ComplianceTrackingRow) => {
+    const assignment = assignments.find((item) => item.id === row.id) ?? null;
+    setResultAssignment(assignment);
+  };
 
   const openCreate = (event?: MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
@@ -158,6 +295,7 @@ export default function InductionFormsPanel({
       setSuccessMessage(`"${form.title}" deleted.`);
       showSuccess(`"${form.title}" deleted.`);
       await loadForms({ silent: true });
+      await loadAssignments({ silent: true });
     } catch (cause) {
       const message =
         cause instanceof Error
@@ -174,6 +312,7 @@ export default function InductionFormsPanel({
     const message = "Form assigned successfully!";
     setSuccessMessage(message);
     showSuccess(message);
+    void loadAssignments({ silent: true });
   };
 
   return (
@@ -387,6 +526,19 @@ export default function InductionFormsPanel({
         )}
       </div>
 
+      <ComplianceTrackingPanel
+        kind="induction"
+        title="Induction completion tracking"
+        rows={trackingRows}
+        loading={assignmentsLoading}
+        error={assignmentsError}
+        remindingId={remindingId}
+        remindingAll={remindingAll}
+        onViewResults={handleViewResults}
+        onRemind={(row) => void handleRemind(row)}
+        onRemindAllPending={(rows) => void handleRemindAllPending(rows)}
+      />
+
       {trackerTarget ? (
         <InductionTrackerModal
           form={trackerTarget}
@@ -394,6 +546,19 @@ export default function InductionFormsPanel({
           projects={projects}
           assignedByUser={assignedByUser}
           onClose={() => setTrackerTarget(null)}
+        />
+      ) : null}
+
+      {resultAssignment && resultForm ? (
+        <InductionAssignmentDetailModal
+          assignment={resultAssignment}
+          form={resultForm}
+          workerLabel={trackingWorkerName(
+            workers,
+            resultAssignment.worker_id,
+            resultAssignment.worker_name ?? "Worker"
+          )}
+          onClose={() => setResultAssignment(null)}
         />
       ) : null}
 
