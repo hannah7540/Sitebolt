@@ -34,13 +34,29 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.searchParams.has("code") ||
     request.nextUrl.searchParams.has("token_hash");
 
-  if (hasAuthPayload) {
+  const alreadyOnTokenPage = [
+    "/auth/callback",
+    "/auth/confirm",
+    "/reset-password",
+    "/setyourpassword",
+    "/update-password",
+    "/accept-invite",
+    "/set-password",
+  ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
+  if (hasAuthPayload && !alreadyOnTokenPage) {
     const dest = request.nextUrl.clone();
-    dest.pathname = request.nextUrl.searchParams.has("token_hash")
-      ? "/auth/confirm"
-      : "/auth/callback";
+    const type = (request.nextUrl.searchParams.get("type") || "").toLowerCase();
+    const isRecovery =
+      type === "recovery" ||
+      (!type && request.nextUrl.searchParams.has("token_hash"));
+    dest.pathname = isRecovery
+      ? "/reset-password"
+      : request.nextUrl.searchParams.has("token_hash")
+        ? "/auth/confirm"
+        : "/auth/callback";
     if (!dest.searchParams.get("next")) {
-      dest.searchParams.set("next", "/setyourpassword");
+      dest.searchParams.set("next", isRecovery ? "/reset-password" : "/setyourpassword");
     }
     return NextResponse.redirect(dest);
   }

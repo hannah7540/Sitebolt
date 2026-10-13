@@ -45,32 +45,16 @@ function resolveOrigin(request: Request): string {
   return new URL(request.url).origin;
 }
 
-function isPrefetchOrScannerRequest(request: Request): boolean {
-  if (request.method === "HEAD") return true;
-
-  const purpose =
-    request.headers.get("purpose") ||
-    request.headers.get("sec-purpose") ||
-    request.headers.get("x-purpose") ||
-    "";
-  if (/prefetch|preview|prerender/i.test(purpose)) return true;
-
-  const dest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
-  if (dest === "empty" || dest === "image" || dest === "iframe") return true;
-
-  const mode = (request.headers.get("sec-fetch-mode") || "").toLowerCase();
-  if (mode === "no-cors" || mode === "cors") return true;
-
-  const ua = request.headers.get("user-agent") || "";
-  return /SafeLinks|Proofpoint|Barracuda|mimecast|GoogleImageProxy|YahooMailProxy|Superhuman|SaneBox|Microsoft Office|Outlook-iOS|prefetch/i.test(
-    ua
-  );
-}
-
-function looksLikeUserNavigation(request: Request): boolean {
-  const dest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
-  const user = request.headers.get("sec-fetch-user") || "";
-  return dest === "document" && user === "?1";
+function redirectRecoveryToResetPage(
+  request: Request,
+  tokenHash: string,
+  type: string
+): NextResponse {
+  const origin = resolveOrigin(request);
+  const target = new URL("/reset-password", origin);
+  target.searchParams.set("token_hash", tokenHash);
+  target.searchParams.set("type", type || "recovery");
+  return NextResponse.redirect(target);
 }
 
 function continueHtml(tokenHash: string, type: string, next: string): string {
@@ -187,19 +171,24 @@ export async function handleAuthConfirmRequest(request: Request): Promise<NextRe
 
   const otpType = type as EmailOtpType;
 
+  // Recovery tokens must never be consumed on the server. Email scanners issue
+  // GET (and sometimes follow redirects) and would burn the single-use OTP
+  // before the user can set a password. Hand the hash to the reset page instead.
+  if (otpType === "recovery") {
+    return redirectRecoveryToResetPage(request, tokenHash, otpType);
+  }
+
   if (request.method === "POST") {
     return exchangeTokenHash({ request, tokenHash, type: otpType, next });
   }
 
-  if (isPrefetchOrScannerRequest(request) || !looksLikeUserNavigation(request)) {
-    return new NextResponse(continueHtml(tokenHash, otpType, next), {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    });
-  }
-
-  return exchangeTokenHash({ request, tokenHash, type: otpType, next });
+  // GET never verifies invite/magic-link tokens either — scanners can look like
+  // document navigations. Require an explicit Continue POST.
+  return new NextResponse(continueHtml(tokenHash, otpType, next), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }

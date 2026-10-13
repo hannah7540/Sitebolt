@@ -25,6 +25,7 @@ export default function HashAuthCapture() {
       typeof window !== "undefined" &&
       (window.location.pathname.includes("/setyourpassword") ||
         window.location.pathname.includes("/reset-password") ||
+        window.location.pathname.includes("/update-password") ||
         window.location.pathname.includes("/onboarding"))
     ) {
       return;

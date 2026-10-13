@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, Loader2 } from "lucide-react";
-import type { AuthChangeEvent, EmailOtpType, Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import {
+  consumeAuthTokenAndUpdatePassword,
+  resolveEmailOtpType,
+} from "@/lib/auth-recovery-consume";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   bindAuthSessionForUser,
@@ -37,15 +41,6 @@ interface AuthSetPasswordFormProps {
   ensureWorkerProfileOnSuccess?: boolean;
   noSessionMessage?: string;
 }
-
-const VALID_OTP_TYPES = new Set<EmailOtpType>([
-  "signup",
-  "invite",
-  "magiclink",
-  "recovery",
-  "email",
-  "email_change",
-]);
 
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -109,6 +104,9 @@ export default function AuthSetPasswordForm({
     const supabase = createSupabaseBrowserClient();
 
     async function establishSession() {
+      // Never verifyOtp / exchangeCodeForSession on mount. Email scanners that
+      // execute the page would consume the single-use token before the user
+      // submits a new password. Tokens are consumed only on Save.
       if (trustServerSession) {
         const sessionReady = await resolveClientSession(supabase);
         if (!cancelled) {
@@ -116,54 +114,6 @@ export default function AuthSetPasswordForm({
           setCheckingSession(false);
         }
         return;
-      }
-
-      if (
-        tokenHash &&
-        otpType &&
-        VALID_OTP_TYPES.has(otpType as EmailOtpType)
-      ) {
-        const { data, error: verifyError } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: otpType as EmailOtpType,
-        });
-
-        if (!cancelled) {
-          if (verifyError) {
-            setError(verifyError.message);
-            setHasSession(false);
-            setCheckingSession(false);
-            return;
-          }
-
-          if (data.session) {
-            setHasSession(true);
-            setCheckingSession(false);
-            router.replace(window.location.pathname);
-            return;
-          }
-        }
-      }
-
-      if (authCode) {
-        const { data, error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(authCode);
-
-        if (!cancelled) {
-          if (exchangeError) {
-            setError(exchangeError.message);
-            setHasSession(false);
-            setCheckingSession(false);
-            return;
-          }
-
-          if (data.session) {
-            setHasSession(true);
-            setCheckingSession(false);
-            router.replace(window.location.pathname);
-            return;
-          }
-        }
       }
 
       const sessionReady = await resolveClientSession(supabase);
@@ -196,7 +146,7 @@ export default function AuthSetPasswordForm({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [authCode, initialHasSession, otpType, router, tokenHash, trustServerSession]);
+  }, [initialHasSession, trustServerSession]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -217,21 +167,19 @@ export default function AuthSetPasswordForm({
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-
-      if (!sessionData.session) {
-        setError("Your session expired. Please open the link from your email again.");
-        return;
-      }
-
-      const { data: sessionUserData, error: updateError } = await supabase.auth.updateUser({
+      const consumeError = await consumeAuthTokenAndUpdatePassword(supabase, {
         password,
+        tokenHash: hasSession ? null : tokenHash,
+        code: hasSession ? null : authCode,
+        otpType: otpType || resolveEmailOtpType(otpType),
       });
 
-      if (updateError) {
-        setError(updateError.message);
+      if (consumeError.error) {
+        setError(consumeError.error);
         return;
       }
+
+      const { data: sessionUserData } = await supabase.auth.getUser();
 
       if (signOutOnSuccess) {
         await supabase.auth.signOut();
@@ -337,7 +285,7 @@ export default function AuthSetPasswordForm({
           <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {callbackError}
           </p>
-        ) : !hasSession ? (
+        ) : !hasSession && !tokenHash && !authCode ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {noSessionMessage}
           </p>

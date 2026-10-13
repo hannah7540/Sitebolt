@@ -2,7 +2,7 @@ const PRODUCTION_SITE_URL = "https://www.site-bolt.com.au";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
 export const AUTH_CONFIRM_PATH = "/api/auth/confirm";
 export const WORKER_INVITE_NEXT_PATH = "/accept-invite";
-export const PASSWORD_RESET_NEXT_PATH = "/update-password";
+export const PASSWORD_RESET_NEXT_PATH = "/reset-password";
 export const PASSWORD_RESET_OTP_PATH = "/setyourpassword";
 export const PASSWORD_SETUP_PATH = PASSWORD_RESET_OTP_PATH;
 
@@ -88,10 +88,9 @@ export function buildPasswordResetConfirmUrl(hashedToken: string): string {
   const params = new URLSearchParams({
     token_hash: hashedToken,
     type: "recovery",
-    next: PASSWORD_RESET_NEXT_PATH,
   });
 
-  return `${PRODUCTION_SITE_URL}${AUTH_CONFIRM_PATH}?${params.toString()}`;
+  return `${PRODUCTION_SITE_URL}${PASSWORD_RESET_NEXT_PATH}?${params.toString()}`;
 }
 
 /** @deprecated Prefer buildPasswordResetConfirmUrl for recovery emails. */
@@ -100,7 +99,7 @@ export function buildPasswordResetCallbackUrl(hashedToken: string): string {
 }
 
 export function getPasswordResetRedirectTo(): string {
-  return `${PRODUCTION_SITE_URL}${AUTH_CONFIRM_PATH}?next=${encodeURIComponent(PASSWORD_RESET_NEXT_PATH)}`;
+  return `${PRODUCTION_SITE_URL}${PASSWORD_RESET_NEXT_PATH}`;
 }
 
 export function getAuthCallbackUrl(nextPath: string): string {
