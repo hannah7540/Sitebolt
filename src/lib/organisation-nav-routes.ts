@@ -15,6 +15,7 @@ export const ORGANISATION_NAV_ITEMS: OrganisationNavItem[] = [
   { label: "Projects", href: "/organisation/projects", view: "org-projects" },
   { label: "Workers", href: "/organisation/workers", view: "org-workers" },
   { label: "Inductions", href: "/admin/forms/inductions", view: "org-inductions" },
+  { label: "SWMS", href: "/admin/swms", view: "admin-swms" },
   { label: "Plant", href: "/organisation/plant", view: "org-plant" },
   { label: "Fleet", href: "/organisation/fleet", view: "org-fleet" },
   { label: "Alerts", href: "/organisation/alerts", view: "org-alerts" },
@@ -33,6 +34,12 @@ export function isInductionsPath(pathname: string | null | undefined): boolean {
     normalized === "/admin/forms/inductions" ||
     normalized.startsWith("/admin/forms/inductions/")
   );
+}
+
+export function isSwmsPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  const normalized = pathname.replace(/\/+$/, "") || pathname;
+  return normalized === "/admin/swms" || normalized.startsWith("/admin/swms/");
 }
 
 /** Resolve sidebar active view from Organisation nav paths, including Inductions. */

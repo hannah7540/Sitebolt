@@ -607,6 +607,7 @@ function HomeConsole() {
             <SecuritySettingsPanel onUpdated={fetchData} />
           )}
           {isOrganisationView(activeTab) &&
+            activeTab !== "admin-swms" &&
             !canManageOrganisation(sessionRole) && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 You do not have access to Organisation settings.

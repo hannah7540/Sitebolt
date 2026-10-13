@@ -275,7 +275,7 @@ export default function ProjectSwmsPanel({
           <FileText className="mx-auto h-10 w-10 text-slate-400" />
           <p className="mt-3 text-sm text-slate-600">
             No site-specific SWMS assigned to this project yet. Push a company template from
-            Administration → SWMS.
+            Organisation → SWMS.
           </p>
         </div>
       ) : (

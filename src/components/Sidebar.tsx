@@ -54,6 +54,7 @@ import { parseConsoleRoute } from "@/lib/console-nav-routes";
 import {
   isInductionsPath,
   isOrganisationNavActive,
+  isSwmsPath,
 } from "@/lib/organisation-nav-routes";
 import { useComplianceAlertCount } from "@/hooks/useComplianceAlertCount";
 import { useHiredLabourPendingCount } from "@/hooks/useHiredLabourPendingCount";
@@ -680,7 +681,7 @@ export default function Sidebar({
         { label: "Inductions", href: "/admin/forms/inductions" }
       );
       if (isFeatureModuleEnabled(featureFlags, "swms", orgId)) {
-        items.push({ label: "SWMS", view: "admin-swms" });
+        items.push({ label: "SWMS", href: "/admin/swms" });
       }
       if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
         items.push({ label: "Plant", href: "/organisation/plant" });
@@ -752,7 +753,6 @@ export default function Sidebar({
             items={organisationItems}
             activeView={effectiveActiveView}
             pathname={pathname}
-            onNavigate={onNavigate}
           />
         ) : null}
       </nav>
@@ -1241,8 +1241,10 @@ function AdministrationSection({
   organisationId: string | null;
 }) {
   const isAdminRoute =
-    (pathname?.startsWith("/admin") ?? false) ||
-    activeView.startsWith("admin-");
+    ((pathname?.startsWith("/admin") ?? false) &&
+      !isInductionsPath(pathname) &&
+      !isSwmsPath(pathname)) ||
+    (activeView.startsWith("admin-") && activeView !== "admin-swms");
   const isFormsRoute =
     (pathname?.startsWith("/admin/forms") ?? false) && !isInductionsPath(pathname);
   const isMasterDashboard =
@@ -1382,19 +1384,16 @@ function OrganisationSection({
   items,
   activeView,
   pathname,
-  onNavigate,
 }: {
   items: SubItem[];
   activeView: ActiveView;
   pathname: string | null;
-  onNavigate: SidebarProps["onNavigate"];
 }) {
   const isOrganisationRoute =
     (pathname?.startsWith("/organisation") ?? false) ||
     isInductionsPath(pathname) ||
-    activeView === "admin-swms" ||
-    pathname === "/admin/swms" ||
-    (pathname?.startsWith("/admin/swms/") ?? false);
+    isSwmsPath(pathname) ||
+    activeView === "admin-swms";
   const [open, toggleOpen] = usePersistedSidebarSection(
     "organisation",
     isOrganisationRoute
@@ -1423,25 +1422,15 @@ function OrganisationSection({
     >
       {(open || iconOnly) && (
         <div className="relative z-30 space-y-1 px-2">
-          {items.map((item) =>
-            item.href ? (
-              <RouteNavLink
-                key={item.label}
-                label={item.label}
-                href={item.href}
-                badge={item.badge}
-                active={isOrganisationNavActive(pathname, item.href)}
-              />
-            ) : (
-              <NavLink
-                key={item.label}
-                label={item.label}
-                badge={item.badge}
-                active={item.view === activeView}
-                onClick={item.view ? () => onNavigate(item.view!) : undefined}
-              />
-            )
-          )}
+          {items.map((item) => (
+            <RouteNavLink
+              key={item.label}
+              label={item.label}
+              href={item.href ?? "/organisation/dashboard"}
+              badge={item.badge}
+              active={isOrganisationNavActive(pathname, item.href ?? "")}
+            />
+          ))}
         </div>
       )}
     </SidebarSectionShell>

@@ -20,6 +20,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-projects",
   "org-workers",
   "org-inductions",
+  "admin-swms",
   "org-plant",
   "org-assets",
   "org-security",
@@ -30,7 +31,6 @@ export const ADMINISTRATION_VIEWS: readonly ActiveView[] = [
   "admin-itc",
   "admin-plant-calendar",
   "admin-worker-calendar",
-  "admin-swms",
   "admin-document-pack",
   "admin-reporting",
 ];
