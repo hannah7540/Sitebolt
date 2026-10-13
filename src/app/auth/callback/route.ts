@@ -9,56 +9,45 @@ function isInviteAuthType(type: string | null, next: string | null): boolean {
   return Boolean(next?.includes("/accept-invite"));
 }
 
-function resolvePasswordSetupPath(next: string | null, type: string): string {
-  if (type === "recovery") {
-    return "/reset-password";
-  }
-
-  if (
-    next?.startsWith("/") &&
-    !next.startsWith("//") &&
-    !next.startsWith("/login") &&
-    !next.startsWith("/admin") &&
-    (next.includes("/setyourpassword") ||
-      next.includes("/reset-password") ||
-      next.includes("/set-password") ||
-      next.includes("/update-password") ||
-      next.includes("/accept-invite"))
-  ) {
-    return next.split("?")[0] || "/setyourpassword";
-  }
-  return "/setyourpassword";
-}
-
 /**
- * ConfirmationURL / PKCE recovery links arrive here as GET ?code=.
- * Never call exchangeCodeForSession on GET — email scanners prefetch this
- * URL and would burn the one-time code before the user submits a password.
+ * GET must never call exchangeCodeForSession / verifyOtp / getUser / getSession.
+ * Email scanners prefetch this URL and would consume the one-time recovery code.
+ * Password-reset codes are parsed and handed to the client reset page only.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
-  const code = searchParams.get("code");
   const next = searchParams.get("next");
 
+  const targetUrl = new URL("/reset-password", origin);
+
   if (code && !isInviteAuthType(type, next)) {
-    const targetUrl = new URL("/reset-password", origin);
     targetUrl.searchParams.set("code", code);
     targetUrl.searchParams.set("type", type || "recovery");
     if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
     return NextResponse.redirect(targetUrl);
   }
 
-  const normalizedType = type || "recovery";
-  const targetUrl = new URL(
-    resolvePasswordSetupPath(next, normalizedType),
-    origin
-  );
-  if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
-  if (normalizedType) targetUrl.searchParams.set("type", normalizedType);
-  if (code) targetUrl.searchParams.set("code", code);
+  if (token_hash && (type || "recovery") === "recovery") {
+    targetUrl.searchParams.set("token_hash", token_hash);
+    targetUrl.searchParams.set("type", type || "recovery");
+    if (code) targetUrl.searchParams.set("code", code);
+    return NextResponse.redirect(targetUrl);
+  }
 
+  if (next?.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")) {
+    const inviteTarget = new URL(next.split("?")[0] || "/setyourpassword", origin);
+    if (token_hash) inviteTarget.searchParams.set("token_hash", token_hash);
+    if (type) inviteTarget.searchParams.set("type", type);
+    if (code) inviteTarget.searchParams.set("code", code);
+    return NextResponse.redirect(inviteTarget);
+  }
+
+  if (code) targetUrl.searchParams.set("code", code);
+  if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
+  targetUrl.searchParams.set("type", type || "recovery");
   return NextResponse.redirect(targetUrl);
 }
 

@@ -374,8 +374,15 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   const pathname = request.nextUrl.pathname;
 
   if (
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/auth/confirm") ||
+    pathname.startsWith("/auth/reset-password") ||
     pathname.includes("/setyourpassword") ||
     pathname.includes("/reset-password") ||
+    pathname.startsWith("/update-password") ||
+    pathname.startsWith("/set-password") ||
+    request.nextUrl.searchParams.has("code") ||
+    request.nextUrl.searchParams.has("token_hash") ||
     (isPublicAuthFlowPath(pathname) && !pathname.startsWith("/onboarding"))
   ) {
     return NextResponse.next({ request });

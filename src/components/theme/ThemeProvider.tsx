@@ -34,6 +34,15 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
       applyAccentThemeToDocument(stored);
       setThemeState(stored);
 
+      const path = window.location.pathname || "";
+      if (
+        path.includes("/reset-password") ||
+        path.includes("/setyourpassword") ||
+        path.startsWith("/auth/")
+      ) {
+        return;
+      }
+
       const remote = await readWorkerUiTheme();
       if (cancelled || !remote) return;
       if (window.localStorage.getItem(UI_THEME_STORAGE_KEY)) return;

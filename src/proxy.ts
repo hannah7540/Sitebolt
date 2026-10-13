@@ -7,8 +7,22 @@ import {
   resolveAppOriginFromRequest,
 } from "@/lib/site-domains";
 
+function isPasswordResetBypassPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/auth/confirm") ||
+    pathname.startsWith("/auth/reset-password") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/setyourpassword") ||
+    pathname.startsWith("/update-password") ||
+    pathname.startsWith("/set-password")
+  );
+}
+
 /**
- * Next.js 16 Proxy entry — domain-aware marketing/app split, then session/RBAC.
+ * Next.js 16 Proxy entry (replaces middleware.ts).
+ * Password-reset and auth-callback paths must never call getUser / getSession /
+ * exchangeCodeForSession — scanners prefetch those URLs and would burn the code.
  * @see https://nextjs.org/docs/app/getting-started/proxy
  */
 export async function proxy(request: NextRequest) {
@@ -20,6 +34,10 @@ export async function proxy(request: NextRequest) {
   }
 
   const pathname = cleanedPath;
+
+  if (isPasswordResetBypassPath(pathname)) {
+    return NextResponse.next();
+  }
   const host = (
     request.headers.get("x-forwarded-host") ||
     request.headers.get("host") ||

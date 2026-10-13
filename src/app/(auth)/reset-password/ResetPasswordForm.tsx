@@ -120,7 +120,8 @@ export default function ResetPasswordForm() {
         </div>
 
         <p className="mb-6 text-sm text-slate-600">
-          Choose a new password, then save to finish resetting your account.
+          Choose a new password, then click Verify Link & Set Password. The reset
+          link is not used until you click that button.
         </p>
 
         <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)} autoComplete="on">
@@ -216,7 +217,7 @@ export default function ResetPasswordForm() {
                 Saving password…
               </>
             ) : (
-              "Save password"
+              "Verify Link & Set Password"
             )}
           </button>
         </form>
