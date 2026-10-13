@@ -17,6 +17,7 @@ import {
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
 import { onWorkerOnboardingCompleted } from "@/lib/services/worker-assignment";
+import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { sanitizeStoredPhoneNumber } from "@/lib/sms-phone";
 import type { WorkerOnboardingFormPayload } from "@/lib/worker-onboarding";
@@ -337,6 +338,7 @@ export async function POST(req: Request) {
     await onWorkerOnboardingCompleted(admin, workerId, {
       state: payRuleState ?? workerState,
     });
+    await notifyUnstampedPendingAssignments(admin, workerId);
   } catch (cause) {
     console.warn("[/api/workers/onboarding] auto-assign skipped:", cause);
   }

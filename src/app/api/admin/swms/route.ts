@@ -11,6 +11,7 @@ import {
   updateSwmsDocumentAdmin,
 } from "@/lib/swms-admin-mutations";
 import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
+import { notifyWorkersOfSwmsAssignment } from "@/lib/swms-assignment-notify";
 
 export async function GET() {
   const access = await requireSwmsAdminAccess();
@@ -74,6 +75,28 @@ export async function POST(request: Request) {
 
   if (error || !swms) {
     return NextResponse.json({ error: error ?? "Failed to create SWMS." }, { status: 400 });
+  }
+
+  const requestedIds = Array.isArray(body.worker_ids)
+    ? body.worker_ids.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  let notifyIds = requestedIds;
+  if (body.all_workers === true || notifyIds.length === 0) {
+    const { data: assigned } = await access.admin
+      .from("swms_assignments")
+      .select("assignee_id")
+      .eq("swms_id", swms.id)
+      .eq("status", "Pending");
+    notifyIds = (assigned ?? [])
+      .map((row) => String((row as { assignee_id?: string }).assignee_id ?? "").trim())
+      .filter(Boolean);
+  }
+  if (notifyIds.length > 0) {
+    await notifyWorkersOfSwmsAssignment(access.admin, {
+      workerIds: notifyIds,
+      swmsTitle: title,
+      swmsId: swms.id,
+    });
   }
 
   return NextResponse.json({ swms }, { status: 201 });

@@ -6,6 +6,9 @@ import { NextResponse } from "next/server";
 import { requireSwmsAdminAccess } from "@/lib/swms-api-auth";
 import {
   sendComplianceReminders,
+  stampInductionAssignmentsReminded,
+  stampSwmsAssignmentsReminded,
+  type ComplianceNoticeMode,
   type ComplianceReminderKind,
 } from "@/lib/compliance-reminders";
 
@@ -33,6 +36,10 @@ export async function POST(request: Request) {
     );
   }
 
+  const modeRaw = String(body.mode ?? "reminder").trim() as ComplianceNoticeMode;
+  const mode: ComplianceNoticeMode =
+    modeRaw === "assigned" || modeRaw === "expiry" ? modeRaw : "reminder";
+
   const workerIds = asStringArray(body.worker_ids ?? body.workerIds);
   if (workerIds.length === 0) {
     return NextResponse.json({ error: "worker_ids is required." }, { status: 400 });
@@ -43,12 +50,27 @@ export async function POST(request: Request) {
 
   const result = await sendComplianceReminders(access.admin, {
     kind,
+    mode,
     workerIds,
     documentTitle,
     documentId,
   });
 
   const delivered = result.emailed + result.sms + result.notified;
+  if (delivered > 0 && documentId) {
+    if (kind === "swms") {
+      await stampSwmsAssignmentsReminded(access.admin, {
+        swmsId: documentId,
+        workerIds,
+      });
+    } else {
+      await stampInductionAssignmentsReminded(access.admin, {
+        formId: documentId,
+        workerIds,
+      });
+    }
+  }
+
   if (delivered === 0) {
     return NextResponse.json(
       {

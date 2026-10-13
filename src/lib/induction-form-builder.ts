@@ -2009,9 +2009,31 @@ export async function assignFormToWorkers(input: {
       };
     }
 
+    const assignedCount = data?.length ?? rows.length;
+    if (assignedCount > 0 && typeof fetch !== "undefined") {
+      try {
+        await fetch("/api/admin/compliance/remind", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "induction",
+            mode: "assigned",
+            worker_ids: workersToAssign.map((worker) => worker.id),
+            document_title: formTitle,
+            document_id: input.template.id,
+          }),
+        });
+      } catch (cause) {
+        console.warn(
+          "[assignFormToWorkers] assignment notify failed:",
+          cause instanceof Error ? cause.message : cause
+        );
+      }
+    }
+
     return {
       error: null,
-      assigned: data?.length ?? rows.length,
+      assigned: assignedCount,
       skipped,
     };
   } catch (cause) {

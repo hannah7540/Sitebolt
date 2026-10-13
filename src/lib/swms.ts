@@ -434,6 +434,22 @@ export async function createSwmsDocument(input: {
       if (assignmentError) {
         return { error: assignmentError, document: null };
       }
+
+      if (workerAssignments.length > 0) {
+        try {
+          await assignSwmsWorkersRequest({
+            swmsId,
+            workerIds: workerAssignments.map((worker) => worker.id),
+            swmsTitle: input.title,
+            notifyOnly: true,
+          });
+        } catch (cause) {
+          console.warn(
+            "[createSwmsDocument] assignment notify failed:",
+            cause instanceof Error ? cause.message : cause
+          );
+        }
+      }
     }
 
     const full = await fetchSwmsDocuments();
@@ -569,6 +585,21 @@ export async function ensureSwmsWorkerAssignments(
     })),
     subcontractorAssignments: [],
   });
+
+  if (!error && missing.length > 0) {
+    try {
+      await assignSwmsWorkersRequest({
+        swmsId,
+        workerIds: missing.map((worker) => worker.id),
+        notifyOnly: true,
+      });
+    } catch (cause) {
+      console.warn(
+        "[ensureSwmsWorkerAssignments] assignment notify failed:",
+        cause instanceof Error ? cause.message : cause
+      );
+    }
+  }
 
   return { error, created: error ? 0 : missing.length };
 }

@@ -144,6 +144,7 @@ export async function POST(request: Request) {
     const notify = await notifyWorkersOfSwmsAssignment(access.admin, {
       workerIds: notifyIds,
       swmsTitle,
+      swmsId: requestSwmsId,
     });
     return NextResponse.json({ ok: true, notified: notify });
   }
@@ -217,6 +218,7 @@ export async function POST(request: Request) {
     notify = await notifyWorkersOfSwmsAssignment(access.admin, {
       workerIds: createdWorkerIds,
       swmsTitle,
+      swmsId: requestSwmsId,
     });
   }
 

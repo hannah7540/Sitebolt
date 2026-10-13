@@ -628,6 +628,13 @@ export async function assignCompanyInductionsForWorkerState(
       });
       if (created) {
         assigned += 1;
+        await insertSiteInductionAssignedNotification(client, {
+          worker,
+          workerId,
+          inductionTitle: template.title,
+          projectName: null,
+          templateId: template.id,
+        });
       } else {
         skipped += 1;
       }
