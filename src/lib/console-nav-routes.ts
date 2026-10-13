@@ -11,6 +11,41 @@ export const CONSOLE_VIEW_SEARCH_PARAM = "view";
 export const CONSOLE_OPEN_ADD_SEARCH_PARAM = "openAdd";
 export const ADMIN_ITC_PATH = "/admin/itc";
 
+const DEDICATED_CONSOLE_HREF: Partial<Record<ActiveView, string>> = {
+  "admin-master-dashboard": "/admin/dashboard",
+  "admin-itc": ADMIN_ITC_PATH,
+  "admin-plant-calendar": "/admin/plant-calendar",
+  "admin-worker-calendar": "/admin/worker-calendar",
+  "admin-swms": "/admin/swms",
+  "admin-document-pack": "/admin/document-pack",
+  "admin-reporting": "/admin/reporting",
+  subcontractors: "/dashboard/subcontractors",
+};
+
+const DEDICATED_CONSOLE_PATHS: ReadonlyArray<{
+  view: ActiveView;
+  path: string;
+  prefix?: boolean;
+}> = [
+  { view: "admin-itc", path: ADMIN_ITC_PATH, prefix: true },
+  { view: "admin-plant-calendar", path: "/admin/plant-calendar" },
+  { view: "admin-worker-calendar", path: "/admin/worker-calendar" },
+  { view: "admin-swms", path: "/admin/swms" },
+  { view: "admin-document-pack", path: "/admin/document-pack" },
+  { view: "admin-reporting", path: "/admin/reporting" },
+  { view: "subcontractors", path: "/dashboard/subcontractors", prefix: true },
+  { view: "admin-master-dashboard", path: "/admin/dashboard" },
+];
+
+function matchesDedicatedPath(
+  pathname: string,
+  path: string,
+  prefix?: boolean
+): boolean {
+  if (pathname === path) return true;
+  return prefix === true && pathname.startsWith(`${path}/`);
+}
+
 export function getAdminItcPath(itcId?: string | null): string {
   const id = itcId?.trim();
   return id ? `${ADMIN_ITC_PATH}/${id}` : ADMIN_ITC_PATH;
@@ -47,6 +82,14 @@ export function parseConsoleRoute(
     return projectRoute;
   }
 
+  if (pathname) {
+    for (const route of DEDICATED_CONSOLE_PATHS) {
+      if (matchesDedicatedPath(pathname, route.path, route.prefix)) {
+        return { view: route.view };
+      }
+    }
+  }
+
   const viewParam = searchParams?.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim();
   if (viewParam && isActiveView(viewParam)) {
     return { view: viewParam };
@@ -56,19 +99,8 @@ export function parseConsoleRoute(
     return { view: "admin-master-dashboard" };
   }
 
-  if (pathname === ADMIN_ITC_PATH || pathname?.startsWith(`${ADMIN_ITC_PATH}/`)) {
-    return { view: "admin-itc" };
-  }
-
   if (pathname === "/") {
     return { view: "admin-master-dashboard" };
-  }
-
-  if (
-    pathname === "/dashboard/subcontractors/hired-labour" ||
-    pathname?.startsWith("/dashboard/subcontractors/hired-labour/")
-  ) {
-    return { view: "subcontractors" };
   }
 
   return null;
@@ -83,6 +115,20 @@ const ORGANISATION_ROUTE_BY_VIEW = new Map<ActiveView, string>(
   ORGANISATION_NAV_ITEMS.map((item) => [item.view, item.href])
 );
 
+/** Bookmarkable path for administration / subcontractor views that use AdminConsoleShell. */
+export function getDedicatedConsoleHref(
+  view: ActiveView,
+  options: ConsoleNavOptions = {}
+): string | null {
+  if (view === "itps") return ADMIN_ITC_PATH;
+  const href = DEDICATED_CONSOLE_HREF[view];
+  if (!href) return null;
+  if (options.openAdd && view === "subcontractors") {
+    return `${href}?${CONSOLE_OPEN_ADD_SEARCH_PARAM}=1`;
+  }
+  return href;
+}
+
 /** Build a bookmarkable URL for sidebar / tab navigation. */
 export function buildConsoleNavHref(
   view: ActiveView,
@@ -93,12 +139,9 @@ export function buildConsoleNavHref(
     return dedicatedOrganisationRoute;
   }
 
-  if (view === "admin-master-dashboard") {
-    return "/admin/dashboard";
-  }
-
-  if (view === "admin-itc" || view === "itps") {
-    return ADMIN_ITC_PATH;
+  const dedicatedHref = getDedicatedConsoleHref(view, options);
+  if (dedicatedHref) {
+    return dedicatedHref;
   }
 
   const projectId = options.projectId?.trim() || null;

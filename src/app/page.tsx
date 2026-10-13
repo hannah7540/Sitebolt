@@ -13,13 +13,11 @@ import {
 } from "@/lib/supabase";
 import { fetchAssets, type Asset } from "@/lib/assets";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
-import {
-  getProjectViewPath,
-  parseProjectRoute,
-} from "@/lib/project-nav-routes";
+import { getProjectViewPath } from "@/lib/project-nav-routes";
 import {
   buildConsoleNavHref,
   CONSOLE_VIEW_SEARCH_PARAM,
+  getDedicatedConsoleHref,
   parseConsoleRoute,
   readConsoleOpenAdd,
 } from "@/lib/console-nav-routes";
@@ -40,7 +38,8 @@ import {
   setAdminWorkerId,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
-import Sidebar, { type ActiveView } from "@/components/Sidebar";
+import { type ActiveView } from "@/components/Sidebar";
+import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
 import PlantAdminPanel from "@/components/plant/PlantAdminPanel";
 import ProjectPlantAssignmentsPanel from "@/components/plant/ProjectPlantAssignmentsPanel";
 import AssetAdminPanel from "@/components/assets/AssetAdminPanel";
@@ -71,7 +70,6 @@ import {
   canViewFinancialFields,
   canAssignPayRules,
   normalizeSecurityRole,
-  normalizeAccountsAccessRole,
   canAccessAdminConsole,
   canManageOrganisation,
   canManageSecuritySettings,
@@ -83,14 +81,8 @@ import {
   PROJECT_VIEWS,
 } from "@/lib/rbac-guards";
 import { getWorkerAssignedProjectIds } from "@/lib/supabase";
-import {
-  Menu,
-  X,
-  Loader2,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import AppScreenHeader from "@/components/layout/AppScreenHeader";
-import CompanyLogo from "@/components/ui/CompanyLogo";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
 import { Capacitor } from "@capacitor/core";
 
@@ -104,7 +96,6 @@ function HomeConsole() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workerVocs, setWorkerVocs] = useState<WorkerVoc[]>([]);
   const [plant, setPlant] = useState<PlantAsset[]>([]);
@@ -247,16 +238,6 @@ function HomeConsole() {
     [sessionRole, sidebarProjects, assignedProjectIds]
   );
 
-  const accountsAccessRole = useMemo(() => {
-    const linked = workers.find((w) => w.id === adminWorkerId);
-    return normalizeAccountsAccessRole(linked?.accounts_access_role);
-  }, [workers, adminWorkerId]);
-
-  const canAccessAccounts = useMemo(() => {
-    const linked = workers.find((w) => w.id === adminWorkerId);
-    return linked?.can_access_accounts === true;
-  }, [workers, adminWorkerId]);
-
   const consoleRoute = useMemo(
     () => parseConsoleRoute(pathname, searchParams),
     [pathname, searchParams]
@@ -279,13 +260,20 @@ function HomeConsole() {
 
   useEffect(() => {
     if (pathname !== "/") return;
+    const viewParam = searchParams.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim();
+    if (viewParam) {
+      const dedicated = getDedicatedConsoleHref(viewParam as ActiveView, {
+        openAdd: openAddFromUrl,
+      });
+      if (dedicated) {
+        router.replace(dedicated);
+      }
+      return;
+    }
     if (!isAppSubdomainHost()) return;
-    if (searchParams.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim()) return;
     if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
     router.replace(MASTER_PROJECT_DASHBOARD_PATH);
-  }, [pathname, router, searchParams]);
-
-  const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
+  }, [pathname, router, searchParams, openAddFromUrl]);
 
   useEffect(() => {
     if (!sessionReady || !hasAuthSession || !adminWorkerId || workers.length === 0) {
@@ -323,15 +311,6 @@ function HomeConsole() {
     }
   }, [sessionReady, hasAuthSession, visibleProjects, dashboardProject]);
 
-  const handleOpenProfile = () => {
-    setShowAddWorker(false);
-    setShowAddPlant(false);
-    setShowAddAsset(false);
-    setShowAddSubcontractor(false);
-    setSidebarOpen(false);
-    router.push(buildConsoleNavHref("my-profile"));
-  };
-
   const handleNavigate = (
     view: ActiveView,
     options?: { openAdd?: boolean; projectId?: string }
@@ -351,7 +330,6 @@ function HomeConsole() {
     const projectId =
       options?.projectId ?? dashboardProject?.id ?? visibleProjects[0]?.id ?? null;
 
-    setSidebarOpen(false);
     router.push(
       buildConsoleNavHref(view, {
         projectId,
@@ -361,87 +339,16 @@ function HomeConsole() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent">
-      {!sessionReady && (
-        <div className="flex min-h-screen w-full items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-        </div>
-      )}
-      {sessionReady && (
-        <>
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      <div
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 lg:static lg:translate-x-0",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-      >
-        <Sidebar
-          activeView={activeTab}
-          projects={sidebarProjects}
-          assignedProjectIds={assignedProjectIds}
-          selectedProjectId={routeContext?.projectId ?? dashboardProject?.id}
+    <AdminConsoleShell>
+      {activeTab === "my-profile" ? (
+        <WorkerDashboardView
+          workerId={adminWorkerId}
+          embedded
+          preferAdminProfile
           sessionRole={sessionRole}
-          accountsAccessRole={accountsAccessRole}
-          canAccessAccounts={canAccessAccounts}
-          permissionsLoading={loading}
-          onNavigate={handleNavigate}
-          profileName={adminProfileName}
-          profileWorkerId={adminWorkerId}
-          onOpenProfile={handleOpenProfile}
         />
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <AppScreenHeader />
-
-          {activeTab !== "my-profile" && (
-            <div className="mobile-safe-area-y flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="rounded-md p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600"
-                aria-label="Toggle sidebar"
-              >
-                {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-              </button>
-              <CompanyLogo size="sm" showFallback className="flex-1" />
-            </div>
-          )}
-
-          {activeTab === "my-profile" ? (
-            <>
-              <div className="mobile-safe-area-y flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
-                  className="rounded-md p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600"
-                  aria-label="Toggle sidebar"
-                >
-                  {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                </button>
-                <span className="text-sm font-semibold text-slate-900">My Profile</span>
-              </div>
-              <div className="flex-1 overflow-y-auto">
-                <WorkerDashboardView
-                  workerId={adminWorkerId}
-                  embedded
-                  preferAdminProfile
-                  sessionRole={sessionRole}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 overflow-y-auto p-6 text-slate-800 lg:p-8">
+      ) : (
+        <>
           {emailsAccessDenied ? (
             <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               The EMAIL&apos;s module is restricted to Owner and Full Access users.
@@ -712,13 +619,9 @@ function HomeConsole() {
                 Security settings are restricted to Owner and Full Access roles.
               </div>
             )}
-            </div>
-          )}
-        </div>
-      </div>
         </>
       )}
-    </div>
+    </AdminConsoleShell>
   );
 }
 
