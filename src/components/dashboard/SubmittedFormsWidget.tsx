@@ -14,15 +14,22 @@ import {
   formatFormDate,
   type CustomFormSubmission,
 } from "@/lib/custom-forms";
-import { fetchProjects, getCachedProjects } from "@/lib/project-resolver";
+import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { resolvePlantAssignedProjectId } from "@/lib/project-assignments";
-import { fetchPlantList, type PlantAsset } from "@/lib/supabase";
+import { fetchPlantList, type PlantAsset, type Worker } from "@/lib/supabase";
+import {
+  buildDashboardFilterContext,
+  matchesDashboardFilters,
+} from "@/lib/master-project-dashboard";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
 
 interface SubmittedFormsWidgetProps {
   projectId?: string | null;
   projectIds?: string[];
+  selectedState?: string;
+  projects?: DbProject[];
+  workers?: Worker[];
 }
 
 function formatRelativeTime(iso: string | null | undefined): string {
@@ -61,6 +68,9 @@ function entityTag(
 export default function SubmittedFormsWidget({
   projectId = null,
   projectIds = [],
+  selectedState = "",
+  projects = [],
+  workers = [],
 }: SubmittedFormsWidgetProps) {
   const [submissions, setSubmissions] = useState<CustomFormSubmission[]>([]);
   const [plant, setPlant] = useState<PlantAsset[]>([]);
@@ -130,16 +140,29 @@ export default function SubmittedFormsWidget({
   );
 
   const scopedSubmissions = useMemo(() => {
-    if (projectId) return submissions;
-    if (projectIds.length === 0) return submissions;
-    const selected = new Set(projectIds);
+    const ctx = buildDashboardFilterContext(
+      projects.length > 0 ? projects : getCachedProjects(),
+      workers,
+      projectId ? [projectId] : projectIds,
+      selectedState
+    );
+    if (!ctx.filterState && ctx.filterProjectIds.length === 0) {
+      return submissions;
+    }
     return submissions.filter((submission) => {
-      if (submission.project_id && selected.has(submission.project_id)) return true;
-      if (!submission.plant_id) return false;
-      const assigned = resolvePlantAssignedProjectId(plantById.get(submission.plant_id));
-      return Boolean(assigned && selected.has(assigned));
+      const plantProject = submission.plant_id
+        ? resolvePlantAssignedProjectId(plantById.get(submission.plant_id))
+        : "";
+      return matchesDashboardFilters(
+        {
+          projectId: submission.project_id,
+          workerId: submission.worker_id,
+          extraProjectIds: [plantProject],
+        },
+        ctx
+      );
     });
-  }, [plantById, projectId, projectIds, submissions]);
+  }, [plantById, projectId, projectIds, projects, selectedState, submissions, workers]);
 
   const rowMeta = useMemo(() => {
     const next: Record<string, SubmittedFormRowMeta> = {};

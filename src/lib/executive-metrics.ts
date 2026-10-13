@@ -2,13 +2,16 @@ import {
   fetchPlant,
   fetchPlantPrestarts,
   isSupabaseConfigured,
+  resolvePlantAssignedProjectId,
   supabase,
+  type Worker,
 } from "@/lib/supabase";
 import { fetchOrganizationFleet } from "@/lib/organization-fleet";
 import {
   fetchProjects,
   filterActiveProjects,
   getCachedProjects,
+  type DbProject,
 } from "@/lib/project-resolver";
 import { isPlantArchived } from "@/lib/plant-archive";
 import { isFleetArchived } from "@/lib/fleet-archive";
@@ -19,6 +22,11 @@ import {
   ITC_SIGNOFFS_TABLE,
   PROJECT_ITP_ITEMS_TABLE,
 } from "@/lib/itp-itc-payload";
+import {
+  buildDashboardFilterContext,
+  matchesDashboardFilters,
+  type DashboardFilterWorker,
+} from "@/lib/master-project-dashboard";
 
 export interface ExecutiveMetrics {
   activeProjects: number;
@@ -60,10 +68,90 @@ async function countRows(
   }
 }
 
-export async function fetchExecutiveMetrics(): Promise<ExecutiveMetrics> {
+export interface ExecutiveMetricsFilters {
+  projectIds?: string[];
+  state?: string | null;
+  projects?: DbProject[];
+  workers?: Array<DashboardFilterWorker | Worker>;
+}
+
+async function countFilteredActionRows(
+  table: string,
+  column: string,
+  values: string[],
+  ctx: ReturnType<typeof buildDashboardFilterContext>
+): Promise<number> {
+  if (!isSupabaseConfigured()) return 0;
+  const hasFilters = ctx.filterProjectIds.length > 0 || Boolean(ctx.filterState);
+  if (!hasFilters) {
+    return countRows(table, column, values);
+  }
+
+  try {
+    const fullQuery = supabase
+      .from(table)
+      .select("id, project_id, signed_by_worker_id, worker_id");
+    const { data, error } = await (values.length === 1
+      ? fullQuery.eq(column, values[0])
+      : fullQuery.in(column, values));
+    if (!error) {
+      return (data ?? []).filter((row) => {
+        const record = row as {
+          project_id?: string | null;
+          signed_by_worker_id?: string | null;
+          worker_id?: string | null;
+        };
+        return matchesDashboardFilters(
+          {
+            projectId: record.project_id,
+            workerId: record.signed_by_worker_id || record.worker_id,
+          },
+          ctx
+        );
+      }).length;
+    }
+    if (isSupabaseTableUnavailableError(error, table)) return 0;
+    const minQuery = supabase.from(table).select("id, project_id");
+    const retry = await (values.length === 1
+      ? minQuery.eq(column, values[0])
+      : minQuery.in(column, values));
+    if (retry.error) {
+      if (isSupabaseTableUnavailableError(retry.error, table)) return 0;
+      console.warn(`[executive-metrics] ${table} count failed:`, retry.error.message);
+      return 0;
+    }
+    return (retry.data ?? []).filter((row) =>
+      matchesDashboardFilters(
+        { projectId: (row as { project_id?: string | null }).project_id },
+        ctx
+      )
+    ).length;
+  } catch (error) {
+    console.warn(`[executive-metrics] ${table} count failed:`, error);
+    return 0;
+  }
+}
+
+export async function fetchExecutiveMetrics(
+  filters: ExecutiveMetricsFilters = {}
+): Promise<ExecutiveMetrics> {
   if (!isSupabaseConfigured()) return EMPTY_METRICS;
 
   const today = localIsoDate();
+
+  try {
+    await fetchProjects();
+  } catch {
+    // Cached/empty project list is fine for a dashboard strip.
+  }
+
+  const projects = filters.projects ?? filterActiveProjects(getCachedProjects());
+  const ctx = buildDashboardFilterContext(
+    projects,
+    filters.workers,
+    filters.projectIds,
+    filters.state
+  );
 
   const [plant, fleet, todaysPrestarts, pendingItpItems, pendingItcSignoffs, openNcrs] =
     await Promise.all([
@@ -72,25 +160,41 @@ export async function fetchExecutiveMetrics(): Promise<ExecutiveMetrics> {
       fetchPlantPrestarts({ startDate: today, endDate: today, limit: 2000 }).catch(
         () => []
       ),
-      countRows(PROJECT_ITP_ITEMS_TABLE, "status", ["pending", "non_conforming"]),
-      countRows(ITC_SIGNOFFS_TABLE, "status", ["draft"]),
-      countRows("ncrs", "status", ["open"]),
+      countFilteredActionRows(
+        PROJECT_ITP_ITEMS_TABLE,
+        "status",
+        ["pending", "non_conforming"],
+        ctx
+      ),
+      countFilteredActionRows(ITC_SIGNOFFS_TABLE, "status", ["draft"], ctx),
+      countFilteredActionRows("ncrs", "status", ["open"], ctx),
     ]);
 
-  try {
-    await fetchProjects();
-  } catch {
-    // Cached/empty project list is fine for a dashboard strip.
-  }
+  const activeProjects = filterActiveProjects(projects).filter((project) =>
+    matchesDashboardFilters({ projectId: project.id }, ctx)
+  ).length;
 
-  const activeProjects = filterActiveProjects(getCachedProjects()).length;
-
-  const activePlant = (plant ?? []).filter(
-    (row) => !isPlantArchived(row) && !isTaggedOut(row)
-  );
+  const activePlant = (plant ?? []).filter((row) => {
+    if (isPlantArchived(row) || isTaggedOut(row)) return false;
+    return matchesDashboardFilters(
+      {
+        projectId: resolvePlantAssignedProjectId(row) || row.project_id,
+        workerId: row.assigned_worker_id,
+      },
+      ctx
+    );
+  });
   const activeFleet = (fleet ?? []).filter((row) => {
     const status = String(row.status ?? "").toLowerCase();
-    return !isFleetArchived(row) && status !== "out of service";
+    if (isFleetArchived(row) || status === "out of service") return false;
+    return matchesDashboardFilters(
+      {
+        projectId: row.assigned_project_id,
+        workerId: row.assigned_worker_id,
+        assignedState: row.state,
+      },
+      ctx
+    );
   });
 
   const plantDone = new Set<string>();

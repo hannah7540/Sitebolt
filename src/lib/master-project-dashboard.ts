@@ -5,6 +5,7 @@ import {
   fetchSiteForms,
   fetchSwmsAssignmentRecords,
   isSupabaseConfigured,
+  resolvePlantAssignedProjectId,
   type PlantAsset,
   type PlantPrestart,
   type SwmsAssignmentRecord,
@@ -27,6 +28,37 @@ import { isActiveDashboardDefect } from "./plant-prestart-utils";
 import { getPlantPrestartDisplayTitle } from "./plant-prestart-utils";
 import { isFleetVehiclePrestart } from "./fleet-prestart";
 import { fetchSwmsDocuments, type SwmsDocumentSummary } from "./swms";
+import { normalizeCalendarStateCode } from "./worker-state-region";
+import { resolveProjectFilterState } from "./worker-calendar-grid";
+
+export interface DashboardFilterWorker {
+  id: string;
+  state?: string | null;
+  assigned_project_id?: string | null;
+  assigned_project_ids?: string[] | null;
+  project_id?: string | null;
+}
+
+export interface DashboardFilterProject {
+  id: string;
+  state?: string | null;
+  location?: string | null;
+}
+
+export interface DashboardFilterContext {
+  filterProjectIds: readonly string[];
+  filterState: string | null;
+  projectStateById: Map<string, string | null>;
+  workerStateById: Map<string, string | null>;
+  workerProjectIdsById: Map<string, string[]>;
+}
+
+export interface DashboardFilterRecord {
+  projectId?: string | null;
+  workerId?: string | null;
+  assignedState?: string | null;
+  extraProjectIds?: Array<string | null | undefined>;
+}
 
 export interface MasterDashboardItem {
   id: string;
@@ -124,16 +156,112 @@ export function matchesDashboardProject(
   return filterProjectIds.includes(recordId);
 }
 
-function matchesDashboardState(
-  record: { project_id?: string | null; assigned_state?: string | null },
-  state: string | null | undefined,
-  projectStateById: Map<string, string | null>
+function collectWorkerProjectIds(worker: DashboardFilterWorker | undefined): string[] {
+  if (!worker) return [];
+  return uniqueIds([
+    worker.assigned_project_id,
+    worker.project_id,
+    ...(worker.assigned_project_ids ?? []),
+  ]);
+}
+
+function uniqueIds(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const value of values) {
+    const id = String(value ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+export function buildDashboardFilterContext(
+  projects: DashboardFilterProject[] | undefined,
+  workers: DashboardFilterWorker[] | undefined,
+  filterProjectIds: readonly string[] | null | undefined,
+  filterState: string | null | undefined
+): DashboardFilterContext {
+  const projectStateById = new Map<string, string | null>();
+  for (const project of projects ?? []) {
+    projectStateById.set(
+      project.id,
+      resolveProjectFilterState({
+        state: project.state ?? null,
+        location: project.location ?? null,
+      })
+    );
+  }
+
+  const workerStateById = new Map<string, string | null>();
+  const workerProjectIdsById = new Map<string, string[]>();
+  for (const worker of workers ?? []) {
+    workerStateById.set(worker.id, normalizeCalendarStateCode(worker.state));
+    workerProjectIdsById.set(worker.id, collectWorkerProjectIds(worker));
+  }
+
+  return {
+    filterProjectIds: [...(filterProjectIds ?? [])],
+    filterState: normalizeCalendarStateCode(filterState),
+    projectStateById,
+    workerStateById,
+    workerProjectIdsById,
+  };
+}
+
+function relatedProjectIds(
+  record: DashboardFilterRecord,
+  ctx: DashboardFilterContext
+): string[] {
+  const workerProjects = record.workerId
+    ? ctx.workerProjectIdsById.get(record.workerId) ?? []
+    : [];
+  return uniqueIds([
+    record.projectId,
+    ...workerProjects,
+    ...(record.extraProjectIds ?? []),
+  ]);
+}
+
+function relatedStates(
+  record: DashboardFilterRecord,
+  ctx: DashboardFilterContext,
+  projectIds: readonly string[]
+): string[] {
+  const states: Array<string | null | undefined> = [
+    normalizeCalendarStateCode(record.assignedState),
+  ];
+  if (record.workerId) {
+    states.push(ctx.workerStateById.get(record.workerId));
+  }
+  for (const projectId of projectIds) {
+    states.push(ctx.projectStateById.get(projectId));
+  }
+  return uniqueIds(states);
+}
+
+/** Unified Master Dashboard filter: worker state OR project state, plus project id. */
+export function matchesDashboardFilters(
+  record: DashboardFilterRecord,
+  ctx: DashboardFilterContext
 ): boolean {
-  if (!state) return true;
-  if (record.assigned_state) return record.assigned_state === state;
-  const projectId = (record.project_id ?? "").trim();
-  if (!projectId) return false;
-  return projectStateById.get(projectId) === state;
+  const projectIds = relatedProjectIds(record, ctx);
+
+  if (ctx.filterProjectIds.length > 0) {
+    if (!projectIds.some((id) => ctx.filterProjectIds.includes(id))) {
+      return false;
+    }
+  }
+
+  if (ctx.filterState) {
+    const states = relatedStates(record, ctx, projectIds);
+    if (!states.includes(ctx.filterState)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isVisibleMasterPrestart(row: PlantPrestart): boolean {
@@ -145,61 +273,107 @@ export function filterMasterDashboardSnapshot(
   projectIds: readonly string[] | null | undefined,
   options?: {
     state?: string | null;
-    projects?: Array<{ id: string; state?: string | null }>;
+    projects?: DashboardFilterProject[];
+    workers?: DashboardFilterWorker[];
   }
 ): MasterProjectDashboardSnapshot {
-  const swmsProjectById = new Map(
-    snapshot.swmsDocuments.map((doc) => [doc.id, doc.project_id ?? null])
+  const swmsProjectById = new Map<string, string | null>();
+  for (const doc of snapshot.swmsDocuments) {
+    if (doc.id) swmsProjectById.set(doc.id, doc.project_id ?? null);
+    if (doc.swms_id) {
+      swmsProjectById.set(doc.swms_id, doc.project_id ?? swmsProjectById.get(doc.swms_id) ?? null);
+    }
+  }
+  const plantProjectById = new Map(
+    snapshot.plant.map((asset) => [asset.id, resolvePlantAssignedProjectId(asset) || null])
   );
-  const projectStateById = new Map(
-    (options?.projects ?? []).map((project) => [project.id, project.state ?? null])
+  const ctx = buildDashboardFilterContext(
+    options?.projects,
+    options?.workers,
+    projectIds,
+    options?.state
   );
-  const state = options?.state?.trim() || null;
 
   return {
     ...snapshot,
     incidents: snapshot.incidents.filter(
       (row) =>
         isOpenIncident(row) &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.injured_worker_id,
+          },
+          ctx
+        )
     ),
     safetyWalks: snapshot.safetyWalks.filter(
       (row) =>
         !isSiteFormViewed(row) &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.worker_id,
+          },
+          ctx
+        )
     ),
     toolboxTalks: snapshot.toolboxTalks.filter(
       (row) =>
         !isSiteFormViewed(row) &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.worker_id,
+          },
+          ctx
+        )
     ),
     plantPrestarts: snapshot.plantPrestarts.filter(
       (row) =>
         isVisibleMasterPrestart(row) &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.operator_worker_id,
+            assignedState: row.assigned_state,
+            extraProjectIds: [plantProjectById.get(row.plant_id)],
+          },
+          ctx
+        )
     ),
     leaveRequests: snapshot.leaveRequests.filter(
       (row) =>
         isLeaveRequestPending(row.status) &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.worker_id,
+          },
+          ctx
+        )
     ),
     incompleteInductions: snapshot.incompleteInductions.filter(
       (row) =>
         row.status !== "completed" &&
-        matchesDashboardProject(row.project_id, projectIds) &&
-        matchesDashboardState(row, state, projectStateById)
+        matchesDashboardFilters(
+          {
+            projectId: row.project_id,
+            workerId: row.worker_id,
+          },
+          ctx
+        )
     ),
     swmsWaitingSignOff: snapshot.swmsWaitingSignOff.filter((row) => {
       if (!isPendingSwmsAssignment(row)) return false;
       const projectId = swmsProjectById.get(row.swms_id) ?? null;
-      return (
-        matchesDashboardProject(projectId, projectIds) &&
-        matchesDashboardState({ project_id: projectId }, state, projectStateById)
+      const workerId = row.worker_id || (row.assignee_type === "worker" ? row.assignee_id : null);
+      return matchesDashboardFilters(
+        {
+          projectId,
+          workerId,
+        },
+        ctx
       );
     }),
   };

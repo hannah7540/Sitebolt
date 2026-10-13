@@ -254,8 +254,9 @@ export default function MasterProjectDashboard() {
       filterMasterDashboardSnapshot(snapshot, effectiveProjectIds, {
         state: selectedState || null,
         projects,
+        workers,
       }),
-    [snapshot, effectiveProjectIds, selectedState, projects]
+    [snapshot, effectiveProjectIds, selectedState, projects, workers]
   );
   const data = useMemo(
     () => toMasterDashboardWidgetData(filteredSnapshot, workers),
@@ -443,7 +444,12 @@ export default function MasterProjectDashboard() {
         </div>
       </div>
 
-      <ExecutiveMetricBar />
+      <ExecutiveMetricBar
+        projectIds={effectiveProjectIds}
+        selectedState={selectedState}
+        projects={projects}
+        workers={workers}
+      />
 
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
@@ -453,7 +459,12 @@ export default function MasterProjectDashboard() {
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <div className="grid min-w-0 flex-1 gap-4 md:grid-cols-2">
-            <SubmittedFormsWidget projectIds={effectiveProjectIds} />
+            <SubmittedFormsWidget
+              projectIds={effectiveProjectIds}
+              selectedState={selectedState}
+              projects={projects}
+              workers={workers}
+            />
             {LEFT_WIDGETS.map((widget) => (
               <WidgetCard
                 key={widget.key}

@@ -6,6 +6,8 @@ import {
   fetchExecutiveMetrics,
   type ExecutiveMetrics,
 } from "@/lib/executive-metrics";
+import type { DbProject } from "@/lib/project-resolver";
+import type { Worker } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 const EMPTY: ExecutiveMetrics = {
@@ -16,7 +18,17 @@ const EMPTY: ExecutiveMetrics = {
   actionRequired: 0,
 };
 
-export default function ExecutiveMetricBar() {
+export default function ExecutiveMetricBar({
+  projectIds = [],
+  selectedState = "",
+  projects = [],
+  workers = [],
+}: {
+  projectIds?: string[];
+  selectedState?: string;
+  projects?: DbProject[];
+  workers?: Worker[];
+}) {
   const [metrics, setMetrics] = useState<ExecutiveMetrics>(EMPTY);
   const [loading, setLoading] = useState(true);
 
@@ -25,7 +37,12 @@ export default function ExecutiveMetricBar() {
     async function load() {
       setLoading(true);
       try {
-        const next = await fetchExecutiveMetrics();
+        const next = await fetchExecutiveMetrics({
+          projectIds,
+          state: selectedState || null,
+          projects,
+          workers,
+        });
         if (!cancelled) setMetrics(next);
       } catch {
         if (!cancelled) setMetrics(EMPTY);
@@ -37,7 +54,7 @@ export default function ExecutiveMetricBar() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectIds, selectedState, projects, workers]);
 
   const compliancePct =
     metrics.equipmentTotal === 0
