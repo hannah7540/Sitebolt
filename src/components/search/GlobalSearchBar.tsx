@@ -24,7 +24,7 @@ export default function GlobalSearchBar() {
   return (
     <form
       onSubmit={onSubmit}
-      className="mx-auto hidden w-[min(480px,42vw)] min-w-[min(380px,100%)] max-w-[480px] md:flex"
+      className="flex w-full max-w-none"
       role="search"
     >
       <label className="relative flex w-full items-center">

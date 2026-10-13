@@ -12,7 +12,8 @@ export default function CompanySwitcher() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  if (!workspace?.isSuperAdmin || !workspace.activeCompany) return null;
+  const isMasterAdmin = workspace?.isSuperAdmin === true;
+  if (!isMasterAdmin || !workspace.activeCompany) return null;
 
   const active = workspace.activeCompany;
   const Icon = active.is_demo ? Zap : Building2;

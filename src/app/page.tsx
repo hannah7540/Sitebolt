@@ -87,12 +87,10 @@ import {
   Menu,
   X,
   Loader2,
-  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import AppScreenHeader from "@/components/layout/AppScreenHeader";
 import CompanyLogo from "@/components/ui/CompanyLogo";
-import { useCommandPalette } from "@/components/command-palette/CommandPaletteProvider";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
 import { Capacitor } from "@capacitor/core";
 
@@ -106,7 +104,6 @@ function HomeConsole() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const commandPalette = useCommandPalette();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workerVocs, setWorkerVocs] = useState<WorkerVoc[]>([]);
@@ -233,14 +230,6 @@ function HomeConsole() {
       if (match) return getWorkerDisplayName(match);
     }
     return DEFAULT_ADMIN_PROFILE_NAME;
-  }, [adminWorkerId, workers]);
-
-  const adminProfilePhotoUrl = useMemo(() => {
-    if (adminWorkerId) {
-      const match = workers.find((w) => w.id === adminWorkerId);
-      if (match?.photo_url?.trim()) return match.photo_url.trim();
-    }
-    return null;
   }, [adminWorkerId, workers]);
 
   const sessionRole = useMemo(() => {
@@ -413,15 +402,7 @@ function HomeConsole() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {activeTab !== "my-profile" && (
-            <AppScreenHeader
-              profileName={adminProfileName}
-              profilePhotoUrl={adminProfilePhotoUrl}
-              profileActive={false}
-              onOpenProfile={handleOpenProfile}
-              className="hidden lg:flex"
-            />
-          )}
+          <AppScreenHeader />
 
           {activeTab !== "my-profile" && (
             <div className="mobile-safe-area-y flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
@@ -434,16 +415,6 @@ function HomeConsole() {
                 {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
               <CompanyLogo size="sm" showFallback className="flex-1" />
-              {commandPalette ? (
-                <button
-                  type="button"
-                  onClick={commandPalette.openPalette}
-                  className="rounded-md p-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600"
-                  aria-label="Open command palette"
-                >
-                  <Search className="h-5 w-5" />
-                </button>
-              ) : null}
             </div>
           )}
 
