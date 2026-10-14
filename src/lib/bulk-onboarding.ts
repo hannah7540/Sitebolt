@@ -60,6 +60,8 @@ export type BulkOnboardingWorker = {
   silica_cert_photo_url: string;
   silica_cert_doc_url: string;
   drivers_licence_photo_url: string;
+  assigned_project_id: string;
+  assigned_project_name: string;
   vocs: BulkOnboardingVoc[];
 } & Record<BulkOnboardingFieldKey, string>;
 
@@ -80,6 +82,8 @@ export function emptyTicketDocuments(): Pick<
   | "silica_cert_photo_url"
   | "silica_cert_doc_url"
   | "drivers_licence_photo_url"
+  | "assigned_project_id"
+  | "assigned_project_name"
   | "vocs"
 > {
   return {
@@ -88,6 +92,8 @@ export function emptyTicketDocuments(): Pick<
     silica_cert_photo_url: "",
     silica_cert_doc_url: "",
     drivers_licence_photo_url: "",
+    assigned_project_id: "",
+    assigned_project_name: "",
     vocs: [],
   };
 }
@@ -374,6 +380,8 @@ export function normalizeBulkOnboardingWorker(
   next.silica_cert_photo_url = worker.silica_cert_photo_url?.trim() || "";
   next.silica_cert_doc_url = worker.silica_cert_doc_url?.trim() || "";
   next.drivers_licence_photo_url = worker.drivers_licence_photo_url?.trim() || "";
+  next.assigned_project_id = worker.assigned_project_id?.trim() || "";
+  next.assigned_project_name = worker.assigned_project_name?.trim() || "";
   next.vocs = Array.isArray(worker.vocs) ? worker.vocs : [];
 
   for (const key of DATE_FIELDS) {

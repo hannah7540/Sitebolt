@@ -110,8 +110,8 @@ export default function WorkerOnboardingProfilePhoto({
           Profile Photo (Required) <span className="text-red-600">*</span>
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          Upload a clear headshot. JPG, PNG, or WebP up to 5 MB. Use your camera on
-          mobile or choose a file on desktop.
+          Upload a clear headshot. JPG, PNG, or WebP up to 5 MB. On tablets, use Upload
+          File / Choose from Gallery if the in-browser camera is blocked.
         </p>
 
         <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
@@ -147,7 +147,7 @@ export default function WorkerOnboardingProfilePhoto({
                   ) : (
                     <FolderOpen className="h-4 w-4" />
                   )}
-                  Upload Photo
+                  Upload File / Choose from Gallery
                 </button>
                 <button
                   type="button"
@@ -210,6 +210,19 @@ export default function WorkerOnboardingProfilePhoto({
                     </button>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  disabled={disabled || uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:border-orange-400 hover:bg-orange-50 disabled:opacity-50"
+                >
+                  {uploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4" />
+                  )}
+                  Upload File / Choose from Gallery
+                </button>
               </div>
             )}
 
@@ -217,7 +230,6 @@ export default function WorkerOnboardingProfilePhoto({
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              capture="user"
               className="hidden"
               disabled={disabled || uploading}
               onChange={(event) => {

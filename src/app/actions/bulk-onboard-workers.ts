@@ -160,12 +160,18 @@ async function insertWorkerProfile(
     drivers_licence_class: worker.drivers_licence_class.trim() || null,
     drivers_licence_expiry: licenceExpiry,
     drivers_licence_photo_url: worker.drivers_licence_photo_url?.trim() || null,
+    assigned_project_id: worker.assigned_project_id?.trim() || null,
+    assigned_project_name: worker.assigned_project_name?.trim() || null,
+    assigned_project_ids: worker.assigned_project_id?.trim()
+      ? [worker.assigned_project_id.trim()]
+      : [],
+    project_id: worker.assigned_project_id?.trim() || null,
     security_role: DEFAULT_WORKER_SECURITY_ROLE,
     status: computeWorkerStatusFromExpiries([
       licenceExpiry,
       ...serializeBulkOnboardingVocs(worker.vocs).map((voc) => voc.expiry_date),
     ]),
-    onboarding_completed: false,
+    onboarding_completed: true,
     invite_status: "pending",
     worker_category: "internal",
   });
@@ -324,7 +330,9 @@ export async function submitBulkOnboarding(
         await applyAutomaticWorkerAssignmentsForWorker({
           workerId: inserted.workerId,
           state: worker.state || null,
-          projectIds: [],
+          projectIds: worker.assigned_project_id?.trim()
+            ? [worker.assigned_project_id.trim()]
+            : [],
           assignCompanySwms: true,
         });
       } catch (cause) {

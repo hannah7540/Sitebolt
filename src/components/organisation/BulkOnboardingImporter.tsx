@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { submitBulkOnboarding } from "@/app/actions/bulk-onboard-workers";
@@ -31,6 +39,7 @@ import {
   validateVocDrafts,
   type VocDraft,
 } from "@/lib/voc-utils";
+import { fetchProjects, type DbProject } from "@/lib/project-resolver";
 
 type WizardPhase = "upload" | "fix" | "summary" | "done";
 
@@ -77,6 +86,13 @@ export default function BulkOnboardingImporter() {
     invited: number;
     inviteErrors: string[];
   } | null>(null);
+  const [projects, setProjects] = useState<DbProject[]>([]);
+
+  useEffect(() => {
+    void fetchProjects()
+      .then((list) => setProjects(list))
+      .catch(() => setProjects([]));
+  }, []);
 
   const currentWorker = workers[currentIndex] ?? null;
   const missingFields = useMemo(
@@ -402,6 +418,35 @@ export default function BulkOnboardingImporter() {
           ) : null}
 
           <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">Project assignment</h3>
+            <label className="mt-3 block space-y-1">
+              <span className={labelClass}>Project</span>
+              <select
+                className={inputClass}
+                value={currentWorker.assigned_project_id || ""}
+                onChange={(event) => {
+                  const projectId = event.target.value;
+                  const project = projects.find((row) => row.id === projectId);
+                  patchCurrentWorker({
+                    assigned_project_id: projectId,
+                    assigned_project_name: project?.name ?? "",
+                  });
+                }}
+              >
+                <option value="">Unassigned</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                Optional. Leave unassigned to place the worker on the bench.
+              </p>
+            </label>
+          </div>
+
+          <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">White Card</h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="space-y-1">
@@ -587,6 +632,9 @@ export default function BulkOnboardingImporter() {
               <li key={`${worker.rowIndex}-${worker.email}`} className="px-4 py-3">
                 <p className="font-semibold text-slate-900">{workerDisplayName(worker)}</p>
                 <p className="text-sm text-slate-500">{worker.email}</p>
+                <p className="text-xs text-slate-500">
+                  Project: {worker.assigned_project_name?.trim() || "Unassigned"}
+                </p>
               </li>
             ))}
           </ul>

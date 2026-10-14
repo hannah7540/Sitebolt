@@ -1,3 +1,5 @@
+import { workerDashboardUrl } from "@/lib/user-session";
+
 export type WorkerPostPasswordStatus = {
   id: string;
   onboarding_completed: boolean | null;
@@ -13,7 +15,7 @@ export const FALLBACK_PASSWORD_SETUP_LOGIN_HREF =
 
 /**
  * After password setup:
- * - Full onboarding (`onboarding_completed === true`) → login
+ * - Completed onboarding (`onboarding_completed === true`) → worker dashboard
  * - Quick invite (`onboarding_completed === false`) → /onboarding
  *
  * `onboarding_completed` is the source of truth. `status === "active"` is only
@@ -30,7 +32,7 @@ export function resolvePostPasswordSetupHref(
   const status = (worker.status ?? "").trim().toLowerCase();
 
   if (worker.onboarding_completed === true) {
-    return COMPLETED_PASSWORD_SETUP_LOGIN_HREF;
+    return workerDashboardUrl(worker.id);
   }
 
   // Quick invite workers still need the wizard even if password setup
