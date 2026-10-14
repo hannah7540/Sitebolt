@@ -966,6 +966,7 @@ export default function WorkerDashboardView({
             <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
           </button>
           <WorkerFinancialInfoSection
+            workerId={worker.id}
             worker={worker}
             compact
             onSaved={(updated) => {

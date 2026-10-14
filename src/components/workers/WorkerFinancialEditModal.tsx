@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, X } from "lucide-react";
-import { updateWorkerFinancialDetails } from "@/app/actions/update-worker-financials";
+import {
+  getWorkerFinancialDetails,
+  updateWorkerFinancialDetails,
+} from "@/app/actions/update-worker-financials";
 import type { Worker } from "@/lib/supabase";
-import { formatWorkerBsb, getWorkerDisplayName } from "@/lib/worker-utils";
+import { formatWorkerBsb } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
 import {
   inputClass,
@@ -17,6 +21,7 @@ import {
 import ModalActionFooter from "@/components/ui/ModalActionFooter";
 
 interface WorkerFinancialEditModalProps {
+  workerId: string;
   worker: Worker;
   onClose: () => void;
   onSaved: (worker: Worker) => void;
@@ -39,44 +44,63 @@ function Field({
   );
 }
 
+function nullIfBlank(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 export default function WorkerFinancialEditModal({
+  workerId,
   worker,
   onClose,
   onSaved,
 }: WorkerFinancialEditModalProps) {
-  const [bankName, setBankName] = useState(worker.bank_name ?? "");
-  const [accountName, setAccountName] = useState(
-    worker.bank_account_name ?? getWorkerDisplayName(worker)
-  );
-  const [bankBsb, setBankBsb] = useState(worker.bank_bsb ?? "");
-  const [bankAccountNumber, setBankAccountNumber] = useState(
-    worker.bank_account_number ?? ""
-  );
-  const [superFund, setSuperFund] = useState(worker.super_fund ?? "");
-  const [superMemberNumber, setSuperMemberNumber] = useState(
-    worker.super_member_number ?? ""
-  );
-  const [tfn, setTfn] = useState(worker.tfn ?? "");
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [bankName, setBankName] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [bankBsb, setBankBsb] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [superFund, setSuperFund] = useState("");
+  const [superMemberNumber, setSuperMemberNumber] = useState("");
+  const [tfn, setTfn] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setBankName(worker.bank_name ?? "");
-    setAccountName(worker.bank_account_name ?? getWorkerDisplayName(worker));
-    setBankBsb(worker.bank_bsb ?? "");
-    setBankAccountNumber(worker.bank_account_number ?? "");
-    setSuperFund(worker.super_fund ?? "");
-    setSuperMemberNumber(worker.super_member_number ?? "");
-    setTfn(worker.tfn ?? "");
+    let cancelled = false;
+    setLoading(true);
     setError(null);
-  }, [worker]);
+
+    void getWorkerFinancialDetails(workerId).then((result) => {
+      if (cancelled) return;
+      if (result.error || !result.values) {
+        setError(result.error ?? "Failed to load financial details.");
+        setLoading(false);
+        return;
+      }
+
+      setBankName(result.values.bank_name ?? "");
+      setAccountName(result.values.bank_account_name ?? "");
+      setBankBsb(result.values.bank_bsb ?? "");
+      setBankAccountNumber(result.values.bank_account_number ?? "");
+      setSuperFund(result.values.super_fund ?? "");
+      setSuperMemberNumber(result.values.super_member_number ?? "");
+      setTfn(result.values.tfn ?? "");
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workerId]);
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
       const result = await updateWorkerFinancialDetails({
-        workerId: worker.id,
+        workerId,
         bankName,
         accountName,
         bankBsb,
@@ -101,6 +125,7 @@ export default function WorkerFinancialEditModal({
           result.values?.super_member_number ?? nullIfBlank(superMemberNumber),
         tfn: result.values?.tfn ?? nullIfBlank(tfn),
       });
+      router.refresh();
       onClose();
     } catch (cause) {
       setError(
@@ -112,7 +137,12 @@ export default function WorkerFinancialEditModal({
   };
 
   return (
-    <div className={modalOverlayClass} role="dialog" aria-modal="true" aria-labelledby="edit-financials-title">
+    <div
+      className={modalOverlayClass}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-financials-title"
+    >
       <div className={cn(modalShellClass, "max-w-lg")}>
         <button
           type="button"
@@ -126,89 +156,96 @@ export default function WorkerFinancialEditModal({
 
         <div className={cn(modalBodyClass, "pt-10")}>
           <h2 id="edit-financials-title" className="text-xl font-bold text-slate-900">
-            Edit Financials
+            View & Edit Financial Details
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Update the same payroll details collected during onboarding.
+            Payroll details are loaded securely here and are not shown on the dashboard.
           </p>
 
           {error ? (
             <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
           ) : null}
 
-          <div className="mt-4 space-y-3">
-            <Field label="Bank Name" htmlFor="financial-bank-name">
-              <input
-                id="financial-bank-name"
-                className={inputClass}
-                value={bankName}
-                onChange={(event) => setBankName(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-            <Field label="Account Name" htmlFor="financial-account-name">
-              <input
-                id="financial-account-name"
-                className={inputClass}
-                value={accountName}
-                onChange={(event) => setAccountName(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="BSB" htmlFor="financial-bsb">
+          {loading ? (
+            <div className="mt-6 flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+              Loading financial details…
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <Field label="Bank Name" htmlFor="financial-bank-name">
                 <input
-                  id="financial-bsb"
+                  id="financial-bank-name"
                   className={inputClass}
-                  value={bankBsb}
-                  onChange={(event) => setBankBsb(event.target.value)}
-                  onBlur={() => {
-                    const formatted = formatWorkerBsb(bankBsb);
-                    if (formatted) setBankBsb(formatted);
-                  }}
-                  inputMode="numeric"
-                  placeholder="000-000"
+                  value={bankName}
+                  onChange={(event) => setBankName(event.target.value)}
                   autoComplete="off"
                 />
               </Field>
-              <Field label="Account Number" htmlFor="financial-account-number">
+              <Field label="Account Name" htmlFor="financial-account-name">
                 <input
-                  id="financial-account-number"
+                  id="financial-account-name"
                   className={inputClass}
-                  value={bankAccountNumber}
-                  onChange={(event) => setBankAccountNumber(event.target.value)}
-                  inputMode="numeric"
+                  value={accountName}
+                  onChange={(event) => setAccountName(event.target.value)}
+                  autoComplete="off"
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="BSB" htmlFor="financial-bsb">
+                  <input
+                    id="financial-bsb"
+                    className={inputClass}
+                    value={bankBsb}
+                    onChange={(event) => setBankBsb(event.target.value)}
+                    onBlur={() => {
+                      const formatted = formatWorkerBsb(bankBsb);
+                      if (formatted) setBankBsb(formatted);
+                    }}
+                    inputMode="numeric"
+                    placeholder="000-000"
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label="Account Number" htmlFor="financial-account-number">
+                  <input
+                    id="financial-account-number"
+                    className={inputClass}
+                    value={bankAccountNumber}
+                    onChange={(event) => setBankAccountNumber(event.target.value)}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+              <Field label="Superannuation Fund Name" htmlFor="financial-super-fund">
+                <input
+                  id="financial-super-fund"
+                  className={inputClass}
+                  value={superFund}
+                  onChange={(event) => setSuperFund(event.target.value)}
+                />
+              </Field>
+              <Field label="Super Member Number" htmlFor="financial-super-member">
+                <input
+                  id="financial-super-member"
+                  className={inputClass}
+                  value={superMemberNumber}
+                  onChange={(event) => setSuperMemberNumber(event.target.value)}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="Tax File Number (TFN)" htmlFor="financial-tfn">
+                <input
+                  id="financial-tfn"
+                  className={inputClass}
+                  value={tfn}
+                  onChange={(event) => setTfn(event.target.value)}
                   autoComplete="off"
                 />
               </Field>
             </div>
-            <Field label="Superannuation Fund Name" htmlFor="financial-super-fund">
-              <input
-                id="financial-super-fund"
-                className={inputClass}
-                value={superFund}
-                onChange={(event) => setSuperFund(event.target.value)}
-              />
-            </Field>
-            <Field label="Super Member Number" htmlFor="financial-super-member">
-              <input
-                id="financial-super-member"
-                className={inputClass}
-                value={superMemberNumber}
-                onChange={(event) => setSuperMemberNumber(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-            <Field label="Tax File Number (TFN)" htmlFor="financial-tfn">
-              <input
-                id="financial-tfn"
-                className={inputClass}
-                value={tfn}
-                onChange={(event) => setTfn(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-          </div>
+          )}
         </div>
 
         <ModalActionFooter>
@@ -224,7 +261,7 @@ export default function WorkerFinancialEditModal({
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving}
+              disabled={saving || loading}
               className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
             >
               {saving ? (
@@ -232,7 +269,7 @@ export default function WorkerFinancialEditModal({
                   <Loader2 className="h-4 w-4 animate-spin" /> Saving…
                 </>
               ) : (
-                "Save financials"
+                "Save"
               )}
             </button>
           </div>
@@ -240,9 +277,4 @@ export default function WorkerFinancialEditModal({
       </div>
     </div>
   );
-}
-
-function nullIfBlank(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
 }

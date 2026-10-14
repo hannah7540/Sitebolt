@@ -557,6 +557,7 @@ export default function WorkerMyDetailsPanel({
           ) : null}
 
           <WorkerFinancialInfoSection
+            workerId={worker.id}
             worker={{
               ...worker,
               first_name: firstName.trim() || worker.first_name,
