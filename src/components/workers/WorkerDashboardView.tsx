@@ -37,7 +37,6 @@ import {
   getWorkerTicketStatus,
 } from "@/lib/worker-compliance";
 import WorkerMyDetailsPanel from "./WorkerMyDetailsPanel";
-import WorkerFinancialInfoSection from "./WorkerFinancialInfoSection";
 import WorkerDashboardSignOutButton from "./WorkerDashboardSignOutButton";
 import WorkerUsefulDocumentsWidget from "./WorkerUsefulDocumentsWidget";
 import WorkerTimesheetsWidget from "./WorkerTimesheetsWidget";
@@ -131,7 +130,7 @@ const WIDGETS: DashboardWidget[] = [
   {
     id: "details",
     title: "My Details & Compliance",
-    description: "Update profile, tickets & VOCs",
+    description: "Manage Details & Compliance",
     icon: <User className="h-6 w-6" />,
     accent: "border-orange-200 bg-orange-50 text-orange-600",
     available: true,
@@ -945,36 +944,25 @@ export default function WorkerDashboardView({
       const widget = widgetMetaById.get(widgetId);
       if (!widget) return null;
       return (
-        <div className={cn(cardClass, "flex w-full flex-col gap-4 p-4")}>
-          <button
-            type="button"
-            onClick={() => setShowDetails(true)}
-            className="flex w-full items-start gap-3 text-left"
+        <button
+          type="button"
+          onClick={() => setShowDetails(true)}
+          className={cn(cardClass, "flex w-full items-start gap-3 p-4 text-left")}
+        >
+          <div
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
+              widget.accent
+            )}
           >
-            <div
-              className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
-                widget.accent
-              )}
-            >
-              {widget.icon}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900">{widget.title}</p>
-              <p className="mt-0.5 text-xs text-slate-500">{widget.description}</p>
-            </div>
-            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-          <WorkerFinancialInfoSection
-            workerId={worker.id}
-            worker={worker}
-            compact
-            onSaved={(updated) => {
-              setWorker(updated);
-              void loadData();
-            }}
-          />
-        </div>
+            {widget.icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-slate-900">{widget.title}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{widget.description}</p>
+          </div>
+          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
+        </button>
       );
     }
 
