@@ -428,27 +428,19 @@ export default function BulkOnboardingImporter() {
                 ) : null}
               </label>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-4">
               <DocumentCapture
-                label="White Card Photo"
-                file={null}
-                onFileChange={() => undefined}
-                uploadedUrl={currentWorker.white_card_photo_url || null}
-                existingUrl={currentWorker.white_card_photo_url || null}
-                uploadPath={`${uploadPrefix}/white-card-photo`}
-                onUploaded={(url) =>
-                  patchCurrentWorker({ white_card_photo_url: url ?? "" })
-                }
-              />
-              <DocumentCapture
-                label="White Card Document"
+                label="White Card Photo/Document"
                 file={null}
                 onFileChange={() => undefined}
                 uploadedUrl={currentWorker.white_card_doc_url || null}
                 existingUrl={currentWorker.white_card_doc_url || null}
-                uploadPath={`${uploadPrefix}/white-card-doc`}
+                uploadPath={`${uploadPrefix}/white-card`}
                 onUploaded={(url) =>
-                  patchCurrentWorker({ white_card_doc_url: url ?? "" })
+                  patchCurrentWorker({
+                    white_card_doc_url: url ?? "",
+                    white_card_photo_url: "",
+                  })
                 }
               />
             </div>
@@ -483,27 +475,19 @@ export default function BulkOnboardingImporter() {
                 ) : null}
               </label>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-4">
               <DocumentCapture
-                label="Silica Certificate Photo"
-                file={null}
-                onFileChange={() => undefined}
-                uploadedUrl={currentWorker.silica_cert_photo_url || null}
-                existingUrl={currentWorker.silica_cert_photo_url || null}
-                uploadPath={`${uploadPrefix}/silica-cert-photo`}
-                onUploaded={(url) =>
-                  patchCurrentWorker({ silica_cert_photo_url: url ?? "" })
-                }
-              />
-              <DocumentCapture
-                label="Silica Certificate Document"
+                label="Silica Certificate Photo/Document"
                 file={null}
                 onFileChange={() => undefined}
                 uploadedUrl={currentWorker.silica_cert_doc_url || null}
                 existingUrl={currentWorker.silica_cert_doc_url || null}
-                uploadPath={`${uploadPrefix}/silica-cert-doc`}
+                uploadPath={`${uploadPrefix}/silica-cert`}
                 onUploaded={(url) =>
-                  patchCurrentWorker({ silica_cert_doc_url: url ?? "" })
+                  patchCurrentWorker({
+                    silica_cert_doc_url: url ?? "",
+                    silica_cert_photo_url: "",
+                  })
                 }
               />
             </div>
@@ -550,7 +534,7 @@ export default function BulkOnboardingImporter() {
             </div>
             <div className="mt-4">
               <DocumentCapture
-                label="Driver's Licence Photo"
+                label="Driver's Licence Photo/Document"
                 file={null}
                 onFileChange={() => undefined}
                 uploadedUrl={currentWorker.drivers_licence_photo_url || null}
