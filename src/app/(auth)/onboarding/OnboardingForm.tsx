@@ -926,7 +926,8 @@ export default function OnboardingForm() {
 
               <div className={sectionClass}>
                 <h4 className="text-sm font-semibold text-orange-600">
-                  High Risk Work Licence
+                  High Risk Work Licence{" "}
+                  <span className="font-normal text-slate-500">(optional)</span>
                 </h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <Field label="Licence Number">

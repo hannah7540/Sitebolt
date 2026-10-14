@@ -1004,7 +1004,7 @@ export default function WorkerOnboardingModal({
                 />
               </DocSection>
 
-              <DocSection title="Driver's Licence">
+              <DocSection title="Driver's Licence (optional)">
                 <Field label="Licence Number">
                   <input
                     className={inputClass}

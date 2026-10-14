@@ -52,6 +52,12 @@ async function insertWorkerVocs(
     document_url: voc.document_url,
   }));
 
+  const licenceNumber = worker.drivers_licence_number.trim();
+  const licenceClass = worker.drivers_licence_class.trim();
+  const licenceExpiry = nullIfBlankWorkerDate(worker.drivers_licence_expiry);
+  const licenceDoc = worker.drivers_licence_photo_url?.trim() || null;
+  const hasLicence = Boolean(licenceNumber || licenceClass || licenceExpiry || licenceDoc);
+
   const rows = [
     {
       worker_id: workerId,
@@ -73,19 +79,20 @@ async function insertWorkerVocs(
       expiry_date: null,
       document_url: worker.silica_cert_doc_url?.trim() || null,
     },
-    {
-      worker_id: workerId,
-      title: "Driver's Licence",
-      voc_type: "Driver's Licence",
-      name: "Driver's Licence",
-      issuing_org: [worker.drivers_licence_number, worker.drivers_licence_class]
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .join(" · ") || null,
-      issue_date: null,
-      expiry_date: nullIfBlankWorkerDate(worker.drivers_licence_expiry),
-      document_url: worker.drivers_licence_photo_url?.trim() || null,
-    },
+    ...(hasLicence
+      ? [
+          {
+            worker_id: workerId,
+            title: "Driver's Licence",
+            voc_type: "Driver's Licence",
+            name: "Driver's Licence",
+            issuing_org: [licenceNumber, licenceClass].filter(Boolean).join(" · ") || null,
+            issue_date: null,
+            expiry_date: licenceExpiry,
+            document_url: licenceDoc,
+          },
+        ]
+      : []),
     ...extraVocs,
   ];
 

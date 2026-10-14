@@ -573,7 +573,9 @@ export default function BulkOnboardingImporter() {
           </div>
 
           <div className={sectionClass}>
-            <h3 className="text-sm font-semibold text-orange-600">Driver&apos;s Licence</h3>
+            <h3 className="text-sm font-semibold text-orange-600">
+              Driver&apos;s Licence <span className="font-normal text-slate-500">(optional)</span>
+            </h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="space-y-1">
                 <span className={labelClass}>Licence number</span>

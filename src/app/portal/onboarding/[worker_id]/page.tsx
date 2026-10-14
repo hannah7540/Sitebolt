@@ -181,11 +181,7 @@ export default function WorkerInductionPortalPage() {
       case 2: {
         const hasWhiteCard =
           docUrls.white_card || docs.white_card;
-        const hasLicence =
-          docUrls.drivers_licence || docs.drivers_licence;
         if (!hasWhiteCard) return "Please capture or upload your White Card.";
-        if (!hasLicence)
-          return "Please capture or upload your Driver's Licence.";
         return null;
       }
       case 3:
@@ -537,7 +533,8 @@ export default function WorkerInductionPortalPage() {
 
             <div className={sectionClass}>
               <h2 className="text-base font-semibold text-orange-600">
-                Driver&apos;s Licence
+                Driver&apos;s Licence{" "}
+                <span className="font-normal text-slate-500">(optional)</span>
               </h2>
               <Field label="Licence Number">
                 <input
@@ -563,7 +560,7 @@ export default function WorkerInductionPortalPage() {
                 />
               </Field>
               <DocumentCapture
-                label="Licence Photo *"
+                label="Licence Photo"
                 file={docs.drivers_licence}
                 onFileChange={(f) => setDoc("drivers_licence", f)}
                 existingUrl={worker.drivers_licence_photo_url}
