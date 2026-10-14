@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import Link from "next/link";
 import {
   Plus,
   AlertTriangle,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
@@ -596,13 +598,21 @@ export default function WorkerDirectoryPanel({
             Organisation master directory · onboarding, certifications, project allocation
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white hover:bg-orange-500"
-        >
-          <Plus className="h-5 w-5" /> Add Worker
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/organisation/onboarding/bulk"
+            className="flex items-center gap-2 rounded-lg border border-orange-200 bg-white px-4 py-2 font-semibold text-orange-700 hover:bg-orange-50"
+          >
+            <Upload className="h-5 w-5" /> Bulk CSV Import
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white hover:bg-orange-500"
+          >
+            <Plus className="h-5 w-5" /> Add Worker
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">

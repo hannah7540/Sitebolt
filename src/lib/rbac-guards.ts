@@ -19,6 +19,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-forms",
   "org-projects",
   "org-workers",
+  "org-bulk-onboarding",
   "org-tags",
   "org-inductions",
   "admin-swms",

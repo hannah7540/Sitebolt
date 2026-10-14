@@ -102,6 +102,7 @@ export type ActiveView =
   | "org-forms"
   | "org-projects"
   | "org-workers"
+  | "org-bulk-onboarding"
   | "org-tags"
   | "org-inductions"
   | "org-plant"
@@ -679,6 +680,7 @@ export default function Sidebar({
         { label: "Forms", href: "/organisation/forms" },
         { label: "Projects", href: "/organisation/projects" },
         { label: "Workers", href: "/organisation/workers" },
+        { label: "Bulk Onboarding", href: "/organisation/onboarding/bulk" },
         { label: "Tags", href: "/organisation/tags" },
         { label: "Inductions", href: "/admin/forms/inductions" }
       );
