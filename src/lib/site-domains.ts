@@ -12,6 +12,13 @@ const MARKETING_PUBLIC_PATHS = [
   "/terms",
   "/download",
   "/support",
+  "/reset-password",
+  "/setyourpassword",
+  "/set-password",
+  "/update-password",
+  "/auth/callback",
+  "/auth/confirm",
+  "/auth/reset-password",
 ] as const;
 
 const OPERATIONAL_APP_PREFIXES = [

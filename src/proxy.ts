@@ -7,15 +7,19 @@ import {
   resolveAppOriginFromRequest,
 } from "@/lib/site-domains";
 
+const PUBLIC_AUTH_PROXY_PATHS = [
+  "/reset-password",
+  "/auth/reset-password",
+  "/auth/callback",
+  "/auth/confirm",
+  "/setyourpassword",
+  "/update-password",
+  "/set-password",
+] as const;
+
 function isPasswordResetBypassPath(pathname: string): boolean {
-  return (
-    pathname.startsWith("/auth/callback") ||
-    pathname.startsWith("/auth/confirm") ||
-    pathname.startsWith("/auth/reset-password") ||
-    pathname.startsWith("/reset-password") ||
-    pathname.startsWith("/setyourpassword") ||
-    pathname.startsWith("/update-password") ||
-    pathname.startsWith("/set-password")
+  return PUBLIC_AUTH_PROXY_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
   );
 }
 
