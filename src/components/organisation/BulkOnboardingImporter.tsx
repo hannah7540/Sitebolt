@@ -40,6 +40,7 @@ import {
   type VocDraft,
 } from "@/lib/voc-utils";
 import { fetchProjects, type DbProject } from "@/lib/project-resolver";
+import TagMultiSelect from "@/components/workers/TagMultiSelect";
 
 type WizardPhase = "upload" | "fix" | "summary" | "done";
 
@@ -447,6 +448,18 @@ export default function BulkOnboardingImporter() {
           </div>
 
           <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">Tags</h3>
+            <div className="mt-3">
+              <TagMultiSelect
+                selectedIds={currentWorker.tag_ids ?? []}
+                onChange={(ids) => patchCurrentWorker({ tag_ids: ids })}
+                id={`bulk-onboarding-tags-${currentWorker.rowIndex}`}
+                label="Select tags"
+              />
+            </div>
+          </div>
+
+          <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">White Card</h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="space-y-1">
@@ -634,6 +647,9 @@ export default function BulkOnboardingImporter() {
                 <p className="text-sm text-slate-500">{worker.email}</p>
                 <p className="text-xs text-slate-500">
                   Project: {worker.assigned_project_name?.trim() || "Unassigned"}
+                  {worker.tag_ids?.length
+                    ? ` · ${worker.tag_ids.length} tag${worker.tag_ids.length === 1 ? "" : "s"}`
+                    : " · No tags"}
                 </p>
               </li>
             ))}

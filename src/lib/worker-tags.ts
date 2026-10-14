@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import {
   resolveActiveOrganisationId,
@@ -212,6 +213,60 @@ export async function fetchWorkerTagAssignments(): Promise<{
   }
 }
 
+export function uniqueTagIds(tagIds: string[] | null | undefined): string[] {
+  return [...new Set((tagIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
+}
+
+export async function insertWorkerTagAssignments(
+  client: SupabaseClient,
+  workerId: string,
+  tagIds: string[],
+  organisationId: string | null
+): Promise<{ error: string | null }> {
+  const uniqueIds = uniqueTagIds(tagIds);
+  if (uniqueIds.length === 0) return { error: null };
+  if (!organisationId) {
+    return { error: "Select an organisation before assigning tags." };
+  }
+
+  try {
+    let tagQuery = client.from(TAGS_TABLE).select("id").in("id", uniqueIds);
+    tagQuery = withOrganisationScope(tagQuery, organisationId);
+    const { data: tagRows, error: tagError } = await tagQuery;
+    if (tagError) {
+      if (isMissingRelationError(tagError.message, TAGS_TABLE)) {
+        return { error: "Tags table is not available. Apply migration 184." };
+      }
+      return { error: tagError.message };
+    }
+
+    const allowed = new Set(
+      (tagRows ?? [])
+        .map((row) => asRecord(row)?.id)
+        .filter((id): id is string => typeof id === "string" && Boolean(id))
+        .map((id) => String(id))
+    );
+    const rows = uniqueIds
+      .filter((tag_id) => allowed.has(tag_id))
+      .map((tag_id) => ({ worker_id: workerId, tag_id }));
+    if (rows.length === 0) return { error: null };
+
+    const { error } = await client.from(WORKER_TAGS_TABLE).insert(rows);
+    if (error) {
+      if (error.code === "23505") return { error: null };
+      if (isMissingRelationError(error.message, WORKER_TAGS_TABLE)) {
+        return { error: "Tags table is not available. Apply migration 184." };
+      }
+      return { error: error.message };
+    }
+    return { error: null };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to assign tags.",
+    };
+  }
+}
+
 export function groupTagsByWorker(
   tags: WorkerTag[],
   assignments: WorkerTagAssignment[]
@@ -302,7 +357,7 @@ export async function setWorkerTags(
     return { error: "Select an organisation before saving worker tags." };
   }
 
-  const uniqueIds = [...new Set(tagIds.map((id) => id.trim()).filter(Boolean))];
+  const uniqueIds = uniqueTagIds(tagIds);
 
   try {
     const { error: deleteError } = await supabase
@@ -316,13 +371,7 @@ export async function setWorkerTags(
       return { error: deleteError.message };
     }
 
-    if (uniqueIds.length === 0) return { error: null };
-
-    const { error: insertError } = await supabase.from(WORKER_TAGS_TABLE).insert(
-      uniqueIds.map((tag_id) => ({ worker_id: workerId, tag_id }))
-    );
-    if (insertError) return { error: insertError.message };
-    return { error: null };
+    return insertWorkerTagAssignments(supabase, workerId, uniqueIds, orgId);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Failed to save worker tags.",

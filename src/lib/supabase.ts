@@ -1929,7 +1929,8 @@ export async function addWorker(
     last_name: string;
     email: string;
   },
-  vocExpiries: (string | null | undefined)[] = []
+  vocExpiries: (string | null | undefined)[] = [],
+  tagIds: string[] = []
 ): Promise<{ error: string | null; workerId: string | null }> {
   const expiries = [
     nullIfBlankWorkerDate(worker.drivers_licence_expiry),
@@ -2043,6 +2044,19 @@ export async function addWorker(
       await syncPublicHolidaysForWorker(workerId);
     } catch (cause) {
       console.warn("[addWorker] public holiday sync skipped:", cause);
+    }
+
+    if (tagIds.length > 0) {
+      const { insertWorkerTagAssignments } = await import("./worker-tags");
+      const { error: tagError } = await insertWorkerTagAssignments(
+        supabase,
+        workerId,
+        tagIds,
+        orgId
+      );
+      if (tagError) {
+        return { error: tagError, workerId };
+      }
     }
   }
 

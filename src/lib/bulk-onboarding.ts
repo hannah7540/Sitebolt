@@ -62,6 +62,7 @@ export type BulkOnboardingWorker = {
   drivers_licence_photo_url: string;
   assigned_project_id: string;
   assigned_project_name: string;
+  tag_ids: string[];
   vocs: BulkOnboardingVoc[];
 } & Record<BulkOnboardingFieldKey, string>;
 
@@ -84,6 +85,7 @@ export function emptyTicketDocuments(): Pick<
   | "drivers_licence_photo_url"
   | "assigned_project_id"
   | "assigned_project_name"
+  | "tag_ids"
   | "vocs"
 > {
   return {
@@ -94,6 +96,7 @@ export function emptyTicketDocuments(): Pick<
     drivers_licence_photo_url: "",
     assigned_project_id: "",
     assigned_project_name: "",
+    tag_ids: [],
     vocs: [],
   };
 }
@@ -382,6 +385,13 @@ export function normalizeBulkOnboardingWorker(
   next.drivers_licence_photo_url = worker.drivers_licence_photo_url?.trim() || "";
   next.assigned_project_id = worker.assigned_project_id?.trim() || "";
   next.assigned_project_name = worker.assigned_project_name?.trim() || "";
+  next.tag_ids = [
+    ...new Set(
+      (Array.isArray(worker.tag_ids) ? worker.tag_ids : []).map((id) =>
+        String(id).trim()
+      ).filter(Boolean)
+    ),
+  ];
   next.vocs = Array.isArray(worker.vocs) ? worker.vocs : [];
 
   for (const key of DATE_FIELDS) {

@@ -17,6 +17,7 @@ import { canManageOrganisation, DEFAULT_WORKER_SECURITY_ROLE, normalizeSecurityR
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { withOrganisationScope } from "@/lib/tenant-scope";
 import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 import {
   buildWorkerNameFields,
@@ -110,6 +111,35 @@ async function insertWorkerVocs(
   }
 
   return lastError ?? "Unable to save compliance ticket records.";
+}
+
+async function insertWorkerTags(
+  admin: SupabaseClient,
+  workerId: string,
+  tagIds: string[],
+  orgId: string
+): Promise<string | null> {
+  const uniqueIds = [
+    ...new Set(tagIds.map((id) => String(id).trim()).filter(Boolean)),
+  ];
+  if (uniqueIds.length === 0) return null;
+
+  let tagQuery = admin.from("tags").select("id").in("id", uniqueIds);
+  tagQuery = withOrganisationScope(tagQuery, orgId);
+  const { data: tagRows, error: tagError } = await tagQuery;
+  if (tagError) return tagError.message;
+
+  const allowed = new Set(
+    (tagRows ?? []).map((row) => String((row as { id?: string }).id ?? "")).filter(Boolean)
+  );
+  const rows = uniqueIds
+    .filter((tag_id) => allowed.has(tag_id))
+    .map((tag_id) => ({ worker_id: workerId, tag_id }));
+  if (rows.length === 0) return null;
+
+  const { error } = await admin.from("worker_tags").insert(rows);
+  if (error && error.code !== "23505") return error.message;
+  return null;
 }
 
 async function insertWorkerProfile(
@@ -317,6 +347,18 @@ export async function submitBulkOnboarding(
         );
       }
 
+      const tagError = await insertWorkerTags(
+        admin,
+        inserted.workerId,
+        worker.tag_ids ?? [],
+        orgId
+      );
+      if (tagError) {
+        throw new Error(
+          `Created ${workerDisplayName(worker)} but could not save tags: ${tagError}`
+        );
+      }
+
       try {
         await assignDefaultPayRuleToWorkerAdmin(admin, inserted.workerId, worker.state);
       } catch (cause) {
@@ -348,6 +390,7 @@ export async function submitBulkOnboarding(
     }
   } catch (cause) {
     if (insertedIds.length > 0) {
+      await admin.from("worker_tags").delete().in("worker_id", insertedIds);
       await admin.from("worker_vocs").delete().in("worker_id", insertedIds);
       await admin.from("workers").delete().in("id", insertedIds);
     }

@@ -20,7 +20,6 @@ import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import ProjectSelect from "@/components/ui/ProjectSelect";
 import TagMultiSelect from "@/components/workers/TagMultiSelect";
-import { setWorkerTags } from "@/lib/worker-tags";
 import { cn } from "@/lib/utils";
 import {
   inputClass,
@@ -446,21 +445,16 @@ export default function WorkerOnboardingModal({
               .map((v) => nullIfBlankWorkerDate(v.expiry_date))
           : [];
 
-      const { error: insertError, workerId } = await addWorker(payload, vocExpiries);
+      const { error: insertError, workerId } = await addWorker(
+        payload,
+        vocExpiries,
+        selectedTagIds
+      );
 
       const workerInsertError = scrubPayRuleConditionSaveError(insertError);
       if (workerInsertError) {
         setError(workerInsertError);
         return;
-      }
-
-      if (workerId && selectedTagIds.length > 0) {
-        const { error: tagError } = await setWorkerTags(workerId, selectedTagIds);
-        if (tagError) {
-          setError(tagError);
-          showError(tagError);
-          return;
-        }
       }
 
       if (mode === "full" && workerId) {
@@ -556,7 +550,7 @@ export default function WorkerOnboardingModal({
             />
             <span className="text-sm font-semibold text-slate-900">Quick Invite</span>
             <span className="text-xs text-slate-500">
-              Name, email, phone, state/region & project
+              Name, email, phone, state/region, project & tags
             </span>
           </button>
           <button
