@@ -28,6 +28,9 @@ import {
 } from "@/lib/worker-utils";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
+import { onWorkerOnboardingCompleted } from "@/lib/services/worker-assignment";
+import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
+import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
 
 export type BulkOnboardResult = {
   error: string | null;
@@ -372,24 +375,21 @@ export async function submitBulkOnboarding(
         console.warn("[bulk-onboard] pay rule assignment skipped:", cause);
       }
 
+      const projectId = worker.assigned_project_id?.trim() || "";
+      const projectName = worker.assigned_project_name?.trim() || "";
       try {
-        const { applyAutomaticWorkerAssignmentsForWorker } = await import(
-          "@/lib/services/worker-assignment"
-        );
-        await applyAutomaticWorkerAssignmentsForWorker({
-          workerId: inserted.workerId,
+        await onWorkerOnboardingCompleted(admin, inserted.workerId, {
           state: worker.state || null,
-          projectIds: worker.assigned_project_id?.trim()
-            ? [worker.assigned_project_id.trim()]
-            : [],
-          assignCompanySwms: true,
+          projectIds: projectId ? [projectId] : [],
+          projectNames:
+            projectId && projectName ? { [projectId]: projectName } : undefined,
         });
+        await notifyUnstampedPendingAssignments(admin, inserted.workerId);
       } catch (cause) {
-        console.warn("[bulk-onboard] auto-assign skipped:", cause);
+        console.warn("[bulk-onboard] SWMS/induction auto-assign skipped:", cause);
       }
 
       try {
-        const { syncPublicHolidaysForWorker } = await import("@/lib/public-holiday-sync");
         await syncPublicHolidaysForWorker(inserted.workerId);
       } catch (cause) {
         console.warn("[bulk-onboard] public holiday sync skipped:", cause);
