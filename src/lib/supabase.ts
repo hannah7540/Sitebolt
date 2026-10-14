@@ -137,6 +137,8 @@ export interface Worker {
   bank_bsb: string | null;
   bank_account_number: string | null;
   bank_name: string | null;
+  /** Optional account holder name. Onboarding stores institution in `bank_name` only. */
+  bank_account_name?: string | null;
   super_fund: string | null;
   super_member_number: string | null;
   super_usi: string | null;
@@ -230,6 +232,7 @@ const WORKER_SELECT_COLUMNS = [
   "bank_bsb",
   "bank_account_number",
   "bank_name",
+  "bank_account_name",
   "super_fund",
   "super_member_number",
   "super_usi",
@@ -457,6 +460,8 @@ function normalizeWorkerRow(row: RawWorkerRow): Worker {
     bank_bsb: row.bank_bsb ?? null,
     bank_account_number: row.bank_account_number ?? null,
     bank_name: row.bank_name ?? null,
+    bank_account_name:
+      row.bank_account_name == null ? null : String(row.bank_account_name),
     super_fund: row.super_fund ?? null,
     super_member_number: row.super_member_number ?? null,
     super_usi: row.super_usi ?? null,

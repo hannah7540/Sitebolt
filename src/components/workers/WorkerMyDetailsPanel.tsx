@@ -28,6 +28,7 @@ import DocumentCapture from "@/components/ui/DocumentCapture";
 import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import EditVocModal from "@/components/workers/EditVocModal";
 import VocListEditor from "./VocListEditor";
+import WorkerFinancialInfoSection from "./WorkerFinancialInfoSection";
 import { cn } from "@/lib/utils";
 import {
   modalOverlayClass,
@@ -554,6 +555,15 @@ export default function WorkerMyDetailsPanel({
             </Field>
           </div>
           ) : null}
+
+          <WorkerFinancialInfoSection
+            worker={{
+              ...worker,
+              first_name: firstName.trim() || worker.first_name,
+              last_name: lastName.trim() || worker.last_name,
+            }}
+            onSaved={onSaved}
+          />
 
           {showWhiteCard ? (
           <div className={sectionClass}>

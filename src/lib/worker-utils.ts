@@ -243,6 +243,16 @@ export function formatWorkerBsb(value: string | null | undefined): string | null
   return raw;
 }
 
+/** Mask a 6-digit BSB as `•••-123`. Returns null when empty. */
+export function maskWorkerBsb(value: string | null | undefined): string | null {
+  const formatted = formatWorkerBsb(value);
+  if (!formatted) return null;
+  const digits = formatted.replace(/\D/g, "");
+  if (digits.length === 6) return `•••-${digits.slice(3)}`;
+  const visible = formatted.slice(-3);
+  return `•••${visible}`;
+}
+
 /** Mask a bank account number as `••••1234`. Returns null when empty. */
 export function maskWorkerAccountNumber(
   value: string | null | undefined
