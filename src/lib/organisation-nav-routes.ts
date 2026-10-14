@@ -14,6 +14,7 @@ export const ORGANISATION_NAV_ITEMS: OrganisationNavItem[] = [
   { label: "Forms", href: "/organisation/forms", view: "org-forms" },
   { label: "Projects", href: "/organisation/projects", view: "org-projects" },
   { label: "Workers", href: "/organisation/workers", view: "org-workers" },
+  { label: "Tags", href: "/organisation/tags", view: "org-tags" },
   { label: "Inductions", href: "/admin/forms/inductions", view: "org-inductions" },
   { label: "SWMS", href: "/admin/swms", view: "admin-swms" },
   { label: "Plant", href: "/organisation/plant", view: "org-plant" },

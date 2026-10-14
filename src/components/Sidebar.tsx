@@ -102,6 +102,7 @@ export type ActiveView =
   | "org-forms"
   | "org-projects"
   | "org-workers"
+  | "org-tags"
   | "org-inductions"
   | "org-plant"
   | "org-assets"
@@ -678,6 +679,7 @@ export default function Sidebar({
         { label: "Forms", href: "/organisation/forms" },
         { label: "Projects", href: "/organisation/projects" },
         { label: "Workers", href: "/organisation/workers" },
+        { label: "Tags", href: "/organisation/tags" },
         { label: "Inductions", href: "/admin/forms/inductions" }
       );
       if (isFeatureModuleEnabled(featureFlags, "swms", orgId)) {

@@ -19,6 +19,8 @@ import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils
 import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import ProjectSelect from "@/components/ui/ProjectSelect";
+import TagMultiSelect from "@/components/workers/TagMultiSelect";
+import { setWorkerTags } from "@/lib/worker-tags";
 import { cn } from "@/lib/utils";
 import {
   inputClass,
@@ -195,6 +197,7 @@ export default function WorkerOnboardingModal({
   );
   const uploadPrefix = uploadPrefixRef.current;
   const [vocs, setVocs] = useState<VocDraft[]>([createEmptyVoc()]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -451,6 +454,15 @@ export default function WorkerOnboardingModal({
         return;
       }
 
+      if (workerId && selectedTagIds.length > 0) {
+        const { error: tagError } = await setWorkerTags(workerId, selectedTagIds);
+        if (tagError) {
+          setError(tagError);
+          showError(tagError);
+          return;
+        }
+      }
+
       if (mode === "full" && workerId) {
         const vocItems = vocs.filter((v) => isVocTypeComplete(getVocStoredType(v)));
         if (vocItems.length > 0) {
@@ -698,6 +710,12 @@ export default function WorkerOnboardingModal({
                 label="Project Allocation (optional)"
                 value={form.assigned_project_id}
                 onChange={(id) => set("assigned_project_id", id)}
+              />
+              <TagMultiSelect
+                selectedIds={selectedTagIds}
+                onChange={setSelectedTagIds}
+                disabled={submitting}
+                id="onboarding-quick-tags"
               />
             </>
           )}
@@ -1144,11 +1162,19 @@ export default function WorkerOnboardingModal({
 
           {/* Full — Step 4: Project */}
           {mode === "full" && step === projectStep && (
-            <ProjectSelect
-              label="Assign to Project (optional)"
-              value={form.assigned_project_id}
-              onChange={(id) => set("assigned_project_id", id)}
-            />
+            <div className="space-y-4">
+              <ProjectSelect
+                label="Assign to Project (optional)"
+                value={form.assigned_project_id}
+                onChange={(id) => set("assigned_project_id", id)}
+              />
+              <TagMultiSelect
+                selectedIds={selectedTagIds}
+                onChange={setSelectedTagIds}
+                disabled={submitting}
+                id="onboarding-full-tags"
+              />
+            </div>
           )}
         </div>
 

@@ -54,6 +54,7 @@ import ProjectDashboard from "@/components/dashboard/ProjectDashboard";
 import OrganisationProfileDashboard from "@/components/dashboard/OrganisationProfileDashboard";
 import CompanyInformationPanel from "@/components/organisation/CompanyInformationPanel";
 import InsurancesPanel from "@/components/organisation/InsurancesPanel";
+import TagsPanel from "@/components/organisation/TagsPanel";
 import OrganisationDocumentsPanel from "@/components/organisation/OrganisationDocumentsPanel";
 import FormTemplateManager from "@/components/forms/FormTemplateManager";
 import EntityFormsTab from "@/components/forms/EntityFormsTab";
@@ -569,6 +570,9 @@ function HomeConsole() {
               workers={workers}
               onProjectsChanged={fetchData}
             />
+          )}
+          {activeTab === "org-tags" && canManageOrganisation(sessionRole) && (
+            <TagsPanel />
           )}
           {activeTab === "org-workers" && canManageOrganisation(sessionRole) && (
             <WorkerDirectoryPanel

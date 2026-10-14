@@ -32,6 +32,13 @@ import {
   type DbProject,
 } from "@/lib/project-resolver";
 import AutocompleteField from "@/components/ui/AutocompleteField";
+import WorkerTagsCell from "@/components/workers/WorkerTagsCell";
+import {
+  fetchTags,
+  fetchWorkerTagAssignments,
+  groupTagsByWorker,
+  type WorkerTag,
+} from "@/lib/worker-tags";
 import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
 import AssignToProjectsModal from "@/components/organisation/AssignToProjectsModal";
 import {
@@ -219,6 +226,10 @@ export default function WorkerDirectoryPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [projectFilterId, setProjectFilterId] = useState<string | null>(null);
+  const [allTags, setAllTags] = useState<WorkerTag[]>([]);
+  const [tagsByWorker, setTagsByWorker] = useState<Map<string, WorkerTag[]>>(
+    () => new Map()
+  );
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   useEffect(() => {
@@ -274,6 +285,19 @@ export default function WorkerDirectoryPanel({
   useEffect(() => {
     void loadAssignments();
   }, [loadAssignments, workers.length]);
+
+  const loadWorkerTags = useCallback(async () => {
+    const [{ tags }, { assignments }] = await Promise.all([
+      fetchTags(),
+      fetchWorkerTagAssignments(),
+    ]);
+    setAllTags(tags);
+    setTagsByWorker(groupTagsByWorker(tags, assignments));
+  }, []);
+
+  useEffect(() => {
+    void loadWorkerTags();
+  }, [loadWorkerTags, workers.length]);
 
   const vocsByWorker = useMemo(
     () => groupVocsByWorker(workerVocs),
@@ -654,6 +678,7 @@ export default function WorkerDirectoryPanel({
               <th className="p-4">Name</th>
               <th className="p-4">Contact</th>
               <th className="p-4">Trade</th>
+              <th className="p-4">Tags</th>
               <th className="p-4">Licence Expiry</th>
               <th className="p-4">VOCs</th>
               <th className="p-4">Ticket Status</th>
@@ -721,6 +746,15 @@ export default function WorkerDirectoryPanel({
                   </td>
                   <td className="p-4 text-slate-600">{w.trade || "—"}</td>
                   <td className="p-4 text-slate-600">
+                    <WorkerTagsCell
+                      workerId={w.id}
+                      assignedTags={tagsByWorker.get(w.id) ?? []}
+                      allTags={allTags}
+                      onChanged={() => void loadWorkerTags()}
+                      onError={showError}
+                    />
+                  </td>
+                  <td className="p-4 text-slate-600">
                     {w.drivers_licence_expiry ?? "—"}
                   </td>
                   <td className="p-4 text-slate-600">
@@ -769,7 +803,7 @@ export default function WorkerDirectoryPanel({
             })}
             {filteredWorkers.length === 0 && !loading && hasListFilters ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-500">
+                <td colSpan={10} className="p-8 text-center text-slate-500">
                   <p>
                     {searchQuery.trim()
                       ? `No workers match "${searchQuery.trim()}" with the selected filters.`
@@ -788,7 +822,7 @@ export default function WorkerDirectoryPanel({
             ) : null}
             {filteredWorkers.length === 0 && !loading && !hasListFilters ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-500">
+                <td colSpan={10} className="p-8 text-center text-slate-500">
                   {workerTab === "Current"
                     ? "No active workers. Add a worker or reactivate someone from Revoked Workers."
                     : workerTab === "Revoked"
@@ -806,7 +840,10 @@ export default function WorkerDirectoryPanel({
       {showModal && (
         <WorkerOnboardingModal
           onClose={() => setShowModal(false)}
-          onSaved={onRefresh}
+          onSaved={() => {
+            onRefresh();
+            void loadWorkerTags();
+          }}
           hideFinancialFields={hideFinancialFields}
         />
       )}

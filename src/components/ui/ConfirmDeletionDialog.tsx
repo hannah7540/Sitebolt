@@ -9,6 +9,9 @@ interface ConfirmDeletionDialogProps {
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
   confirming?: boolean;
+  title?: string;
+  message?: string;
+  confirmLabel?: string;
 }
 
 export default function ConfirmDeletionDialog({
@@ -16,6 +19,9 @@ export default function ConfirmDeletionDialog({
   onCancel,
   onConfirm,
   confirming = false,
+  title = "Confirm Deletion",
+  message = "Are you sure you want to delete this record? This action cannot be undone.",
+  confirmLabel = "Delete",
 }: ConfirmDeletionDialogProps) {
   if (!open) return null;
 
@@ -40,14 +46,13 @@ export default function ConfirmDeletionDialog({
               id="confirm-deletion-title"
               className="text-lg font-bold text-slate-900"
             >
-              Confirm Deletion
+              {title}
             </h2>
             <p
               id="confirm-deletion-message"
               className="mt-2 text-sm text-slate-600"
             >
-              Are you sure you want to delete this record? This action cannot be
-              undone.
+              {message}
             </p>
           </div>
           <button
@@ -77,7 +82,7 @@ export default function ConfirmDeletionDialog({
             className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
           >
             {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Delete
+            {confirmLabel}
           </button>
         </div>
       </div>
