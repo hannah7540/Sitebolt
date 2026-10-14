@@ -7,20 +7,57 @@ import { submitBulkOnboarding } from "@/app/actions/bulk-onboard-workers";
 import {
   BULK_ONBOARDING_CSV_HEADERS,
   BULK_ONBOARDING_FIELD_LABELS,
+  BULK_TICKET_FIELD_KEYS,
+  buildWizardDraft,
+  bulkUploadPrefix,
+  getFilledBulkOnboardingFields,
   getInvalidBulkOnboardingFields,
   normalizeBulkOnboardingWorker,
   parseBulkOnboardingCsv,
   isDateField,
+  serializeBulkOnboardingVocs,
   validateBulkOnboardingField,
   workerDisplayName,
   type BulkOnboardingFieldKey,
+  type BulkOnboardingVoc,
   type BulkOnboardingWorker,
 } from "@/lib/bulk-onboarding";
 import { WORKER_STATE_REGION_OPTIONS } from "@/lib/worker-state-region";
-import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { cardClass, inputClass, labelClass, sectionClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
+import DocumentCapture from "@/components/ui/DocumentCapture";
+import VocListEditor from "@/components/workers/VocListEditor";
+import {
+  validateVocDrafts,
+  type VocDraft,
+} from "@/lib/voc-utils";
 
 type WizardPhase = "upload" | "fix" | "summary" | "done";
+
+function vocsToDrafts(vocs: BulkOnboardingVoc[]): VocDraft[] {
+  return vocs.map((voc) => ({
+    clientId: voc.clientId,
+    voc_type: voc.voc_type,
+    title: voc.title,
+    issuing_org: voc.issuing_org,
+    issue_date: voc.issue_date,
+    expiry_date: voc.expiry_date,
+    document_url: voc.document_url,
+    file: null,
+  }));
+}
+
+function vocsFromDrafts(drafts: VocDraft[]): BulkOnboardingVoc[] {
+  return drafts.map((draft) => ({
+    clientId: draft.clientId,
+    title: draft.title || draft.voc_type,
+    voc_type: draft.voc_type || draft.title,
+    issuing_org: draft.issuing_org,
+    issue_date: draft.issue_date,
+    expiry_date: draft.expiry_date,
+    document_url: draft.document_url,
+  }));
+}
 
 export default function BulkOnboardingImporter() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -31,6 +68,7 @@ export default function BulkOnboardingImporter() {
   const [draft, setDraft] = useState<Partial<Record<BulkOnboardingFieldKey, string>>>({});
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<BulkOnboardingFieldKey, string>>>({});
   const [parseError, setParseError] = useState<string | null>(null);
+  const [vocError, setVocError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -45,9 +83,27 @@ export default function BulkOnboardingImporter() {
     () => (currentWorker ? getInvalidBulkOnboardingFields(currentWorker) : []),
     [currentWorker]
   );
+  const filledFields = useMemo(
+    () => (currentWorker ? getFilledBulkOnboardingFields(currentWorker) : []),
+    [currentWorker]
+  );
+  const otherMissingFields = useMemo(
+    () => missingFields.filter((key) => !BULK_TICKET_FIELD_KEYS.includes(key)),
+    [missingFields]
+  );
+  const uploadPrefix = currentWorker ? bulkUploadPrefix(currentWorker) : "";
+
+  const patchCurrentWorker = (patch: Partial<BulkOnboardingWorker>) => {
+    setWorkers((current) =>
+      current.map((worker, index) =>
+        index === currentIndex ? { ...worker, ...patch } : worker
+      )
+    );
+  };
 
   const applyFile = useCallback((file: File) => {
     setParseError(null);
+    setVocError(null);
     setSubmitError(null);
     setResult(null);
     setFileName(file.name);
@@ -65,14 +121,14 @@ export default function BulkOnboardingImporter() {
 
       setWorkers(parsed.workers);
       setCurrentIndex(0);
-      setDraft({});
+      setDraft(buildWizardDraft(parsed.workers[0]));
       setFieldErrors({});
       setPhase("fix");
     };
     reader.onerror = () => {
       setParseError("Unable to read that file.");
     };
-    reader.readAsText(file);
+    reader.readAsText(file, "UTF-8");
   }, []);
 
   const onDrop = (event: DragEvent<HTMLLabelElement>) => {
@@ -98,8 +154,11 @@ export default function BulkOnboardingImporter() {
 
     const nextErrors: Partial<Record<BulkOnboardingFieldKey, string>> = {};
     const merged: BulkOnboardingWorker = { ...currentWorker };
+    const keysToMerge = Array.from(
+      new Set([...missingFields, ...BULK_TICKET_FIELD_KEYS])
+    );
 
-    for (const key of missingFields) {
+    for (const key of keysToMerge) {
       const value = (draft[key] ?? currentWorker[key] ?? "").toString();
       const error = validateBulkOnboardingField(key, value);
       if (error) {
@@ -114,13 +173,20 @@ export default function BulkOnboardingImporter() {
       return;
     }
 
+    const vocValidation = validateVocDrafts(vocsToDrafts(merged.vocs ?? []));
+    if (vocValidation) {
+      setVocError(vocValidation);
+      return;
+    }
+    setVocError(null);
+
     const normalized = normalizeBulkOnboardingWorker(merged);
     const remaining = getInvalidBulkOnboardingFields(normalized);
     if (remaining.length > 0) {
       setWorkers((current) =>
         current.map((worker, index) => (index === currentIndex ? normalized : worker))
       );
-      setDraft({});
+      setDraft(buildWizardDraft(normalized));
       setFieldErrors(
         Object.fromEntries(
           remaining.map((key) => [
@@ -135,14 +201,16 @@ export default function BulkOnboardingImporter() {
     setWorkers((current) =>
       current.map((worker, index) => (index === currentIndex ? normalized : worker))
     );
-    setDraft({});
     setFieldErrors({});
 
     if (currentIndex + 1 >= workers.length) {
+      setDraft({});
       setPhase("summary");
       return;
     }
 
+    const nextWorker = workers[currentIndex + 1];
+    setDraft(nextWorker ? buildWizardDraft(nextWorker) : {});
     setCurrentIndex((index) => index + 1);
   };
 
@@ -150,7 +218,12 @@ export default function BulkOnboardingImporter() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const response = await submitBulkOnboarding(workers);
+      const response = await submitBulkOnboarding(
+        workers.map((worker) => ({
+          ...worker,
+          vocs: serializeBulkOnboardingVocs(worker.vocs),
+        }))
+      );
       if (response.error) {
         setSubmitError(response.error);
         return;
@@ -175,6 +248,7 @@ export default function BulkOnboardingImporter() {
     setDraft({});
     setFieldErrors({});
     setParseError(null);
+    setVocError(null);
     setSubmitError(null);
     setResult(null);
     setFileName("");
@@ -264,13 +338,35 @@ export default function BulkOnboardingImporter() {
             </button>
           </div>
 
-          {missingFields.length === 0 ? (
+          {filledFields.length > 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Loaded from CSV
+              </p>
+              <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+                {filledFields.map((key) => (
+                  <div key={key} className="min-w-0">
+                    <dt className="text-xs text-slate-500">
+                      {BULK_ONBOARDING_FIELD_LABELS[key]}
+                    </dt>
+                    <dd className="truncate font-medium text-slate-800">
+                      {currentWorker[key]}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
+
+          {otherMissingFields.length === 0 &&
+          !BULK_TICKET_FIELD_KEYS.some((key) => missingFields.includes(key)) ? (
             <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              All required fields for this worker are complete.
+              All required text fields for this worker are complete. Add ticket files and VOCs
+              below if needed.
             </p>
-          ) : (
+          ) : otherMissingFields.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              {missingFields.map((key) => {
+              {otherMissingFields.map((key) => {
                 const value = draft[key] ?? currentWorker[key] ?? "";
                 const error = fieldErrors[key];
                 return (
@@ -303,7 +399,130 @@ export default function BulkOnboardingImporter() {
                 );
               })}
             </div>
-          )}
+          ) : null}
+
+          <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">White Card</h3>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1">
+                <span className={labelClass}>White card number</span>
+                <input
+                  className={inputClass}
+                  value={draft.white_card_number ?? currentWorker.white_card_number ?? ""}
+                  onChange={(event) => updateDraft("white_card_number", event.target.value)}
+                />
+                {fieldErrors.white_card_number ? (
+                  <p className="text-xs text-red-600">{fieldErrors.white_card_number}</p>
+                ) : null}
+              </label>
+              <label className="space-y-1">
+                <span className={labelClass}>White card issue date</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={draft.white_card_issue_date ?? currentWorker.white_card_issue_date ?? ""}
+                  onChange={(event) => updateDraft("white_card_issue_date", event.target.value)}
+                />
+                {fieldErrors.white_card_issue_date ? (
+                  <p className="text-xs text-red-600">{fieldErrors.white_card_issue_date}</p>
+                ) : null}
+              </label>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <DocumentCapture
+                label="White Card Photo"
+                file={null}
+                onFileChange={() => undefined}
+                uploadedUrl={currentWorker.white_card_photo_url || null}
+                existingUrl={currentWorker.white_card_photo_url || null}
+                uploadPath={`${uploadPrefix}/white-card-photo`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({ white_card_photo_url: url ?? "" })
+                }
+              />
+              <DocumentCapture
+                label="White Card Document"
+                file={null}
+                onFileChange={() => undefined}
+                uploadedUrl={currentWorker.white_card_doc_url || null}
+                existingUrl={currentWorker.white_card_doc_url || null}
+                uploadPath={`${uploadPrefix}/white-card-doc`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({ white_card_doc_url: url ?? "" })
+                }
+              />
+            </div>
+          </div>
+
+          <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">Silica Certificate</h3>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1">
+                <span className={labelClass}>Silica certificate number</span>
+                <input
+                  className={inputClass}
+                  value={draft.silica_cert_number ?? currentWorker.silica_cert_number ?? ""}
+                  onChange={(event) => updateDraft("silica_cert_number", event.target.value)}
+                />
+                {fieldErrors.silica_cert_number ? (
+                  <p className="text-xs text-red-600">{fieldErrors.silica_cert_number}</p>
+                ) : null}
+              </label>
+              <label className="space-y-1">
+                <span className={labelClass}>Silica certificate issue date</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={draft.silica_cert_issue_date ?? currentWorker.silica_cert_issue_date ?? ""}
+                  onChange={(event) =>
+                    updateDraft("silica_cert_issue_date", event.target.value)
+                  }
+                />
+                {fieldErrors.silica_cert_issue_date ? (
+                  <p className="text-xs text-red-600">{fieldErrors.silica_cert_issue_date}</p>
+                ) : null}
+              </label>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <DocumentCapture
+                label="Silica Certificate Photo"
+                file={null}
+                onFileChange={() => undefined}
+                uploadedUrl={currentWorker.silica_cert_photo_url || null}
+                existingUrl={currentWorker.silica_cert_photo_url || null}
+                uploadPath={`${uploadPrefix}/silica-cert-photo`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({ silica_cert_photo_url: url ?? "" })
+                }
+              />
+              <DocumentCapture
+                label="Silica Certificate Document"
+                file={null}
+                onFileChange={() => undefined}
+                uploadedUrl={currentWorker.silica_cert_doc_url || null}
+                existingUrl={currentWorker.silica_cert_doc_url || null}
+                uploadPath={`${uploadPrefix}/silica-cert-doc`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({ silica_cert_doc_url: url ?? "" })
+                }
+              />
+            </div>
+          </div>
+
+          <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">
+              VOCs (Verification of Competency)
+            </h3>
+            <div className="mt-3">
+              <VocListEditor
+                vocs={vocsToDrafts(currentWorker.vocs ?? [])}
+                onChange={(drafts) => patchCurrentWorker({ vocs: vocsFromDrafts(drafts) })}
+                minItems={0}
+                uploadPathPrefix={`${uploadPrefix}/vocs`}
+              />
+            </div>
+            {vocError ? <p className="mt-2 text-xs text-red-600">{vocError}</p> : null}
+          </div>
 
           <div className="flex justify-end">
             <button

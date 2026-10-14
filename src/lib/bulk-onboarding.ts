@@ -43,9 +43,55 @@ export type BulkOnboardingFieldKey =
   | BulkOnboardingCsvKey
   | BulkOnboardingComplianceKey;
 
+export type BulkOnboardingVoc = {
+  clientId: string;
+  title: string;
+  voc_type: string;
+  issuing_org: string;
+  issue_date: string;
+  expiry_date: string;
+  document_url: string | null;
+};
+
 export type BulkOnboardingWorker = {
   rowIndex: number;
+  white_card_photo_url: string;
+  white_card_doc_url: string;
+  silica_cert_photo_url: string;
+  silica_cert_doc_url: string;
+  vocs: BulkOnboardingVoc[];
 } & Record<BulkOnboardingFieldKey, string>;
+
+export const BULK_TICKET_FIELD_KEYS: readonly BulkOnboardingFieldKey[] = [
+  "white_card_number",
+  "white_card_issue_date",
+  "silica_cert_number",
+  "silica_cert_issue_date",
+];
+
+export function emptyTicketDocuments(): Pick<
+  BulkOnboardingWorker,
+  | "white_card_photo_url"
+  | "white_card_doc_url"
+  | "silica_cert_photo_url"
+  | "silica_cert_doc_url"
+  | "vocs"
+> {
+  return {
+    white_card_photo_url: "",
+    white_card_doc_url: "",
+    silica_cert_photo_url: "",
+    silica_cert_doc_url: "",
+    vocs: [],
+  };
+}
+
+export function bulkUploadPrefix(worker: BulkOnboardingWorker): string {
+  const slug =
+    worker.email.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
+    `row-${worker.rowIndex}`;
+  return `bulk-onboarding/${worker.rowIndex}-${slug}`;
+}
 
 export const OPTIONAL_BULK_ONBOARDING_FIELDS: readonly BulkOnboardingFieldKey[] = [
   "address_line_2",
@@ -102,18 +148,106 @@ export const defaultWorkerTemplate: Record<BulkOnboardingFieldKey, string> =
     string
   >;
 
-/** Strip spaces, underscores, dashes, and BOM so "First Name" and "first_name" both become `firstname`. */
+/** Strip spaces, underscores, dashes, BOM, and leftover punctuation so "First Name" becomes `firstname`. */
 export function sanitizeCsvHeader(header: string): string {
-  return header.replace(/[\s_\-\uFEFF]/g, "").toLowerCase();
+  return String(header ?? "")
+    .replace(/[\s_\-\uFEFF]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
 }
-
-const SANITIZED_HEADER_TO_SCHEMA = Object.fromEntries(
-  ALL_WORKER_FIELD_KEYS.map((key) => [sanitizeCsvHeader(key), key])
-) as Record<string, BulkOnboardingFieldKey>;
 
 function trimCell(value: unknown): string {
   if (value == null) return "";
   return String(value).replace(/^\uFEFF/, "").trim();
+}
+
+/** Rebuild a PapaParse row so every key is stripped/lowercased (`" First_Name "` → `firstname`). */
+export function sanitizeParsedRow(
+  row: Record<string, unknown> | null | undefined
+): Record<string, string> {
+  const clean: Record<string, string> = {};
+  if (!row) return clean;
+
+  for (const [key, value] of Object.entries(row)) {
+    const sanitized = sanitizeCsvHeader(key);
+    if (!sanitized) continue;
+    const cell = trimCell(value);
+    if (!cell && clean[sanitized]) continue;
+    clean[sanitized] = cell;
+  }
+
+  return clean;
+}
+
+function mapCleanRowToWorker(
+  cleanRow: Record<string, string>,
+  rowIndex: number
+): BulkOnboardingWorker {
+  return {
+    rowIndex,
+    ...defaultWorkerTemplate,
+    ...emptyTicketDocuments(),
+    first_name: cleanRow.firstname || "",
+    last_name: cleanRow.lastname || "",
+    email: cleanRow.email || "",
+    phone: cleanRow.phone || "",
+    dob: parseIsoDate(cleanRow.dob || "") || cleanRow.dob || "",
+    address_line_1: cleanRow.addressline1 || "",
+    address_line_2: cleanRow.addressline2 || "",
+    suburb: cleanRow.suburb || "",
+    postcode: cleanRow.postcode || "",
+    state: cleanRow.state || "",
+    emergency_contact: cleanRow.emergencycontact || "",
+    emergency_contact_name: cleanRow.emergencycontactname || "",
+    emergency_contact_relationship: cleanRow.emergencycontactrelationship || "",
+    emergency_contact_phone: cleanRow.emergencycontactphone || "",
+    bank_name: cleanRow.bankname || "",
+    bank_account_name: cleanRow.bankaccountname || "",
+    bank_bsb: cleanRow.bankbsb || "",
+    bank_account_number: cleanRow.bankaccountnumber || "",
+    super_fund: cleanRow.superfund || "",
+    super_member_number: cleanRow.supermembernumber || "",
+    tfn: cleanRow.tfn || "",
+    white_card_number: cleanRow.whitecardnumber || "",
+    white_card_issue_date:
+      parseIsoDate(cleanRow.whitecardissuedate || "") ||
+      cleanRow.whitecardissuedate ||
+      "",
+    silica_cert_number: cleanRow.silicacertnumber || "",
+    silica_cert_issue_date:
+      parseIsoDate(cleanRow.silicacertissuedate || "") ||
+      cleanRow.silicacertissuedate ||
+      "",
+    drivers_licence_number:
+      cleanRow.driverslicencenumber || cleanRow.driverslicensenumber || "",
+    drivers_licence_class:
+      cleanRow.driverslicenceclass || cleanRow.driverslicenseclass || "",
+    drivers_licence_expiry:
+      parseIsoDate(
+        cleanRow.driverslicenceexpiry || cleanRow.driverslicenseexpiry || ""
+      ) ||
+      cleanRow.driverslicenceexpiry ||
+      cleanRow.driverslicenseexpiry ||
+      "",
+  };
+}
+
+export function buildWizardDraft(
+  worker: BulkOnboardingWorker
+): Partial<Record<BulkOnboardingFieldKey, string>> {
+  const draft: Partial<Record<BulkOnboardingFieldKey, string>> = {};
+  for (const key of getInvalidBulkOnboardingFields(worker)) {
+    draft[key] = worker[key] ?? "";
+  }
+  return draft;
+}
+
+export function getFilledBulkOnboardingFields(
+  worker: BulkOnboardingWorker
+): BulkOnboardingFieldKey[] {
+  return ALL_WORKER_FIELD_KEYS.filter(
+    (key) => worker[key].trim() && !getInvalidBulkOnboardingFields(worker).includes(key)
+  );
 }
 
 export function parseIsoDate(value: string): string | null {
@@ -229,6 +363,11 @@ export function normalizeBulkOnboardingWorker(
   next.bank_bsb = formatWorkerBsb(worker.bank_bsb) ?? worker.bank_bsb.trim();
   next.emergency_contact =
     worker.emergency_contact.trim() || worker.emergency_contact_name.trim();
+  next.white_card_photo_url = worker.white_card_photo_url?.trim() || "";
+  next.white_card_doc_url = worker.white_card_doc_url?.trim() || "";
+  next.silica_cert_photo_url = worker.silica_cert_photo_url?.trim() || "";
+  next.silica_cert_doc_url = worker.silica_cert_doc_url?.trim() || "";
+  next.vocs = Array.isArray(worker.vocs) ? worker.vocs : [];
 
   for (const key of DATE_FIELDS) {
     const parsed = parseIsoDate(worker[key]);
@@ -243,30 +382,6 @@ export function workerDisplayName(worker: BulkOnboardingWorker): string {
     .filter(Boolean)
     .join(" ");
   return name || worker.email.trim() || `Row ${worker.rowIndex}`;
-}
-
-function mapRowToWorker(
-  row: Record<string, unknown>,
-  rowIndex: number
-): BulkOnboardingWorker {
-  const overlay: Partial<Record<BulkOnboardingFieldKey, string>> = {};
-
-  for (const schemaKey of ALL_WORKER_FIELD_KEYS) {
-    const sanitizedKey = sanitizeCsvHeader(schemaKey);
-    overlay[schemaKey] = trimCell(row[sanitizedKey] ?? row[schemaKey] ?? "");
-  }
-
-  for (const [rawKey, value] of Object.entries(row)) {
-    const schemaKey = SANITIZED_HEADER_TO_SCHEMA[sanitizeCsvHeader(rawKey)];
-    if (!schemaKey || overlay[schemaKey]) continue;
-    overlay[schemaKey] = trimCell(value);
-  }
-
-  return {
-    rowIndex,
-    ...defaultWorkerTemplate,
-    ...overlay,
-  };
 }
 
 export function parseBulkOnboardingCsv(csvText: string): {
@@ -286,18 +401,20 @@ export function parseBulkOnboardingCsv(csvText: string): {
     };
   }
 
-  const headers = (parsed.meta.fields ?? []).map((header) =>
-    sanitizeCsvHeader(header)
-  );
-  if (!headers.includes("firstname") || !headers.includes("lastname")) {
+  const cleanRows = parsed.data.map((row) => sanitizeParsedRow(row));
+  const headers = new Set([
+    ...(parsed.meta.fields ?? []).map((header) => sanitizeCsvHeader(header)),
+    ...cleanRows.flatMap((row) => Object.keys(row)),
+  ]);
+  if (!headers.has("firstname") || !headers.has("lastname")) {
     return {
       workers: [],
       error: "CSV must include first name and last name columns.",
     };
   }
 
-  const workers = parsed.data
-    .map((row, index) => mapRowToWorker(row ?? {}, index + 2))
+  const workers = cleanRows
+    .map((cleanRow, index) => mapCleanRowToWorker(cleanRow, index + 2))
     .filter(
       (worker) =>
         worker.first_name.trim() ||
@@ -323,4 +440,29 @@ export function parseBulkOnboardingCsv(csvText: string): {
   }
 
   return { workers, error: null };
+}
+
+export function serializeBulkOnboardingVocs(
+  vocs: BulkOnboardingWorker["vocs"] | null | undefined
+): BulkOnboardingVoc[] {
+  if (!Array.isArray(vocs)) return [];
+  return vocs
+    .map((voc) => ({
+      clientId: String(voc.clientId ?? "").trim() || crypto.randomUUID(),
+      title: String(voc.title || voc.voc_type || "").trim(),
+      voc_type: String(voc.voc_type || voc.title || "").trim(),
+      issuing_org: String(voc.issuing_org || "").trim(),
+      issue_date: String(voc.issue_date || "").trim(),
+      expiry_date: String(voc.expiry_date || "").trim(),
+      document_url: voc.document_url?.trim() || null,
+    }))
+    .filter(
+      (voc) =>
+        voc.title ||
+        voc.voc_type ||
+        voc.issuing_org ||
+        voc.issue_date ||
+        voc.expiry_date ||
+        voc.document_url
+    );
 }

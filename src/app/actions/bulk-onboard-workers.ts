@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getInvalidBulkOnboardingFields,
   normalizeBulkOnboardingWorker,
+  serializeBulkOnboardingVocs,
   workerDisplayName,
   type BulkOnboardingWorker,
 } from "@/lib/bulk-onboarding";
@@ -39,6 +40,17 @@ async function insertWorkerVocs(
   workerId: string,
   worker: BulkOnboardingWorker
 ): Promise<string | null> {
+  const extraVocs = serializeBulkOnboardingVocs(worker.vocs).map((voc) => ({
+    worker_id: workerId,
+    title: voc.title || voc.voc_type || "VOC",
+    voc_type: voc.voc_type || voc.title || "VOC",
+    name: voc.title || voc.voc_type || "VOC",
+    issuing_org: voc.issuing_org || null,
+    issue_date: nullIfBlankWorkerDate(voc.issue_date),
+    expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
+    document_url: voc.document_url,
+  }));
+
   const rows = [
     {
       worker_id: workerId,
@@ -48,7 +60,8 @@ async function insertWorkerVocs(
       issuing_org: worker.white_card_number.trim() || null,
       issue_date: nullIfBlankWorkerDate(worker.white_card_issue_date),
       expiry_date: null,
-      document_url: null,
+      document_url:
+        worker.white_card_doc_url?.trim() || worker.white_card_photo_url?.trim() || null,
     },
     {
       worker_id: workerId,
@@ -58,7 +71,8 @@ async function insertWorkerVocs(
       issuing_org: worker.silica_cert_number.trim() || null,
       issue_date: nullIfBlankWorkerDate(worker.silica_cert_issue_date),
       expiry_date: null,
-      document_url: null,
+      document_url:
+        worker.silica_cert_doc_url?.trim() || worker.silica_cert_photo_url?.trim() || null,
     },
     {
       worker_id: workerId,
@@ -73,6 +87,7 @@ async function insertWorkerVocs(
       expiry_date: nullIfBlankWorkerDate(worker.drivers_licence_expiry),
       document_url: null,
     },
+    ...extraVocs,
   ];
 
   const attempts = [
@@ -133,15 +148,24 @@ async function insertWorkerProfile(
     white_card_issue_date: nullIfBlankWorkerDate(worker.white_card_issue_date),
     white_card_date: nullIfBlankWorkerDate(worker.white_card_issue_date),
     white_card_provided: true,
+    white_card_photo_url: worker.white_card_photo_url?.trim() || null,
+    white_card_doc_url: worker.white_card_doc_url?.trim() || worker.white_card_photo_url?.trim() || null,
+    white_card_file_url: worker.white_card_doc_url?.trim() || worker.white_card_photo_url?.trim() || null,
     silica_cert_number: worker.silica_cert_number.trim() || null,
     silica_cert_issue_date: nullIfBlankWorkerDate(worker.silica_cert_issue_date),
     silica_cert_date: nullIfBlankWorkerDate(worker.silica_cert_issue_date),
     silica_cert_provided: true,
+    silica_cert_photo_url: worker.silica_cert_photo_url?.trim() || null,
+    silica_cert_doc_url: worker.silica_cert_doc_url?.trim() || worker.silica_cert_photo_url?.trim() || null,
+    silica_cert_file_url: worker.silica_cert_doc_url?.trim() || worker.silica_cert_photo_url?.trim() || null,
     drivers_licence_number: worker.drivers_licence_number.trim() || null,
     drivers_licence_class: worker.drivers_licence_class.trim() || null,
     drivers_licence_expiry: licenceExpiry,
     security_role: DEFAULT_WORKER_SECURITY_ROLE,
-    status: computeWorkerStatusFromExpiries([licenceExpiry]),
+    status: computeWorkerStatusFromExpiries([
+      licenceExpiry,
+      ...serializeBulkOnboardingVocs(worker.vocs).map((voc) => voc.expiry_date),
+    ]),
     onboarding_completed: false,
     invite_status: "pending",
     worker_category: "internal",
