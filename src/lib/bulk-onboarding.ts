@@ -59,6 +59,7 @@ export type BulkOnboardingWorker = {
   white_card_doc_url: string;
   silica_cert_photo_url: string;
   silica_cert_doc_url: string;
+  drivers_licence_photo_url: string;
   vocs: BulkOnboardingVoc[];
 } & Record<BulkOnboardingFieldKey, string>;
 
@@ -67,6 +68,9 @@ export const BULK_TICKET_FIELD_KEYS: readonly BulkOnboardingFieldKey[] = [
   "white_card_issue_date",
   "silica_cert_number",
   "silica_cert_issue_date",
+  "drivers_licence_number",
+  "drivers_licence_class",
+  "drivers_licence_expiry",
 ];
 
 export function emptyTicketDocuments(): Pick<
@@ -75,6 +79,7 @@ export function emptyTicketDocuments(): Pick<
   | "white_card_doc_url"
   | "silica_cert_photo_url"
   | "silica_cert_doc_url"
+  | "drivers_licence_photo_url"
   | "vocs"
 > {
   return {
@@ -82,6 +87,7 @@ export function emptyTicketDocuments(): Pick<
     white_card_doc_url: "",
     silica_cert_photo_url: "",
     silica_cert_doc_url: "",
+    drivers_licence_photo_url: "",
     vocs: [],
   };
 }
@@ -367,6 +373,7 @@ export function normalizeBulkOnboardingWorker(
   next.white_card_doc_url = worker.white_card_doc_url?.trim() || "";
   next.silica_cert_photo_url = worker.silica_cert_photo_url?.trim() || "";
   next.silica_cert_doc_url = worker.silica_cert_doc_url?.trim() || "";
+  next.drivers_licence_photo_url = worker.drivers_licence_photo_url?.trim() || "";
   next.vocs = Array.isArray(worker.vocs) ? worker.vocs : [];
 
   for (const key of DATE_FIELDS) {

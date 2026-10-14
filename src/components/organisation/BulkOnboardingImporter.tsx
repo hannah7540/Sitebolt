@@ -510,6 +510,60 @@ export default function BulkOnboardingImporter() {
           </div>
 
           <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">Driver&apos;s Licence</h3>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1">
+                <span className={labelClass}>Licence number</span>
+                <input
+                  className={inputClass}
+                  value={draft.drivers_licence_number ?? currentWorker.drivers_licence_number ?? ""}
+                  onChange={(event) => updateDraft("drivers_licence_number", event.target.value)}
+                />
+                {fieldErrors.drivers_licence_number ? (
+                  <p className="text-xs text-red-600">{fieldErrors.drivers_licence_number}</p>
+                ) : null}
+              </label>
+              <label className="space-y-1">
+                <span className={labelClass}>Class</span>
+                <input
+                  className={inputClass}
+                  placeholder="e.g. C, MR, HR"
+                  value={draft.drivers_licence_class ?? currentWorker.drivers_licence_class ?? ""}
+                  onChange={(event) => updateDraft("drivers_licence_class", event.target.value)}
+                />
+                {fieldErrors.drivers_licence_class ? (
+                  <p className="text-xs text-red-600">{fieldErrors.drivers_licence_class}</p>
+                ) : null}
+              </label>
+              <label className="space-y-1">
+                <span className={labelClass}>Expiry date</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={draft.drivers_licence_expiry ?? currentWorker.drivers_licence_expiry ?? ""}
+                  onChange={(event) => updateDraft("drivers_licence_expiry", event.target.value)}
+                />
+                {fieldErrors.drivers_licence_expiry ? (
+                  <p className="text-xs text-red-600">{fieldErrors.drivers_licence_expiry}</p>
+                ) : null}
+              </label>
+            </div>
+            <div className="mt-4">
+              <DocumentCapture
+                label="Driver's Licence Photo"
+                file={null}
+                onFileChange={() => undefined}
+                uploadedUrl={currentWorker.drivers_licence_photo_url || null}
+                existingUrl={currentWorker.drivers_licence_photo_url || null}
+                uploadPath={`${uploadPrefix}/drivers-licence`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({ drivers_licence_photo_url: url ?? "" })
+                }
+              />
+            </div>
+          </div>
+
+          <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">
               VOCs (Verification of Competency)
             </h3>

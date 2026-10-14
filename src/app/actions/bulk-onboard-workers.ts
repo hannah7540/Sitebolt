@@ -85,7 +85,7 @@ async function insertWorkerVocs(
         .join(" · ") || null,
       issue_date: null,
       expiry_date: nullIfBlankWorkerDate(worker.drivers_licence_expiry),
-      document_url: null,
+      document_url: worker.drivers_licence_photo_url?.trim() || null,
     },
     ...extraVocs,
   ];
@@ -161,6 +161,7 @@ async function insertWorkerProfile(
     drivers_licence_number: worker.drivers_licence_number.trim() || null,
     drivers_licence_class: worker.drivers_licence_class.trim() || null,
     drivers_licence_expiry: licenceExpiry,
+    drivers_licence_photo_url: worker.drivers_licence_photo_url?.trim() || null,
     security_role: DEFAULT_WORKER_SECURITY_ROLE,
     status: computeWorkerStatusFromExpiries([
       licenceExpiry,
