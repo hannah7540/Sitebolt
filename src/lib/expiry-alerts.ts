@@ -459,7 +459,8 @@ export async function runExpiryAlertCheck(options?: {
     const allKeys = compliance.alerts.map((alert) => alert.id);
     const recentlyAlerted = await fetchRecentlyAlertedEntityKeys(allKeys);
     const pendingAlerts = compliance.alerts.filter(
-      (alert) => !recentlyAlerted.has(alert.id)
+      (alert) =>
+        alert.category !== "worker_profile_update" && !recentlyAlerted.has(alert.id)
     );
 
     const grouped = groupAlertsByFilter(pendingAlerts);

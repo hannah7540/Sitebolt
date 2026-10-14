@@ -10,8 +10,10 @@ import {
   Save,
   Shield,
   Truck,
+  User,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import WorkerSearchSelect from "@/components/assets/WorkerSearchSelect";
@@ -36,9 +38,11 @@ import {
 import { fetchWorkers, type Worker } from "@/lib/supabase";
 import { SECURITY_ROLE_LABELS, normalizeSecurityRole } from "@/lib/security-roles";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
-import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { cardClass, inputClass, labelClass, modalOverlayClass, modalClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
+import { reviewWorkerProfileAlert } from "@/app/actions/review-worker-profile-alert";
+import type { WorkerProfileChange } from "@/lib/worker-profile-alerts";
 
 function categoryLabel(category: ComplianceAlertItem["category"]): string {
   switch (category) {
@@ -52,6 +56,8 @@ function categoryLabel(category: ComplianceAlertItem["category"]): string {
       return "Worker Ticket / License";
     case "company_insurance":
       return "Company Insurance";
+    case "worker_profile_update":
+      return "Worker Profile Update";
     default:
       return "Alert";
   }
@@ -74,9 +80,19 @@ function CategoryIcon({ category }: { category: ComplianceAlertItem["category"] 
       return <Wrench className="h-4 w-4 text-emerald-600" />;
     case "company_insurance":
       return <Shield className="h-4 w-4 text-violet-600" />;
+    case "worker_profile_update":
+      return <User className="h-4 w-4 text-orange-600" />;
     default:
       return <Users className="h-4 w-4 text-violet-600" />;
   }
+}
+
+function profileChanges(alert: ComplianceAlertItem): WorkerProfileChange[] {
+  const raw = alert.metadata.changes;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is WorkerProfileChange => {
+    return Boolean(item && typeof item === "object" && "field" in item);
+  });
 }
 
 export default function OrganisationAlertsPanel() {
@@ -94,6 +110,9 @@ export default function OrganisationAlertsPanel() {
   const [recipientWorkerIds, setRecipientWorkerIds] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProfileAlert, setSelectedProfileAlert] =
+    useState<ComplianceAlertItem | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const notificationWorkers = useMemo(
     () =>
@@ -167,6 +186,21 @@ export default function OrganisationAlertsPanel() {
     setSuccessMessage("Notification settings saved.");
   };
 
+  const handleReviewProfileAlert = async () => {
+    if (!selectedProfileAlert) return;
+    setReviewing(true);
+    setError(null);
+    const result = await reviewWorkerProfileAlert(selectedProfileAlert.id);
+    setReviewing(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setSelectedProfileAlert(null);
+    setSuccessMessage("Profile update marked as reviewed.");
+    await load();
+  };
+
   const handleRunCheck = async () => {
     setRunningCheck(true);
     setError(null);
@@ -216,7 +250,8 @@ export default function OrganisationAlertsPanel() {
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           Unified compliance alerts for heavy vehicle checks, fleet and plant registrations,
-          worker tickets, and company insurance policies.
+          worker tickets, company insurance policies, and worker personal or financial profile
+          updates.
         </p>
         <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
           <p className="font-semibold text-slate-800">Configured alert thresholds</p>
@@ -241,6 +276,10 @@ export default function OrganisationAlertsPanel() {
               Email dedupe window: <strong>{DEDUPE_WINDOW_DAYS} days</strong> per alert item
             </li>
             <li>
+              Worker personal or financial updates: logged immediately when a worker saves their
+              dashboard details
+            </li>
+            <li>
               Plant service due (hours): not a day-based Organisation Alert — tracked via plant
               hours / pre-starts
             </li>
@@ -260,7 +299,7 @@ export default function OrganisationAlertsPanel() {
         </p>
       ) : null}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {COMPLIANCE_ALERT_FILTER_OPTIONS.filter((option) => option.id !== "all").map((option) => (
           <div key={option.id} className={cn("flex items-center gap-4 p-5", cardClass)}>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
@@ -334,7 +373,7 @@ export default function OrganisationAlertsPanel() {
                     <th className="px-3 py-2 font-semibold">Type</th>
                     <th className="px-3 py-2 font-semibold">Asset / Worker</th>
                     <th className="px-3 py-2 font-semibold">Document</th>
-                    <th className="px-3 py-2 font-semibold">Due / Expiry</th>
+                    <th className="px-3 py-2 font-semibold">Due / Expiry / Updated</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
                     <th className="px-3 py-2 font-semibold">Actions</th>
                   </tr>
@@ -354,15 +393,19 @@ export default function OrganisationAlertsPanel() {
                       </td>
                       <td className="px-3 py-3">{alert.documentLabel}</td>
                       <td className="px-3 py-3">
-                        {new Date(`${alert.expiryDate}T12:00:00`).toLocaleDateString()}
+                        {alert.category === "worker_profile_update"
+                          ? `Updated ${new Date(`${alert.expiryDate}T12:00:00`).toLocaleDateString()}`
+                          : new Date(`${alert.expiryDate}T12:00:00`).toLocaleDateString()}
                       </td>
                       <td className="px-3 py-3">
                         <span
                           className={cn(
                             "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                            alert.category === "company_insurance"
-                              ? insuranceAlertBadgeClass(alert)
-                              : getComplianceAlertStatus(alert.daysRemaining).badgeClass
+                            alert.category === "worker_profile_update"
+                              ? "border-amber-200 bg-amber-50 text-amber-900"
+                              : alert.category === "company_insurance"
+                                ? insuranceAlertBadgeClass(alert)
+                                : getComplianceAlertStatus(alert.daysRemaining).badgeClass
                           )}
                         >
                           {alert.statusLabel}
@@ -372,6 +415,10 @@ export default function OrganisationAlertsPanel() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (alert.category === "worker_profile_update") {
+                              setSelectedProfileAlert(alert);
+                              return;
+                            }
                             const href = String(
                               alert.metadata.navigationHref ?? "/organisation/alerts"
                             );
@@ -471,6 +518,71 @@ export default function OrganisationAlertsPanel() {
           </div>
         </aside>
       </div>
+
+      {selectedProfileAlert ? (
+        <div
+          className={modalOverlayClass}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="profile-alert-title"
+        >
+          <div className={cn(modalClass, "max-w-lg")}>
+            <button
+              type="button"
+              onClick={() => setSelectedProfileAlert(null)}
+              className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h2 id="profile-alert-title" className="pr-12 text-xl font-bold text-slate-900">
+              {selectedProfileAlert.title}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Personal and financial fields changed by this worker.
+            </p>
+            <ul className="mt-4 space-y-3">
+              {profileChanges(selectedProfileAlert).map((change) => (
+                <li
+                  key={change.field}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {change.field}
+                  </p>
+                  {change.summary ? (
+                    <p className="mt-1 text-sm font-medium text-slate-900">{change.summary}</p>
+                  ) : (
+                    <p className="mt-1 text-sm text-slate-800">
+                      <span className="text-slate-500">{change.before ?? "—"}</span>
+                      <span className="mx-2 text-slate-400">→</span>
+                      <span className="font-medium">{change.after ?? "—"}</span>
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedProfileAlert(null)}
+                className="flex-1 rounded-lg bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={reviewing}
+                onClick={() => void handleReviewProfileAlert()}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+              >
+                {reviewing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Reviewed
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

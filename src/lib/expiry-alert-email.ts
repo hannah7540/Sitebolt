@@ -80,6 +80,8 @@ function categoryTitle(category: ComplianceAlertItem["category"]): string {
       return "Worker Ticket / License";
     case "company_insurance":
       return "Company Insurance";
+    case "worker_profile_update":
+      return "Worker Profile Update";
     default:
       return "Compliance Item";
   }

@@ -9,7 +9,13 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { formatWorkerBsb } from "@/lib/worker-utils";
+import { formatWorkerBsb, buildWorkerNameFields } from "@/lib/worker-utils";
+import { getRecordOrganisationId, resolveActiveOrganisationId } from "@/lib/tenant-scope";
+import {
+  logWorkerProfileUpdateAlert,
+  mapWorkerRowToProfileSnapshot,
+  type WorkerProfileSnapshot,
+} from "@/lib/worker-profile-alerts";
 
 const FINANCIAL_SELECT =
   "bank_name, bank_account_name, bank_bsb, bank_account_number, super_fund, super_member_number, tfn, first_name, last_name, full_name";
@@ -18,6 +24,9 @@ const FINANCIAL_SELECT_WITHOUT_ACCOUNT_NAME =
 
 export type WorkerPersonalFinancialInput = {
   workerId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
   phone: string;
   addressLine1: string;
   addressLine2: string;
@@ -116,6 +125,45 @@ function asText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+const PROFILE_SELECT =
+  "id, organisation_id, first_name, last_name, full_name, email, phone, address_line_1, address_line_2, suburb, postcode, emergency_contact_name, emergency_contact_phone, bank_name, bank_account_name, bank_bsb, bank_account_number, super_fund, super_member_number, tfn";
+
+async function fetchCurrentWorkerProfile(
+  workerId: string
+): Promise<{ snapshot: WorkerProfileSnapshot; organisationId: string | null } | { error: string }> {
+  const admin = createSupabaseAdminClient();
+  let select = PROFILE_SELECT;
+  let { data, error } = await admin.from("workers").select(select).eq("id", workerId).maybeSingle();
+
+  for (let attempt = 0; attempt < 8 && error; attempt += 1) {
+    const missing =
+      parseMissingColumnFromError(error.message) ??
+      (error.message.toLowerCase().includes("bank_account_name")
+        ? "bank_account_name"
+        : null);
+    if (!missing) break;
+    select = select
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part !== missing)
+      .join(", ");
+    const retry = await admin.from("workers").select(select).eq("id", workerId).maybeSingle();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error) return { error: error.message };
+  if (!data || typeof data !== "object") {
+    return { error: "Failed to load current worker details." };
+  }
+
+  const row = data as unknown as Record<string, unknown>;
+  return {
+    snapshot: mapWorkerRowToProfileSnapshot(row),
+    organisationId: getRecordOrganisationId(row) ?? null,
+  };
+}
+
 async function requireOwnWorkerId(
   workerId: string
 ): Promise<{ workerId: string; error: string | null }> {
@@ -205,6 +253,9 @@ export async function updateWorkerFinancialDetails(
   const auth = await requireOwnWorkerId(workerId);
   if (auth.error) return { error: auth.error };
 
+  const current = await fetchCurrentWorkerProfile(auth.workerId);
+  if ("error" in current) return { error: current.error };
+
   const values = {
     bank_name: nullIfBlank(input.bankName),
     bank_account_name: nullIfBlank(input.accountName),
@@ -217,6 +268,21 @@ export async function updateWorkerFinancialDetails(
 
   const result = await updateOwnWorkerColumns(auth.workerId, values);
   if (result.error) return { error: result.error };
+
+  const after: WorkerProfileSnapshot = {
+    ...current.snapshot,
+    ...values,
+  };
+  const admin = createSupabaseAdminClient();
+  await logWorkerProfileUpdateAlert({
+    admin,
+    workerId: auth.workerId,
+    organisationId: current.organisationId ?? resolveActiveOrganisationId(),
+    before: current.snapshot,
+    after,
+  });
+
+  revalidatePath("/organisation/alerts");
   return { error: null, values };
 }
 
@@ -231,6 +297,10 @@ export async function updateWorkerPersonalAndFinancialDetails(
   const auth = await requireOwnWorkerId(workerId);
   if (auth.error) return { error: auth.error };
 
+  const current = await fetchCurrentWorkerProfile(auth.workerId);
+  if ("error" in current) return { error: current.error };
+
+  const names = buildWorkerNameFields(input.firstName, input.lastName);
   const values = {
     bank_name: nullIfBlank(input.bankName),
     bank_account_name: nullIfBlank(input.accountName),
@@ -241,7 +311,12 @@ export async function updateWorkerPersonalAndFinancialDetails(
     tfn: nullIfBlank(input.tfn),
   };
 
-  const result = await updateOwnWorkerColumns(auth.workerId, {
+  const personal = {
+    first_name: names.first_name,
+    last_name: names.last_name,
+    full_name: names.full_name || null,
+    worker_name: names.worker_name || null,
+    email: nullIfBlank(input.email),
     phone: nullIfBlank(input.phone),
     address_line_1: nullIfBlank(input.addressLine1),
     address_line_2: nullIfBlank(input.addressLine2),
@@ -249,9 +324,29 @@ export async function updateWorkerPersonalAndFinancialDetails(
     postcode: nullIfBlank(input.postcode),
     emergency_contact_name: nullIfBlank(input.emergencyContactName),
     emergency_contact_phone: nullIfBlank(input.emergencyContactPhone),
+  };
+
+  const result = await updateOwnWorkerColumns(auth.workerId, {
+    ...personal,
     ...values,
   });
   if (result.error) return { error: result.error };
+
+  const after: WorkerProfileSnapshot = {
+    ...current.snapshot,
+    ...personal,
+    ...values,
+  };
+  const admin = createSupabaseAdminClient();
+  await logWorkerProfileUpdateAlert({
+    admin,
+    workerId: auth.workerId,
+    organisationId: current.organisationId ?? resolveActiveOrganisationId(),
+    before: current.snapshot,
+    after,
+  });
+
+  revalidatePath("/organisation/alerts");
   return { error: null, values };
 }
 

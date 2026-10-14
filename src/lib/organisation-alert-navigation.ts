@@ -90,6 +90,8 @@ export function buildComplianceAlertNavigationHref(alert: ComplianceAlertItem): 
         [ORG_DEEP_LINK_PARAMS.focus]: "heavyVehicle",
         [ORG_DEEP_LINK_PARAMS.action]: action,
       });
+    case "worker_profile_update":
+      return "/organisation/alerts";
     default:
       return "/organisation/alerts";
   }
@@ -101,6 +103,8 @@ export function getComplianceAlertActionLabel(alert: ComplianceAlertItem): strin
       return "Amend Policy";
     case "worker_ticket":
       return "Amend Ticket";
+    case "worker_profile_update":
+      return "View Changes";
     default:
       return "View & Update";
   }

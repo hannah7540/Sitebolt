@@ -33,6 +33,7 @@ import {
   type CompanyInsuranceRecord,
 } from "./organisation-insurances-api";
 import { attachComplianceAlertNavigation } from "./organisation-alert-navigation";
+import { fetchWorkerProfileUpdateAlerts } from "./worker-profile-alerts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   filterRowsByOrganisation,
@@ -51,14 +52,16 @@ export type ComplianceAlertFilter =
   | "heavy_vehicle_check"
   | "fleet_plant_registration"
   | "worker_ticket"
-  | "company_insurance";
+  | "company_insurance"
+  | "worker_profile_update";
 
 export type ComplianceAlertCategory =
   | "heavy_vehicle_check"
   | "fleet_registration"
   | "plant_registration"
   | "worker_ticket"
-  | "company_insurance";
+  | "company_insurance"
+  | "worker_profile_update";
 
 export type ComplianceAlertSourceType = "worker" | "fleet" | "plant" | "insurance";
 
@@ -368,6 +371,17 @@ async function fetchInsurancePoliciesForAlerts(
   }
 }
 
+function emptyAlertCounts(): ComplianceAlertsSummary["counts"] {
+  return {
+    all: 0,
+    heavy_vehicle_check: 0,
+    fleet_plant_registration: 0,
+    worker_ticket: 0,
+    company_insurance: 0,
+    worker_profile_update: 0,
+  };
+}
+
 export async function fetchComplianceAlerts(options?: {
   admin?: SupabaseClient;
   organisationId?: string | null;
@@ -376,13 +390,7 @@ export async function fetchComplianceAlerts(options?: {
   if (!orgId) {
     return {
       alerts: [],
-      counts: {
-        all: 0,
-        heavy_vehicle_check: 0,
-        fleet_plant_registration: 0,
-        worker_ticket: 0,
-        company_insurance: 0,
-      },
+      counts: emptyAlertCounts(),
     };
   }
 
@@ -408,6 +416,13 @@ export async function fetchComplianceAlerts(options?: {
       vocsByWorker.set(voc.worker_id, list);
     }
 
+    const profileAlerts = options?.admin
+      ? await fetchWorkerProfileUpdateAlerts({
+          admin: options.admin,
+          workers: scopedWorkers,
+        })
+      : [];
+
     const alerts = attachComplianceAlertNavigation([
       ...collectHeavyVehicleCheckAlerts(scopedPlant),
       ...collectPlantRegistrationAlerts(scopedPlant),
@@ -416,7 +431,16 @@ export async function fetchComplianceAlerts(options?: {
       ...collectCompanyInsuranceAlerts(
         filterRowsByOrganisation(insurancePolicies, orgId)
       ),
-    ]).sort((left, right) => left.daysRemaining - right.daysRemaining);
+      ...profileAlerts,
+    ]).sort((left, right) => {
+      if (left.category === "worker_profile_update" && right.category !== "worker_profile_update") {
+        return -1;
+      }
+      if (right.category === "worker_profile_update" && left.category !== "worker_profile_update") {
+        return 1;
+      }
+      return left.daysRemaining - right.daysRemaining;
+    });
 
     const counts = {
       all: alerts.length,
@@ -427,6 +451,9 @@ export async function fetchComplianceAlerts(options?: {
       ).length,
       worker_ticket: alerts.filter((row) => row.filterGroup === "worker_ticket").length,
       company_insurance: alerts.filter((row) => row.filterGroup === "company_insurance").length,
+      worker_profile_update: alerts.filter(
+        (row) => row.filterGroup === "worker_profile_update"
+      ).length,
     };
 
     return { alerts, counts };
@@ -434,13 +461,7 @@ export async function fetchComplianceAlerts(options?: {
     console.error("Failed to build compliance alerts:", error);
     return {
       alerts: [],
-      counts: {
-        all: 0,
-        heavy_vehicle_check: 0,
-        fleet_plant_registration: 0,
-        worker_ticket: 0,
-        company_insurance: 0,
-      },
+      counts: emptyAlertCounts(),
     };
   }
 }
@@ -561,5 +582,10 @@ export const COMPLIANCE_ALERT_FILTER_OPTIONS: Array<{
     id: "company_insurance",
     label: "Company Insurances",
     description: `Triggers ${COMPANY_INSURANCE_ALERT_WINDOW_DAYS} days before expiry (includes expired).`,
+  },
+  {
+    id: "worker_profile_update",
+    label: "Worker Profile Updates",
+    description: "Personal and financial details changed by a worker. Review and mark as Reviewed.",
   },
 ];

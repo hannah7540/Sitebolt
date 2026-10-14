@@ -21,6 +21,7 @@ import {
   getAllExpiryWarnings,
 } from "@/lib/worker-compliance";
 import { formatWorkerBsb, getTicketStatus, nullIfBlankWorkerDate } from "@/lib/worker-utils";
+import { splitWorkerName } from "@/lib/worker-cards-vocs";
 import type { VocDraft } from "@/lib/voc-utils";
 import {
   getVocDisplayTitle,
@@ -204,6 +205,10 @@ export default function WorkerMyDetailsPanel({
 
   const [tab, setTab] = useState<DetailsTab>("tickets");
 
+  const initialNames = splitWorkerName(worker);
+  const [firstName, setFirstName] = useState(initialNames.firstName);
+  const [lastName, setLastName] = useState(initialNames.lastName);
+  const [email, setEmail] = useState(worker.email ?? "");
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [addressLine1, setAddressLine1] = useState(worker.address_line_1 ?? "");
   const [addressLine2, setAddressLine2] = useState(worker.address_line_2 ?? "");
@@ -466,6 +471,9 @@ export default function WorkerMyDetailsPanel({
     try {
       const result = await updateWorkerPersonalAndFinancialDetails({
         workerId: worker.id,
+        firstName,
+        lastName,
+        email,
         phone,
         addressLine1,
         addressLine2,
@@ -488,6 +496,9 @@ export default function WorkerMyDetailsPanel({
 
       onSaved({
         ...worker,
+        first_name: firstName.trim() || null,
+        last_name: lastName.trim() || null,
+        email: email.trim(),
         phone: nullIfBlank(phone),
         address_line_1: nullIfBlank(addressLine1),
         address_line_2: nullIfBlank(addressLine2),
@@ -794,6 +805,34 @@ export default function WorkerMyDetailsPanel({
           >
             <div className={sectionClass}>
               <h3 className="text-sm font-semibold text-orange-600">Personal</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="First Name" htmlFor="personal-first-name">
+                  <input
+                    id="personal-first-name"
+                    className={inputClass}
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                </Field>
+                <Field label="Last Name" htmlFor="personal-last-name">
+                  <input
+                    id="personal-last-name"
+                    className={inputClass}
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <Field label="Email" htmlFor="personal-email">
+                <input
+                  id="personal-email"
+                  type="email"
+                  className={inputClass}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                />
+              </Field>
               <Field label="Phone Number" htmlFor="personal-phone">
                 <input
                   id="personal-phone"
