@@ -220,7 +220,9 @@ export default function AccountsTimesheetsTab({
   const [payRules, setPayRules] = useState<PayRateRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentPayWeek.startIso);
-  const [selectedStates, setSelectedStates] = useState<AccountsTimesheetStateFilter[]>([]);
+  const [selectedState, setSelectedState] = useState<AccountsTimesheetStateFilter | null>(
+    null
+  );
   const [projects, setProjects] = useState(() => getCachedProjects());
   const [detailTarget, setDetailTarget] = useState<AccountsTimesheetRow | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -295,15 +297,15 @@ export default function AccountsTimesheetsTab({
       isDateInPayWeek(row.work_date, selectedWeek.startIso, selectedWeek.endIso)
     );
 
-    if (selectedStates.length > 0) {
+    if (selectedState) {
       list = list.filter((row) => {
         const state = resolveTimesheetStateForFilter(row, projectById);
-        return state != null && selectedStates.includes(state);
+        return state === selectedState;
       });
     }
 
     return list;
-  }, [rows, leaveRequests, selectedWeek, selectedStates, projectById]);
+  }, [rows, leaveRequests, selectedWeek, selectedState, projectById]);
 
   const tableRows = useMemo<TimesheetTableRow[]>(
     () =>
@@ -376,12 +378,8 @@ export default function AccountsTimesheetsTab({
     );
   }, [selectableFilteredIds]);
 
-  const toggleState = (state: AccountsTimesheetStateFilter) => {
-    setSelectedStates((current) =>
-      current.includes(state)
-        ? current.filter((value) => value !== state)
-        : [...current, state]
-    );
+  const selectState = (state: AccountsTimesheetStateFilter | null) => {
+    setSelectedState(state);
   };
 
   const toggleTimesheetSelection = (timesheetId: string) => {
@@ -583,10 +581,10 @@ export default function AccountsTimesheetsTab({
           <div className="mt-1 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setSelectedStates([])}
+              onClick={() => selectState(null)}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
-                selectedStates.length === 0
+                selectedState === null
                   ? "bg-orange-100 text-orange-800 ring-orange-200"
                   : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
               )}
@@ -597,10 +595,10 @@ export default function AccountsTimesheetsTab({
               <button
                 key={state}
                 type="button"
-                onClick={() => toggleState(state)}
+                onClick={() => selectState(state)}
                 className={cn(
                   "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
-                  selectedStates.includes(state)
+                  selectedState === state
                     ? "bg-orange-100 text-orange-800 ring-orange-200"
                     : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
                 )}

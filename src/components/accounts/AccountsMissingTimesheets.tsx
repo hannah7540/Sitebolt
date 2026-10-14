@@ -308,18 +308,13 @@ export default function AccountsMissingTimesheets() {
                       />
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-900">{row.worker_name}</p>
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {row.worker_trade ? (
+                        {row.worker_trade ? (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                               {row.worker_trade}
                             </span>
-                          ) : null}
-                          {row.project_names[0] ? (
-                            <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
-                              {row.project_names[0]}
-                            </span>
-                          ) : null}
-                        </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </td>
