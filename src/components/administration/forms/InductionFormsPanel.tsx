@@ -253,7 +253,13 @@ export default function InductionFormsPanel({
 
   const openEdit = (form: InductionFormTemplate, event?: MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
-    router.push(`/admin/forms/inductions/${form.id}/edit`);
+    event?.stopPropagation();
+    const id = form.id?.trim();
+    if (!id) {
+      showError("Failed to load induction data. Missing form id.");
+      return;
+    }
+    router.push(`/admin/forms/inductions/${id}/edit`);
   };
 
   const handleDuplicate = async (form: InductionFormTemplate) => {

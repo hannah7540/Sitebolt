@@ -2336,49 +2336,88 @@ export function assignmentDueLabel(assignedAt: string): string {
 export async function fetchInductionFormById(
   formId: string
 ): Promise<{ form: InductionFormTemplate | null; error: string | null }> {
-  if (!formId.trim()) {
-    return { form: null, error: "Form id is required." };
+  const trimmedId = formId.trim();
+  if (!trimmedId) {
+    return { form: null, error: "Failed to load induction data. Missing form id." };
   }
 
+  const localMatch = () =>
+    readLocalForms().find((row) => row.id === trimmedId) ?? null;
+
   if (!isSupabaseConfigured()) {
+    const local = localMatch();
     return {
-      form: readLocalForms().find((row) => row.id === formId) ?? null,
-      error: null,
+      form: local,
+      error: local ? null : "Failed to load induction data.",
     };
   }
 
   const orgId = resolveInductionOrgId();
   if (!orgId) {
-    return { form: null, error: null };
-  }
-
-  let formQuery = supabase
-    .from(INDUCTION_FORM_TEMPLATES_TABLE)
-    .select("*")
-    .eq("id", formId);
-  formQuery = withOrganisationScope(formQuery, orgId);
-  const { data, error } = await formQuery.maybeSingle();
-
-  if (error) {
-    const local = readLocalForms().find((row) => row.id === formId) ?? null;
-    const queryError = isMissingTableError(error.message, INDUCTION_FORM_TEMPLATES_TABLE)
-      ? null
-      : formatInductionFormQueryError("load form from", error);
-    return { form: local, error: queryError };
-  }
-
-  if (!data) {
     return {
-      form: readLocalForms().find((row) => row.id === formId) ?? null,
-      error: null,
+      form: null,
+      error: "Failed to load induction data. No organisation is selected.",
     };
   }
 
-  if (!recordBelongsToOrganisationStrict(data, orgId)) {
-    return { form: null, error: null };
-  }
+  try {
+    let formQuery = supabase
+      .from(INDUCTION_FORM_TEMPLATES_TABLE)
+      .select("*")
+      .eq("id", trimmedId);
+    formQuery = withOrganisationScope(formQuery, orgId);
+    let { data, error } = await formQuery.maybeSingle();
 
-  return { form: normalizeForm(data as Record<string, unknown>), error: null };
+    if (error && isDemoOrganisationScopeBlocked(error.message, orgId)) {
+      return { form: null, error: "Failed to load induction data." };
+    }
+
+    if (error && isOrganisationColumnMissing(error.message)) {
+      const retry = await supabase
+        .from(INDUCTION_FORM_TEMPLATES_TABLE)
+        .select("*")
+        .eq("id", trimmedId)
+        .maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      const local = localMatch();
+      if (isMissingTableError(error.message, INDUCTION_FORM_TEMPLATES_TABLE)) {
+        return {
+          form: local,
+          error: local ? null : "Failed to load induction data.",
+        };
+      }
+      return {
+        form: local,
+        error: local
+          ? null
+          : formatInductionFormQueryError("load form from", error),
+      };
+    }
+
+    if (!data) {
+      const local = localMatch();
+      return {
+        form: local,
+        error: local ? null : "Failed to load induction data.",
+      };
+    }
+
+    if (!recordBelongsToOrganisationStrict(data, orgId)) {
+      return { form: null, error: "Failed to load induction data." };
+    }
+
+    return { form: normalizeForm(data as Record<string, unknown>), error: null };
+  } catch (cause) {
+    return {
+      form: null,
+      error:
+        cause instanceof Error ? cause.message : "Failed to load induction data.",
+    };
+  }
 }
 
 export function extractInductionSignatureUrl(
