@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Camera, FolderOpen, FileText, X, Loader2, ZoomIn } from "lucide-react";
-import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
+import { uploadWorkerDocument } from "@/lib/worker-doc-upload";
 import ImageLightboxGallery from "@/components/ui/ImageLightboxGallery";
 import { cn } from "@/lib/utils";
 import { labelClass } from "@/lib/ui-classes";
@@ -110,10 +110,13 @@ export default function DocumentCapture({
 
       if (uploadPath && onUploaded) {
         setUploading(true);
-        const url = await uploadWorkerDocumentSafe(selected, uploadPath);
+        const { url, error: storageError } = await uploadWorkerDocument(
+          selected,
+          uploadPath
+        );
         setUploading(false);
         if (!url) {
-          setUploadError("Upload failed. Please try again.");
+          setUploadError(storageError ?? "Upload failed. Please try again.");
           onUploaded(null);
         } else {
           onUploaded(url);
@@ -129,10 +132,13 @@ export default function DocumentCapture({
       setUploadError(null);
       if (uploadPathBack) {
         setUploadingBack(true);
-        const url = await uploadWorkerDocumentSafe(selected, uploadPathBack);
+        const { url, error: storageError } = await uploadWorkerDocument(
+          selected,
+          uploadPathBack
+        );
         setUploadingBack(false);
         if (!url) {
-          setUploadError("Back image upload failed. Please try again.");
+          setUploadError(storageError ?? "Back image upload failed. Please try again.");
           onUploadedBack(null);
         } else {
           onUploadedBack(url);

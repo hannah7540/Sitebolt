@@ -44,6 +44,31 @@ import TagMultiSelect from "@/components/workers/TagMultiSelect";
 
 type WizardPhase = "upload" | "fix" | "summary" | "done";
 
+function BulkTicketCapture({
+  label,
+  url,
+  uploadPath,
+  onUploaded,
+}: {
+  label: string;
+  url: string;
+  uploadPath: string;
+  onUploaded: (url: string) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  return (
+    <DocumentCapture
+      label={label}
+      file={file}
+      onFileChange={setFile}
+      existingUrl={url || null}
+      uploadedUrl={url || null}
+      uploadPath={uploadPath}
+      onUploaded={(next) => onUploaded(next ?? "")}
+    />
+  );
+}
+
 function vocsToDrafts(vocs: BulkOnboardingVoc[]): VocDraft[] {
   return vocs.map((voc) => ({
     clientId: voc.clientId,
@@ -487,16 +512,14 @@ export default function BulkOnboardingImporter() {
               </label>
             </div>
             <div className="mt-4">
-              <DocumentCapture
+              <BulkTicketCapture
+                key={`${currentWorker.rowIndex}-white-card`}
                 label="White Card Photo/Document"
-                file={null}
-                onFileChange={() => undefined}
-                uploadedUrl={currentWorker.white_card_doc_url || null}
-                existingUrl={currentWorker.white_card_doc_url || null}
-                uploadPath={`${uploadPrefix}/white-card`}
+                url={currentWorker.white_card_doc_url}
+                uploadPath={`${uploadPrefix}/white-card/0-white_card`}
                 onUploaded={(url) =>
                   patchCurrentWorker({
-                    white_card_doc_url: url ?? "",
+                    white_card_doc_url: url,
                     white_card_photo_url: "",
                   })
                 }
@@ -534,16 +557,14 @@ export default function BulkOnboardingImporter() {
               </label>
             </div>
             <div className="mt-4">
-              <DocumentCapture
+              <BulkTicketCapture
+                key={`${currentWorker.rowIndex}-silica-cert`}
                 label="Silica Certificate Photo/Document"
-                file={null}
-                onFileChange={() => undefined}
-                uploadedUrl={currentWorker.silica_cert_doc_url || null}
-                existingUrl={currentWorker.silica_cert_doc_url || null}
-                uploadPath={`${uploadPrefix}/silica-cert`}
+                url={currentWorker.silica_cert_doc_url}
+                uploadPath={`${uploadPrefix}/silica-cert/0-silica_cert`}
                 onUploaded={(url) =>
                   patchCurrentWorker({
-                    silica_cert_doc_url: url ?? "",
+                    silica_cert_doc_url: url,
                     silica_cert_photo_url: "",
                   })
                 }
@@ -591,15 +612,13 @@ export default function BulkOnboardingImporter() {
               </label>
             </div>
             <div className="mt-4">
-              <DocumentCapture
+              <BulkTicketCapture
+                key={`${currentWorker.rowIndex}-drivers-licence`}
                 label="Driver's Licence Photo/Document"
-                file={null}
-                onFileChange={() => undefined}
-                uploadedUrl={currentWorker.drivers_licence_photo_url || null}
-                existingUrl={currentWorker.drivers_licence_photo_url || null}
-                uploadPath={`${uploadPrefix}/drivers-licence`}
+                url={currentWorker.drivers_licence_photo_url}
+                uploadPath={`${uploadPrefix}/drivers-licence/0-drivers_licence`}
                 onUploaded={(url) =>
-                  patchCurrentWorker({ drivers_licence_photo_url: url ?? "" })
+                  patchCurrentWorker({ drivers_licence_photo_url: url })
                 }
               />
             </div>
