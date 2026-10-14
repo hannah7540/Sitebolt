@@ -19,11 +19,11 @@ import FormBuilderJsonEditor from "@/components/administration/forms/FormBuilder
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
 import type { DbProject } from "@/lib/project-resolver";
+import { saveInductionFormAction } from "@/app/actions/save-induction-form";
 import {
   createEmptyInductionBlock,
   resolveInductionFormBlocks,
   resolveInductionFormLogicRules,
-  saveInductionForm,
   type InductionFormBlock,
   type InductionFormBlockType,
   type InductionFormLogicRule,
@@ -330,7 +330,7 @@ export default function FormBuilder({
           ? projects.find((project) => project.id === projectId)?.name ?? null
           : null;
 
-      const result = await saveInductionForm({
+      const result = await saveInductionFormAction({
         id: persistedFormId ?? initialForm?.id,
         title,
         description,

@@ -1155,6 +1155,8 @@ export type InductionFormSaveInput = {
   project_name?: string | null;
   company_logo_url?: string | null;
   is_active?: boolean;
+  /** Ignored on write. Organisation is always taken from the active workspace. */
+  organisation_id?: string | null;
 };
 
 const OPTIONAL_INDUCTION_FORM_DB_COLUMNS = [
@@ -1200,11 +1202,13 @@ export function formatInductionFormSaveError(
 /** Build a whitelisted Supabase payload with blocks/schema_fields kept in sync. */
 export function sanitizeInductionFormSavePayload(
   input: InductionFormSaveInput,
-  options?: { updatedAt?: string }
+  options?: { updatedAt?: string; organisationId?: string | null }
 ): Record<string, unknown> {
   const now = options?.updatedAt ?? new Date().toISOString();
   const formBlocks = sanitizeInductionFormBlocks(resolveInductionFormBlocks(input));
   const logicRules = resolveInductionFormLogicRules(input);
+  const organisationId =
+    options?.organisationId?.trim() || resolveActiveOrganisationId();
 
   const payload = omitUndefinedEntries(
     pickSaveColumns({
@@ -1223,6 +1227,7 @@ export function sanitizeInductionFormSavePayload(
       status: input.status,
       is_active: input.is_active ?? input.status === "active",
       updated_at: now,
+      organisation_id: organisationId,
     })
   );
 
@@ -1238,7 +1243,7 @@ export function sanitizeInductionFormSavePayload(
   payload.copied_from_id = input.copied_from_id ?? null;
   payload.updated_at = now;
 
-  return stampOrganisationId(payload);
+  return stampOrganisationId(payload, organisationId);
 }
 
 export function formatInductionFormQueryError(
@@ -1426,7 +1431,7 @@ export function resolveInductionFormLogicRules(
   }
 }
 
-function normalizeForm(row: Record<string, unknown>): InductionFormTemplate {
+export function normalizeForm(row: Record<string, unknown>): InductionFormTemplate {
   const blocks = resolveInductionFormBlocks(row);
   const logic_rules = resolveInductionFormLogicRules(row);
 
@@ -1606,17 +1611,22 @@ export async function saveInductionForm(
       data: Record<string, unknown> | null;
       error: { message: string } | null;
     }> {
-      let current: Record<string, unknown> = { ...savePayload };
+      const orgId = resolveInductionOrgId();
+      if (!orgId) {
+        return {
+          data: null,
+          error: { message: "Active organisation is required." },
+        };
+      }
+
+      let current: Record<string, unknown> = {
+        ...savePayload,
+        organisation_id: orgId,
+      };
 
       for (let attempt = 0; attempt <= OPTIONAL_INDUCTION_FORM_DB_COLUMNS.length; attempt++) {
         try {
-          const orgId = resolveInductionOrgId();
-          if (!orgId) {
-            return {
-              data: null,
-              error: { message: "Active organisation is required." },
-            };
-          }
+          current.organisation_id = orgId;
 
           const result = input.id
             ? await withOrganisationScope(
@@ -1630,7 +1640,7 @@ export async function saveInductionForm(
                 .single()
             : await supabase
                 .from(INDUCTION_FORM_TEMPLATES_TABLE)
-                .insert([current])
+                .insert([{ ...current, organisation_id: orgId }])
                 .select("*")
                 .single();
 

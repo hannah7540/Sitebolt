@@ -14,9 +14,9 @@ import {
 } from "lucide-react";
 import type { DbProject } from "@/lib/project-resolver";
 import type { Worker } from "@/lib/supabase";
+import { duplicateInductionFormAction } from "@/app/actions/save-induction-form";
 import {
   deleteInductionForm,
-  duplicateInductionForm,
   fetchAllFormWorkerAssignments,
   fetchInductionForms,
   filterInductionForms,
@@ -266,7 +266,7 @@ export default function InductionFormsPanel({
     setActionId(form.id);
     setSuccessMessage(null);
     try {
-      const result = await duplicateInductionForm(form.id);
+      const result = await duplicateInductionFormAction(form.id);
       if (result.error || !result.form) {
         const message = result.error ?? "Duplicate failed.";
         setActionError(message);
