@@ -91,17 +91,16 @@ const DATE_FIELDS = new Set<BulkOnboardingFieldKey>([
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function emptyComplianceFields(): Record<BulkOnboardingComplianceKey, string> {
-  return {
-    white_card_number: "",
-    white_card_issue_date: "",
-    silica_cert_number: "",
-    silica_cert_issue_date: "",
-    drivers_licence_number: "",
-    drivers_licence_class: "",
-    drivers_licence_expiry: "",
-  };
-}
+const ALL_WORKER_FIELD_KEYS: readonly BulkOnboardingFieldKey[] = [
+  ...BULK_ONBOARDING_CSV_HEADERS,
+  ...BULK_ONBOARDING_COMPLIANCE_KEYS,
+];
+
+export const defaultWorkerTemplate: Record<BulkOnboardingFieldKey, string> =
+  Object.fromEntries(ALL_WORKER_FIELD_KEYS.map((key) => [key, ""])) as Record<
+    BulkOnboardingFieldKey,
+    string
+  >;
 
 function trimCell(value: unknown): string {
   if (value == null) return "";
@@ -241,14 +240,17 @@ function mapRowToWorker(
   row: Record<string, unknown>,
   rowIndex: number
 ): BulkOnboardingWorker {
-  const csvFields = Object.fromEntries(
-    BULK_ONBOARDING_CSV_HEADERS.map((key) => [key, trimCell(row[key])])
-  ) as Record<BulkOnboardingCsvKey, string>;
+  const parsedRow = Object.fromEntries(
+    ALL_WORKER_FIELD_KEYS.filter((key) => key in row).map((key) => [
+      key,
+      trimCell(row[key]),
+    ])
+  );
 
   return {
     rowIndex,
-    ...csvFields,
-    ...emptyComplianceFields(),
+    ...defaultWorkerTemplate,
+    ...parsedRow,
   };
 }
 
@@ -272,20 +274,20 @@ export function parseBulkOnboardingCsv(csvText: string): {
   const headers = (parsed.meta.fields ?? []).map((header) =>
     header.replace(/^\uFEFF/, "").trim().toLowerCase()
   );
-  const missing = BULK_ONBOARDING_CSV_HEADERS.filter(
-    (header) => !headers.includes(header)
-  );
-  if (missing.length > 0) {
+  if (!headers.includes("first_name") && !headers.includes("last_name")) {
     return {
       workers: [],
-      error: `CSV is missing required headers: ${missing.join(", ")}.`,
+      error: "CSV must include at least a first_name or last_name column.",
     };
   }
 
   const workers = parsed.data
     .map((row, index) => mapRowToWorker(row ?? {}, index + 2))
-    .filter((worker) =>
-      BULK_ONBOARDING_CSV_HEADERS.some((key) => worker[key].trim())
+    .filter(
+      (worker) =>
+        worker.first_name.trim() ||
+        worker.last_name.trim() ||
+        ALL_WORKER_FIELD_KEYS.some((key) => worker[key].trim())
     );
 
   if (workers.length === 0) {

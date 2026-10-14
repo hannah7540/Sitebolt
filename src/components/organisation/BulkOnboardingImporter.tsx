@@ -212,7 +212,8 @@ export default function BulkOnboardingImporter() {
               Drag and drop a CSV here, or click to browse
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Headers must be exactly: {BULK_ONBOARDING_CSV_HEADERS.join(", ")}
+              Include a first_name or last_name column. Missing columns are filled in the wizard.
+              Supported headers: {BULK_ONBOARDING_CSV_HEADERS.join(", ")}
             </p>
             <input
               ref={fileInputRef}
