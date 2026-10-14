@@ -102,6 +102,15 @@ export const defaultWorkerTemplate: Record<BulkOnboardingFieldKey, string> =
     string
   >;
 
+/** Strip spaces, underscores, dashes, and BOM so "First Name" and "first_name" both become `firstname`. */
+export function sanitizeCsvHeader(header: string): string {
+  return header.replace(/[\s_\-\uFEFF]/g, "").toLowerCase();
+}
+
+const SANITIZED_HEADER_TO_SCHEMA = Object.fromEntries(
+  ALL_WORKER_FIELD_KEYS.map((key) => [sanitizeCsvHeader(key), key])
+) as Record<string, BulkOnboardingFieldKey>;
+
 function trimCell(value: unknown): string {
   if (value == null) return "";
   return String(value).replace(/^\uFEFF/, "").trim();
@@ -240,17 +249,23 @@ function mapRowToWorker(
   row: Record<string, unknown>,
   rowIndex: number
 ): BulkOnboardingWorker {
-  const parsedRow = Object.fromEntries(
-    ALL_WORKER_FIELD_KEYS.filter((key) => key in row).map((key) => [
-      key,
-      trimCell(row[key]),
-    ])
-  );
+  const overlay: Partial<Record<BulkOnboardingFieldKey, string>> = {};
+
+  for (const schemaKey of ALL_WORKER_FIELD_KEYS) {
+    const sanitizedKey = sanitizeCsvHeader(schemaKey);
+    overlay[schemaKey] = trimCell(row[sanitizedKey] ?? row[schemaKey] ?? "");
+  }
+
+  for (const [rawKey, value] of Object.entries(row)) {
+    const schemaKey = SANITIZED_HEADER_TO_SCHEMA[sanitizeCsvHeader(rawKey)];
+    if (!schemaKey || overlay[schemaKey]) continue;
+    overlay[schemaKey] = trimCell(value);
+  }
 
   return {
     rowIndex,
     ...defaultWorkerTemplate,
-    ...parsedRow,
+    ...overlay,
   };
 }
 
@@ -261,7 +276,7 @@ export function parseBulkOnboardingCsv(csvText: string): {
   const parsed = Papa.parse<Record<string, unknown>>(csvText, {
     header: true,
     skipEmptyLines: "greedy",
-    transformHeader: (header) => header.replace(/^\uFEFF/, "").trim().toLowerCase(),
+    transformHeader: (header) => sanitizeCsvHeader(header),
   });
 
   if (parsed.errors.length > 0 && !parsed.data.length) {
@@ -272,12 +287,12 @@ export function parseBulkOnboardingCsv(csvText: string): {
   }
 
   const headers = (parsed.meta.fields ?? []).map((header) =>
-    header.replace(/^\uFEFF/, "").trim().toLowerCase()
+    sanitizeCsvHeader(header)
   );
-  if (!headers.includes("first_name") && !headers.includes("last_name")) {
+  if (!headers.includes("firstname") || !headers.includes("lastname")) {
     return {
       workers: [],
-      error: "CSV must include at least a first_name or last_name column.",
+      error: "CSV must include first name and last name columns.",
     };
   }
 
