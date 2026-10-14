@@ -48,6 +48,10 @@ import {
   isNonCompliant,
 } from "@/lib/worker-compliance";
 import { isCompanyEmployeeWorker } from "@/lib/worker-utils";
+import {
+  ACTIVE_WORKERS_EXCLUDED_EMAILS,
+  isExcludedAccountEmail,
+} from "@/lib/operational-account-exclusions";
 import { groupVocsByWorker } from "@/lib/voc-utils";
 import WorkerOnboardingModal from "./WorkerOnboardingModal";
 import WorkerProfileView from "./WorkerProfileView";
@@ -313,7 +317,12 @@ export default function WorkerDirectoryPanel({
 
       if (workerTab === "Deleted") return deleted;
       if (workerTab === "Revoked") return revoked;
-      if (workerTab === "Current") return !deleted && !revoked;
+      if (workerTab === "Current") {
+        if (isExcludedAccountEmail(w.email, ACTIVE_WORKERS_EXCLUDED_EMAILS)) {
+          return false;
+        }
+        return !deleted && !revoked;
+      }
       return true;
     });
   }, [workerList, workerTab]);

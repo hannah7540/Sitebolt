@@ -37,6 +37,10 @@ import {
   withOrganisationScope,
 } from "./tenant-scope";
 import { setActiveOrganisationId } from "./active-organisation";
+import {
+  isExcludedAccountEmail,
+  toSupabaseEmailInFilter,
+} from "./operational-account-exclusions";
 import { fetchSessionWorkerRecord } from "./fetch-session-worker";
 import { formatDateOnly } from "./scheduler-utils";
 import { calculateTimesheetHours, normalizeTimesheetStatus } from "./timesheet-utils";
@@ -544,6 +548,7 @@ async function queryWorkerRows(options?: {
   includeDeleted?: boolean;
   onlyDeleted?: boolean;
   skipOrganisationScope?: boolean;
+  excludeEmails?: readonly string[];
 }): Promise<Worker[]> {
   const orgId = resolveActiveOrganisationId();
   const identityOnly = options?.skipOrganisationScope === true;
@@ -557,6 +562,7 @@ async function queryWorkerRows(options?: {
   );
   const onlyDeleted = options?.onlyDeleted === true;
   let skipOrganisationScope = options?.skipOrganisationScope === true;
+  let skipEmailExclude = false;
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const select = columns.join(", ");
@@ -628,6 +634,13 @@ async function queryWorkerRows(options?: {
         if (options?.limit) {
           query = query.limit(options.limit);
         }
+        if (
+          !skipEmailExclude &&
+          options?.excludeEmails &&
+          options.excludeEmails.length > 0
+        ) {
+          query = query.not("email", "in", toSupabaseEmailInFilter(options.excludeEmails));
+        }
 
         const { data, error } = await query;
 
@@ -646,6 +659,16 @@ async function queryWorkerRows(options?: {
 
         if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
           skipOrganisationScope = true;
+          continue;
+        }
+
+        if (
+          !skipEmailExclude &&
+          options?.excludeEmails &&
+          options.excludeEmails.length > 0 &&
+          error.message.toLowerCase().includes("email")
+        ) {
+          skipEmailExclude = true;
           continue;
         }
 
@@ -706,8 +729,10 @@ function formatWorkerFetchError(message: string): string {
   return message || "Failed to load workers. Please try again.";
 }
 
-async function fetchWorkerRows(): Promise<Worker[]> {
-  return queryWorkerRows();
+async function fetchWorkerRows(options?: {
+  excludeEmails?: readonly string[];
+}): Promise<Worker[]> {
+  return queryWorkerRows(options);
 }
 
 async function fetchWorkerRowById(id: string): Promise<Worker | null> {
@@ -1661,10 +1686,18 @@ export interface PlantPrestart {
   fleet_unit_number?: string | null;
 }
 
-export async function fetchWorkers(): Promise<Worker[]> {
+export async function fetchWorkers(options?: {
+  excludeEmails?: readonly string[];
+}): Promise<Worker[]> {
   if (!isSupabaseConfigured()) return [];
-  const rows = await fetchWorkerRows();
-  return rows.filter((worker) => !isWorkerDeleted(worker));
+  const rows = await fetchWorkerRows({ excludeEmails: options?.excludeEmails });
+  return rows
+    .filter((worker) => !isWorkerDeleted(worker))
+    .filter(
+      (worker) =>
+        !options?.excludeEmails?.length ||
+        !isExcludedAccountEmail(worker.email, options.excludeEmails)
+    );
 }
 
 /** All workers for Security Settings / reports — surfaces fetch errors. */

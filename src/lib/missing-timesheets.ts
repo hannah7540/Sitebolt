@@ -19,6 +19,10 @@ import {
   type PayWeekWorkingDay,
 } from "./pay-week-utils";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
+import {
+  isExcludedAccountEmail,
+  MISSING_TIMESHEET_EXCLUDED_EMAILS,
+} from "./operational-account-exclusions";
 
 export const MISSING_TIMESHEET_STATE_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
 export type MissingTimesheetState = (typeof MISSING_TIMESHEET_STATE_OPTIONS)[number];
@@ -77,6 +81,9 @@ export function isActiveTimesheetWorker(worker: Worker | null | undefined): bool
   if (isWorkerRevoked(worker)) return false;
   if (worker.is_archived === true) return false;
   if (String(worker.worker_category ?? "").trim().toLowerCase() === "hired_labour") {
+    return false;
+  }
+  if (isExcludedAccountEmail(worker.email, MISSING_TIMESHEET_EXCLUDED_EMAILS)) {
     return false;
   }
   return true;
@@ -222,7 +229,7 @@ export async function fetchMissingTimesheetSearch(options: {
 
   try {
     const [workers, assignments, timesheets] = await Promise.all([
-      fetchWorkers(),
+      fetchWorkers({ excludeEmails: MISSING_TIMESHEET_EXCLUDED_EMAILS }),
       fetchProjectWorkerAssignments(),
       fetchTimesheetsForPayWeek(week.startIso, week.endIso),
     ]);
