@@ -16,6 +16,7 @@ import WorkerProfileAvatar from "@/components/ui/WorkerProfileAvatar";
 import { useFormToast } from "@/hooks/useFormToast";
 import {
   fetchMissingTimesheetSearch,
+  MISSING_TIMESHEET_STATE_OPTIONS,
   type MissingTimesheetWorkerRow,
 } from "@/lib/missing-timesheets";
 import {
@@ -25,7 +26,6 @@ import {
   resolvePayWeekOption,
   shiftPayWeekStart,
 } from "@/lib/pay-week-utils";
-import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -47,8 +47,7 @@ export default function AccountsMissingTimesheets() {
     selectedWeek.endIso
   );
 
-  const [projects, setProjects] = useState<DbProject[]>(() => getCachedProjects());
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedState, setSelectedState] = useState<string>("");
   const [completenessFilter, setCompletenessFilter] =
     useState<CompletenessFilter>("missing");
   const [rows, setRows] = useState<MissingTimesheetWorkerRow[]>([]);
@@ -57,21 +56,17 @@ export default function AccountsMissingTimesheets() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
-  useEffect(() => {
-    void fetchProjects().then((loaded) => setProjects(loaded ?? []));
-  }, []);
-
   const loadRows = useCallback(async () => {
     setLoading(true);
     setError(null);
     const result = await fetchMissingTimesheetSearch({
       weekStartIso: selectedWeek.startIso,
-      projectIds: selectedProjectIds,
+      state: selectedState || null,
     });
     setRows(result.rows ?? []);
     setError(result.error);
     setLoading(false);
-  }, [selectedProjectIds, selectedWeek.startIso]);
+  }, [selectedState, selectedWeek.startIso]);
 
   useEffect(() => {
     void loadRows();
@@ -91,14 +86,6 @@ export default function AccountsMissingTimesheets() {
 
   const goToNextPayWeek = () => {
     setSelectedWeekStart(shiftPayWeekStart(selectedWeek.startIso, 1));
-  };
-
-  const toggleProject = (projectId: string) => {
-    setSelectedProjectIds((current) =>
-      current.includes(projectId)
-        ? current.filter((id) => id !== projectId)
-        : [...current, projectId]
-    );
   };
 
   const handleSendReminder = async (row: MissingTimesheetWorkerRow) => {
@@ -226,30 +213,22 @@ export default function AccountsMissingTimesheets() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
-            <p className={labelClass}>Projects</p>
-            <div className="mt-1 max-h-44 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={selectedProjectIds.length === 0}
-                  onChange={() => setSelectedProjectIds([])}
-                />
-                All active projects
-              </label>
-              {(projects ?? []).map((project) => (
-                <label
-                  key={project.id}
-                  className="flex items-center gap-2 text-sm text-slate-700"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedProjectIds.includes(project.id)}
-                    onChange={() => toggleProject(project.id)}
-                  />
-                  <span className="truncate">{project.name}</span>
-                </label>
+            <label htmlFor="missing-timesheet-state" className={labelClass}>
+              State
+            </label>
+            <select
+              id="missing-timesheet-state"
+              value={selectedState}
+              onChange={(event) => setSelectedState(event.target.value)}
+              className={inputClass}
+            >
+              <option value="">All States</option>
+              {MISSING_TIMESHEET_STATE_OPTIONS.map((state) => (
+                <option key={state} value={state}>
+                  {state}
+                </option>
               ))}
-            </div>
+            </select>
           </div>
 
           <div>
@@ -335,14 +314,11 @@ export default function AccountsMissingTimesheets() {
                               {row.worker_trade}
                             </span>
                           ) : null}
-                          {(row.project_names ?? []).slice(0, 2).map((name) => (
-                            <span
-                              key={name}
-                              className="rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700"
-                            >
-                              {name}
+                          {row.project_names[0] ? (
+                            <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
+                              {row.project_names[0]}
                             </span>
-                          ))}
+                          ) : null}
                         </div>
                       </div>
                     </div>

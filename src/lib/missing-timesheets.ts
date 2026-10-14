@@ -1,17 +1,16 @@
 import {
   fetchWorkers,
-  getWorkerAssignedProjectIds,
   isSupabaseConfigured,
   isWorkerRevoked,
   supabase,
   type Worker,
 } from "./supabase";
 import {
-  fetchProjects,
-  getProjectDisplayName,
-  handleSupabaseNetworkFetchError,
-  type DbProject,
-} from "./project-resolver";
+  fetchProjectWorkerAssignments,
+  type ProjectWorkerAssignment,
+} from "./project-assignments";
+import { getProjectDisplayName, handleSupabaseNetworkFetchError } from "./project-resolver";
+import { formatDateOnly } from "./scheduler-utils";
 import { getWorkerDisplayName } from "./worker-utils";
 import { normalizeTimesheetStatus, toTimesheetDateKey } from "./timesheet-utils";
 import {
@@ -19,6 +18,10 @@ import {
   resolvePayWeekOption,
   type PayWeekWorkingDay,
 } from "./pay-week-utils";
+import { normalizeWorkerStateRegion } from "./worker-state-region";
+
+export const MISSING_TIMESHEET_STATE_OPTIONS = ["ACT", "NSW", "WA", "NZ"] as const;
+export type MissingTimesheetState = (typeof MISSING_TIMESHEET_STATE_OPTIONS)[number];
 
 export type MissingTimesheetDayStatus = "submitted" | "missing";
 
@@ -79,47 +82,49 @@ export function isActiveTimesheetWorker(worker: Worker | null | undefined): bool
   return true;
 }
 
-export function workerMatchesProjectFilter(
+export function workerMatchesStateFilter(
   worker: Worker,
-  selectedProjectIds: string[],
-  projects: DbProject[]
+  selectedState: string | null | undefined
 ): boolean {
-  const assigned = new Set(getWorkerAssignedProjectIds(worker));
-  if (selectedProjectIds.length === 0) {
-    return (
-      assigned.size > 0 ||
-      projects.some((project) =>
-        (project.assigned_workers ?? []).includes(worker.id)
-      )
-    );
-  }
-
-  return selectedProjectIds.some((projectId) => {
-    if (assigned.has(projectId)) return true;
-    const project = projects.find((row) => row.id === projectId);
-    return Boolean(project?.assigned_workers?.includes(worker.id));
-  });
+  if (!selectedState) return true;
+  return normalizeWorkerStateRegion(worker.state) === selectedState;
 }
 
-export function resolveWorkerProjectLabels(
-  worker: Worker,
-  selectedProjectIds: string[],
-  projects: DbProject[]
-): { projectIds: string[]; projectNames: string[] } {
-  const assigned = getWorkerAssignedProjectIds(worker);
-  const fromProjectLists = (projects ?? [])
-    .filter((project) => (project.assigned_workers ?? []).includes(worker.id))
-    .map((project) => project.id);
-  const allIds = [...new Set([...assigned, ...fromProjectLists].filter(Boolean))];
-  const scoped =
-    selectedProjectIds.length > 0
-      ? allIds.filter((id) => selectedProjectIds.includes(id))
-      : allIds;
+/** Current permanent assignment: already started and still open-ended. */
+export function isCurrentOpenProjectAssignment(
+  row: ProjectWorkerAssignment,
+  onDate: string = formatDateOnly(new Date())
+): boolean {
+  if (row.status === "Transferred" || row.status === "Unassigned") return false;
+  const start = formatDateOnly(row.start_date);
+  const end = formatDateOnly(row.end_date);
+  if (end) return false;
+  if (start && start > onDate) return false;
+  return true;
+}
 
-  return {
-    projectIds: scoped,
-    projectNames: scoped.map((id) => getProjectDisplayName(id) || id),
-  };
+export function resolveCurrentActiveProject(
+  worker: Worker,
+  assignments: ProjectWorkerAssignment[]
+): { projectId: string | null; projectName: string | null } {
+  const today = formatDateOnly(new Date());
+  const open = assignments
+    .filter((row) => row.worker_id === worker.id && isCurrentOpenProjectAssignment(row, today))
+    .sort((left, right) =>
+      formatDateOnly(right.start_date).localeCompare(formatDateOnly(left.start_date))
+    );
+
+  const current = open[0];
+  if (!current?.project_id) {
+    return { projectId: null, projectName: null };
+  }
+
+  const name =
+    current.project_name?.trim() ||
+    getProjectDisplayName(current.project_id) ||
+    current.project_id;
+
+  return { projectId: current.project_id, projectName: name };
 }
 
 export function buildMissingTimesheetReminderMessage(
@@ -133,14 +138,9 @@ export function buildMissingTimesheetRow(
   worker: Worker,
   workingDays: PayWeekWorkingDay[],
   submittedDates: Set<string>,
-  selectedProjectIds: string[],
-  projects: DbProject[]
+  assignments: ProjectWorkerAssignment[]
 ): MissingTimesheetWorkerRow {
-  const { projectIds, projectNames } = resolveWorkerProjectLabels(
-    worker,
-    selectedProjectIds,
-    projects
-  );
+  const { projectId, projectName } = resolveCurrentActiveProject(worker, assignments);
   const days: MissingTimesheetDayCell[] = (workingDays ?? []).map((day) => {
     const submitted = submittedDates.has(day.iso);
     return {
@@ -157,8 +157,8 @@ export function buildMissingTimesheetRow(
     worker_name: getWorkerDisplayName(worker, "Unknown worker"),
     worker_trade: worker.trade?.trim() || worker.worker_type?.trim() || null,
     photo_url: worker.photo_url ?? null,
-    project_ids: projectIds,
-    project_names: projectNames,
+    project_ids: projectId ? [projectId] : [],
+    project_names: projectName ? [projectName] : [],
     days,
     missing_days: missing.map((day) => day.iso),
     missing_day_names: missing.map((day) => day.fullLabel),
@@ -209,7 +209,7 @@ async function fetchTimesheetsForPayWeek(
 
 export async function fetchMissingTimesheetSearch(options: {
   weekStartIso: string;
-  projectIds?: string[] | null;
+  state?: string | null;
 }): Promise<{
   rows: MissingTimesheetWorkerRow[];
   workingDays: PayWeekWorkingDay[];
@@ -218,12 +218,12 @@ export async function fetchMissingTimesheetSearch(options: {
 }> {
   const week = resolvePayWeekOption(options.weekStartIso);
   const workingDays = getPayWeekWorkingDays(week.startIso);
-  const selectedProjectIds = (options.projectIds ?? []).map((id) => id.trim()).filter(Boolean);
+  const selectedState = normalizeWorkerStateRegion(options.state);
 
   try {
-    const [workers, projects, timesheets] = await Promise.all([
+    const [workers, assignments, timesheets] = await Promise.all([
       fetchWorkers(),
-      fetchProjects(),
+      fetchProjectWorkerAssignments(),
       fetchTimesheetsForPayWeek(week.startIso, week.endIso),
     ]);
 
@@ -237,14 +237,13 @@ export async function fetchMissingTimesheetSearch(options: {
 
     const rows = (workers ?? [])
       .filter((worker) => isActiveTimesheetWorker(worker))
-      .filter((worker) => workerMatchesProjectFilter(worker, selectedProjectIds, projects ?? []))
+      .filter((worker) => workerMatchesStateFilter(worker, selectedState))
       .map((worker) =>
         buildMissingTimesheetRow(
           worker,
           workingDays,
           submittedByWorker.get(worker.id) ?? new Set<string>(),
-          selectedProjectIds,
-          projects ?? []
+          assignments ?? []
         )
       )
       .sort((left, right) => left.worker_name.localeCompare(right.worker_name));
