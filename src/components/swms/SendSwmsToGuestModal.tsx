@@ -12,26 +12,31 @@ import {
 } from "@/lib/ui-classes";
 
 interface SendSwmsToGuestModalProps {
-  swmsId: string;
-  swmsTitle: string;
+  items: Array<{ id: string; title: string }>;
   onClose: () => void;
-  onSent?: () => void;
+  onSent?: (count: number) => void;
 }
 
 export default function SendSwmsToGuestModal({
-  swmsId,
-  swmsTitle,
+  items,
   onClose,
   onSent,
 }: SendSwmsToGuestModalProps) {
   const [email, setEmail] = useState("");
+  const [guestName, setGuestName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const count = items.length;
+  const countLabel = `${count} SWMS`;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (count === 0) {
+      setError("Select at least one SWMS.");
+      return;
+    }
     if (!isValidGuestEmail(email)) {
       setError("Enter a valid email address.");
       return;
@@ -39,9 +44,9 @@ export default function SendSwmsToGuestModal({
 
     setSaving(true);
     const result = await assignSwmsToGuest({
-      swmsId,
-      swmsTitle,
+      swmsIds: items.map((item) => item.id),
       guestEmail: email,
+      guestName,
     });
     setSaving(false);
 
@@ -50,8 +55,11 @@ export default function SendSwmsToGuestModal({
       return;
     }
 
-    setSuccess(`SWMS sent to ${email.trim().toLowerCase()}.`);
-    onSent?.();
+    const assigned = result.assignedCount || count;
+    setSuccess(
+      `${assigned} SWMS sent to ${email.trim().toLowerCase()}.`
+    );
+    onSent?.(assigned);
   };
 
   return (
@@ -64,8 +72,7 @@ export default function SendSwmsToGuestModal({
           <div>
             <h2 className="text-lg font-bold text-slate-900">Send to Guest</h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              Email a signing link for “{swmsTitle}” to someone without a SiteBolt
-              account.
+              Sending {countLabel} to a guest without a SiteBolt account.
             </p>
           </div>
           <button
@@ -93,6 +100,22 @@ export default function SendSwmsToGuestModal({
           </div>
         ) : (
           <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+            <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-900">
+              Sending {countLabel} to guest
+            </p>
+
+            {count > 1 ? (
+              <ul className="max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {items.map((item) => (
+                  <li key={item.id} className="truncate py-0.5">
+                    {item.title}
+                  </li>
+                ))}
+              </ul>
+            ) : count === 1 ? (
+              <p className="text-sm text-slate-600">{items[0].title}</p>
+            ) : null}
+
             <label className="block space-y-1">
               <span className={labelClass}>Guest email</span>
               <input
@@ -103,6 +126,18 @@ export default function SendSwmsToGuestModal({
                 placeholder="guest@example.com"
                 autoComplete="email"
                 required
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className={labelClass}>Guest name (optional)</span>
+              <input
+                type="text"
+                className={inputClass}
+                value={guestName}
+                onChange={(event) => setGuestName(event.target.value)}
+                placeholder="Full name"
+                autoComplete="name"
               />
             </label>
 
@@ -123,7 +158,7 @@ export default function SendSwmsToGuestModal({
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || count === 0}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

@@ -113,17 +113,25 @@ async function loadSwmsMeta(
 }
 
 export async function assignSwmsToGuest(input: {
-  swmsId: string;
-  swmsTitle?: string;
+  swmsIds: string[];
   guestEmail: string;
-}): Promise<{ error: string | null }> {
-  const swmsId = input.swmsId.trim();
+  guestName?: string;
+}): Promise<{ error: string | null; assignedCount: number }> {
+  const swmsIds = [
+    ...new Set(
+      (input.swmsIds ?? [])
+        .map((id) => id.trim())
+        .filter((id) => UUID_RE.test(id))
+    ),
+  ];
   const guestEmail = normalizeGuestEmail(input.guestEmail);
-  if (!UUID_RE.test(swmsId)) {
-    return { error: "A valid SWMS is required." };
+  const guestName = input.guestName?.trim() || null;
+
+  if (swmsIds.length === 0) {
+    return { error: "Select at least one SWMS.", assignedCount: 0 };
   }
   if (!isValidGuestEmail(guestEmail)) {
-    return { error: "Enter a valid guest email address." };
+    return { error: "Enter a valid guest email address.", assignedCount: 0 };
   }
 
   const server = await createSupabaseServerClient();
@@ -132,7 +140,7 @@ export async function assignSwmsToGuest(input: {
     error: authError,
   } = await server.auth.getUser();
   if (authError || !user) {
-    return { error: "You must be signed in to send a SWMS to a guest." };
+    return { error: "You must be signed in to send a SWMS to a guest.", assignedCount: 0 };
   }
 
   let admin;
@@ -141,51 +149,52 @@ export async function assignSwmsToGuest(input: {
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Server database access is not configured.",
+      assignedCount: 0,
     };
   }
 
   const assignedBy = await resolveAssignedByWorkerId(admin, user);
   if (!assignedBy.workerId) {
-    return { error: assignedBy.error ?? "Worker profile not found for this account." };
+    return {
+      error: assignedBy.error ?? "Worker profile not found for this account.",
+      assignedCount: 0,
+    };
   }
 
   const existingPending = await admin
     .from(SWMS_GUEST_ASSIGNMENTS_TABLE)
-    .select("id")
-    .eq("swms_id", swmsId)
+    .select("swms_id")
+    .in("swms_id", swmsIds)
     .ilike("guest_email", guestEmail)
-    .eq("status", "pending")
-    .limit(1);
+    .eq("status", "pending");
 
   if (existingPending.error) {
-    return { error: existingPending.error.message };
+    return { error: existingPending.error.message, assignedCount: 0 };
   }
 
-  if (!existingPending.data?.[0]?.id) {
-    const { data, error } = await admin
-      .from(SWMS_GUEST_ASSIGNMENTS_TABLE)
-      .insert({
-        swms_id: swmsId,
-        guest_email: guestEmail,
-        status: "pending",
-        assigned_by: assignedBy.workerId,
-      })
-      .select("id")
-      .maybeSingle();
+  const alreadyPending = new Set(
+    (existingPending.data ?? []).map((row) => String((row as { swms_id?: string }).swms_id ?? ""))
+  );
+  const toInsert = swmsIds.filter((id) => !alreadyPending.has(id));
 
+  if (toInsert.length > 0) {
+    const rows = toInsert.map((swmsId) => ({
+      swms_id: swmsId,
+      guest_email: guestEmail,
+      ...(guestName ? { guest_name: guestName } : {}),
+      status: "pending" as const,
+      assigned_by: assignedBy.workerId,
+    }));
+    const { error } = await admin.from(SWMS_GUEST_ASSIGNMENTS_TABLE).insert(rows);
     if (error) {
-      return { error: error.message };
-    }
-    if (!data?.id) {
-      return { error: "Failed to create guest SWMS assignment." };
+      return { error: error.message, assignedCount: 0 };
     }
   }
 
-  const meta = await loadSwmsMeta(admin, [swmsId]);
-  const swmsTitle =
-    input.swmsTitle?.trim() || meta.get(swmsId)?.title || "SWMS";
+  const meta = await loadSwmsMeta(admin, swmsIds);
+  const swmsTitles = swmsIds.map((id) => meta.get(id)?.title || "SWMS");
   const portalUrl = buildGuestSwmsPortalUrl(getSiteUrl());
-  const email = buildGuestSwmsInviteEmail({ swmsTitle, portalUrl });
+  const email = buildGuestSwmsInviteEmail({ swmsTitles, portalUrl });
   const sent = await sendEmail({
     to: [guestEmail],
     subject: email.subject,
@@ -196,11 +205,12 @@ export async function assignSwmsToGuest(input: {
   if (!sent.sent && sent.error && !sent.simulated) {
     return {
       error: `Assignment saved, but the email could not be sent: ${sent.error}`,
+      assignedCount: swmsIds.length,
     };
   }
 
   revalidatePath("/admin/swms");
-  return { error: null };
+  return { error: null, assignedCount: swmsIds.length };
 }
 
 export async function lookupPendingGuestSwms(

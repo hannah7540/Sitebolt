@@ -76,7 +76,8 @@ export default function ProjectSwmsPanel({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [reminderId, setReminderId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
-  const [guestTarget, setGuestTarget] = useState<SwmsDocumentSummary | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [signAssignment, setSignAssignment] = useState<
     (SwmsAssignment & { swms?: SwmsDocument }) | null
   >(null);
@@ -89,6 +90,7 @@ export default function ProjectSwmsPanel({
     if (!projectId?.trim()) {
       setDocuments([]);
       setProjectWorkers([]);
+      setSelectedIds([]);
       setLoading(false);
       return;
     }
@@ -188,6 +190,30 @@ export default function ProjectSwmsPanel({
     return { signed, pending, total: documents.length };
   }, [documents]);
 
+  const allSelected =
+    documents.length > 0 && documents.every((doc) => selectedIds.includes(doc.id));
+  const selectedItems = useMemo(
+    () =>
+      documents
+        .filter((doc) => selectedIds.includes(doc.id))
+        .map((doc) => ({ id: doc.id, title: doc.title })),
+    [documents, selectedIds]
+  );
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      documents.every((doc) => prev.includes(doc.id))
+        ? []
+        : documents.map((doc) => doc.id)
+    );
+  };
+
   if (!projectId) {
     return (
       <div className={cn("p-8 text-center", cardClass)}>
@@ -268,6 +294,32 @@ export default function ProjectSwmsPanel({
         </p>
       ) : null}
 
+      {documents.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              aria-label="Select all SWMS"
+              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+            />
+            {selectedIds.length > 0
+              ? `${selectedIds.length} selected`
+              : "Select SWMS"}
+          </label>
+          <button
+            type="button"
+            disabled={selectedIds.length === 0}
+            onClick={() => setGuestModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Mail className="h-4 w-4" />
+            Send to Guest
+          </button>
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
@@ -295,6 +347,13 @@ export default function ProjectSwmsPanel({
             return (
               <article key={doc.id} className={cn("overflow-hidden", cardClass)}>
                 <div className="flex w-full items-start justify-between gap-3 p-5">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(doc.id)}
+                    onChange={() => toggleSelected(doc.id)}
+                    aria-label={`Select ${doc.title}`}
+                    className="mt-1.5 h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                  />
                   <button
                     type="button"
                     onClick={() => toggleExpanded(doc.id)}
@@ -333,14 +392,6 @@ export default function ProjectSwmsPanel({
                     >
                       <UserPlus className="h-3.5 w-3.5" />
                       Assign Workers
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setGuestTarget(doc)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      Send to Guest
                     </button>
                     {documentUrl ? (
                       <a
@@ -483,13 +534,13 @@ export default function ProjectSwmsPanel({
         />
       ) : null}
 
-      {guestTarget ? (
+      {guestModalOpen ? (
         <SendSwmsToGuestModal
-          swmsId={guestTarget.id}
-          swmsTitle={guestTarget.title}
-          onClose={() => setGuestTarget(null)}
-          onSent={() => {
-            setSuccessMessage(`SWMS sent to guest.`);
+          items={selectedItems}
+          onClose={() => setGuestModalOpen(false)}
+          onSent={(count) => {
+            setSuccessMessage(`${count} SWMS sent to guest.`);
+            setSelectedIds([]);
           }}
         />
       ) : null}

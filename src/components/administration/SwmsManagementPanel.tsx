@@ -96,7 +96,8 @@ export default function SwmsManagementPanel({
   const [deleteTarget, setDeleteTarget] = useState<SwmsDocumentSummary | null>(null);
   const [editTarget, setEditTarget] = useState<SwmsDocumentSummary | null>(null);
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
-  const [guestTarget, setGuestTarget] = useState<SwmsDocumentSummary | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState("");
   const [remindingId, setRemindingId] = useState<string | null>(null);
@@ -207,6 +208,35 @@ export default function SwmsManagementPanel({
     return filterSiteSpecificSwmsByProject(byTab, projectFilterId);
   }, [swmsList, activeTab, projectFilterId]);
 
+  const selectableIds = useMemo(
+    () =>
+      filteredSwmsList
+        .filter((doc) => !isSwmsItemArchived(doc))
+        .map((doc) => doc.id),
+    [filteredSwmsList]
+  );
+  const allSelectableSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
+  const selectedItems = useMemo(
+    () =>
+      filteredSwmsList
+        .filter((doc) => selectedIds.includes(doc.id))
+        .map((doc) => ({ id: doc.id, title: doc.title })),
+    [filteredSwmsList, selectedIds]
+  );
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      selectableIds.every((id) => prev.includes(id)) ? [] : [...selectableIds]
+    );
+  };
+
   const emptyMessage =
     activeTab === "archived"
       ? "No archived SWMS documents."
@@ -313,7 +343,10 @@ export default function SwmsManagementPanel({
             <button
               key={filter.id}
               type="button"
-              onClick={() => setActiveTab(filter.id)}
+              onClick={() => {
+                setActiveTab(filter.id);
+                setSelectedIds([]);
+              }}
               className={cn(
                 "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                 activeTab === filter.id
@@ -357,6 +390,33 @@ export default function SwmsManagementPanel({
         </p>
       ) : null}
 
+      {activeTab !== "archived" && filteredSwmsList.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={allSelectableSelected}
+              onChange={toggleSelectAll}
+              disabled={selectableIds.length === 0}
+              aria-label="Select all SWMS"
+              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 disabled:opacity-40"
+            />
+            {selectedIds.length > 0
+              ? `${selectedIds.length} selected`
+              : "Select SWMS"}
+          </label>
+          <button
+            type="button"
+            disabled={selectedIds.length === 0}
+            onClick={() => setGuestModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Mail className="h-4 w-4" />
+            Send to Guest
+          </button>
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
@@ -381,7 +441,17 @@ export default function SwmsManagementPanel({
             return (
               <article key={doc.id} className={cn("p-5", cardClass)}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="flex min-w-0 items-start gap-3">
+                    {!archived ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(doc.id)}
+                        onChange={() => toggleSelected(doc.id)}
+                        aria-label={`Select ${doc.title}`}
+                        className="mt-1.5 h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                      />
+                    ) : null}
+                    <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold text-slate-900">{doc.title}</h2>
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
@@ -421,6 +491,7 @@ export default function SwmsManagementPanel({
                         View PDF
                       </a>
                     ) : null}
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -461,15 +532,6 @@ export default function SwmsManagementPanel({
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => setGuestTarget(doc)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          <Mail className="h-3.5 w-3.5" />
-                          Send to Guest
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isBusy}
                           onClick={() => void handleNewVersion(doc)}
                           className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
                         >
@@ -502,15 +564,6 @@ export default function SwmsManagementPanel({
                         >
                           <Send className="h-3.5 w-3.5" />
                           Assign SWMS
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => setGuestTarget(doc)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          <Mail className="h-3.5 w-3.5" />
-                          Send to Guest
                         </button>
                         <button
                           type="button"
@@ -623,13 +676,13 @@ export default function SwmsManagementPanel({
         />
       ) : null}
 
-      {guestTarget ? (
+      {guestModalOpen ? (
         <SendSwmsToGuestModal
-          swmsId={guestTarget.id}
-          swmsTitle={guestTarget.title}
-          onClose={() => setGuestTarget(null)}
-          onSent={() => {
-            setSuccessMessage(`SWMS sent to guest.`);
+          items={selectedItems}
+          onClose={() => setGuestModalOpen(false)}
+          onSent={(count) => {
+            setSuccessMessage(`${count} SWMS sent to guest.`);
+            setSelectedIds([]);
           }}
         />
       ) : null}
