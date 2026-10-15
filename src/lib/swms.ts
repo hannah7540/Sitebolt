@@ -349,6 +349,20 @@ export async function fetchProjectSwmsDocuments(
   );
 }
 
+/** Company-wide pack: all active SWMS. Project scope: matching `project_id` only. */
+export async function fetchSwmsDocumentsForPack(
+  projectIds: string[]
+): Promise<SwmsDocumentSummary[]> {
+  const all = await fetchSwmsDocuments();
+  const active = all.filter((doc) => !isSwmsItemArchived(doc));
+  if (projectIds.length === 0) return active;
+  const selected = new Set(projectIds);
+  return active.filter((doc) => {
+    const projectId = String(doc.project_id ?? "").trim();
+    return Boolean(projectId) && selected.has(projectId);
+  });
+}
+
 export async function createSwmsDocument(input: {
   title: string;
   documentDate?: string | null;

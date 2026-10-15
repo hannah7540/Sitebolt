@@ -1,15 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { FileDown, Loader2, Package } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FileDown, FileSpreadsheet, Loader2, Package } from "lucide-react";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
 import type { PlantAsset, Worker } from "@/lib/supabase";
 import {
+  buildDocumentPackCsvRows,
   fetchDocumentPackData,
   logDocumentPackExport,
+  type DocumentPackData,
+  type DocumentPackScope,
   type DocumentPackSection,
 } from "@/lib/document-pack-service";
 import { generateAndDownloadDocumentPack } from "@/lib/document-pack-pdf";
+import {
+  buildDocumentPackCsvFileName,
+  downloadDocumentPackCsv,
+} from "@/lib/document-pack-csv";
+import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -26,19 +34,19 @@ const SECTION_OPTIONS: Array<{ id: DocumentPackSection; label: string; descripti
       id: "itps",
       label: "ITPs & ITCs",
       description:
-        "All ITPs and ITCs for the project in the date range, including draft, open, pending, and completed.",
+        "All ITPs and ITCs for the selected scope in the date range, including draft, open, pending, and completed.",
     },
     {
       id: "swms",
       label: "SWMS",
       description:
-        "Site-specific SWMS assigned to the project with worker sign-off records.",
+        "SWMS documents with worker sign-off records for the selected company or project scope.",
     },
     {
       id: "plant",
       label: "Plant Equipment",
       description:
-        "Assigned plant register with hours, service data, and maintenance history.",
+        "Plant register with hours, service data, and maintenance history for the selected scope.",
     },
   ];
 
@@ -52,23 +60,37 @@ export default function DocumentPackView({
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
 
-  const [projectId, setProjectId] = useState(activeProjects[0]?.id ?? "");
+  const [scope, setScope] = useState<DocumentPackScope>("company");
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState(monthStart);
   const [dateTo, setDateTo] = useState(today);
   const [sections, setSections] = useState<Set<DocumentPackSection>>(
     new Set(["itps", "swms", "plant"])
   );
-  const [generating, setGenerating] = useState(false);
+  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!projectId && activeProjects[0]?.id) {
-      setProjectId(activeProjects[0].id);
-    }
-  }, [activeProjects, projectId]);
+  const projectNamesById = useMemo(
+    () =>
+      Object.fromEntries(activeProjects.map((project) => [project.id, project.name])),
+    [activeProjects]
+  );
 
-  const selectedProject = activeProjects.find((project) => project.id === projectId);
+  const selectedProjects = activeProjects.filter((project) =>
+    selectedProjectIds.includes(project.id)
+  );
+  const scopeLabel =
+    scope === "company"
+      ? "Company Wide"
+      : selectedProjects.map((project) => project.name).join(", ") || "Specific Projects";
+
+  const handleScopeChange = (next: DocumentPackScope) => {
+    setScope(next);
+    if (next === "company") {
+      setSelectedProjectIds([]);
+    }
+  };
 
   const toggleSection = (section: DocumentPackSection) => {
     setSections((prev) => {
@@ -79,44 +101,50 @@ export default function DocumentPackView({
     });
   };
 
-  const handleGenerate = async () => {
+  const validateAndLoadPack = async (): Promise<DocumentPackData | null> => {
     setError(null);
     setSuccessMessage(null);
 
-    if (!projectId.trim()) {
-      setError("Select a project.");
-      return;
+    if (scope === "projects" && selectedProjectIds.length === 0) {
+      setError("Select at least one project.");
+      return null;
     }
     if (!dateFrom || !dateTo) {
       setError("Select a date range.");
-      return;
+      return null;
     }
     if (dateFrom > dateTo) {
       setError("Date From must be on or before Date To.");
-      return;
+      return null;
     }
     if (sections.size === 0) {
       setError("Select at least one document type to include.");
-      return;
+      return null;
     }
 
-    setGenerating(true);
+    return fetchDocumentPackData({
+      scope,
+      projectIds: scope === "projects" ? selectedProjectIds : [],
+      projectName: scopeLabel,
+      projectNamesById,
+      dateFrom,
+      dateTo,
+      sections: Array.from(sections),
+      workers,
+      plant,
+    });
+  };
+
+  const handleExportPdf = async () => {
+    setExporting("pdf");
     try {
-      const packData = await fetchDocumentPackData({
-        projectId,
-        projectName: selectedProject?.name ?? "Project",
-        dateFrom,
-        dateTo,
-        sections: Array.from(sections),
-        workers,
-        plant,
-      });
+      const packData = await validateAndLoadPack();
+      if (!packData) return;
 
       const { fileName } = await generateAndDownloadDocumentPack(packData);
-
       const { error: logError } = await logDocumentPackExport({
-        projectId,
-        projectName: selectedProject?.name ?? "Project",
+        projectId: packData.projectId,
+        projectName: packData.projectName,
         dateFrom,
         dateTo,
         sections: Array.from(sections),
@@ -134,9 +162,45 @@ export default function DocumentPackView({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate document pack.");
     } finally {
-      setGenerating(false);
+      setExporting(null);
     }
   };
+
+  const handleExportCsv = async () => {
+    setExporting("csv");
+    try {
+      const packData = await validateAndLoadPack();
+      if (!packData) return;
+
+      const rows = buildDocumentPackCsvRows(packData);
+      const fileName = buildDocumentPackCsvFileName(today);
+      downloadDocumentPackCsv(rows, fileName);
+
+      const { error: logError } = await logDocumentPackExport({
+        projectId: packData.projectId,
+        projectName: packData.projectName,
+        dateFrom,
+        dateTo,
+        sections: Array.from(sections),
+        fileName,
+        exportedBy,
+      });
+
+      if (logError) {
+        setSuccessMessage(
+          `${fileName} downloaded. Export log could not be saved: ${logError}`
+        );
+      } else {
+        setSuccessMessage(`${fileName} downloaded successfully.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export CSV.");
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const busy = exporting !== null;
 
   return (
     <div>
@@ -145,8 +209,8 @@ export default function DocumentPackView({
           1-Click <span className="text-orange-500">Document Pack</span>
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Build a unified PDF export of ITPs, SWMS sign-offs, and plant records for any
-          project.
+          Build a unified PDF or CSV export of ITPs, SWMS sign-offs, and plant records
+          for the whole company or selected projects.
         </p>
       </div>
 
@@ -154,26 +218,47 @@ export default function DocumentPackView({
         <div className={cn("space-y-6 p-6", cardClass)}>
           <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-orange-600">
-              Step 1 — Select Project
+              Step 1 — Scope
             </p>
-            <label className="block space-y-1">
-              <span className={labelClass}>Active Project</span>
-              <select
-                className={inputClass}
-                value={projectId}
-                onChange={(event) => setProjectId(event.target.value)}
-              >
-                {activeProjects.length === 0 ? (
-                  <option value="">No active projects</option>
-                ) : (
-                  activeProjects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))
+            <span className={labelClass}>Scope</span>
+            <div className="mt-1 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => handleScopeChange("company")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-semibold",
+                  scope === "company"
+                    ? "bg-white text-orange-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 )}
-              </select>
-            </label>
+              >
+                Company Wide
+              </button>
+              <button
+                type="button"
+                onClick={() => handleScopeChange("projects")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-semibold",
+                  scope === "projects"
+                    ? "bg-white text-orange-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Specific Projects
+              </button>
+            </div>
+            {scope === "projects" ? (
+              <div className="mt-3">
+                <ProjectMultiSelect
+                  projects={activeProjects}
+                  selectedProjectIds={selectedProjectIds}
+                  onChange={setSelectedProjectIds}
+                  title="Active projects"
+                  description="Choose one or more projects. Only documents linked to these project IDs will be included."
+                  className="shadow-none"
+                />
+              </div>
+            ) : null}
           </section>
 
           <section>
@@ -233,21 +318,36 @@ export default function DocumentPackView({
 
           <section>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-orange-600">
-              Step 4 — Generate
+              Step 4 — Export
             </p>
-            <button
-              type="button"
-              disabled={generating || activeProjects.length === 0}
-              onClick={() => void handleGenerate()}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-6 py-4 text-base font-bold text-white hover:bg-orange-600 disabled:opacity-50 sm:w-auto"
-            >
-              {generating ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <FileDown className="h-5 w-5" />
-              )}
-              Generate 1-Click PDF Pack
-            </button>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleExportPdf()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-6 py-4 text-base font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                {exporting === "pdf" ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <FileDown className="h-5 w-5" />
+                )}
+                Export to PDF
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleExportCsv()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-4 text-base font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {exporting === "csv" ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-5 w-5" />
+                )}
+                Export to CSV
+              </button>
+            </div>
           </section>
 
           {successMessage ? (
@@ -270,10 +370,8 @@ export default function DocumentPackView({
           </div>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-slate-500">Project</dt>
-              <dd className="font-medium text-slate-900">
-                {selectedProject?.name ?? "—"}
-              </dd>
+              <dt className="text-slate-500">Scope</dt>
+              <dd className="font-medium text-slate-900">{scopeLabel}</dd>
             </div>
             <div>
               <dt className="text-slate-500">Date Range</dt>
@@ -293,8 +391,8 @@ export default function DocumentPackView({
             </div>
           </dl>
           <p className="mt-4 text-xs leading-relaxed text-slate-500">
-            The PDF includes your organisation logo, a cover summary, and each selected
-            section formatted for site records and client handover.
+            PDF includes the organisation logo and a cover summary. CSV is a flat table of
+            document title, type, worker, project, date, and status.
           </p>
         </aside>
       </div>

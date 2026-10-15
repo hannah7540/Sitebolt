@@ -4,15 +4,15 @@ import { fetchItpById, type ProjectItp } from "./itp-service";
 import { ITP_ITEM_STATUS_LABELS, ITP_POINT_TYPE_LABELS, ITP_STATUS_LABELS } from "./itp-templates";
 import {
   buildSwmsWorkerSignOffMatrix,
-  fetchProjectSwmsDocuments,
+  fetchSwmsDocumentsForPack,
   formatSwmsVersionLabel,
   getSwmsAssigneeName,
   getSwmsDocumentDate,
   type SwmsDocumentSummary,
 } from "./swms";
 import {
-  filterPlantForProject,
   filterWorkersForProject,
+  getPlantAssignedProjectIds,
   loadAssignmentMaps,
 } from "./project-assignments";
 import { getWorkerDisplayName } from "./worker-utils";
@@ -25,10 +25,13 @@ import type { Worker } from "./supabase";
 import { PROJECT_ITCS_TABLE, PROJECT_ITPS_TABLE } from "./itp-itc-payload";
 
 export type DocumentPackSection = "itps" | "swms" | "plant";
+export type DocumentPackScope = "company" | "projects";
 
 export interface DocumentPackRequest {
-  projectId: string;
+  scope: DocumentPackScope;
+  projectIds: string[];
   projectName: string;
+  projectNamesById: Record<string, string>;
   dateFrom: string;
   dateTo: string;
   sections: DocumentPackSection[];
@@ -53,13 +56,17 @@ export interface DocumentPackPlantRecord {
   currentHours: number | null;
   nextServiceHours: number | null;
   lastServiceDate: string | null;
+  projectLabel: string;
+  assignedWorkerName: string | null;
   maintenanceHistory: DocumentPackMaintenanceEntry[];
 }
 
 export interface DocumentPackData {
   organization: CompanyProfileRecord | null;
+  scope: DocumentPackScope;
   projectId: string;
   projectName: string;
+  projectNamesById: Record<string, string>;
   dateFrom: string;
   dateTo: string;
   exportTimestamp: string;
@@ -73,6 +80,18 @@ export interface DocumentPackData {
     rows: ReturnType<typeof buildSwmsWorkerSignOffMatrix>;
   }>;
 }
+
+export const DOCUMENT_PACK_CSV_COLUMNS = [
+  "Document Title",
+  "Type",
+  "Worker Name",
+  "Project",
+  "Date",
+  "Status",
+] as const;
+
+export type DocumentPackCsvColumn = (typeof DOCUMENT_PACK_CSV_COLUMNS)[number];
+export type DocumentPackCsvRow = Record<DocumentPackCsvColumn, string>;
 
 export interface DocumentPackExportLog {
   id: string;
@@ -116,6 +135,25 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+function matchesProjectScope(
+  projectId: string | null | undefined,
+  projectIds: string[]
+): boolean {
+  if (projectIds.length === 0) return true;
+  const id = str(projectId);
+  return Boolean(id) && projectIds.includes(id);
+}
+
+function resolveProjectLabel(
+  projectId: string | null | undefined,
+  projectNamesById: Record<string, string>,
+  fallback: string
+): string {
+  const id = str(projectId);
+  if (!id) return fallback;
+  return projectNamesById[id]?.trim() || fallback;
 }
 
 export function packDateBounds(dateFrom: string, dateTo: string): {
@@ -214,20 +252,21 @@ function mapPackItcRow(row: Record<string, unknown>): DocumentPackItcRecord {
 }
 
 async function fetchItpsForPack(
-  projectId: string,
+  projectIds: string[],
   dateFrom: string,
   dateTo: string
 ): Promise<{ rows: ProjectItp[]; error: string | null }> {
-  const targetProjectId = projectId.trim();
-  if (!isSupabaseConfigured() || !targetProjectId) {
+  if (!isSupabaseConfigured()) {
     return { rows: [], error: null };
   }
 
   try {
-    const { data, error } = await supabase
-      .from(PROJECT_ITPS_TABLE)
-      .select("*")
-      .eq("project_id", targetProjectId);
+    let query = supabase.from(PROJECT_ITPS_TABLE).select("*");
+    if (projectIds.length > 0) {
+      query = query.in("project_id", projectIds);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       if (!isMissingTableError(error.message, "project_itps")) {
@@ -239,7 +278,7 @@ async function fetchItpsForPack(
     const results: ProjectItp[] = [];
     for (const raw of data ?? []) {
       const row = asRecord(raw);
-      if (str(row.project_id) !== targetProjectId) continue;
+      if (!matchesProjectScope(str(row.project_id), projectIds)) continue;
 
       const hydrated = await fetchItpById(str(row.id)).catch(() => null);
       const itp = hydrated ?? mapPackItpRow(row);
@@ -265,20 +304,21 @@ async function fetchItpsForPack(
 }
 
 async function fetchItcsForPack(
-  projectId: string,
+  projectIds: string[],
   dateFrom: string,
   dateTo: string
 ): Promise<{ rows: DocumentPackItcRecord[]; error: string | null }> {
-  const targetProjectId = projectId.trim();
-  if (!isSupabaseConfigured() || !targetProjectId) {
+  if (!isSupabaseConfigured()) {
     return { rows: [], error: null };
   }
 
   try {
-    const { data, error } = await supabase
-      .from(PROJECT_ITCS_TABLE)
-      .select("*")
-      .eq("project_id", targetProjectId);
+    let query = supabase.from(PROJECT_ITCS_TABLE).select("*");
+    if (projectIds.length > 0) {
+      query = query.in("project_id", projectIds);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       if (!isMissingTableError(error.message, "project_itcs")) {
@@ -289,7 +329,7 @@ async function fetchItcsForPack(
 
     const rows = (data ?? [])
       .map((raw) => asRecord(raw))
-      .filter((row) => str(row.project_id) === targetProjectId)
+      .filter((row) => matchesProjectScope(str(row.project_id), projectIds))
       .filter((row) => rowMatchesPackDateRange(row, dateFrom, dateTo))
       .map(mapPackItcRow);
 
@@ -408,6 +448,9 @@ function buildPlantPackRecords(input: {
   serviceSchedules: Map<string, DocumentPackMaintenanceEntry[]>;
   dateFrom: string;
   dateTo: string;
+  projectNamesById: Record<string, string>;
+  plantByProject: Map<string, string[]>;
+  fallbackProjectLabel: string;
 }): DocumentPackPlantRecord[] {
   const prestartsByPlant = new Map<string, typeof input.prestarts>();
   for (const prestart of input.prestarts) {
@@ -442,6 +485,16 @@ function buildPlantPackRecords(input: {
       (left, right) => right.date.localeCompare(left.date)
     );
 
+    const assignedProjectIds = getPlantAssignedProjectIds(
+      item,
+      input.plantByProject.get(item.id) ?? []
+    );
+    const projectLabel =
+      assignedProjectIds
+        .map((id) => input.projectNamesById[id]?.trim())
+        .filter(Boolean)
+        .join(", ") || input.fallbackProjectLabel;
+
     return {
       id: item.id,
       unitNumber: item.unit_number || item.plant_number || item.id.slice(0, 8),
@@ -452,6 +505,8 @@ function buildPlantPackRecords(input: {
       currentHours: item.current_hours,
       nextServiceHours: item.next_service_hours,
       lastServiceDate: input.lastServiceDates.get(item.id) ?? null,
+      projectLabel,
+      assignedWorkerName: item.assigned_worker_name ?? null,
       maintenanceHistory,
     };
   });
@@ -467,17 +522,22 @@ export async function fetchDocumentPackData(
   const includeSwms = request.sections.includes("swms");
   const includePlant = request.sections.includes("plant");
 
-  const targetProjectId = request.projectId.trim();
+  const projectIds =
+    request.scope === "projects"
+      ? request.projectIds.map((id) => id.trim()).filter(Boolean)
+      : [];
   const { startDate, endDate } = packDateBounds(request.dateFrom, request.dateTo);
+  const packProjectId =
+    request.scope === "company" ? "company-wide" : projectIds.join(",") || "projects";
 
   const [itpResult, itcResult, swms, assignmentMaps] = await Promise.all([
     includeItps
-      ? fetchItpsForPack(targetProjectId, request.dateFrom, request.dateTo)
+      ? fetchItpsForPack(projectIds, request.dateFrom, request.dateTo)
       : Promise.resolve({ rows: [], error: null }),
     includeItps
-      ? fetchItcsForPack(targetProjectId, request.dateFrom, request.dateTo)
+      ? fetchItcsForPack(projectIds, request.dateFrom, request.dateTo)
       : Promise.resolve({ rows: [], error: null }),
-    includeSwms ? fetchProjectSwmsDocuments(targetProjectId) : Promise.resolve([]),
+    includeSwms ? fetchSwmsDocumentsForPack(projectIds) : Promise.resolve([]),
     loadAssignmentMaps(),
   ]);
 
@@ -485,7 +545,8 @@ export async function fetchDocumentPackData(
   const itcs = itcResult.rows;
 
   console.log("[Document Pack Query]:", {
-    projectId: targetProjectId,
+    scope: request.scope,
+    projectIds,
     dateRange: { start: `${startDate}T00:00:00.000`, end: `${endDate}T23:59:59.999` },
     itpsFound: itps.length || 0,
     itcsFound: itcs.length || 0,
@@ -511,11 +572,20 @@ export async function fetchDocumentPackData(
       })
     : [];
 
-  const projectWorkers = filterWorkersForProject(
-    request.workers,
-    request.projectId,
-    assignmentMaps.workerByProject
-  )
+  const scopedWorkers =
+    projectIds.length === 0
+      ? request.workers
+      : request.workers.filter((worker) =>
+          projectIds.some((projectId) =>
+            filterWorkersForProject(
+              [worker],
+              projectId,
+              assignmentMaps.workerByProject
+            ).length > 0
+          )
+        );
+
+  const projectWorkers = scopedWorkers
     .filter((worker) => !worker.is_subcontractor)
     .map((worker) => ({
       id: worker.id,
@@ -529,16 +599,25 @@ export async function fetchDocumentPackData(
 
   let plantRecords: DocumentPackPlantRecord[] = [];
   if (includePlant) {
-    const assignedPlant = filterPlantForProject(
-      request.plant,
-      request.projectId,
-      assignmentMaps.plantByProject
-    );
+    const assignedPlant =
+      projectIds.length === 0
+        ? request.plant
+        : request.plant.filter((asset) =>
+            getPlantAssignedProjectIds(
+              asset,
+              assignmentMaps.plantByProject.get(asset.id) ?? []
+            ).some((id) => projectIds.includes(id))
+          );
     const plantIds = assignedPlant.map((item) => item.id);
     const [lastServiceDates, serviceSchedules, prestarts] = await Promise.all([
       fetchLastServiceDates(plantIds),
       fetchServiceSchedulesForPlant(plantIds, request.dateFrom, request.dateTo),
-      fetchPlantPrestarts({ projectId: request.projectId, plantIds, limit: 500 }),
+      fetchPlantPrestarts({
+        plantIds,
+        startDate: request.dateFrom,
+        endDate: request.dateTo,
+        limit: 500,
+      }),
     ]);
 
     plantRecords = buildPlantPackRecords({
@@ -548,13 +627,18 @@ export async function fetchDocumentPackData(
       serviceSchedules,
       dateFrom: request.dateFrom,
       dateTo: request.dateTo,
+      projectNamesById: request.projectNamesById,
+      plantByProject: assignmentMaps.plantByProject,
+      fallbackProjectLabel: request.projectName,
     });
   }
 
   return {
     organization,
-    projectId: request.projectId,
+    scope: request.scope,
+    projectId: packProjectId,
     projectName: request.projectName,
+    projectNamesById: request.projectNamesById,
     dateFrom: request.dateFrom,
     dateTo: request.dateTo,
     exportTimestamp,
@@ -575,6 +659,111 @@ export function buildDocumentPackFileName(projectName: string, exportDate?: stri
     .slice(0, 60) || "Project";
   const dateStamp = (exportDate ?? new Date().toISOString()).slice(0, 10);
   return `${safeProject}_Document_Pack_${dateStamp}.pdf`;
+}
+
+function csvRow(
+  title: string,
+  type: string,
+  workerName: string,
+  project: string,
+  date: string,
+  status: string
+): DocumentPackCsvRow {
+  return {
+    "Document Title": title,
+    Type: type,
+    "Worker Name": workerName,
+    Project: project,
+    Date: date.slice(0, 10),
+    Status: status,
+  };
+}
+
+export function buildDocumentPackCsvRows(data: DocumentPackData): DocumentPackCsvRow[] {
+  const rows: DocumentPackCsvRow[] = [];
+  const fallbackProject = data.projectName || "Company Wide";
+  const names = data.projectNamesById ?? {};
+
+  if (data.sections.includes("itps")) {
+    for (const itp of data.itps) {
+      rows.push(
+        csvRow(
+          itp.title || itp.itp_number || "ITP",
+          "ITP",
+          itp.subcontractor_name ?? "",
+          resolveProjectLabel(itp.project_id, names, fallbackProject),
+          itp.updated_at || itp.created_at || data.dateTo,
+          formatItpStatusLabel(itp.status)
+        )
+      );
+    }
+    for (const itc of data.itcs) {
+      rows.push(
+        csvRow(
+          itc.title || itc.itc_number || "ITC",
+          "ITC",
+          "",
+          resolveProjectLabel(itc.project_id, names, fallbackProject),
+          itc.updated_at || itc.created_at || data.dateTo,
+          itc.status || ""
+        )
+      );
+    }
+  }
+
+  if (data.sections.includes("swms")) {
+    for (const swms of data.swms) {
+      const project = resolveProjectLabel(swms.project_id, names, fallbackProject);
+      const date = resolveRecordDate(
+        getSwmsDocumentDate(swms),
+        swms.created_at,
+        swms.updated_at
+      );
+      const assignments = swms.assignments ?? [];
+      if (assignments.length === 0) {
+        rows.push(
+          csvRow(
+            swms.title || "SWMS",
+            "SWMS",
+            "",
+            project,
+            date,
+            swms.status || ""
+          )
+        );
+        continue;
+      }
+      for (const assignment of assignments) {
+        rows.push(
+          csvRow(
+            swms.title || "SWMS",
+            "SWMS",
+            getSwmsAssigneeName(assignment),
+            project,
+            assignment.signed_at || date,
+            formatSwmsAssignmentStatus(assignment.status ?? "", assignment.signed_at ?? null)
+          )
+        );
+      }
+    }
+  }
+
+  if (data.sections.includes("plant")) {
+    for (const plant of data.plantRecords) {
+      rows.push(
+        csvRow(
+          [plant.unitNumber, plant.name].filter(Boolean).join(" — ") || "Plant",
+          "Plant",
+          plant.assignedWorkerName ?? "",
+          plant.projectLabel || fallbackProject,
+          plant.lastServiceDate || data.dateTo,
+          plant.lastServiceDate ? "In service" : "Registered"
+        )
+      );
+    }
+  }
+
+  return rows;
 }
 
 export async function logDocumentPackExport(input: {

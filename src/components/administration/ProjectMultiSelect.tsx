@@ -9,6 +9,8 @@ interface ProjectMultiSelectProps {
   selectedProjectIds: string[];
   onChange: (projectIds: string[]) => void;
   className?: string;
+  title?: string;
+  description?: string;
 }
 
 export default function ProjectMultiSelect({
@@ -16,6 +18,8 @@ export default function ProjectMultiSelect({
   selectedProjectIds,
   onChange,
   className,
+  title = "Project filter",
+  description = "Select one or more projects to filter the calendar timeline.",
 }: ProjectMultiSelectProps) {
   const allSelected =
     projects.length > 0 && selectedProjectIds.length === projects.length;
@@ -35,10 +39,8 @@ export default function ProjectMultiSelect({
     <div className={cn(cardClass, "p-4", className)}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className={labelClass}>Project filter</p>
-          <p className="text-xs text-slate-500">
-            Select one or more projects to filter the calendar timeline.
-          </p>
+          <p className={labelClass}>{title}</p>
+          <p className="text-xs text-slate-500">{description}</p>
         </div>
         <div className="flex gap-2">
           <button
