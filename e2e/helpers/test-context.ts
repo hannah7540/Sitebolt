@@ -25,6 +25,8 @@ function isAdminRole(role: string | null | undefined): boolean {
   const normalized = normalizeRole(role);
   return (
     normalized === "full_access" ||
+    normalized === "project_team" ||
+    normalized === "master_admin" ||
     normalized === "project_super_admin" ||
     normalized === "project_admin" ||
     normalized === "admin_access" ||

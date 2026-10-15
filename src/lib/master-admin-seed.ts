@@ -4,7 +4,7 @@
  * Creates or updates:
  *   - Supabase Auth user for the master admin email
  *   - profiles row with role = owner
- *   - workers row linked via auth_user_id + security_role = owner
+ *   - workers row linked via auth_user_id + security_role = master_admin
  */
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -18,6 +18,9 @@ import {
   MASTER_ADMIN_LAST_NAME,
   MASTER_ADMIN_ROLE,
 } from "./master-admin-config";
+import { coerceSecurityRole } from "./security-roles";
+
+const WORKER_MASTER_ADMIN_SECURITY_ROLE = coerceSecurityRole("master_admin");
 
 function parseNameFromEmail(email: string): { firstName: string; lastName: string } {
   const local = email.split("@")[0] ?? "admin";
@@ -159,7 +162,7 @@ async function ensureWorkerRecord(
       full_name: fullName,
       email: options.email,
       auth_user_id: options.authUserId,
-      security_role: MASTER_ADMIN_ROLE,
+      security_role: WORKER_MASTER_ADMIN_SECURITY_ROLE,
       accounts_access_role: accountsRole,
       can_access_accounts: true,
       status: "active",
@@ -172,7 +175,7 @@ async function ensureWorkerRecord(
       last_name: options.lastName,
       full_name: fullName,
       email: options.email,
-      security_role: MASTER_ADMIN_ROLE,
+      security_role: WORKER_MASTER_ADMIN_SECURITY_ROLE,
       status: "active",
       updated_at: new Date().toISOString(),
     },

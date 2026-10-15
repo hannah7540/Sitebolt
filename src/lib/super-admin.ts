@@ -1,7 +1,7 @@
 import { MASTER_ADMIN_EMAIL } from "@/lib/master-admin-config";
 import type { SecurityRole } from "@/lib/security-roles";
 
-export const SUPER_ADMIN_CONSOLE_ROLE: SecurityRole = "owner";
+export const SUPER_ADMIN_CONSOLE_ROLE: SecurityRole = "master_admin";
 
 export function isSuperAdminEmail(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase() === MASTER_ADMIN_EMAIL;

@@ -38,9 +38,8 @@ function profileAlertRecipients(workers: Worker[], settings: Awaited<ReturnType<
       const active = !worker.is_revoked && !worker.is_archived && worker.status !== "pending_induction";
       return (
         (role === "full_access" ||
-          role === "project_super_admin" ||
-          role === "super_admin" ||
-          role === "owner") &&
+          role === "master_admin" ||
+          role === "project_team") &&
         active &&
         Boolean(worker.email?.trim())
       );

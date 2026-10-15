@@ -264,9 +264,8 @@ export async function fetchExpiryAlertRecipients(workers: Worker[]): Promise<str
       const role = normalizeSecurityRole(worker.security_role);
       return (
         (role === "full_access" ||
-          role === "project_super_admin" ||
-          role === "super_admin" ||
-          role === "owner") &&
+          role === "master_admin" ||
+          role === "project_team") &&
         isActiveWorker(worker) &&
         Boolean(worker.email?.trim())
       );

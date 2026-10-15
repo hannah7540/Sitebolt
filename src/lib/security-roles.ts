@@ -1,10 +1,8 @@
 export const SECURITY_ROLES = [
-  "owner",
-  "full_access",
-  "super_admin",
-  "project_super_admin",
-  "project_admin",
   "general_worker",
+  "project_team",
+  "full_access",
+  "master_admin",
 ] as const;
 
 export type SecurityRole = (typeof SECURITY_ROLES)[number];
@@ -31,27 +29,21 @@ export const ACCOUNTS_ACCESS_ROLE_DESCRIPTIONS: Record<AccountsAccessRole, strin
 };
 
 export const SECURITY_ROLE_LABELS: Record<SecurityRole, string> = {
-  owner: "Owner",
-  full_access: "Full Access",
-  super_admin: "Super Admin",
-  project_super_admin: "Project Super Admin",
-  project_admin: "Project Admin",
   general_worker: "General Worker",
+  project_team: "Project Team",
+  full_access: "Full Access",
+  master_admin: "Master Admin",
 };
 
 export const SECURITY_ROLE_DESCRIPTIONS: Record<SecurityRole, string> = {
-  owner:
-    "Unrestricted access to all modules, settings, projects, accounts, pay rules, timesheets, and financial data.",
-  full_access:
-    "Full access to all site features, projects, financial data, and configuration settings.",
-  super_admin:
-    "Organisation and all projects. Accounts timesheets are read-only. No pay rules, approvals, or worker financial details.",
-  project_super_admin:
-    "All projects (site walks, pre-starts, toolbox talks, plant, ITCs). Blocked from Organisation and Accounts. No worker financial details.",
-  project_admin:
-    "Assigned projects only. Blocked from Organisation and Accounts. No worker financial details.",
   general_worker:
-    "Worker dashboard only (pre-starts, tasks, leave, clock-in/out). No admin or project management routes.",
+    "Worker dashboard and My Profile only. No Administration, Organisation, Projects, Accounts, Subcontractors, or Communication.",
+  project_team:
+    "Projects, Administration, Communication, and Subcontractors. Organisation documents, forms, projects, workers, tags, inductions, SWMS, plant, fleet, assets, and security settings. Accounts limited to missing timesheets and adding timesheets.",
+  full_access:
+    "Full access to the entire website for this organisation, including billing, payroll, and company settings.",
+  master_admin:
+    "Unrestricted system-wide access. Cross-company management stays with the Master Admin account.",
 };
 
 const LEGACY_ADMIN_ACCESS = "admin_access";
@@ -76,8 +68,22 @@ export function normalizeSecurityRole(
     return "general_worker";
   }
 
-  if (normalized === LEGACY_ADMIN_ACCESS || normalized === "admin") {
-    return "project_super_admin";
+  if (
+    normalized === "owner" ||
+    normalized === "super_admin" ||
+    normalized === "master_admin"
+  ) {
+    return "master_admin";
+  }
+
+  if (
+    normalized === LEGACY_ADMIN_ACCESS ||
+    normalized === "admin" ||
+    normalized === "project_super_admin" ||
+    normalized === "project_admin" ||
+    normalized === "project_team"
+  ) {
+    return "project_team";
   }
 
   if ((SECURITY_ROLES as readonly string[]).includes(normalized)) {
@@ -91,43 +97,32 @@ export function coerceSecurityRole(role: string | null | undefined): SecurityRol
   return normalizeSecurityRole(role);
 }
 
+export function isOrgWideAdminRole(role: SecurityRole): boolean {
+  return role === "master_admin" || role === "full_access";
+}
+
 export function isPrivilegedAdminRole(role: string | null | undefined): boolean {
-  const normalized = normalizeSecurityRole(role);
-  return (
-    normalized === "owner" ||
-    normalized === "full_access" ||
-    normalized === "super_admin" ||
-    normalized === "project_super_admin" ||
-    normalized === "project_admin"
-  );
+  return normalizeSecurityRole(role) !== "general_worker";
 }
 
 export function hasUnrestrictedPlatformAccess(role: string | null | undefined): boolean {
-  const normalized = normalizeSecurityRole(role);
-  return normalized === "owner" || normalized === "super_admin";
+  return normalizeSecurityRole(role) === "master_admin";
 }
 
 export function canAccessAdminConsole(role: SecurityRole): boolean {
-  return (
-    role === "owner" ||
-    role === "full_access" ||
-    role === "super_admin" ||
-    role === "project_super_admin" ||
-    role === "project_admin"
-  );
+  return role !== "general_worker";
 }
 
 export function canViewFinancialFields(role: SecurityRole): boolean {
-  return role === "owner" || role === "full_access";
+  return isOrgWideAdminRole(role);
 }
 
 export function canAssignPayRules(role: SecurityRole | string | null | undefined): boolean {
-  const normalized = normalizeSecurityRole(role);
-  return normalized === "owner" || normalized === "full_access";
+  return isOrgWideAdminRole(normalizeSecurityRole(role));
 }
 
 export function canManageSecuritySettings(role: SecurityRole): boolean {
-  return role === "owner" || role === "full_access";
+  return role === "project_team" || isOrgWideAdminRole(role);
 }
 
 /** True when the role is a field / general worker (no Communications access). */
@@ -152,33 +147,24 @@ export function canAccessCommunicationsModule(
   return canAccessAdminConsole(normalizeSecurityRole(role));
 }
 
-/** Owner and Full Access can use the Emails module. */
 export function canAccessEmailsModule(role: SecurityRole): boolean {
-  if (isWorkerCommunicationsRole(role)) return false;
-  return canManageSecuritySettings(role);
+  return canAccessCommunicationsModule(role);
 }
 
-/**
- * SMS Communication Hub: any non-worker administrative role
- * (owner, full_access, super_admin, project_super_admin, project_admin).
- */
 export function canAccessSmsModule(role: SecurityRole): boolean {
   return canAccessCommunicationsModule(role);
 }
 
-/** Owner and Full Access can assign worker security roles from the directory. */
+/** Full Access and Master Admin can assign worker security roles from the directory. */
 export function canManageWorkerSecurityRole(role: SecurityRole): boolean {
   return canManageSecuritySettings(role);
 }
 
 export const DEFAULT_WORKER_SECURITY_ROLE: SecurityRole = "general_worker";
 
+/** Global company settings / billing — not Project Team. */
 export function canManageOrganisation(role: SecurityRole): boolean {
-  return (
-    role === "owner" ||
-    role === "full_access" ||
-    role === "super_admin"
-  );
+  return isOrgWideAdminRole(role);
 }
 
 export function canManageAdministration(role: SecurityRole): boolean {
@@ -190,12 +176,7 @@ export function canCustomizeDashboardLayout(role: SecurityRole): boolean {
 }
 
 export function canViewAllProjects(role: SecurityRole): boolean {
-  return (
-    role === "owner" ||
-    role === "full_access" ||
-    role === "super_admin" ||
-    role === "project_super_admin"
-  );
+  return canAccessAdminConsole(role);
 }
 
 export function canAccessProject(
@@ -204,26 +185,30 @@ export function canAccessProject(
   assignedProjectIds: readonly string[]
 ): boolean {
   if (canViewAllProjects(role)) return true;
-  if (role === "project_admin") {
+  if (role === "project_team") {
     return assignedProjectIds.includes(projectId);
   }
   return false;
 }
 
 export function canAccessPayRules(role: SecurityRole): boolean {
-  return role === "owner" || role === "full_access";
+  return isOrgWideAdminRole(role);
 }
 
 export function canViewAccountsTimesheets(role: SecurityRole): boolean {
-  return (
-    role === "owner" ||
-    role === "full_access" ||
-    role === "super_admin"
-  );
+  return isOrgWideAdminRole(role);
 }
 
 export function canManageAccountsTimesheets(role: SecurityRole): boolean {
-  return role === "owner" || role === "full_access";
+  return isOrgWideAdminRole(role);
+}
+
+export function canAccessMissingTimesheets(role: SecurityRole): boolean {
+  return role === "project_team" || isOrgWideAdminRole(role);
+}
+
+export function canAccessTimesheetReports(role: SecurityRole): boolean {
+  return isOrgWideAdminRole(role);
 }
 
 /** Managers/admins who can submit and approve timesheets on behalf of workers. */
@@ -232,6 +217,9 @@ export function canAddAccountsTimesheets(
   accountsAccessRole?: AccountsAccessRole | string | null,
   canAccessAccounts?: boolean | null
 ): boolean {
+  if (normalizeSecurityRole(securityRole) === "project_team") {
+    return true;
+  }
   return canManageAccountsActions(accountsAccessRole, {
     securityRole,
     canAccessAccounts,
@@ -260,6 +248,10 @@ export function canAccessAccountsArea(options: {
     return true;
   }
 
+  if (securityRole === "project_team") {
+    return true;
+  }
+
   if (options.canAccessAccounts === true) {
     return canAccessAccountsModule(
       normalizeAccountsAccessRole(options.accountsAccessRole)
@@ -276,6 +268,12 @@ export function canManageAccountsActions(
     canAccessAccounts?: boolean | null;
   }
 ): boolean {
+  const securityRole = normalizeSecurityRole(options?.securityRole);
+
+  if (isOrgWideAdminRole(securityRole)) {
+    return true;
+  }
+
   const rawSecurity = String(options?.securityRole ?? "")
     .trim()
     .toLowerCase();
@@ -284,7 +282,8 @@ export function canManageAccountsActions(
     rawSecurity === "owner" ||
     rawSecurity === "admin" ||
     rawSecurity === "manager" ||
-    rawSecurity === "full_access"
+    rawSecurity === "full_access" ||
+    rawSecurity === "master_admin"
   ) {
     return true;
   }
@@ -296,16 +295,6 @@ export function canManageAccountsActions(
     if (options?.canAccessAccounts === true) {
       return true;
     }
-  }
-
-  const securityRole = normalizeSecurityRole(options?.securityRole);
-
-  if (canManageAccountsTimesheets(securityRole)) {
-    return true;
-  }
-
-  if (securityRole === "super_admin") {
-    return false;
   }
 
   if (normalizeAccountsAccessRole(accountsAccessRole) === "full_access") {
@@ -320,7 +309,7 @@ export function isAccountsTimesheetsReadOnly(
   accountsAccessRole?: AccountsAccessRole | string | null
 ): boolean {
   const role = normalizeSecurityRole(securityRole);
-  if (role === "super_admin") return true;
   if (canManageAccountsTimesheets(role)) return false;
+  if (role === "project_team") return false;
   return normalizeAccountsAccessRole(accountsAccessRole) === "view_only";
 }

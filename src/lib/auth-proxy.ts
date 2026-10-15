@@ -3,11 +3,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import {
-  canManageOrganisation,
   normalizeSecurityRole,
   type SecurityRole,
 } from "@/lib/security-roles";
-import { isAccountsPath, isOrganisationPath } from "@/lib/rbac-guards";
+import {
+  canAccessAccountsPath,
+  canAccessOrganisationPath,
+  isAccountsPath,
+  isGeneralWorkerAllowedPath,
+  isOrganisationPath,
+  isProjectTeamAllowedPath,
+  resolveProjectTeamFallbackPath,
+} from "@/lib/rbac-guards";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 import {
   MASTER_PROJECT_DASHBOARD_PATH,
@@ -96,29 +103,11 @@ function requiresAuthentication(pathname: string, request: NextRequest): boolean
   );
 }
 
-function isGeneralWorkerAllowedPath(pathname: string): boolean {
+function isWorkerHomePath(pathname: string): boolean {
   return (
-    pathname === GENERAL_WORKER_HOME_PATH ||
-    pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`) ||
-    pathname.startsWith("/account/") ||
-    pathname.startsWith("/settings/account") ||
-    pathname.startsWith("/auth/") ||
-    pathname.startsWith("/accept-invite") ||
-    pathname.startsWith("/update-password") ||
-    pathname.startsWith("/setyourpassword") ||
-    pathname.startsWith("/reset-password") ||
-    pathname.startsWith("/set-password") ||
-    pathname.startsWith("/onboarding") ||
-    pathname === "/dashboard" ||
-    pathname === "/worker/dashboard" ||
-    pathname.startsWith("/portal/") ||
-    pathname.startsWith("/scan/") ||
+    isGeneralWorkerAllowedPath(pathname) ||
     isPlantPrestartPath(pathname)
   );
-}
-
-function isProjectRoleBlockedPath(pathname: string): boolean {
-  return isOrganisationPath(pathname) || isAccountsPath(pathname);
 }
 
 function copyCookies(from: NextResponse, to: NextResponse): void {
@@ -570,7 +559,15 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     );
   }
 
-  if (context.user && context.role === "general_worker") {
+  const superAdminUser = Boolean(
+    context.user &&
+      isSuperAdminAccount({
+        email: context.user.email,
+        metadata: (context.user.user_metadata ?? null) as Record<string, unknown> | null,
+      })
+  );
+
+  if (context.user && !superAdminUser && context.role === "general_worker") {
     const incompleteOnboardingPath = isHiredLabour
       ? hiredLabourOnboardingPath
       : "/onboarding";
@@ -600,7 +597,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       );
     }
 
-    if (!isGeneralWorkerAllowedPath(pathname)) {
+    if (!isWorkerHomePath(pathname)) {
       return redirectWithCookies(
         request,
         isHiredLabour
@@ -616,26 +613,30 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     return sessionResponse;
   }
 
-  if (
-    context.user &&
-    (context.role === "project_admin" || context.role === "project_super_admin") &&
-    isProjectRoleBlockedPath(pathname)
-  ) {
-    return redirectWithCookies(request, PROJECTS_HOME_PATH, sessionResponse);
+  if (context.user && !superAdminUser && context.role === "project_team") {
+    if (
+      (isOrganisationPath(pathname) && !canAccessOrganisationPath(context.role, pathname)) ||
+      (isAccountsPath(pathname) && !canAccessAccountsPath(context.role, pathname)) ||
+      !isProjectTeamAllowedPath(pathname)
+    ) {
+      return redirectWithCookies(
+        request,
+        resolveProjectTeamFallbackPath(pathname),
+        sessionResponse
+      );
+    }
+    return sessionResponse;
   }
 
   if (
     context.user &&
-    context.role === "super_admin" &&
-    isAccountsPath(pathname) &&
-    (pathname.startsWith("/accounts/pay-rules") ||
-      pathname.startsWith("/accounts/add-timesheets"))
+    !superAdminUser &&
+    context.role !== "full_access" &&
+    context.role !== "master_admin"
   ) {
-    return redirectWithCookies(request, "/accounts/timesheets", sessionResponse);
-  }
-
-  if (context.user && !canManageOrganisation(context.role) && isOrganisationPath(pathname)) {
-    return redirectWithCookies(request, PROJECTS_HOME_PATH, sessionResponse);
+    if (isOrganisationPath(pathname) || isAccountsPath(pathname)) {
+      return redirectWithCookies(request, PROJECTS_HOME_PATH, sessionResponse);
+    }
   }
 
   return sessionResponse;

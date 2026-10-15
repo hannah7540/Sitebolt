@@ -96,8 +96,7 @@ export async function POST(req: Request) {
 
   if (
     !caller.canManage &&
-    caller.securityRole !== "project_admin" &&
-    caller.securityRole !== "project_super_admin" &&
+    caller.securityRole !== "project_team" &&
     caller.accountsAccessRole !== "full_access"
   ) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });

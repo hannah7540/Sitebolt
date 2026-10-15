@@ -48,8 +48,10 @@ export async function resolveIncidentNotificationEmails(
     .select("id, email, security_role")
     .in("security_role", [
       "full_access",
-      "super_admin",
+      "master_admin",
+      "project_team",
       "owner",
+      "super_admin",
       "project_super_admin",
     ]);
 

@@ -41,15 +41,19 @@ import { DEFAULT_ADMIN_PROFILE_NAME, workerProfileDashboardPath } from "@/lib/us
 import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
-  canAccessAccountsArea,
-  canAccessPayRules,
+  canAccessAdminConsole,
+  canAccessCommunicationsModule,
   canManageSecuritySettings,
-  canViewAccountsTimesheets,
-  canAddAccountsTimesheets,
   type SecurityRole,
   type AccountsAccessRole,
 } from "@/lib/security-roles";
-import { filterProjectsForRole } from "@/lib/rbac-guards";
+import {
+  canAccessOrganisationRoute,
+  canAccessOrganisationView,
+  filterProjectsForRole,
+  shouldShowAccountsNavItem,
+} from "@/lib/rbac-guards";
+import { ORGANISATION_NAV_ITEMS } from "@/lib/organisation-nav-routes";
 import { parseConsoleRoute } from "@/lib/console-nav-routes";
 import {
   isInductionsPath,
@@ -168,8 +172,13 @@ function buildAccountsMenu(
   sessionSecurityRoleRaw: string | null = null
 ): SidebarMenuGroup | null {
   const children: SidebarMenuChild[] = [];
+  const itemOptions = {
+    accountsAccessRole,
+    canAccessAccounts,
+    sessionSecurityRoleRaw,
+  };
 
-  if (canViewAccountsTimesheets(sessionRole)) {
+  if (shouldShowAccountsNavItem(sessionRole, "/accounts/timesheets", itemOptions)) {
     children.push({
       title: "Timesheets",
       href: "/accounts/timesheets",
@@ -177,14 +186,7 @@ function buildAccountsMenu(
     });
   }
 
-  if (
-    canViewAccountsTimesheets(sessionRole) ||
-    canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    })
-  ) {
+  if (shouldShowAccountsNavItem(sessionRole, "/accounts/missing-timesheets", itemOptions)) {
     children.push({
       title: "Missing Timesheet Search",
       href: "/accounts/missing-timesheets",
@@ -192,7 +194,7 @@ function buildAccountsMenu(
     });
   }
 
-  if (canAccessPayRules(sessionRole)) {
+  if (shouldShowAccountsNavItem(sessionRole, "/accounts/pay-rules", itemOptions)) {
     children.push({
       title: "Pay Rules",
       href: "/accounts/pay-rules",
@@ -200,13 +202,7 @@ function buildAccountsMenu(
     });
   }
 
-  if (
-    canAddAccountsTimesheets(
-      sessionSecurityRoleRaw ?? sessionRole,
-      accountsAccessRole,
-      canAccessAccounts
-    )
-  ) {
+  if (shouldShowAccountsNavItem(sessionRole, "/accounts/add-timesheets", itemOptions)) {
     children.push({
       title: "Add Timesheets",
       href: "/accounts/add-timesheets",
@@ -214,14 +210,7 @@ function buildAccountsMenu(
     });
   }
 
-  if (
-    canViewAccountsTimesheets(sessionRole) ||
-    canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    })
-  ) {
+  if (shouldShowAccountsNavItem(sessionRole, "/accounts/timesheet-reports", itemOptions)) {
     children.push({
       title: "Timesheet Reports",
       href: "/accounts/timesheet-reports",
@@ -633,19 +622,22 @@ export default function Sidebar({
   const orgId = workspace?.activeCompany?.id ?? null;
   const effectiveRole = isSuperAdmin ? SUPER_ADMIN_CONSOLE_ROLE : sessionRole;
   const showSecurity = isSuperAdmin || canManageSecuritySettings(effectiveRole);
-  const accountsMenu =
-    buildAccountsMenu(
-      SUPER_ADMIN_CONSOLE_ROLE,
-      "full_access",
-      true,
-      SUPER_ADMIN_CONSOLE_ROLE
-    ) ??
-    buildAccountsMenu(
-      sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-      sessionSecurityRoleRaw
-    );
+  const showAdminNav = canAccessAdminConsole(effectiveRole);
+  const showCommunication = canAccessCommunicationsModule(effectiveRole);
+  const showOrganisation = canAccessOrganisationRoute(effectiveRole);
+  const accountsMenu = isSuperAdmin
+    ? buildAccountsMenu(
+        SUPER_ADMIN_CONSOLE_ROLE,
+        "full_access",
+        true,
+        SUPER_ADMIN_CONSOLE_ROLE
+      )
+    : buildAccountsMenu(
+        sessionRole,
+        accountsAccessRole,
+        canAccessAccounts,
+        sessionSecurityRoleRaw
+      );
 
   const roleFilteredProjects = useMemo(
     () =>
@@ -704,9 +696,13 @@ export default function Sidebar({
       if (showSecurity) {
         items.push({ label: "Security Settings", href: "/organisation/security" });
       }
-      return items;
+      return items.filter((item) => {
+        const view = ORGANISATION_NAV_ITEMS.find((nav) => nav.href === item.href)?.view;
+        if (!view) return showOrganisation;
+        return canAccessOrganisationView(effectiveRole, view);
+      });
     },
-    [complianceAlertCount, featureFlags, orgId, showSecurity]
+    [complianceAlertCount, effectiveRole, featureFlags, orgId, showOrganisation, showSecurity]
   );
 
   return (
@@ -721,7 +717,7 @@ export default function Sidebar({
     >
 
       <nav className="flex-1 overflow-y-auto py-2">
-        {isFeatureModuleEnabled(featureFlags, "projects", orgId) ? (
+        {showAdminNav && isFeatureModuleEnabled(featureFlags, "projects", orgId) ? (
           <ProjectsSection
             projects={projectItems}
             activeView={effectiveActiveView}
@@ -730,7 +726,7 @@ export default function Sidebar({
           />
         ) : null}
 
-        {isFeatureModuleEnabled(featureFlags, "administration", orgId) ? (
+        {showAdminNav && isFeatureModuleEnabled(featureFlags, "administration", orgId) ? (
           <AdministrationSection
             activeView={effectiveActiveView}
             pathname={pathname}
@@ -740,19 +736,19 @@ export default function Sidebar({
           />
         ) : null}
 
-        {isFeatureModuleEnabled(featureFlags, "subcontractors", orgId) ? (
+        {showAdminNav && isFeatureModuleEnabled(featureFlags, "subcontractors", orgId) ? (
           <SubcontractorsSection activeView={effectiveActiveView} onNavigate={onNavigate} />
         ) : null}
 
-        {isFeatureModuleEnabled(featureFlags, "accounts", orgId) && accountsMenu ? (
+        {showAdminNav && isFeatureModuleEnabled(featureFlags, "accounts", orgId) && accountsMenu ? (
           <AccountsSection menu={accountsMenu} pathname={pathname} />
         ) : null}
 
-        {isFeatureModuleEnabled(featureFlags, "communication", orgId) ? (
+        {showCommunication && isFeatureModuleEnabled(featureFlags, "communication", orgId) ? (
           <EmailsSection pathname={pathname} showEmails showSms />
         ) : null}
 
-        {isFeatureModuleEnabled(featureFlags, "organisation", orgId) ? (
+        {showOrganisation && isFeatureModuleEnabled(featureFlags, "organisation", orgId) ? (
           <OrganisationSection
             items={organisationItems}
             activeView={effectiveActiveView}

@@ -12,7 +12,8 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { addWorker, insertWorkerVocs, type WorkerOnboardingInput } from "@/lib/supabase";
-import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
+import { DEFAULT_WORKER_SECURITY_ROLE, type SecurityRole } from "@/lib/security-roles";
+import WorkerSecurityRoleSelect from "@/components/workers/WorkerSecurityRoleSelect";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import { resolveProjectId, isProjectUuid } from "@/lib/project-resolver";
 import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils";
@@ -108,6 +109,7 @@ const emptyForm = (): Partial<WorkerOnboardingInput> => ({
   has_company_vehicle: false,
   assigned_vehicle_asset_id: null,
   status: "pending_induction",
+  security_role: DEFAULT_WORKER_SECURITY_ROLE,
 });
 
 interface WorkerOnboardingModalProps {
@@ -408,7 +410,7 @@ export default function WorkerOnboardingModal({
           ? form.assigned_vehicle_asset_id ?? null
           : null,
         status: "pending_induction",
-        security_role: DEFAULT_WORKER_SECURITY_ROLE,
+        security_role: form.security_role ?? DEFAULT_WORKER_SECURITY_ROLE,
         onboarding_completed: false,
         invite_status: "pending",
       };
@@ -437,6 +439,7 @@ export default function WorkerOnboardingModal({
 
       payload.onboarding_completed = mode === "full";
       payload.invite_status = "pending";
+      payload.security_role = form.security_role ?? DEFAULT_WORKER_SECURITY_ROLE;
 
       const vocExpiries =
         mode === "full"
@@ -1167,6 +1170,12 @@ export default function WorkerOnboardingModal({
                 onChange={setSelectedTagIds}
                 disabled={submitting}
                 id="onboarding-full-tags"
+              />
+              <WorkerSecurityRoleSelect
+                id="onboarding-full-security-role"
+                value={form.security_role ?? DEFAULT_WORKER_SECURITY_ROLE}
+                onChange={(role: SecurityRole) => set("security_role", role)}
+                disabled={submitting}
               />
             </div>
           )}

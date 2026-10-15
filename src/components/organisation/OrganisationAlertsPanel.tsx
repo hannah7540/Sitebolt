@@ -458,10 +458,9 @@ export default function OrganisationAlertsPanel() {
               const role = normalizeSecurityRole(worker.security_role);
               const roleLabel = SECURITY_ROLE_LABELS[role];
               const isManager =
-                role === "owner" ||
-                role === "super_admin" ||
+                role === "master_admin" ||
                 role === "full_access" ||
-                role === "project_super_admin";
+                role === "project_team";
               const name = getWorkerDisplayName(worker);
               return isManager ? `${name} · ${roleLabel}` : name;
             }}

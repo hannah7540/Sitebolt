@@ -4,19 +4,10 @@ import { Loader2 } from "lucide-react";
 import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
 import AccountsMissingTimesheets from "@/components/accounts/AccountsMissingTimesheets";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
-import {
-  canAccessAccountsArea,
-  canViewAccountsTimesheets,
-} from "@/lib/security-roles";
+import { canAccessMissingTimesheets } from "@/lib/security-roles";
 
 function AccountsMissingTimesheetsContent() {
-  const {
-    sessionRole,
-    accountsAccessRole,
-    canAccessAccounts,
-    loading,
-    sessionReady,
-  } = useAdminConsole();
+  const { sessionRole, loading, sessionReady } = useAdminConsole();
 
   if (loading || !sessionReady) {
     return (
@@ -27,14 +18,7 @@ function AccountsMissingTimesheetsContent() {
     );
   }
 
-  if (
-    !canViewAccountsTimesheets(sessionRole) &&
-    !canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    })
-  ) {
+  if (!canAccessMissingTimesheets(sessionRole)) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         Accounts access is disabled for your profile. Ask an administrator to enable

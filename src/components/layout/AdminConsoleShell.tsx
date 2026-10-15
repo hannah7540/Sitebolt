@@ -31,28 +31,28 @@ import {
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
-  canAccessAccountsArea,
   canAccessAdminConsole,
   canAccessEmailsModule,
   canAccessSmsModule,
   canAccessPayRules,
   canAddAccountsTimesheets,
   canManageAccountsTimesheets,
-  canViewAccountsTimesheets,
   isAccountsTimesheetsReadOnly,
   normalizeAccountsAccessRole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
 import {
+  canAccessAccountsPath,
+  canAccessOrganisationPath,
   canAccessOrganisationRoute,
   filterProjectsForRole,
   isEmailsPath,
   isSmsPath,
   isOrganisationPath,
   isPayRulesPath,
-  isTimesheetsPath,
+  isAccountsPath,
   isAddTimesheetsPath,
-  isTimesheetReportsPath,
+  resolveProjectTeamFallbackPath,
   PROJECT_VIEWS,
 } from "@/lib/rbac-guards";
 import {
@@ -285,6 +285,13 @@ export default function AdminConsoleShell({
       setAccessDenied("You do not have access to Organisation settings.");
       return;
     }
+    if (
+      isOrganisationPath(pathname) &&
+      !canAccessOrganisationPath(sessionRole, pathname)
+    ) {
+      router.replace(resolveProjectTeamFallbackPath(pathname));
+      return;
+    }
 
     const payRulesRoute = requirePayRulesAccess || isPayRulesPath(pathname);
     if (payRulesRoute && !canAccessPayRules(sessionRole)) {
@@ -292,21 +299,10 @@ export default function AdminConsoleShell({
       return;
     }
 
-    const timesheetsRoute =
-      requireAccountsAccess ||
-      isTimesheetsPath(pathname) ||
-      isAddTimesheetsPath(pathname) ||
-      isTimesheetReportsPath(pathname);
-    if (timesheetsRoute) {
-      const allowed =
-        canViewAccountsTimesheets(sessionRole) ||
-        canAccessAccountsArea({
-          securityRole: sessionWorker.security_role,
-          accountsAccessRole: sessionWorker.accounts_access_role,
-          canAccessAccounts: sessionWorker.can_access_accounts,
-        });
+    if (isAccountsPath(pathname) || requireAccountsAccess) {
+      const allowed = canAccessAccountsPath(sessionRole, pathname || "/accounts");
       if (!allowed) {
-        setAccessDenied("You do not have Accounts access for this area.");
+        router.replace(resolveProjectTeamFallbackPath(pathname || "/accounts"));
         return;
       }
     }

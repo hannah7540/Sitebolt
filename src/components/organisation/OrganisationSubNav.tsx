@@ -8,6 +8,7 @@ import {
   ORGANISATION_NAV_ITEMS,
 } from "@/lib/organisation-nav-routes";
 import { canManageSecuritySettings } from "@/lib/security-roles";
+import { canAccessOrganisationView } from "@/lib/rbac-guards";
 import { cn } from "@/lib/utils";
 
 export default function OrganisationSubNav() {
@@ -15,9 +16,10 @@ export default function OrganisationSubNav() {
   const { sessionRole } = useAdminConsole();
   const showSecurity = canManageSecuritySettings(sessionRole);
 
-  const items = ORGANISATION_NAV_ITEMS.filter(
-    (item) => item.href !== "/organisation/security" || showSecurity
-  );
+  const items = ORGANISATION_NAV_ITEMS.filter((item) => {
+    if (item.href === "/organisation/security" && !showSecurity) return false;
+    return canAccessOrganisationView(sessionRole, item.view);
+  });
 
   return (
     <nav

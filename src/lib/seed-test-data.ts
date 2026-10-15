@@ -114,25 +114,11 @@ const ROLE_USER_SPECS: RoleUserSpec[] = [
     trade: "Operations Manager",
   },
   {
-    role: "super_admin",
-    firstName: "Sam",
-    lastName: "Supervisor",
-    key: "super_admin",
-    trade: "Super Admin",
-  },
-  {
-    role: "project_super_admin",
+    role: "project_team",
     firstName: "Paige",
-    lastName: "ProjectSuper",
-    key: "project_super_admin",
-    trade: "Project Super Admin",
-  },
-  {
-    role: "project_admin",
-    firstName: "Adam",
-    lastName: "ProjectAdmin",
-    key: "project_admin",
-    trade: "Project Administrator",
+    lastName: "ProjectTeam",
+    key: "project_team",
+    trade: "Project Team",
   },
 ];
 
@@ -1721,7 +1707,7 @@ export async function runComprehensiveTestSeed(options: {
         lastName: MASTER_ADMIN_LAST_NAME,
         fullName: MASTER_ADMIN_FULL_NAME,
         email: master.email,
-        role: "owner",
+        role: "master_admin",
         trade: "Director",
         state: "NSW",
         phone: "0412 000001",
@@ -1803,8 +1789,8 @@ export async function runComprehensiveTestSeed(options: {
   workers.push(...actWorkers, ...waWorkers);
 
   const projectManager =
-    workers.find((row) => row.role === "project_super_admin") ?? workers[0]!;
-  const projectAdmin = workers.find((row) => row.role === "project_admin") ?? workers[0]!;
+    workers.find((row) => row.role === "project_team") ?? workers[0]!;
+  const projectAdmin = workers.find((row) => row.role === "project_team") ?? workers[0]!;
   const generalWorkers = workers.filter((row) => row.role === "general_worker");
 
   const projectOneWorkers = generalWorkers.slice(0, 3).map((row) => row.id);

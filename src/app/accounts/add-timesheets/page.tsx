@@ -59,8 +59,7 @@ function AccountsAddTimesheetsContent() {
     rawRole === "manager" ||
     rawRole === "accounts" ||
     rawRole === "account" ||
-    sessionRole === "project_admin" ||
-    sessionRole === "project_super_admin";
+    sessionRole === "project_team";
 
   if (!canSubmitTimesheets) {
     return (

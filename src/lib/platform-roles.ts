@@ -24,7 +24,7 @@ export interface RolePermissionMatrix {
   manageAccounts: boolean;
 }
 
-/** Client-side mirror of `role_permissions` seed data in migration 089/103. */
+/** Client-side mirror of `role_permissions` seed data. */
 export const ROLE_PERMISSIONS: Record<ProfileRole, RolePermissionMatrix> = {
   owner: {
     unrestrictedRead: true,
@@ -37,12 +37,21 @@ export const ROLE_PERMISSIONS: Record<ProfileRole, RolePermissionMatrix> = {
   },
   super_admin: {
     unrestrictedRead: true,
-    unrestrictedWrite: false,
-    manageSecurity: false,
-    viewFinancials: false,
+    unrestrictedWrite: true,
+    manageSecurity: true,
+    viewFinancials: true,
     accessAdminConsole: true,
     accessAccounts: true,
-    manageAccounts: false,
+    manageAccounts: true,
+  },
+  master_admin: {
+    unrestrictedRead: true,
+    unrestrictedWrite: true,
+    manageSecurity: true,
+    viewFinancials: true,
+    accessAdminConsole: true,
+    accessAccounts: true,
+    manageAccounts: true,
   },
   full_access: {
     unrestrictedRead: false,
@@ -53,22 +62,13 @@ export const ROLE_PERMISSIONS: Record<ProfileRole, RolePermissionMatrix> = {
     accessAccounts: true,
     manageAccounts: true,
   },
-  project_super_admin: {
+  project_team: {
     unrestrictedRead: false,
     unrestrictedWrite: false,
-    manageSecurity: false,
+    manageSecurity: true,
     viewFinancials: false,
     accessAdminConsole: true,
-    accessAccounts: false,
-    manageAccounts: false,
-  },
-  project_admin: {
-    unrestrictedRead: false,
-    unrestrictedWrite: false,
-    manageSecurity: false,
-    viewFinancials: false,
-    accessAdminConsole: true,
-    accessAccounts: false,
+    accessAccounts: true,
     manageAccounts: false,
   },
   general_worker: {
@@ -89,8 +89,8 @@ export function normalizeProfileRole(
     .trim()
     .toLowerCase();
 
-  if (normalized === "admin_access" || normalized === "admin") {
-    return "project_super_admin";
+  if (normalized === "admin_access" || normalized === "admin" || normalized === "project_super_admin" || normalized === "project_admin") {
+    return "project_team";
   }
 
   if ((PROFILE_ROLES as readonly string[]).includes(normalized)) {
@@ -108,11 +108,12 @@ export function hasUnrestrictedPlatformAccess(
 }
 
 export function isPlatformOwnerRole(role: string | null | undefined): boolean {
-  return normalizeProfileRole(role) === "owner";
+  const normalized = normalizeProfileRole(role);
+  return normalized === "owner" || normalized === "master_admin";
 }
 
 export function profileRoleToSecurityRole(role: ProfileRole): SecurityRole {
-  if (role === "owner" || role === "super_admin") return role;
+  if (role === "owner" || role === "super_admin") return "master_admin";
   return role;
 }
 
@@ -141,3 +142,5 @@ export function securityRoleAllowsPayRules(role: SecurityRole): boolean {
 export function securityRoleAllowsTimesheetsView(role: SecurityRole): boolean {
   return canViewAccountsTimesheets(role);
 }
+
+export { ACCOUNTS_ACCESS_ROLES };

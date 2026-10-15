@@ -4,12 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarSearch, Clock, FileSpreadsheet, Scale, UserPlus } from "lucide-react";
 import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
-import {
-  canAccessAccountsArea,
-  canAccessPayRules,
-  canAddAccountsTimesheets,
-  canViewAccountsTimesheets,
-} from "@/lib/security-roles";
+import { shouldShowAccountsNavItem } from "@/lib/rbac-guards";
 import { cn } from "@/lib/utils";
 
 export default function AccountsNav() {
@@ -20,50 +15,41 @@ export default function AccountsNav() {
   const accountsAccessRole = adminConsole?.accountsAccessRole ?? "disabled";
   const canAccessAccounts = adminConsole?.canAccessAccounts ?? false;
 
+  const itemOptions = {
+    accountsAccessRole,
+    canAccessAccounts,
+    sessionSecurityRoleRaw,
+  };
   const tabs = [
-    canViewAccountsTimesheets(sessionRole)
+    shouldShowAccountsNavItem(sessionRole, "/accounts/timesheets", itemOptions)
       ? {
           label: "Timesheets",
           href: "/accounts/timesheets",
           icon: Clock,
         }
       : null,
-    canViewAccountsTimesheets(sessionRole) ||
-    canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    })
+    shouldShowAccountsNavItem(sessionRole, "/accounts/missing-timesheets", itemOptions)
       ? {
           label: "Missing Timesheet Search",
           href: "/accounts/missing-timesheets",
           icon: CalendarSearch,
         }
       : null,
-    canAccessPayRules(sessionRole)
+    shouldShowAccountsNavItem(sessionRole, "/accounts/pay-rules", itemOptions)
       ? {
           label: "Pay Rules",
           href: "/accounts/pay-rules",
           icon: Scale,
         }
       : null,
-    canAddAccountsTimesheets(
-      sessionSecurityRoleRaw ?? sessionRole,
-      accountsAccessRole,
-      canAccessAccounts
-    )
+    shouldShowAccountsNavItem(sessionRole, "/accounts/add-timesheets", itemOptions)
       ? {
           label: "Add Timesheets",
           href: "/accounts/add-timesheets",
           icon: UserPlus,
         }
       : null,
-    canViewAccountsTimesheets(sessionRole) ||
-    canAccessAccountsArea({
-      securityRole: sessionRole,
-      accountsAccessRole,
-      canAccessAccounts,
-    })
+    shouldShowAccountsNavItem(sessionRole, "/accounts/timesheet-reports", itemOptions)
       ? {
           label: "Timesheet Reports",
           href: "/accounts/timesheet-reports",

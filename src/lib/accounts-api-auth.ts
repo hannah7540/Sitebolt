@@ -116,14 +116,14 @@ function resolveCallerSecurityRole(
 
   for (const candidate of candidates) {
     const normalized = normalizeSecurityRole(candidate);
-    if (normalized === "owner" || normalized === "full_access") {
+    if (normalized === "master_admin" || normalized === "full_access") {
       return normalized;
     }
   }
 
   for (const candidate of candidates) {
     const raw = String(candidate).trim().toLowerCase();
-    if (raw === "owner") return "owner";
+    if (raw === "owner" || raw === "master_admin") return "master_admin";
     if (raw === "admin" || raw === "manager" || raw === "full_access") {
       return "full_access";
     }

@@ -76,6 +76,7 @@ import {
   canManageSecuritySettings,
 } from "@/lib/security-roles";
 import {
+  canAccessOrganisationView,
   canNavigateToView,
   filterProjectsForRole,
   isOrganisationView,
@@ -559,22 +560,22 @@ function HomeConsole() {
           {activeTab === "org-insurances" && canManageOrganisation(sessionRole) && (
             <InsurancesPanel />
           )}
-          {activeTab === "org-documents" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-documents" && canAccessOrganisationView(sessionRole, "org-documents") && (
             <OrganisationDocumentsPanel />
           )}
-          {activeTab === "org-forms" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-forms" && canAccessOrganisationView(sessionRole, "org-forms") && (
             <FormTemplateManager />
           )}
-          {activeTab === "org-projects" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-projects" && canAccessOrganisationView(sessionRole, "org-projects") && (
             <ProjectsManagementPanel
               workers={workers}
               onProjectsChanged={fetchData}
             />
           )}
-          {activeTab === "org-tags" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-tags" && canAccessOrganisationView(sessionRole, "org-tags") && (
             <TagsPanel />
           )}
-          {activeTab === "org-workers" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-workers" && canAccessOrganisationView(sessionRole, "org-workers") && (
             <WorkerDirectoryPanel
               workers={workers}
               workerVocs={workerVocs}
@@ -591,7 +592,7 @@ function HomeConsole() {
               canManageWorkerRoles={manageWorkerRoles}
             />
           )}
-          {activeTab === "org-plant" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-plant" && canAccessOrganisationView(sessionRole, "org-plant") && (
             <PlantAdminPanel
               plant={plant}
               loading={loading}
@@ -599,7 +600,7 @@ function HomeConsole() {
               initialShowAdd={showAddPlant}
             />
           )}
-          {activeTab === "org-assets" && canManageOrganisation(sessionRole) && (
+          {activeTab === "org-assets" && canAccessOrganisationView(sessionRole, "org-assets") && (
             <AssetAdminPanel
               assets={assets}
               loading={loading}
@@ -607,21 +608,14 @@ function HomeConsole() {
               initialShowAdd={showAddAsset}
             />
           )}
-          {activeTab === "org-security" && canManageSecuritySettings(sessionRole) && (
+          {activeTab === "org-security" && canAccessOrganisationView(sessionRole, "org-security") && (
             <SecuritySettingsPanel onUpdated={fetchData} />
           )}
           {isOrganisationView(activeTab) &&
             activeTab !== "admin-swms" &&
-            !canManageOrganisation(sessionRole) && (
+            !canAccessOrganisationView(sessionRole, activeTab) && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                You do not have access to Organisation settings.
-              </div>
-            )}
-          {activeTab === "org-security" &&
-            canManageOrganisation(sessionRole) &&
-            !canManageSecuritySettings(sessionRole) && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Security settings are restricted to Owner and Full Access roles.
+                You do not have access to this Organisation section.
               </div>
             )}
         </>
