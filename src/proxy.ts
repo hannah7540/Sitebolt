@@ -123,6 +123,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/support") ||
     pathname.startsWith("/marketing") ||
     pathname.startsWith("/enquire") ||
+    pathname.startsWith("/guest") ||
     isPlantPrestartPath(pathname)
   ) {
     return NextResponse.next();

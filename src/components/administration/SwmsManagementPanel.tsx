@@ -7,6 +7,7 @@ import {
   FileText,
   GitBranchPlus,
   Loader2,
+  Mail,
   Pencil,
   Plus,
   Send,
@@ -41,6 +42,7 @@ import Toast from "@/components/ui/Toast";
 import UploadSwmsModal from "./UploadSwmsModal";
 import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
+import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
 import ComplianceTrackingPanel, {
@@ -94,6 +96,7 @@ export default function SwmsManagementPanel({
   const [deleteTarget, setDeleteTarget] = useState<SwmsDocumentSummary | null>(null);
   const [editTarget, setEditTarget] = useState<SwmsDocumentSummary | null>(null);
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
+  const [guestTarget, setGuestTarget] = useState<SwmsDocumentSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState("");
   const [remindingId, setRemindingId] = useState<string | null>(null);
@@ -458,6 +461,15 @@ export default function SwmsManagementPanel({
                         <button
                           type="button"
                           disabled={isBusy}
+                          onClick={() => setGuestTarget(doc)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          <Mail className="h-3.5 w-3.5" />
+                          Send to Guest
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
                           onClick={() => void handleNewVersion(doc)}
                           className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
                         >
@@ -490,6 +502,15 @@ export default function SwmsManagementPanel({
                         >
                           <Send className="h-3.5 w-3.5" />
                           Assign SWMS
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => setGuestTarget(doc)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          <Mail className="h-3.5 w-3.5" />
+                          Send to Guest
                         </button>
                         <button
                           type="button"
@@ -599,6 +620,17 @@ export default function SwmsManagementPanel({
           workers={workers}
           onClose={() => setAssignTarget(null)}
           onAssigned={() => void fetchSwmsListData({ silent: true })}
+        />
+      ) : null}
+
+      {guestTarget ? (
+        <SendSwmsToGuestModal
+          swmsId={guestTarget.id}
+          swmsTitle={guestTarget.title}
+          onClose={() => setGuestTarget(null)}
+          onSent={() => {
+            setSuccessMessage(`SWMS sent to guest.`);
+          }}
         />
       ) : null}
 

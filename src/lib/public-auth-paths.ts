@@ -26,6 +26,7 @@ export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
       path.includes("/reset-password") ||
       path.includes("/onboarding") ||
       path.includes("/auth/confirm") ||
+      path.includes("/guest") ||
       isPlantPrestartPath(path)
     ) {
       return true;
@@ -61,6 +62,7 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/marketing") ||
     path.startsWith("/enquire") ||
     path.startsWith("/scan/") ||
+    path.startsWith("/guest") ||
     isPlantPrestartPath(path)
   );
 }

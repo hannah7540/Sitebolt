@@ -59,6 +59,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/onboarding",
   "/portal/",
   "/swms/sign/",
+  "/guest",
   "/scan/",
   "/prestart/",
   "/pre-start/",
@@ -505,7 +506,8 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     !pathname.startsWith("/set-password") &&
     !pathname.startsWith("/update-password") &&
     !pathname.startsWith("/accept-invite") &&
-    !pathname.startsWith("/auth/")
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/guest")
   ) {
     return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
   }

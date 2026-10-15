@@ -39,6 +39,7 @@ const OPERATIONAL_APP_PREFIXES = [
   "/prestart/",
   "/pre-start/",
   "/scan/",
+  "/guest",
   "/select-company",
   "/dashboard",
 ] as const;

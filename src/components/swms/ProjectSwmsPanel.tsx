@@ -10,6 +10,7 @@ import {
   Clock,
   FileText,
   Loader2,
+  Mail,
   PenLine,
   UserPlus,
 } from "lucide-react";
@@ -33,6 +34,7 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
 import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
+import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
 import ProjectSwmsReviewPanel from "@/components/swms/ProjectSwmsReviewPanel";
 import {
   getProjectSwmsReviewPath,
@@ -74,6 +76,7 @@ export default function ProjectSwmsPanel({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [reminderId, setReminderId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
+  const [guestTarget, setGuestTarget] = useState<SwmsDocumentSummary | null>(null);
   const [signAssignment, setSignAssignment] = useState<
     (SwmsAssignment & { swms?: SwmsDocument }) | null
   >(null);
@@ -331,6 +334,14 @@ export default function ProjectSwmsPanel({
                       <UserPlus className="h-3.5 w-3.5" />
                       Assign Workers
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setGuestTarget(doc)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      Send to Guest
+                    </button>
                     {documentUrl ? (
                       <a
                         href={documentUrl}
@@ -468,6 +479,17 @@ export default function ProjectSwmsPanel({
           onAssigned={() => {
             setSuccessMessage("SWMS assignments updated.");
             void loadData();
+          }}
+        />
+      ) : null}
+
+      {guestTarget ? (
+        <SendSwmsToGuestModal
+          swmsId={guestTarget.id}
+          swmsTitle={guestTarget.title}
+          onClose={() => setGuestTarget(null)}
+          onSent={() => {
+            setSuccessMessage(`SWMS sent to guest.`);
           }}
         />
       ) : null}
