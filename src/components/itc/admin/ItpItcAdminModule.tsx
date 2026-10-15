@@ -181,7 +181,7 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
           Browse parent ITPs, then open a plan to view or create its Inspection Test Checklists.
         </p>
         <Link
-          href="/admin/itc/redline"
+          href="/organisation/itcs/redline"
           className="mt-3 inline-flex rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-400"
         >
           Red line markup

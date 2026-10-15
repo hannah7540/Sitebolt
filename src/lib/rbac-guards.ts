@@ -74,6 +74,7 @@ export const PROJECT_VIEWS: readonly ActiveView[] = [
 const PROJECT_TEAM_ALLOWED_ORG_PREFIXES = [
   "/organisation/documents",
   "/organisation/forms",
+  "/organisation/itcs",
   "/organisation/projects",
   "/organisation/workers",
   "/organisation/tags",

@@ -231,6 +231,11 @@ export default function RedlineMarkupView({
     [itcById]
   );
 
+  const drawerName = useCallback(
+    (run: RedlineRun) => (run.drawn_by === me.authUserId ? me.name : "Worker"),
+    [me.authUserId, me.name]
+  );
+
   const toast = useCallback((message: string) => {
     const el = toastRef.current;
     if (!el) return;
@@ -448,8 +453,6 @@ export default function RedlineMarkupView({
           label: run.label,
           source: run.source,
           review: run.review,
-          drawn_by_name: me.name,
-          drawn_by_worker_id: me.workerId,
         });
         if (result.error) {
           toast(result.error);
@@ -458,7 +461,7 @@ export default function RedlineMarkupView({
         if (result.run) savedRef.current[result.run.itc_id] = result.run;
       }, 280);
     },
-    [me.name, me.workerId, toast]
+    [toast]
   );
 
   const renderPageTo = useCallback(async (canvas: HTMLCanvasElement, n: number) => {
@@ -852,15 +855,11 @@ export default function RedlineMarkupView({
       opacity: prefsRef.current.op,
       label,
       drawn_by: me.authUserId,
-      drawn_by_name: me.name,
       drawn_at: new Date().toISOString(),
       source: "field",
       review: "pending",
     };
-    const result = await saveRedline({
-      ...draft,
-      drawn_by_worker_id: me.workerId,
-    });
+    const result = await saveRedline(draft);
     if (result.error || !result.run) {
       toast(result.error ?? "Could not save the run");
       return;
@@ -880,7 +879,7 @@ export default function RedlineMarkupView({
               const run = savedRef.current[id];
               const itc = itcById.get(id);
               const n = run.segs.reduce((sum, seg) => sum + seg.length, 0);
-              return `<div class="run"><div class="t"><b>${esc(itc?.number ?? id)}</b> <small>${esc(itc?.type ?? "")}</small><br><small>p${run.page} - ${run.segs.length} seg, ${n} pts - ${esc(run.drawn_by_name)} - ${new Date(run.drawn_at).toLocaleString()}<br>Field markup - office to review</small></div>
+              return `<div class="run"><div class="t"><b>${esc(itc?.number ?? id)}</b> <small>${esc(itc?.type ?? "")}</small><br><small>p${run.page} - ${run.segs.length} seg, ${n} pts - ${esc(drawerName(run))} - ${new Date(run.drawn_at).toLocaleString()}<br>Field markup - office to review</small></div>
     <button data-show="${esc(id)}">Show</button><button data-del="${esc(id)}">Delete</button></div>`;
             })
             .join("")
@@ -951,7 +950,7 @@ export default function RedlineMarkupView({
       g.fillText(number, label.x * W, label.y * H);
       g.font = `${f * 0.8}px sans-serif`;
       g.fillStyle = "#9a3412";
-      g.fillText(`Field markup - office to review - ${run.drawn_by_name}`, f, H - f);
+      g.fillText(`Field markup - office to review - ${drawerName(run)}`, f, H - f);
       canvas.toBlob((blob) => {
         if (blob) downloadBlob(`redline-${number}.png`, blob);
       }, "image/png");

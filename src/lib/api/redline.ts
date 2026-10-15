@@ -1,10 +1,9 @@
 /**
- * Red line markup API — upload drawings to the private `redline-drawings`
- * bucket and persist ITC run geometry on `itc_redlines`.
+ * Red line markup API matching REDLINE-SPEC.md / 10_redline_markup.sql.
+ * Do not add organisation_id or custom RLS here — the handover SQL is applied as-is.
  */
 
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import { resolveActiveOrganisationId } from "@/lib/tenant-scope";
 import { readSupabaseAnonKey, readSupabaseUrl } from "@/lib/supabase/env";
 import type { RedlineLabel, RedlineSeg } from "@/lib/redline-geometry";
 
@@ -32,7 +31,6 @@ export interface RedlineSourceRecord {
   file_size: number;
   page_count: number;
   storage_path: string;
-  organisation_id: string | null;
 }
 
 export interface RedlineRun {
@@ -45,7 +43,6 @@ export interface RedlineRun {
   opacity: number;
   label: RedlineLabel | null;
   drawn_by: string;
-  drawn_by_name: string;
   drawn_at: string;
   source: RedlineSourceKind;
   review: RedlineReview;
@@ -62,8 +59,6 @@ export interface SaveRedlineInput {
   label: RedlineLabel | null;
   source?: RedlineSourceKind;
   review?: RedlineReview;
-  drawn_by_name?: string;
-  drawn_by_worker_id?: string | null;
 }
 
 function asRecord(row: unknown): Record<string, unknown> {
@@ -89,16 +84,13 @@ function mapSource(row: Record<string, unknown>): RedlineSourceRecord {
     file_size: asNumber(row.file_size) ?? 0,
     page_count: asNumber(row.page_count) ?? 1,
     storage_path: asText(row.storage_path) ?? "",
-    organisation_id: asText(row.organisation_id),
   };
 }
 
 function mapRun(row: Record<string, unknown>): RedlineRun {
   const segs = Array.isArray(row.segs) ? (row.segs as RedlineSeg[]) : [];
   const label =
-    row.label && typeof row.label === "object"
-      ? (row.label as RedlineLabel)
-      : null;
+    row.label && typeof row.label === "object" ? (row.label as RedlineLabel) : null;
   const source = asText(row.source) === "office" ? "office" : "field";
   const reviewRaw = asText(row.review);
   const review: RedlineReview =
@@ -113,7 +105,6 @@ function mapRun(row: Record<string, unknown>): RedlineRun {
     opacity: asNumber(row.opacity) ?? 0.4,
     label,
     drawn_by: asText(row.drawn_by) ?? "",
-    drawn_by_name: asText(row.drawn_by_name) ?? "Worker",
     drawn_at: asText(row.drawn_at) ?? new Date().toISOString(),
     source,
     review,
@@ -130,14 +121,6 @@ async function requireSession(): Promise<{
     throw new Error("Sign in to upload a drawing.");
   }
   return { userId: session.user.id, accessToken: session.access_token };
-}
-
-function requireOrgId(): string {
-  const orgId = resolveActiveOrganisationId();
-  if (!orgId) {
-    throw new Error("No active organisation. Switch company and try again.");
-  }
-  return orgId;
 }
 
 function encodeStoragePath(path: string): string {
@@ -159,9 +142,12 @@ function parseUploadError(body: string, status: number): string {
   return body.trim() || `Upload failed (${status})`;
 }
 
+function isMissingRedlineSchema(message: string): boolean {
+  return /does not exist|schema cache|could not find/i.test(message);
+}
+
 /**
- * Upload a private object with byte-level progress via XHR.
- * Supabase JS `storage.upload` does not expose `onUploadProgress`.
+ * Byte-level progress via XHR. supabase-js storage.upload has no onUploadProgress.
  */
 function uploadFileWithProgress(input: {
   bucket: string;
@@ -201,23 +187,21 @@ function uploadFileWithProgress(input: {
 }
 
 async function findExistingSource(input: {
-  organisationId: string;
   fileName: string;
   fileSize: number;
   pageCount: number;
 }): Promise<RedlineSourceRecord | null> {
   const { data, error } = await supabase
     .from("redline_sources")
-    .select("id, file_name, file_size, page_count, storage_path, organisation_id")
-    .eq("organisation_id", input.organisationId)
+    .select("id, file_name, file_size, page_count, storage_path")
     .eq("file_name", input.fileName)
     .eq("file_size", input.fileSize)
     .eq("page_count", input.pageCount)
     .maybeSingle();
 
   if (error) {
-    if (/does not exist|schema cache|could not find/i.test(error.message)) {
-      throw new Error("Redline tables are not installed yet. Run migration 186_redline_markup.sql.");
+    if (isMissingRedlineSchema(error.message)) {
+      throw new Error("Redline tables are not installed yet. Run 10_redline_markup.sql.");
     }
     return null;
   }
@@ -254,18 +238,18 @@ export async function listRedlines(sourceId: string): Promise<RedlineRun[]> {
   return (data ?? []).map((row) => mapRun(asRecord(row)));
 }
 
-export async function saveRedline(run: SaveRedlineInput): Promise<{ run: RedlineRun | null; error: string | null }> {
+export async function saveRedline(
+  run: SaveRedlineInput
+): Promise<{ run: RedlineRun | null; error: string | null }> {
   if (!isSupabaseConfigured()) {
     return { run: null, error: "Supabase is not configured." };
   }
   try {
     const { userId } = await requireSession();
-    const orgId = requireOrgId();
     const segs = run.segs.filter((seg) => seg.length > 0);
     if (!segs.length) return { run: null, error: "A run needs at least one point." };
 
     const payload: Record<string, unknown> = {
-      organisation_id: orgId,
       itc_id: run.itc_id,
       source_id: run.source_id,
       page: run.page,
@@ -276,8 +260,6 @@ export async function saveRedline(run: SaveRedlineInput): Promise<{ run: Redline
       source: run.source ?? "field",
       review: run.review ?? "pending",
       drawn_by: userId,
-      drawn_by_name: run.drawn_by_name ?? null,
-      drawn_by_worker_id: run.drawn_by_worker_id ?? null,
       drawn_at: new Date().toISOString(),
     };
     if (run.id) payload.id = run.id;
@@ -323,10 +305,8 @@ export async function uploadRedlineSource(
   options.onProgress?.(0);
 
   const { userId, accessToken } = await requireSession();
-  const orgId = requireOrgId();
 
   const existing = await findExistingSource({
-    organisationId: orgId,
     fileName: file.name,
     fileSize: file.size,
     pageCount,
@@ -340,7 +320,7 @@ export async function uploadRedlineSource(
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const storagePath = `${orgId}/${id}.pdf`;
+  const storagePath = `${id}.pdf`;
 
   await uploadFileWithProgress({
     bucket: REDLINE_DRAWINGS_BUCKET,
@@ -356,20 +336,21 @@ export async function uploadRedlineSource(
     .from("redline_sources")
     .insert({
       id,
-      organisation_id: orgId,
       file_name: file.name,
       file_size: file.size,
       page_count: pageCount,
       storage_path: storagePath,
       uploaded_by: userId,
     })
-    .select("id, file_name, file_size, page_count, storage_path, organisation_id")
+    .select("id, file_name, file_size, page_count, storage_path")
     .maybeSingle();
 
   if (error) {
+    if (isMissingRedlineSchema(error.message)) {
+      throw new Error("Redline tables are not installed yet. Run 10_redline_markup.sql.");
+    }
     if (/duplicate|unique/i.test(error.message)) {
       const again = await findExistingSource({
-        organisationId: orgId,
         fileName: file.name,
         fileSize: file.size,
         pageCount,
