@@ -6,8 +6,13 @@ import {
   formatItpItemStatus,
   formatItpPointType,
   formatItpStatusLabel,
+  formatSignedWorkersCell,
   formatSwmsVersionLabel,
+  formatUnsignedWorkersCell,
+  resolveProjectLabel,
 } from "./document-pack-service";
+import { appendItcCertificateToPdf } from "./itc-pdf";
+import { getSwmsDocumentUrl, resolveSwmsScope } from "./swms";
 
 const PAGE_MARGIN = 14;
 const CONTENT_WIDTH = 182;
@@ -100,6 +105,99 @@ function writeParagraph(
   return cursorY + lines.length * 5 + 4;
 }
 
+function writeFieldGrid(
+  doc: JsPdfInstance,
+  fields: Array<[string, string]>,
+  y: number
+): number {
+  let cursorY = y;
+  for (const [label, value] of fields) {
+    cursorY = ensureSpace(doc, cursorY, 10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(label, PAGE_MARGIN, cursorY);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(15, 23, 42);
+    const lines = doc.splitTextToSize(value || "—", CONTENT_WIDTH - 62);
+    doc.text(lines, PAGE_MARGIN + 62, cursorY);
+    cursorY += Math.max(8, lines.length * 5 + 2);
+  }
+  return cursorY + 4;
+}
+
+async function embedPdfOrImage(
+  doc: JsPdfInstance,
+  sourceUrl: string
+): Promise<void> {
+  if (!sourceUrl.trim()) return;
+  try {
+    const response = await fetch(sourceUrl);
+    if (!response.ok) return;
+    const blob = await response.blob();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const usableWidth = pageWidth - PAGE_MARGIN * 2;
+    const usableHeight = pageHeight - PAGE_MARGIN * 2;
+
+    if (blob.type.includes("pdf") || sourceUrl.toLowerCase().includes(".pdf")) {
+      const { pdfjs } = await import("react-pdf");
+      if (typeof window !== "undefined") {
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      }
+      const buffer = await blob.arrayBuffer();
+      const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+      const maxPages = Math.min(pdf.numPages, 12);
+      for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.35 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const context = canvas.getContext("2d");
+        if (!context) continue;
+        await page.render({
+          canvasContext: context,
+          viewport,
+        } as Parameters<typeof page.render>[0]).promise;
+        const image = canvas.toDataURL("image/jpeg", 0.72);
+        doc.addPage();
+        const ratio = Math.min(
+          usableWidth / (viewport.width * 0.264583),
+          usableHeight / (viewport.height * 0.264583)
+        );
+        const drawWidth = viewport.width * 0.264583 * ratio;
+        const drawHeight = viewport.height * 0.264583 * ratio;
+        doc.addImage(
+          image,
+          "JPEG",
+          PAGE_MARGIN,
+          PAGE_MARGIN,
+          drawWidth,
+          drawHeight
+        );
+      }
+      return;
+    }
+
+    if (blob.type.startsWith("image/")) {
+      const image = await loadImageDataUrl(sourceUrl);
+      if (!image?.dataUrl) return;
+      doc.addPage();
+      doc.addImage(
+        image.dataUrl,
+        image.format,
+        PAGE_MARGIN,
+        PAGE_MARGIN,
+        usableWidth,
+        usableHeight * 0.7
+      );
+    }
+  } catch {
+    /* optional document embed */
+  }
+}
+
 async function drawCoverPage(doc: JsPdfInstance, data: DocumentPackData): Promise<void> {
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 24;
@@ -175,99 +273,136 @@ async function drawItpSection(
   let y = writeSectionHeading(doc, "Section 1 — ITPs & ITCs", PAGE_MARGIN + 8);
 
   if (data.itps.length === 0 && data.itcs.length === 0) {
-    y = writeParagraph(doc, "No ITPs or ITCs found for this project and date range.", y);
+    writeParagraph(doc, "No ITPs or ITCs found for this project and date range.", y);
     return;
   }
 
-  if (data.itps.length > 0) {
-  autoTable(doc, {
-    startY: y,
-    head: [["ITP #", "Title", "Revision", "Trade", "Status", "Items"]],
-    body: data.itps.map((itp) => [
-      itp.itp_number,
-      itp.title,
-      itp.revision,
-      itp.trade_category,
-      formatItpStatusLabel(itp.status),
-      String(itp.items?.length ?? 0),
-    ]),
-    styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [249, 115, 22], textColor: 255 },
-    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-  });
+  const itcsByItp = new Map<string, typeof data.itcs>();
+  const unlinked: typeof data.itcs = [];
+  for (const itc of data.itcs) {
+    if (itc.itp_id) {
+      const list = itcsByItp.get(itc.itp_id) ?? [];
+      list.push(itc);
+      itcsByItp.set(itc.itp_id, list);
+    } else {
+      unlinked.push(itc);
+    }
+  }
 
-  y = (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable
-    ?.finalY
-    ? ((doc as JsPdfInstance & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10)
-    : y + 20;
+  const renderItc = async (itc: (typeof data.itcs)[number]) => {
+    doc.addPage();
+    if (itc.detail) {
+      await appendItcCertificateToPdf(doc, autoTable, itc.detail, {
+        projectName: resolveProjectLabel(
+          itc.project_id,
+          data.projectNamesById,
+          data.projectName
+        ),
+      });
+      return;
+    }
 
-  for (const itp of data.itps) {
-    y = ensureSpace(doc, y, 30);
-    y = writeParagraph(
+    let cursor = writeParagraph(
       doc,
-      `${itp.itp_number} — ${itp.title} (Rev ${itp.revision})`,
-      y,
-      { bold: true, fontSize: 11 }
+      `${itc.itc_number} — ${itc.title}`,
+      PAGE_MARGIN + 8,
+      { bold: true, fontSize: 12 }
     );
-
-    const meta = [
-      `Trade: ${itp.trade_category}`,
-      itp.subcontractor_name ? `Subcontractor: ${itp.subcontractor_name}` : null,
-      itp.location_area ? `Location: ${itp.location_area}` : null,
-      `Status: ${formatItpStatusLabel(itp.status)}`,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    y = writeParagraph(doc, meta, y, { fontSize: 9 });
-
+    cursor = writeParagraph(
+      doc,
+      `Stage: ${itc.stage} · Status: ${itc.status} · Discipline: ${itc.service_discipline}`,
+      cursor,
+      { fontSize: 9 }
+    );
+    const entries = Object.entries(itc.form_data ?? {});
+    if (entries.length === 0) {
+      writeParagraph(doc, "No additional field data captured for this ITC.", cursor, {
+        fontSize: 9,
+      });
+      return;
+    }
     autoTable(doc, {
-      startY: y,
-      head: [["#", "Description", "Type", "Status", "Inspector", "Signed Off"]],
-      body: (itp.items ?? []).map((item) => [
-        String(item.item_number),
-        item.description,
-        formatItpPointType(item.point_type),
-        formatItpItemStatus(item.status),
-        item.inspector_name ?? "—",
-        item.signed_off_at ? formatTimestamp(item.signed_off_at) : "—",
+      startY: cursor,
+      head: [["Field", "Value"]],
+      body: entries.map(([key, value]) => [
+        key.replace(/_/g, " "),
+        typeof value === "boolean"
+          ? value
+            ? "Yes"
+            : "No"
+          : value == null
+            ? "—"
+            : String(value),
       ]),
       styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
       headStyles: { fillColor: [51, 65, 85], textColor: 255 },
-      columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 62 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 22 },
-        4: { cellWidth: 28 },
-        5: { cellWidth: 32 },
-      },
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
     });
+  };
 
-    y =
-      (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
-      y + 20;
-    y += 12;
-  }
+  for (const itp of data.itps) {
+    y = writeParagraph(
+      doc,
+      `${itp.itp_number} — ${itp.title}`,
+      y,
+      { bold: true, fontSize: 13 }
+    );
+    y = writeParagraph(
+      doc,
+      [
+        `Project/Site: ${resolveProjectLabel(itp.project_id, data.projectNamesById, data.projectName)}`,
+        `Revision ${itp.revision}`,
+        `Trade: ${itp.trade_category}`,
+        `Status: ${formatItpStatusLabel(itp.status)}`,
+        itp.location_area ? `Location: ${itp.location_area}` : null,
+        itp.subcontractor_name ? `Subcontractor: ${itp.subcontractor_name}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      y,
+      { fontSize: 9 }
+    );
+
+    if ((itp.items ?? []).length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [["#", "Description", "Type", "Status", "Inspector", "Signed Off"]],
+        body: (itp.items ?? []).map((item) => [
+          String(item.item_number),
+          item.description,
+          formatItpPointType(item.point_type),
+          formatItpItemStatus(item.status),
+          item.inspector_name ?? "—",
+          item.signed_off_at ? formatTimestamp(item.signed_off_at) : "—",
+        ]),
+        styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
+        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+        margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      });
+      y =
+        (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable
+          ?.finalY ?? y + 20;
+      y += 8;
+    }
+
+    const linked = itcsByItp.get(itp.id) ?? [];
+    if (linked.length === 0) {
+      y = writeParagraph(doc, "No ITCs linked to this ITP.", y, { fontSize: 9 });
+    }
+    for (const itc of linked) {
+      await renderItc(itc);
+    }
+    if (itp !== data.itps[data.itps.length - 1] || unlinked.length > 0) {
+      doc.addPage();
+      y = PAGE_MARGIN + 8;
+    }
   }
 
-  if (data.itcs.length > 0) {
-    y = ensureSpace(doc, y, 24);
-    y = writeParagraph(doc, "Inspection Test Certificates", y, { bold: true, fontSize: 11 });
-    autoTable(doc, {
-      startY: y,
-      head: [["ITC #", "Title / Activity", "Discipline", "Status", "Created"]],
-      body: data.itcs.map((itc) => [
-        itc.itc_number,
-        itc.title,
-        itc.service_discipline,
-        itc.status,
-        itc.created_at ? formatDisplayDate(itc.created_at) : "—",
-      ]),
-      styles: { fontSize: 9, cellPadding: 2.5 },
-      headStyles: { fillColor: [51, 65, 85], textColor: 255 },
-      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    });
+  if (unlinked.length > 0) {
+    y = writeParagraph(doc, "Unlinked ITCs", y, { bold: true, fontSize: 12 });
+    for (const itc of unlinked) {
+      await renderItc(itc);
+    }
   }
 }
 
@@ -277,43 +412,61 @@ async function drawSwmsSection(
   autoTable: typeof import("jspdf-autotable").default
 ): Promise<void> {
   doc.addPage();
-  let y = writeSectionHeading(doc, "Section 2 — Site SWMS & Worker Sign-Off", PAGE_MARGIN + 8);
+  let y = writeSectionHeading(doc, "Section 2 — SWMS & Signature Log", PAGE_MARGIN + 8);
 
   if (data.swms.length === 0) {
-    y = writeParagraph(doc, "No site-specific SWMS records found for this project.", y);
+    writeParagraph(doc, "No SWMS records found for this scope.", y);
     return;
   }
 
-  autoTable(doc, {
-    startY: y,
-    head: [["Title", "Version", "Date", "Assigned", "Signed", "Pending"]],
-    body: data.swms.map((docRow) => [
-      docRow.title,
-      formatSwmsVersionLabel(docRow.version),
-      formatDisplayDate(
-        docRow.document_date || docRow.created_at?.slice(0, 10) || ""
-      ),
-      String(docRow.totalAssigned),
-      String(docRow.signedCount),
-      String(docRow.pendingCount),
-    ]),
-    styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [249, 115, 22], textColor: 255 },
-    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-  });
-
-  y = (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable
-    ?.finalY
-    ? ((doc as JsPdfInstance & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10)
-    : y + 20;
-
   for (const block of data.swmsMatrices) {
-    y = ensureSpace(doc, y, 24);
+    const swms = block.swms;
+    const scope =
+      resolveSwmsScope(swms) === "site_specific" ? "Site Specific" : "Company";
+    y = writeParagraph(doc, swms.title || "SWMS", y, { bold: true, fontSize: 13 });
     y = writeParagraph(
       doc,
-      `${block.swms.title} — Sign-Off Matrix (${formatSwmsVersionLabel(block.swms.version)})`,
+      [
+        `Scope: ${scope}`,
+        scope === "Site Specific"
+          ? `Project: ${resolveProjectLabel(swms.project_id, data.projectNamesById, data.projectName)}`
+          : null,
+        `Version: ${formatSwmsVersionLabel(swms.version)}`,
+        `Date: ${formatDisplayDate(swms.document_date || swms.created_at?.slice(0, 10) || "")}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       y,
-      { bold: true, fontSize: 11 }
+      { fontSize: 9 }
+    );
+
+    const fileUrl = getSwmsDocumentUrl(swms);
+    if (fileUrl) {
+      await embedPdfOrImage(doc, fileUrl);
+      y = PAGE_MARGIN + 8;
+    } else {
+      y = writeParagraph(doc, "No SWMS file is attached to this record.", y, {
+        fontSize: 9,
+      });
+    }
+
+    doc.addPage();
+    y = writeSectionHeading(
+      doc,
+      `Signature log — ${swms.title || "SWMS"}`,
+      PAGE_MARGIN + 8
+    );
+    y = writeParagraph(
+      doc,
+      `Signed: ${formatSignedWorkersCell(block.rows) || "None"}`,
+      y,
+      { fontSize: 9 }
+    );
+    y = writeParagraph(
+      doc,
+      `Unsigned: ${formatUnsignedWorkersCell(block.rows) || "None"}`,
+      y,
+      { fontSize: 9 }
     );
 
     autoTable(doc, {
@@ -334,97 +487,79 @@ async function drawSwmsSection(
     });
 
     y =
-      (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
-      y + 20;
-    y += 10;
+      (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable
+        ?.finalY ?? y + 20;
+    y += 12;
+    if (block !== data.swmsMatrices[data.swmsMatrices.length - 1]) {
+      doc.addPage();
+      y = PAGE_MARGIN + 8;
+    }
   }
 }
 
 async function drawPlantSection(
   doc: JsPdfInstance,
-  data: DocumentPackData,
-  autoTable: typeof import("jspdf-autotable").default
+  data: DocumentPackData
 ): Promise<void> {
-  doc.addPage();
-  let y = writeSectionHeading(doc, "Section 3 — Plant Asset Register", PAGE_MARGIN + 8);
-
   if (data.plantRecords.length === 0) {
-    y = writeParagraph(doc, "No plant equipment assigned to this project.", y);
+    doc.addPage();
+    const emptyY = writeSectionHeading(doc, "Section 3 — Plant", PAGE_MARGIN + 8);
+    writeParagraph(doc, "No plant equipment found for this scope.", emptyY);
     return;
   }
 
-  autoTable(doc, {
-    startY: y,
-    head: [
-      ["Unit #", "Make / Model", "Current Hrs", "Next Service Hrs", "Last Service"],
-    ],
-    body: data.plantRecords.map((plant) => [
-      plant.unitNumber,
-      [plant.make, plant.model].filter(Boolean).join(" ") || "—",
-      plant.currentHours != null ? String(plant.currentHours) : "—",
-      plant.nextServiceHours != null ? String(plant.nextServiceHours) : "—",
-      plant.lastServiceDate ? formatDisplayDate(plant.lastServiceDate) : "—",
-    ]),
-    styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [249, 115, 22], textColor: 255 },
-    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-  });
-
-  y = (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable
-    ?.finalY
-    ? ((doc as JsPdfInstance & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10)
-    : y + 20;
-
   for (const plant of data.plantRecords) {
-    y = ensureSpace(doc, y, 28);
-    y = writeParagraph(
+    doc.addPage();
+    let y = writeSectionHeading(doc, "Plant record", PAGE_MARGIN + 8);
+    y = writeParagraph(doc, plant.plantName || plant.unitNumber, y, {
+      bold: true,
+      fontSize: 16,
+    });
+    y = writeFieldGrid(
       doc,
-      `Unit ${plant.unitNumber}${plant.name ? ` — ${plant.name}` : ""}`,
-      y,
-      { bold: true, fontSize: 11 }
+      [
+        ["Plant Name", plant.plantName || plant.unitNumber],
+        ["Make", plant.make ?? "—"],
+        ["Model", plant.model ?? "—"],
+        [
+          "Current Hours",
+          plant.currentHours != null ? String(plant.currentHours) : "—",
+        ],
+        [
+          "Next Service Due Hours",
+          plant.nextServiceHours != null ? String(plant.nextServiceHours) : "—",
+        ],
+        [
+          "Last Service Date",
+          plant.lastServiceDate ? formatDisplayDate(plant.lastServiceDate) : "—",
+        ],
+        [
+          "Last Maintenance Date",
+          plant.lastMaintenanceDate ? formatDisplayDate(plant.lastMaintenanceDate) : "—",
+        ],
+        [
+          "Last Pre-start Date",
+          plant.lastPrestartDate ? formatDisplayDate(plant.lastPrestartDate) : "—",
+        ],
+        [
+          "Current Project Assignment",
+          plant.projectLabel || data.projectName || "—",
+        ],
+      ],
+      y
     );
 
     if (plant.photoUrl) {
       const image = await loadImageDataUrl(plant.photoUrl);
       if (image?.dataUrl) {
-        const imageY = ensureSpace(doc, y, 34);
+        y = ensureSpace(doc, y, 40);
         try {
-          doc.addImage(image.dataUrl, image.format, PAGE_MARGIN, imageY, 36, 24);
-          y = imageY + 28;
+          doc.addImage(image.dataUrl, image.format, PAGE_MARGIN, y, 48, 32);
         } catch {
-          y += 2;
+          /* optional */
         }
       }
     }
-
-    const summary = [
-      `Make / Model: ${[plant.make, plant.model].filter(Boolean).join(" ") || "—"}`,
-      `Current Hours: ${plant.currentHours ?? "—"}`,
-      `Hours for Next Service: ${plant.nextServiceHours ?? "—"}`,
-      `Last Service Date: ${plant.lastServiceDate ? formatDisplayDate(plant.lastServiceDate) : "—"}`,
-    ].join(" · ");
-    y = writeParagraph(doc, summary, y, { fontSize: 9 });
-
-    autoTable(doc, {
-      startY: y,
-      head: [["Date", "Maintenance / Service Record", "Source"]],
-      body:
-        plant.maintenanceHistory.length > 0
-          ? plant.maintenanceHistory.map((entry) => [
-              formatDisplayDate(entry.date),
-              entry.description,
-              entry.source,
-            ])
-          : [["—", "No maintenance history in selected date range.", "—"]],
-      styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [51, 65, 85], textColor: 255 },
-      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    });
-
-    y =
-      (doc as JsPdfInstance & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
-      y + 20;
-    y += 10;
   }
 }
 
@@ -448,7 +583,7 @@ export async function generateDocumentPackPdf(
     await drawSwmsSection(doc, data, autoTable);
   }
   if (data.sections.includes("plant")) {
-    await drawPlantSection(doc, data, autoTable);
+    await drawPlantSection(doc, data);
   }
 
   const pageCount = doc.getNumberOfPages();

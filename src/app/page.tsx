@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -64,7 +65,6 @@ import SubcontractorsListView from "@/components/subcontractors/SubcontractorsLi
 import AdminPlantCalendarPanel from "@/components/administration/FullPlantCalendarView";
 import AdminWorkerCalendarPanel from "@/components/administration/AdminWorkerCalendarPanel";
 import SwmsManagementPanel from "@/components/administration/SwmsManagementPanel";
-import DocumentPackView from "@/components/administration/DocumentPackView";
 import AdminReportingTab from "@/components/administration/AdminReportingTab";
 import MasterProjectDashboard from "@/components/administration/MasterProjectDashboard";
 import {
@@ -87,6 +87,11 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
 import { Capacitor } from "@capacitor/core";
+
+const DocumentPackView = dynamic(
+  () => import("@/components/administration/DocumentPackView"),
+  { ssr: false }
+);
 
 function isAppSubdomainHost(): boolean {
   if (typeof window === "undefined") return false;

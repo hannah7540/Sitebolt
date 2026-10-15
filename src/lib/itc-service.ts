@@ -49,6 +49,7 @@ export interface ItcZone {
 export interface ProjectItc {
   id: string;
   project_id: string;
+  itp_id?: string | null;
   itc_number: string;
   zone_id: string | null;
   zone_code: string | null;
@@ -258,6 +259,7 @@ function normalizeItc(row: Record<string, unknown>): ProjectItc {
   return {
     id: String(row.id),
     project_id: String(row.project_id ?? ""),
+    itp_id: row.itp_id ? String(row.itp_id) : null,
     itc_number: String(row.itc_number ?? row.activity_number ?? row.title ?? ""),
     zone_id: row.zone_id ? String(row.zone_id) : null,
     zone_code: row.zone_code ? String(row.zone_code) : null,

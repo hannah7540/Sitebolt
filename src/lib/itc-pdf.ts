@@ -246,18 +246,15 @@ async function drawStampedPhoto(
   });
 }
 
-export async function generateItcCertificatePdf(
+export async function appendItcCertificateToPdf(
+  doc: JsPdfInstance,
+  autoTable: (doc: JsPdfInstance, options: Record<string, unknown>) => void,
   bundle: ItcDetailBundle,
   options: ItcPdfOptions | string
-): Promise<Blob> {
+): Promise<void> {
   const pdfOptions: ItcPdfOptions =
     typeof options === "string" ? { projectName: options } : options;
 
-  const { jsPDF } = await import("jspdf");
-  const autoTableModule = await import("jspdf-autotable");
-  const autoTable = autoTableModule.default;
-
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
   const { itc, stepPhotos, signoffs, inspectionActivities } = bundle;
   const specs = resolveItcSpecs(itc);
   const profile = await fetchCompanyProfile().catch(() => null);
@@ -513,7 +510,17 @@ export async function generateItcCertificatePdf(
       doc.text("Signature", x + 3, y + 29);
     }
   }
+}
 
+export async function generateItcCertificatePdf(
+  bundle: ItcDetailBundle,
+  options: ItcPdfOptions | string
+): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const autoTableModule = await import("jspdf-autotable");
+  const autoTable = autoTableModule.default;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  await appendItcCertificateToPdf(doc, autoTable, bundle, options);
   return doc.output("blob");
 }
 

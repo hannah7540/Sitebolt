@@ -1,13 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
 import AdminConsoleViewGate from "@/components/layout/AdminConsoleViewGate";
-import DocumentPackView from "@/components/administration/DocumentPackView";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
 import { fetchPlant, type PlantAsset } from "@/lib/supabase";
 import { DEFAULT_ADMIN_PROFILE_NAME } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
+
+const DocumentPackView = dynamic(
+  () => import("@/components/administration/DocumentPackView"),
+  { ssr: false }
+);
 
 function AdminDocumentPackContent() {
   const { workers, projects, adminWorkerId } = useAdminConsole();

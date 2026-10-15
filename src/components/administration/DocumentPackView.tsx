@@ -5,7 +5,6 @@ import { FileDown, FileSpreadsheet, Loader2, Package } from "lucide-react";
 import { filterActiveProjects, type DbProject } from "@/lib/project-resolver";
 import type { PlantAsset, Worker } from "@/lib/supabase";
 import {
-  buildDocumentPackCsvRows,
   fetchDocumentPackData,
   logDocumentPackExport,
   type DocumentPackData,
@@ -13,10 +12,6 @@ import {
   type DocumentPackSection,
 } from "@/lib/document-pack-service";
 import { generateAndDownloadDocumentPack } from "@/lib/document-pack-pdf";
-import {
-  buildDocumentPackCsvFileName,
-  downloadDocumentPackCsv,
-} from "@/lib/document-pack-csv";
 import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -67,7 +62,7 @@ export default function DocumentPackView({
   const [sections, setSections] = useState<Set<DocumentPackSection>>(
     new Set(["itps", "swms", "plant"])
   );
-  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  const [exporting, setExporting] = useState<"pdf" | "excel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -166,15 +161,16 @@ export default function DocumentPackView({
     }
   };
 
-  const handleExportCsv = async () => {
-    setExporting("csv");
+  const handleExportExcel = async () => {
+    setExporting("excel");
     try {
       const packData = await validateAndLoadPack();
       if (!packData) return;
 
-      const rows = buildDocumentPackCsvRows(packData);
-      const fileName = buildDocumentPackCsvFileName(today);
-      downloadDocumentPackCsv(rows, fileName);
+      const { buildDocumentPackExcelFileName, downloadDocumentPackExcel } =
+        await import("@/lib/document-pack-xlsx");
+      const fileName = buildDocumentPackExcelFileName(today);
+      await downloadDocumentPackExcel(packData, fileName);
 
       const { error: logError } = await logDocumentPackExport({
         projectId: packData.projectId,
@@ -194,7 +190,7 @@ export default function DocumentPackView({
         setSuccessMessage(`${fileName} downloaded successfully.`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to export CSV.");
+      setError(err instanceof Error ? err.message : "Failed to export Excel.");
     } finally {
       setExporting(null);
     }
@@ -209,7 +205,7 @@ export default function DocumentPackView({
           1-Click <span className="text-orange-500">Document Pack</span>
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Build a unified PDF or CSV export of ITPs, SWMS sign-offs, and plant records
+          Build a unified PDF or Excel export of ITPs, SWMS sign-offs, and plant records
           for the whole company or selected projects.
         </p>
       </div>
@@ -337,15 +333,15 @@ export default function DocumentPackView({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void handleExportCsv()}
+                onClick={() => void handleExportExcel()}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-4 text-base font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
               >
-                {exporting === "csv" ? (
+                {exporting === "excel" ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <FileSpreadsheet className="h-5 w-5" />
                 )}
-                Export to CSV
+                Export to Excel
               </button>
             </div>
           </section>
@@ -391,8 +387,9 @@ export default function DocumentPackView({
             </div>
           </dl>
           <p className="mt-4 text-xs leading-relaxed text-slate-500">
-            PDF includes the organisation logo and a cover summary. CSV is a flat table of
-            document title, type, worker, project, date, and status.
+            PDF is a single document with SWMS content and signature logs, one page per
+            plant item, and ITCs as they appear on screen. Excel has three tabs: Plant,
+            SWMS, and ITP-ITC.
           </p>
         </aside>
       </div>

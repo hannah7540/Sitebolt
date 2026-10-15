@@ -1,6 +1,9 @@
 import { supabase, isSupabaseConfigured, fetchPlantPrestarts, type PlantAsset } from "./supabase";
 import { loadCompanyProfile, type CompanyProfileRecord } from "./company-profile-service";
 import { fetchItpById, type ProjectItp } from "./itp-service";
+import { fetchItcDetail, type ItcDetailBundle } from "./itc-service";
+import { fetchPlantMaintenance } from "./plant-maintenance";
+import { getLatestPrestartByPlant } from "./plant-prestart-utils";
 import { ITP_ITEM_STATUS_LABELS, ITP_POINT_TYPE_LABELS, ITP_STATUS_LABELS } from "./itp-templates";
 import {
   buildSwmsWorkerSignOffMatrix,
@@ -8,6 +11,7 @@ import {
   formatSwmsVersionLabel,
   getSwmsAssigneeName,
   getSwmsDocumentDate,
+  resolveSwmsScope,
   type SwmsDocumentSummary,
 } from "./swms";
 import {
@@ -50,16 +54,21 @@ export interface DocumentPackPlantRecord {
   id: string;
   unitNumber: string;
   name: string | null;
+  plantName: string;
   make: string | null;
   model: string | null;
   photoUrl: string | null;
   currentHours: number | null;
   nextServiceHours: number | null;
   lastServiceDate: string | null;
+  lastMaintenanceDate: string | null;
+  lastPrestartDate: string | null;
   projectLabel: string;
   assignedWorkerName: string | null;
   maintenanceHistory: DocumentPackMaintenanceEntry[];
 }
+
+export type DocumentPackItcStage = "Inputted" | "In Progress" | "Completed";
 
 export interface DocumentPackData {
   organization: CompanyProfileRecord | null;
@@ -118,12 +127,17 @@ function isMissingTableError(message: string, table: string): boolean {
 export interface DocumentPackItcRecord {
   id: string;
   project_id: string;
+  itp_id: string | null;
+  itpName: string;
   itc_number: string;
   title: string;
   status: string;
+  stage: DocumentPackItcStage;
   service_discipline: string;
+  form_data: Record<string, unknown>;
   created_at: string | null;
   updated_at: string | null;
+  detail: ItcDetailBundle | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -146,7 +160,7 @@ function matchesProjectScope(
   return Boolean(id) && projectIds.includes(id);
 }
 
-function resolveProjectLabel(
+export function resolveProjectLabel(
   projectId: string | null | undefined,
   projectNamesById: Record<string, string>,
   fallback: string
@@ -238,16 +252,69 @@ function mapPackItpRow(row: Record<string, unknown>): ProjectItp {
   };
 }
 
+export function mapItcStage(status: string | null | undefined): DocumentPackItcStage {
+  const value = str(status).toLowerCase();
+  if (
+    value === "complete" ||
+    value === "completed" ||
+    value === "closed" ||
+    value === "signed"
+  ) {
+    return "Completed";
+  }
+  if (
+    value === "not_started" ||
+    value === "draft" ||
+    value === "new" ||
+    value === "inputted" ||
+    value === ""
+  ) {
+    return "Inputted";
+  }
+  return "In Progress";
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += limit) {
+    const chunk = items.slice(index, index + limit);
+    const mapped = await Promise.all(chunk.map(mapper));
+    results.push(...mapped);
+  }
+  return results;
+}
+
+function latestIsoDate(values: Array<string | null | undefined>): string | null {
+  const dates = values
+    .map((value) => str(value).slice(0, 10))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .sort();
+  return dates.at(-1) ?? null;
+}
+
 function mapPackItcRow(row: Record<string, unknown>): DocumentPackItcRecord {
+  const status = str(row.status) || "draft";
   return {
     id: str(row.id),
     project_id: str(row.project_id),
+    itp_id: str(row.itp_id) || null,
+    itpName: "",
     itc_number: str(row.itc_number) || str(row.activity_number) || str(row.id).slice(0, 8),
     title: str(row.title) || str(row.activity_number) || "ITC",
-    status: str(row.status) || "draft",
+    status,
+    stage: mapItcStage(status),
     service_discipline: str(row.service_discipline) || str(row.trade_discipline) || "—",
+    form_data:
+      row.form_data && typeof row.form_data === "object" && !Array.isArray(row.form_data)
+        ? (row.form_data as Record<string, unknown>)
+        : {},
     created_at: str(row.created_at) || null,
     updated_at: str(row.updated_at) || null,
+    detail: null,
   };
 }
 
@@ -446,6 +513,7 @@ function buildPlantPackRecords(input: {
   lastServiceDates: Map<string, string | null>;
   prestarts: Awaited<ReturnType<typeof fetchPlantPrestarts>>;
   serviceSchedules: Map<string, DocumentPackMaintenanceEntry[]>;
+  maintenanceRows: Awaited<ReturnType<typeof fetchPlantMaintenance>>;
   dateFrom: string;
   dateTo: string;
   projectNamesById: Record<string, string>;
@@ -495,16 +563,43 @@ function buildPlantPackRecords(input: {
         .filter(Boolean)
         .join(", ") || input.fallbackProjectLabel;
 
+    const plantMaintenance = input.maintenanceRows.filter(
+      (row) => row.plant_id === item.id
+    );
+    const lastServiceFromMaintenance = latestIsoDate(
+      plantMaintenance
+        .filter((row) => row.maintenance_type === "service")
+        .map((row) => row.completed_at ?? row.scheduled_date)
+    );
+    const lastMaintenanceDate = latestIsoDate(
+      plantMaintenance
+        .filter((row) => row.maintenance_type === "maintenance")
+        .map((row) => row.completed_at ?? row.scheduled_date)
+    );
+    const latestPrestart = getLatestPrestartByPlant(
+      prestartsByPlant.get(item.id) ?? []
+    ).get(item.id);
+    const unitNumber = item.unit_number || item.plant_number || item.id.slice(0, 8);
+
     return {
       id: item.id,
-      unitNumber: item.unit_number || item.plant_number || item.id.slice(0, 8),
+      unitNumber,
       name: item.name ?? null,
+      plantName: item.name?.trim() || unitNumber,
       make: item.make,
       model: item.model,
       photoUrl: item.photo_url ?? null,
       currentHours: item.current_hours,
       nextServiceHours: item.next_service_hours,
-      lastServiceDate: input.lastServiceDates.get(item.id) ?? null,
+      lastServiceDate: latestIsoDate([
+        input.lastServiceDates.get(item.id),
+        lastServiceFromMaintenance,
+      ]),
+      lastMaintenanceDate,
+      lastPrestartDate: latestIsoDate([
+        latestPrestart?.submitted_at,
+        latestPrestart?.created_at,
+      ]),
       projectLabel,
       assignedWorkerName: item.assigned_worker_name ?? null,
       maintenanceHistory,
@@ -542,7 +637,36 @@ export async function fetchDocumentPackData(
   ]);
 
   const itps = itpResult.rows;
-  const itcs = itcResult.rows;
+  const itpNameById = new Map(
+    itps.map((itp) => [itp.id, itp.title || itp.itp_number || "ITP"] as const)
+  );
+  let itcs = itcResult.rows.map((itc) => ({
+    ...itc,
+    itpName: itc.itp_id ? itpNameById.get(itc.itp_id) ?? "" : "",
+  }));
+
+  if (includeItps && itcs.length > 0) {
+    const details = await mapWithConcurrency(itcs, 4, async (itc) => {
+      const detail = await fetchItcDetail(itc.id).catch(() => null);
+      return { id: itc.id, detail };
+    });
+    const detailById = new Map(details.map((row) => [row.id, row.detail]));
+    itcs = itcs.map((itc) => {
+      const detail = detailById.get(itc.id) ?? null;
+      const status = detail?.itc.status ?? itc.status;
+      return {
+        ...itc,
+        status,
+        stage: mapItcStage(status),
+        form_data: detail?.itc.form_data ?? itc.form_data,
+        itp_id: itc.itp_id || detail?.itc.itp_id || null,
+        itpName:
+          itc.itpName ||
+          (detail?.itc.itp_id ? itpNameById.get(detail.itc.itp_id) ?? "" : ""),
+        detail,
+      };
+    });
+  }
 
   console.log("[Document Pack Query]:", {
     scope: request.scope,
@@ -609,22 +733,23 @@ export async function fetchDocumentPackData(
             ).some((id) => projectIds.includes(id))
           );
     const plantIds = assignedPlant.map((item) => item.id);
-    const [lastServiceDates, serviceSchedules, prestarts] = await Promise.all([
-      fetchLastServiceDates(plantIds),
-      fetchServiceSchedulesForPlant(plantIds, request.dateFrom, request.dateTo),
-      fetchPlantPrestarts({
-        plantIds,
-        startDate: request.dateFrom,
-        endDate: request.dateTo,
-        limit: 500,
-      }),
-    ]);
+    const [lastServiceDates, serviceSchedules, prestarts, maintenanceRows] =
+      await Promise.all([
+        fetchLastServiceDates(plantIds),
+        fetchServiceSchedulesForPlant(plantIds, request.dateFrom, request.dateTo),
+        fetchPlantPrestarts({
+          plantIds,
+          limit: Math.max(plantIds.length * 5, 400),
+        }),
+        fetchPlantMaintenance(plantIds),
+      ]);
 
     plantRecords = buildPlantPackRecords({
       assignedPlant,
       lastServiceDates,
       prestarts,
       serviceSchedules,
+      maintenanceRows,
       dateFrom: request.dateFrom,
       dateTo: request.dateTo,
       projectNamesById: request.projectNamesById,
@@ -764,6 +889,117 @@ export function buildDocumentPackCsvRows(data: DocumentPackData): DocumentPackCs
   }
 
   return rows;
+}
+
+export function formatSignedWorkersCell(
+  rows: ReturnType<typeof buildSwmsWorkerSignOffMatrix>
+): string {
+  return rows
+    .filter((row) => row.status === "Signed")
+    .map((row) =>
+      row.signedAt
+        ? `${row.workerName} (${row.signedAt.slice(0, 10)})`
+        : row.workerName
+    )
+    .join("; ");
+}
+
+export function formatUnsignedWorkersCell(
+  rows: ReturnType<typeof buildSwmsWorkerSignOffMatrix>
+): string {
+  return rows
+    .filter((row) => row.status !== "Signed")
+    .map((row) => row.workerName)
+    .join("; ");
+}
+
+export function buildDocumentPackExcelSheets(data: DocumentPackData): {
+  plant: Array<Record<string, string>>;
+  swms: Array<Record<string, string>>;
+  itpItc: Array<Record<string, string>>;
+} {
+  const names = data.projectNamesById ?? {};
+  const fallback = data.projectName || "Company Wide";
+
+  const plant = data.plantRecords.map((item) => ({
+    "Plant Name": item.plantName || item.unitNumber,
+    Make: item.make ?? "",
+    Model: item.model ?? "",
+    "Current Hours": item.currentHours != null ? String(item.currentHours) : "",
+    "Next Service Due Hours":
+      item.nextServiceHours != null ? String(item.nextServiceHours) : "",
+    "Last Service Date": item.lastServiceDate ?? "",
+    "Last Maintenance Date": item.lastMaintenanceDate ?? "",
+    "Last Pre-start Date": item.lastPrestartDate ?? "",
+    "Current Project Assignment": item.projectLabel || fallback,
+  }));
+
+  const swmsMatrixById = new Map(
+    data.swmsMatrices.map((block) => [block.swms.id, block.rows])
+  );
+  const swms = data.swms.map((doc) => {
+    const scope = resolveSwmsScope(doc) === "site_specific" ? "Site Specific" : "Company";
+    const rows =
+      swmsMatrixById.get(doc.id) ??
+      buildSwmsWorkerSignOffMatrix([], doc.assignments ?? []);
+    return {
+      "SWMS Name": doc.title || "SWMS",
+      Scope: scope,
+      "Project Name":
+        scope === "Site Specific"
+          ? resolveProjectLabel(doc.project_id, names, fallback)
+          : "",
+      "Signed Workers": formatSignedWorkersCell(rows),
+      "Unsigned Workers": formatUnsignedWorkersCell(rows),
+    };
+  });
+
+  const itpItc: Array<Record<string, string>> = [];
+  const itcsByItp = new Map<string, DocumentPackItcRecord[]>();
+  for (const itc of data.itcs) {
+    const key = itc.itp_id || "__unlinked__";
+    const list = itcsByItp.get(key) ?? [];
+    list.push(itc);
+    itcsByItp.set(key, list);
+  }
+
+  for (const itp of data.itps) {
+    const linked = itcsByItp.get(itp.id) ?? [];
+    if (linked.length === 0) {
+      itpItc.push({
+        "ITP Name": itp.title || itp.itp_number,
+        "Project/Site": resolveProjectLabel(itp.project_id, names, fallback),
+        "ITC Name/Identifier": "",
+        Stage: mapItcStage(itp.status),
+      });
+      continue;
+    }
+    for (const itc of linked) {
+      itpItc.push({
+        "ITP Name": itp.title || itp.itp_number,
+        "Project/Site": resolveProjectLabel(
+          itc.project_id || itp.project_id,
+          names,
+          fallback
+        ),
+        "ITC Name/Identifier": itc.itc_number || itc.title,
+        Stage: itc.stage,
+      });
+    }
+  }
+
+  const linkedItpIds = new Set(data.itps.map((itp) => itp.id));
+  for (const itc of data.itcs) {
+    if (itc.itp_id && linkedItpIds.has(itc.itp_id)) continue;
+    itpItc.push({
+      "ITP Name": itc.itpName || "",
+      "Project/Site": resolveProjectLabel(itc.project_id, names, fallback),
+      "ITC Name/Identifier": itc.itc_number || itc.title,
+      Stage: itc.stage,
+    });
+  }
+
+  return { plant, swms, itpItc };
 }
 
 export async function logDocumentPackExport(input: {
