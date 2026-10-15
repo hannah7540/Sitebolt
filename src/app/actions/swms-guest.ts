@@ -200,6 +200,7 @@ export async function assignSwmsToGuest(input: {
     subject: email.subject,
     html: email.html,
     text: email.text,
+    skipTeamFooter: true,
   });
 
   if (!sent.sent && sent.error && !sent.simulated) {
