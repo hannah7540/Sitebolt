@@ -2,16 +2,20 @@
 
 import { Eraser } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
 
 export interface IsolatedSignaturePadProps {
   /** Initial image restored once when the pad mounts. Not synced on later parent re-renders. */
   defaultValue?: string | null;
   /** Called once per completed stroke, or when the pad is cleared. */
   onCommit: (dataUrl: string | null) => void;
+  /** Extra classes for the pad container (e.g. taller guest-portal canvas). */
+  className?: string;
 }
 
-const DISPLAY_HEIGHT_PX = 160;
+const DEFAULT_DISPLAY_HEIGHT_PX = 160;
 const MIN_DISPLAY_WIDTH_PX = 280;
+const MIN_DISPLAY_HEIGHT_PX = 80;
 const RESIZE_IGNORE_PX = 2;
 
 function getDevicePixelRatio(): number {
@@ -32,6 +36,7 @@ function copyCanvasPixels(source: HTMLCanvasElement): HTMLCanvasElement | null {
 function IsolatedSignaturePad({
   defaultValue = null,
   onCommit,
+  className,
 }: IsolatedSignaturePadProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -40,7 +45,10 @@ function IsolatedSignaturePad({
   const committedDataUrlRef = useRef<string | null>(defaultValue);
   const restoringRef = useRef(false);
   const lastLayoutWidthRef = useRef(0);
-  const pendingResizeWidthRef = useRef<number | null>(null);
+  const lastLayoutHeightRef = useRef(0);
+  const pendingResizeRef = useRef<{ width: number; height: number } | null>(
+    null
+  );
   const initialValueRef = useRef(defaultValue);
   const didInitRef = useRef(false);
   const restoreGenRef = useRef(0);
@@ -107,12 +115,12 @@ function IsolatedSignaturePad({
   );
 
   const resizeCanvas = useCallback(
-    (displayWidth: number, preserveContent = true) => {
+    (displayWidth: number, displayHeight: number, preserveContent = true) => {
       const canvas = canvasRef.current;
       if (!canvas || drawingRef.current) return false;
 
       const width = Math.max(displayWidth, MIN_DISPLAY_WIDTH_PX);
-      const height = DISPLAY_HEIGHT_PX;
+      const height = Math.max(displayHeight, MIN_DISPLAY_HEIGHT_PX);
       const dpr = getDevicePixelRatio();
       const nextWidth = Math.floor(width * dpr);
       const nextHeight = Math.floor(height * dpr);
@@ -156,22 +164,35 @@ function IsolatedSignaturePad({
     const container = containerRef.current;
     if (!container) return;
 
-    const applyWidth = (width: number, preserveContent: boolean) => {
+    const applySize = (
+      width: number,
+      height: number,
+      preserveContent: boolean
+    ) => {
       if (width <= 0) return;
-      const rounded = Math.floor(width);
+      const nextHeight =
+        height > 0 ? height : DEFAULT_DISPLAY_HEIGHT_PX;
+      const roundedWidth = Math.floor(width);
+      const roundedHeight = Math.floor(nextHeight);
       if (
         preserveContent &&
-        Math.abs(rounded - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX
+        Math.abs(roundedWidth - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX &&
+        Math.abs(roundedHeight - lastLayoutHeightRef.current) < RESIZE_IGNORE_PX
       ) {
         return;
       }
-      lastLayoutWidthRef.current = rounded;
-      resizeCanvas(width, preserveContent);
+      lastLayoutWidthRef.current = roundedWidth;
+      lastLayoutHeightRef.current = roundedHeight;
+      resizeCanvas(width, nextHeight, preserveContent);
     };
 
     if (!didInitRef.current) {
       didInitRef.current = true;
-      applyWidth(container.clientWidth, false);
+      applySize(
+        container.clientWidth,
+        container.clientHeight || DEFAULT_DISPLAY_HEIGHT_PX,
+        false
+      );
       const initial = initialValueRef.current;
       if (initial) {
         committedDataUrlRef.current = initial;
@@ -180,14 +201,17 @@ function IsolatedSignaturePad({
     }
 
     const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? container.clientWidth;
+      const height =
+        entries[0]?.contentRect.height ||
+        container.clientHeight ||
+        DEFAULT_DISPLAY_HEIGHT_PX;
       if (drawingRef.current || restoringRef.current) {
-        const width = entries[0]?.contentRect.width ?? container.clientWidth;
-        pendingResizeWidthRef.current = width;
+        pendingResizeRef.current = { width, height };
         return;
       }
 
-      const width = entries[0]?.contentRect.width ?? container.clientWidth;
-      applyWidth(width, true);
+      applySize(width, height, true);
     });
 
     observer.observe(container);
@@ -234,13 +258,20 @@ function IsolatedSignaturePad({
   }, []);
 
   const flushPendingResize = useCallback(() => {
-    const pendingWidth = pendingResizeWidthRef.current;
-    pendingResizeWidthRef.current = null;
-    if (pendingWidth == null) return;
-    const rounded = Math.floor(pendingWidth);
-    if (Math.abs(rounded - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX) return;
-    lastLayoutWidthRef.current = rounded;
-    resizeCanvas(pendingWidth, true);
+    const pending = pendingResizeRef.current;
+    pendingResizeRef.current = null;
+    if (pending == null) return;
+    const roundedWidth = Math.floor(pending.width);
+    const roundedHeight = Math.floor(pending.height);
+    if (
+      Math.abs(roundedWidth - lastLayoutWidthRef.current) < RESIZE_IGNORE_PX &&
+      Math.abs(roundedHeight - lastLayoutHeightRef.current) < RESIZE_IGNORE_PX
+    ) {
+      return;
+    }
+    lastLayoutWidthRef.current = roundedWidth;
+    lastLayoutHeightRef.current = roundedHeight;
+    resizeCanvas(pending.width, pending.height, true);
   }, [resizeCanvas]);
 
   const handlePointerStart = useCallback(
@@ -339,10 +370,13 @@ function IsolatedSignaturePad({
   }, []);
 
   return (
-    <div className="space-y-2">
+    <div className="w-full space-y-2">
       <div
         ref={containerRef}
-        className="relative touch-none overflow-hidden rounded-lg border border-slate-300 bg-white"
+        className={cn(
+          "relative min-h-[160px] touch-none overflow-hidden rounded-lg border border-slate-300 bg-white",
+          className
+        )}
         style={{ touchAction: "none" }}
         onClick={(event) => {
           event.preventDefault();
@@ -351,7 +385,7 @@ function IsolatedSignaturePad({
       >
         <canvas
           ref={canvasRef}
-          className="block w-full touch-none"
+          className="block h-full w-full touch-none"
           style={{ touchAction: "none" }}
           onMouseDown={handlePointerStart}
           onMouseMove={handlePointerMove}

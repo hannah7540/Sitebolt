@@ -87,24 +87,26 @@ export default function GuestSwmsPortal() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-10">
-      <div className="mb-8 text-center">
+    <div className="flex min-h-screen w-full flex-1 flex-col p-4 md:p-8">
+      <div className={step === "sign" ? "mb-4 shrink-0" : "mb-8 text-center"}>
         <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">
           SiteBolt
         </p>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">Guest SWMS Portal</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Enter the email address the SWMS was sent to, then review and sign.
-        </p>
+        {step !== "sign" ? (
+          <p className="mt-2 text-sm text-slate-500">
+            Enter the email address the SWMS was sent to, then review and sign.
+          </p>
+        ) : null}
       </div>
 
       {error ? (
-        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p className="mb-4 shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       ) : null}
       {success ? (
-        <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p className="mb-4 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {success}
         </p>
       ) : null}
@@ -112,7 +114,7 @@ export default function GuestSwmsPortal() {
       {step === "email" ? (
         <form
           onSubmit={(event) => void handleLookup(event)}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         >
           <label className="block space-y-1">
             <span className={labelClass}>Email address</span>
@@ -129,7 +131,7 @@ export default function GuestSwmsPortal() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+            className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             View pending SWMS
@@ -138,7 +140,7 @@ export default function GuestSwmsPortal() {
       ) : null}
 
       {step === "list" ? (
-        <div className="space-y-4">
+        <div className="w-full space-y-4">
           <button
             type="button"
             onClick={() => {
@@ -185,7 +187,7 @@ export default function GuestSwmsPortal() {
       {step === "sign" && selected ? (
         <form
           onSubmit={(event) => void handleSubmit(event)}
-          className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="flex min-h-0 w-full flex-1 flex-col gap-4"
         >
           <button
             type="button"
@@ -194,13 +196,13 @@ export default function GuestSwmsPortal() {
               setSelected(null);
               setError(null);
             }}
-            className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to list
           </button>
 
-          <div>
+          <div className="shrink-0">
             <h2 className="text-lg font-semibold text-slate-900">{selected.swmsTitle}</h2>
             {selected.version ? (
               <p className="text-sm text-slate-500">Version {selected.version}</p>
@@ -208,15 +210,16 @@ export default function GuestSwmsPortal() {
           </div>
 
           {selected.swmsDocumentUrl ? (
-            <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="flex min-h-[50vh] w-full flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
               <MobileFriendlyPdfViewer
                 documentUrl={selected.swmsDocumentUrl}
                 title={selected.swmsTitle}
+                className="flex h-full min-h-[50vh] w-full flex-col"
               />
             </div>
           ) : null}
 
-          <label className="block space-y-1">
+          <label className="block shrink-0 space-y-1">
             <span className={labelClass}>Your name</span>
             <input
               type="text"
@@ -229,10 +232,11 @@ export default function GuestSwmsPortal() {
             />
           </label>
 
-          <div className="space-y-1">
+          <div className="shrink-0 space-y-1">
             <span className={labelClass}>Signature</span>
             <SignatureCanvas
               key={selected.id}
+              className="h-64 w-full rounded-md border-2 sm:h-80"
               onChange={(dataUrl) => setSignatureData(dataUrl)}
             />
           </div>
@@ -240,7 +244,7 @@ export default function GuestSwmsPortal() {
           <button
             type="submit"
             disabled={saving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+            className="inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Submit signature

@@ -8,9 +8,14 @@ interface SignatureCanvasProps {
   onChange: (dataUrl: string | null) => void;
   /** Restored once on mount; not synced on subsequent parent re-renders. */
   value?: string | null;
+  className?: string;
 }
 
-function SignatureCanvas({ onChange, value = null }: SignatureCanvasProps) {
+function SignatureCanvas({
+  onChange,
+  value = null,
+  className,
+}: SignatureCanvasProps) {
   const onChangeRef = useRef(onChange);
   const initialValueRef = useRef(value);
 
@@ -26,6 +31,7 @@ function SignatureCanvas({ onChange, value = null }: SignatureCanvasProps) {
     <IsolatedSignaturePad
       defaultValue={initialValueRef.current}
       onCommit={handleCommit}
+      className={className}
     />
   );
 }
