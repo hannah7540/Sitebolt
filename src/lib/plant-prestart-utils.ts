@@ -258,6 +258,8 @@ export function formatPrestartHours(value: number | null | undefined): string {
 /** Latest pre-start still has an open defect (not cleared). */
 export function hasOpenPrestartDefect(prestart: PlantPrestart | undefined): boolean {
   if (!prestart || prestart.cleared_at) return false;
+  if (prestart.is_resolved === true) return false;
+  if (prestart.resolved_at && !prestart.has_defect) return false;
   if (prestart.defect_ignored) return false;
   if (prestart.defect_status === "Resolved") return false;
   if (prestart.has_defect) return true;
@@ -326,8 +328,10 @@ export function isCalendarDefectPrestart(prestart: PlantPrestart): boolean {
 
 export function isResolvedPrestartDefect(prestart: PlantPrestart): boolean {
   return (
+    prestart.is_resolved === true ||
     prestart.defect_status === "Resolved" ||
-    Boolean(prestart.cleared_at && !prestart.has_defect)
+    Boolean(prestart.cleared_at && !prestart.has_defect) ||
+    Boolean(prestart.resolved_at && !prestart.has_defect)
   );
 }
 
@@ -341,7 +345,17 @@ export function applyResolvedPrestartPatch(
     has_defect: false,
     defect_status: "Resolved",
     defect_resolved_at: resolvedAt,
+    is_resolved: true,
+    resolved_at: resolvedAt,
     cleared_at: resolvedAt,
     repair_notes: resolutionNotes?.trim() || prestart.repair_notes,
   };
+}
+
+export function getPrestartErrorText(prestart: PlantPrestart): string {
+  return (
+    prestart.error?.trim() ||
+    getPrestartDefectNotes(prestart) ||
+    getPrestartDefectLabel(prestart)
+  );
 }

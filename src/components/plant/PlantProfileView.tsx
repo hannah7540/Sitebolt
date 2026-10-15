@@ -51,6 +51,7 @@ import PlantEquipmentFields, {
 } from "@/components/plant/PlantEquipmentFields";
 import PlantPhotoEditModal from "@/components/plant/PlantPhotoEditModal";
 import PlantServiceHistoryTab from "@/components/plant/PlantServiceHistoryTab";
+import PlantFleetScheduler from "@/components/plant/PlantFleetScheduler";
 import {
   fetchActiveWorkersForPlantAssignment,
   resolvePlantWorkerOptionLabel,
@@ -136,6 +137,8 @@ export default function PlantProfileView({
     [currentPlant.make, currentPlant.model].filter(Boolean).join(" ") ||
     currentPlant.category;
 
+  const calendarPlant = useMemo(() => [currentPlant], [currentPlant]);
+
   return (
     <div>
       <button
@@ -199,6 +202,19 @@ export default function PlantProfileView({
           ) : null}
         </div>
       </div>
+
+      <section className="mb-6">
+        <h2 className="mb-3 text-lg font-bold text-slate-900">Plant Calendar</h2>
+        <PlantFleetScheduler
+          plant={calendarPlant}
+          loading={false}
+          onRefresh={() => {}}
+          onPlantSaved={patchPlant}
+          hideTitle
+          showHeaderAlerts
+          scrollMaxHeightClass="max-h-[28rem]"
+        />
+      </section>
 
       <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {TAB_ITEMS.map((item) => (

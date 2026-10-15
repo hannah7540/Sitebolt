@@ -1676,6 +1676,9 @@ export interface PlantPrestart {
   cleared_at: string | null;
   defect_status?: string | null;
   defect_resolved_at?: string | null;
+  is_resolved?: boolean | null;
+  resolved_at?: string | null;
+  error?: string | null;
   submitted_at?: string | null;
   created_at: string;
   is_read?: boolean | null;
@@ -3099,6 +3102,16 @@ export async function resolvePlantPrestartDefect(input: {
   const notes = input.resolutionNotes?.trim() || null;
 
   const payloads: Record<string, unknown>[] = [
+    {
+      is_resolved: true,
+      resolved_at: resolvedAt,
+      has_defect: false,
+      defect_status: "Resolved",
+      defect_resolved_at: resolvedAt,
+      cleared_at: resolvedAt,
+      repair_notes: notes,
+      mechanic_invoice_ref: input.mechanicInvoiceRef ?? null,
+    },
     {
       has_defect: false,
       defect_status: "Resolved",

@@ -4,6 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, Loader2, Truck, Wrench } from "lucide-react";
 import type { PlantAsset, PlantPrestart } from "@/lib/supabase";
 import { fetchPlantPrestarts, resolvePlantPrestartDefect } from "@/lib/supabase";
+import EditPlantModal from "@/components/plant/EditPlantModal";
+import {
+  fetchPlantMaintenance,
+  insertPlantMaintenance,
+  isMaintenanceStillOpen,
+  maintenanceClearsWarning,
+  type PlantMaintenanceRecord,
+  type PlantMaintenanceType,
+} from "@/lib/plant-maintenance";
 import {
   buildPlantServiceCreateInput,
   createPlantServiceSchedule,
@@ -16,7 +25,7 @@ import {
   resolvePlantServiceDisplayName,
   type PlantServiceSchedule,
 } from "@/lib/plant-services";
-import { getServiceWarning } from "@/lib/plant-utils";
+import { getServiceDueDaysLabel, getServiceWarning } from "@/lib/plant-utils";
 import { plantHasHydrovacCategory } from "@/lib/plant-categories";
 import { SERVICE_TYPES } from "@/lib/projects";
 import {
@@ -85,17 +94,25 @@ import {
   getLatestPrestartByPlant,
   getPlantCalendarHeaderAlerts,
   getPrestartDefectLabel,
+  getPrestartErrorText,
   groupPrestartsByPlantDate,
   isCalendarDefectPrestart,
   isResolvedPrestartDefect,
 } from "@/lib/plant-prestart-utils";
 import { cn } from "@/lib/utils";
-import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import {
+  cardClass,
+  inputClass,
+  labelClass,
+  modalClass,
+  modalOverlayClass,
+} from "@/lib/ui-classes";
 
 interface PlantFleetSchedulerProps {
   plant: PlantAsset[];
   loading: boolean;
   onRefresh: () => void;
+  onPlantSaved?: (plant: PlantAsset) => void;
   filterProjectIds?: string[];
   title?: string;
   subtitle?: string;
@@ -295,11 +312,12 @@ export default function PlantFleetScheduler({
   plant,
   loading,
   onRefresh,
+  onPlantSaved,
   filterProjectIds = [],
   title = "Plant Scheduling Dashboard",
   subtitle = "Fleet allocation · project assignments · service milestones",
   weekdaysOnly = false,
-  showHeaderAlerts = false,
+  showHeaderAlerts = true,
   hideTitle = false,
   scrollMaxHeightClass,
 }: PlantFleetSchedulerProps) {
@@ -346,6 +364,18 @@ export default function PlantFleetScheduler({
     plant: PlantAsset;
     prestart: PlantPrestart;
   } | null>(null);
+  const [editPlant, setEditPlant] = useState<PlantAsset | null>(null);
+  const [errorMenuPlantId, setErrorMenuPlantId] = useState<string | null>(null);
+  const [datePrompt, setDatePrompt] = useState<{
+    plant: PlantAsset;
+    kind: PlantMaintenanceType;
+  } | null>(null);
+  const [datePromptValue, setDatePromptValue] = useState("");
+  const [datePromptSaving, setDatePromptSaving] = useState(false);
+  const [datePromptError, setDatePromptError] = useState<string | null>(null);
+  const [maintenanceRows, setMaintenanceRows] = useState<PlantMaintenanceRecord[]>(
+    []
+  );
   const [calendarEvents, setCalendarEvents] = useState<PlantCalendarEvent[]>([]);
   const [addEventTarget, setAddEventTarget] = useState<{
     plant: PlantAsset;
@@ -478,6 +508,15 @@ export default function PlantFleetScheduler({
   useEffect(() => {
     void loadPrestarts();
   }, [loadPrestarts]);
+
+  const loadMaintenance = useCallback(async () => {
+    const rows = await fetchPlantMaintenance(plant.map((asset) => asset.id));
+    setMaintenanceRows(rows);
+  }, [plant]);
+
+  useEffect(() => {
+    void loadMaintenance();
+  }, [loadMaintenance]);
 
   // Re-sync Last Pre-Start / hours when returning to the tab after a mobile/web submission.
   useEffect(() => {
@@ -817,6 +856,28 @@ export default function PlantFleetScheduler({
     return indexBookedServicesByPlant(bookedServices, todayIso);
   }, [bookedServices]);
 
+  const todayIsoDate = formatDateOnly(new Date());
+  const maintenanceByPlant = useMemo(() => {
+    const map = new Map<string, PlantMaintenanceRecord[]>();
+    for (const row of maintenanceRows) {
+      const list = map.get(row.plant_id) ?? [];
+      list.push(row);
+      map.set(row.plant_id, list);
+    }
+    return map;
+  }, [maintenanceRows]);
+
+  const maintenanceByPlantDate = useMemo(() => {
+    const map = new Map<string, PlantMaintenanceRecord[]>();
+    for (const row of maintenanceRows) {
+      const key = `${row.plant_id}:${row.scheduled_date}`;
+      const list = map.get(key) ?? [];
+      list.push(row);
+      map.set(key, list);
+    }
+    return map;
+  }, [maintenanceRows]);
+
   const prestartsByPlantDate = useMemo(
     () => groupPrestartsByPlantDate(prestarts),
     [prestarts]
@@ -990,6 +1051,62 @@ export default function PlantFleetScheduler({
     visiblePlant.length > 0 &&
     schedules.length === 0;
 
+  const markPrestartResolved = useCallback(
+    async (asset: PlantAsset, prestart: PlantPrestart) => {
+      const { error } = await resolvePlantPrestartDefect({
+        plantId: asset.id,
+        prestartId: prestart.id,
+        requireNotes: false,
+      });
+      if (error) {
+        setActionMessage(error);
+        return;
+      }
+      patchPrestartInState(prestart.id, applyResolvedPrestartPatch(prestart));
+      setErrorMenuPlantId(null);
+      onRefresh();
+      void loadPrestarts();
+    },
+    [loadPrestarts, onRefresh, patchPrestartInState]
+  );
+
+  const submitDatePrompt = useCallback(async () => {
+    if (!datePrompt || !datePromptValue) {
+      setDatePromptError("Choose a date.");
+      return;
+    }
+    setDatePromptSaving(true);
+    setDatePromptError(null);
+    const inserted = await insertPlantMaintenance({
+      plantId: datePrompt.plant.id,
+      maintenanceType: datePrompt.kind,
+      scheduledDate: datePromptValue,
+    });
+    if (inserted.error) {
+      setDatePromptSaving(false);
+      setDatePromptError(inserted.error);
+      return;
+    }
+    await createPlantServiceSchedule(
+      buildPlantServiceCreateInput(datePrompt.plant, {
+        serviceDate: datePromptValue,
+        serviceType: datePrompt.kind === "service" ? "Service" : "Maintenance",
+        notes:
+          datePrompt.kind === "service"
+            ? "Calendar service booking"
+            : "Calendar maintenance booking",
+      })
+    );
+    if (inserted.record) {
+      setMaintenanceRows((current) => [...current, inserted.record!]);
+    }
+    setDatePromptSaving(false);
+    setDatePrompt(null);
+    void loadSchedules();
+    void loadMaintenance();
+    onRefresh();
+  }, [datePrompt, datePromptValue, loadMaintenance, loadSchedules, onRefresh]);
+
   const renderStickyColumn = useCallback(
     (asset: PlantAsset) => {
       const makeModel = [asset.make, asset.model].filter(Boolean).join(" ").trim();
@@ -999,17 +1116,29 @@ export default function PlantFleetScheduler({
       const headerAlerts = showHeaderAlerts
         ? getPlantCalendarHeaderAlerts(asset, latestForAlerts)
         : null;
-      const canResolveHeaderDefect =
+      const openError =
         showHeaderAlerts &&
-        headerAlerts?.defectText &&
         latestForAlerts &&
-        !isResolvedPrestartDefect(latestForAlerts);
+        !isResolvedPrestartDefect(latestForAlerts) &&
+        Boolean(headerAlerts?.defectText);
+      const plantMaintenance = maintenanceByPlant.get(asset.id) ?? [];
+      const serviceWarningCleared = plantMaintenance.some((row) =>
+        maintenanceClearsWarning(row, "service", todayIsoDate)
+      );
+      const serviceDueLabel =
+        showHeaderAlerts && !serviceWarningCleared
+          ? getServiceDueDaysLabel(asset)
+          : null;
+      const hasOpenMaintenance = plantMaintenance.some((row) =>
+        isMaintenanceStillOpen(row, todayIsoDate)
+      );
+      const tintOrange = Boolean(openError) || hasOpenMaintenance;
       const scheduledService = showHeaderAlerts
         ? resolveBookedServiceForPlant(asset, bookedServicesByPlant)
         : undefined;
       const showBookedServiceBadge =
         scheduledService != null &&
-        isUpcomingHeaderBookedService(scheduledService, formatDateOnly(new Date()));
+        isUpcomingHeaderBookedService(scheduledService, todayIsoDate);
 
       const projectTone = resolveProjectCalendarTone({
         projectId: resolvePlantAssignedProjectId(asset),
@@ -1017,31 +1146,91 @@ export default function PlantFleetScheduler({
       });
 
       return (
-        <div className={cn("border-l-4 pl-2", projectTone.indicatorClass)}>
-          <p className="font-semibold text-slate-900">{asset.unit_number}</p>
+        <div
+          className={cn(
+            "relative border-l-4 pl-2",
+            projectTone.indicatorClass,
+            tintOrange && "-mx-4 -my-3 bg-orange-100 px-4 py-3"
+          )}
+        >
+          <button
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setErrorMenuPlantId(null);
+              setEditPlant(asset);
+            }}
+            className="text-left text-sm font-bold text-orange-600 underline decoration-orange-300 underline-offset-2 hover:text-orange-700"
+          >
+            {asset.unit_number}
+          </button>
           <p className="truncate text-xs text-slate-500">
             {makeModel || asset.category}
           </p>
-          {canResolveHeaderDefect ? (
+          {openError && latestForAlerts ? (
+            <div className="relative mt-1">
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setErrorMenuPlantId((current) =>
+                    current === asset.id ? null : asset.id
+                  );
+                }}
+                className="w-full rounded px-2 py-0.5 text-left text-xs font-semibold text-orange-800 underline decoration-orange-400 underline-offset-2 hover:bg-orange-50"
+              >
+                {getPrestartErrorText(latestForAlerts)}
+              </button>
+              {errorMenuPlantId === asset.id ? (
+                <div
+                  className="absolute left-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void markPrestartResolved(asset, latestForAlerts);
+                    }}
+                  >
+                    Mark as Resolved
+                  </button>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setErrorMenuPlantId(null);
+                      setDatePromptValue(todayIsoDate);
+                      setDatePromptError(null);
+                      setDatePrompt({ plant: asset, kind: "maintenance" });
+                    }}
+                  >
+                    Add Maintenance
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {serviceDueLabel ? (
             <button
               type="button"
+              onMouseDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
-                setResolveDefectTarget({ plant: asset, prestart: latestForAlerts });
+                setErrorMenuPlantId(null);
+                setDatePromptValue(todayIsoDate);
+                setDatePromptError(null);
+                setDatePrompt({ plant: asset, kind: "service" });
               }}
-              className="mt-1 w-full rounded bg-red-600 px-2 py-0.5 text-left text-xs font-bold text-white shadow hover:bg-red-500"
+              className="mt-1 w-full rounded px-2 py-0.5 text-left text-xs font-bold text-red-600 underline decoration-red-400 underline-offset-2 hover:bg-red-50"
             >
-              DEFECT: {headerAlerts.defectText || "Pre-Start Defect"}
+              {serviceDueLabel}
             </button>
-          ) : null}
-          {headerAlerts?.isServiceDueSoon && headerAlerts.hoursUntilService != null ? (
-            <div className="mt-1 rounded bg-red-600 px-2 py-0.5 text-xs font-bold text-white shadow">
-              SERVICE DUE (
-              {headerAlerts.hoursUntilService <= 0
-                ? "OVERDUE"
-                : `${Math.round(headerAlerts.hoursUntilService)} hrs left`}
-              )
-            </div>
           ) : null}
           {showBookedServiceBadge && scheduledService ? (
             <div className="mt-1 rounded bg-yellow-400 px-2 py-0.5 text-xs font-bold text-black shadow">
@@ -1071,8 +1260,12 @@ export default function PlantFleetScheduler({
     [
       bookedServicesByPlant,
       calendarEventsByPlant,
+      errorMenuPlantId,
       latestPrestartByPlant,
+      maintenanceByPlant,
+      markPrestartResolved,
       showHeaderAlerts,
+      todayIsoDate,
     ]
   );
 
@@ -1100,8 +1293,24 @@ export default function PlantFleetScheduler({
         datedAssignmentMap.get(asset.id) ?? []
       );
       const cellEvents = calendarEventsByPlantDate.get(`${asset.id}:${dateKey}`) ?? [];
+      const dayMaintenance =
+        maintenanceByPlantDate.get(`${asset.id}:${dateKey}`) ?? [];
+      const maintenanceTypes = new Set(
+        dayMaintenance.map((row) => row.maintenance_type)
+      );
+      const overlaySchedules = cellSchedules.filter((schedule) => {
+        const type = String(schedule.service_type ?? "").trim().toLowerCase();
+        if (type === "service" && maintenanceTypes.has("service")) return false;
+        if (type === "maintenance" && maintenanceTypes.has("maintenance")) {
+          return false;
+        }
+        return true;
+      });
       const hasOverlays =
-        defectPrestarts.length > 0 || cellSchedules.length > 0 || cellEvents.length > 0;
+        defectPrestarts.length > 0 ||
+        overlaySchedules.length > 0 ||
+        cellEvents.length > 0 ||
+        dayMaintenance.length > 0;
 
       return (
         <div
@@ -1136,7 +1345,15 @@ export default function PlantFleetScheduler({
               onSelect={setSelectedPrestart}
             />
           ))}
-          {cellSchedules.map((schedule) => (
+          {dayMaintenance.map((row) => (
+            <div
+              key={row.id}
+              className="mb-0.5 w-full rounded bg-orange-500 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white"
+            >
+              {row.maintenance_type === "service" ? "Service" : "Maintenance"}
+            </div>
+          ))}
+          {overlaySchedules.map((schedule) => (
             <PlantServiceBadge key={schedule.id} schedule={schedule} />
           ))}
           {cellEvents.map((event) => (
@@ -1153,6 +1370,7 @@ export default function PlantFleetScheduler({
       allocations,
       calendarEventsByPlantDate,
       datedAssignmentMap,
+      maintenanceByPlantDate,
       openAddEvent,
       prestartsByPlantDate,
       projectFilterSet,
@@ -1222,6 +1440,21 @@ export default function PlantFleetScheduler({
                 getFleetStatusLabel(asset, getServiceWarning(asset)) === "Tagged Out"
               ) {
                 return "bg-red-50/60";
+              }
+              const latestForAlerts = latestPrestartByPlant.get(asset.id);
+              const headerAlerts = getPlantCalendarHeaderAlerts(
+                asset,
+                latestForAlerts
+              );
+              const openError =
+                Boolean(latestForAlerts) &&
+                !isResolvedPrestartDefect(latestForAlerts!) &&
+                Boolean(headerAlerts.defectText);
+              const hasOpenMaintenance = (
+                maintenanceByPlant.get(asset.id) ?? []
+              ).some((row) => isMaintenanceStillOpen(row, todayIsoDate));
+              if (openError || hasOpenMaintenance) {
+                return "bg-orange-100/90";
               }
               return (
                 resolveProjectCalendarTone({
@@ -1403,6 +1636,16 @@ export default function PlantFleetScheduler({
                 Scheduled maintenance
               </li>
               <li>
+                <span className="rounded bg-orange-500 px-1.5 py-0.5 font-bold uppercase text-white">
+                  Maintenance / Service
+                </span>{" "}
+                Date booked from a unit-box warning
+              </li>
+              <li>
+                <span className="inline-block h-2 w-2 rounded-full bg-orange-400" /> Orange
+                block: unresolved pre-start error or open maintenance
+              </li>
+              <li>
                 <span className="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
                   Service 18.09.2026
                 </span>{" "}
@@ -1479,6 +1722,82 @@ export default function PlantFleetScheduler({
         }}
         onAssign={handleAssignToProject}
       />
+
+      {editPlant ? (
+        <EditPlantModal
+          plant={editPlant}
+          onClose={() => setEditPlant(null)}
+          onSaved={(updated) => {
+            onPlantSaved?.(updated);
+            onRefresh();
+            setEditPlant(null);
+          }}
+        />
+      ) : null}
+
+      {datePrompt ? (
+        <div
+          className={modalOverlayClass}
+          role="presentation"
+          onClick={() => {
+            if (datePromptSaving) return;
+            setDatePrompt(null);
+          }}
+        >
+          <div
+            className={cn(modalClass, "max-w-md sm:rounded-2xl")}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plant-date-prompt-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2
+              id="plant-date-prompt-title"
+              className="text-lg font-bold text-slate-900"
+            >
+              {datePrompt.kind === "service" ? "Add Service" : "Add Maintenance"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Choose the calendar date for {datePrompt.plant.unit_number}.
+            </p>
+            <label className="mt-4 block">
+              <span className={labelClass}>Date</span>
+              <input
+                type="date"
+                className={inputClass}
+                value={datePromptValue}
+                onChange={(event) => setDatePromptValue(event.target.value)}
+              />
+            </label>
+            {datePromptError ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {datePromptError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                disabled={datePromptSaving}
+                onClick={() => setDatePrompt(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
+                disabled={datePromptSaving}
+                onClick={() => void submitDatePrompt()}
+              >
+                {datePromptSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {datePrompt.kind === "service" ? "Add Service" : "Add Maintenance"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

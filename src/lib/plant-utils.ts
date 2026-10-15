@@ -37,6 +37,19 @@ export function getServiceWarningLabel(warning: ServiceWarning): string | null {
   return null;
 }
 
+/** Calendar unit-box copy: "Service due (X days)" in red. */
+export function getServiceDueDaysLabel(plant: PlantAsset): string | null {
+  const warning = getServiceWarning(plant);
+  if (warning === "none") return null;
+  const { current, next, unit } = getServiceMetrics(plant);
+  if (current == null || next == null) return "Service due";
+  const remaining = next - current;
+  if (remaining <= 0) return "Service due (overdue)";
+  const days =
+    unit === "hrs" ? Math.max(1, Math.ceil(remaining / 8)) : Math.max(1, Math.ceil(remaining / 80));
+  return `Service due (${days} days)`;
+}
+
 export function getHeavyVehicleInspectionWarning(
   plant: PlantAsset
 ): HeavyVehicleInspectionWarning {
