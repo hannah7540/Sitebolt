@@ -811,6 +811,9 @@ export interface WorkerTimesheet {
   myob_exported_at?: string | null;
   approved_at?: string | null;
   approved_by?: string | null;
+  is_checked?: boolean;
+  checked_at?: string | null;
+  checked_by?: string | null;
   leave_request_id?: string | null;
   created_at?: string;
   updated_at?: string;

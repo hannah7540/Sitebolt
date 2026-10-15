@@ -157,6 +157,9 @@ function buildLeavePreviewTimesheetRow(
     worker_state: workerMeta?.worker_state ?? null,
     myob_export_status: "not_exported",
     overtime_hours: 0,
+    is_checked: false,
+    checked_at: null,
+    checked_by: null,
     is_leave_preview: true,
     leave_preview_request_status: request.status,
   };
@@ -546,6 +549,67 @@ export async function approveAccountsTimesheets(
       }
 
       return { error: null, updated: minimalFallback.data?.length ?? 0 };
+    }
+
+    return { error: null, updated: fallback.data?.length ?? 0 };
+  }
+
+  return { error: null, updated: data?.length ?? 0 };
+}
+
+export async function checkAccountsTimesheets(
+  ids: string[]
+): Promise<{ error: string | null; updated: number }> {
+  if (!isSupabaseConfigured() || ids.length === 0) {
+    return { error: null, updated: 0 };
+  }
+
+  const now = new Date().toISOString();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const payload: Record<string, unknown> = {
+    is_checked: true,
+    checked_at: now,
+    updated_at: now,
+  };
+  if (user?.id) {
+    payload.checked_by = user.id;
+  }
+
+  const { data, error } = await supabase
+    .from("worker_timesheets")
+    .update(payload)
+    .in("id", ids)
+    .select("id");
+
+  if (error) {
+    const fallbackPayload: Record<string, unknown> = {
+      is_checked: true,
+      checked_at: now,
+    };
+    if (user?.id) {
+      fallbackPayload.checked_by = user.id;
+    }
+
+    const fallback = await supabase
+      .from("worker_timesheets")
+      .update(fallbackPayload)
+      .in("id", ids)
+      .select("id");
+
+    if (fallback.error) {
+      const timesheetsFallback = await supabase
+        .from("timesheets")
+        .update(fallbackPayload)
+        .in("id", ids)
+        .select("id");
+
+      if (timesheetsFallback.error) {
+        return { error: timesheetsFallback.error.message, updated: 0 };
+      }
+
+      return { error: null, updated: timesheetsFallback.data?.length ?? 0 };
     }
 
     return { error: null, updated: fallback.data?.length ?? 0 };

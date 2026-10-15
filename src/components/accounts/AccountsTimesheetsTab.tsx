@@ -17,9 +17,11 @@ import AccountsNav from "@/components/accounts/AccountsNav";
 import Toast from "@/components/ui/Toast";
 import { useAdminConsoleOptional } from "@/contexts/AdminConsoleContext";
 import { useFormToast } from "@/hooks/useFormToast";
+import { checkTimesheets } from "@/app/actions/check-timesheets";
 import {
   approvalStatusMeta,
   approveAccountsTimesheets,
+  checkAccountsTimesheets,
   buildPayrollExportFilename,
   downloadPayrollTimesheetCsv,
   ACCOUNTS_TIMESHEET_STATE_OPTIONS,
@@ -178,8 +180,7 @@ function compareTimesheetRows(
 }
 
 function isTimesheetSelectable(row: AccountsTimesheetRow): boolean {
-  if (isLeavePreviewTimesheetRow(row)) return false;
-  return !isTimesheetApproved(row.status);
+  return !isLeavePreviewTimesheetRow(row);
 }
 
 function resolveTimesheetStatusDisplay(row: AccountsTimesheetRow): {
@@ -229,6 +230,7 @@ export default function AccountsTimesheetsTab({
   const [selectedTimesheetIds, setSelectedTimesheetIds] = useState<string[]>([]);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkApproving, setBulkApproving] = useState(false);
+  const [bulkChecking, setBulkChecking] = useState(false);
   const [sortColumn, setSortColumn] = useState<TimesheetSortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<TimesheetSortDirection | null>(
     null
@@ -407,10 +409,51 @@ export default function AccountsTimesheetsTab({
     setSelectedTimesheetIds([]);
   };
 
-  const handleBulkApprove = async () => {
-    const idsToApprove = selectedTimesheetIds.filter((id) =>
+  const handleMarkChecked = async () => {
+    const idsToCheck = selectedTimesheetIds.filter((id) =>
       selectableFilteredIds.includes(id)
     );
+
+    if (idsToCheck.length === 0) {
+      showError("Select at least one timesheet to mark as checked.");
+      return;
+    }
+
+    setBulkChecking(true);
+    let result = await checkTimesheets(idsToCheck);
+    if (result.error) {
+      const fallback = await checkAccountsTimesheets(idsToCheck);
+      if (!fallback.error) {
+        result = fallback;
+      }
+    }
+    setBulkChecking(false);
+
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+
+    const checkedCount = result.updated || idsToCheck.length;
+    const now = new Date().toISOString();
+    setRows((current) =>
+      current.map((row) =>
+        idsToCheck.includes(row.id)
+          ? { ...row, is_checked: true, checked_at: now }
+          : row
+      )
+    );
+    showSuccess(
+      `Marked ${checkedCount} timesheet${checkedCount === 1 ? "" : "s"} as checked.`
+    );
+    await loadRows();
+  };
+
+  const handleBulkApprove = async () => {
+    const idsToApprove = selectedTimesheetIds.filter((id) => {
+      const row = filteredRows.find((item) => item.id === id);
+      return row ? !isTimesheetApproved(row.status) : false;
+    });
 
     if (idsToApprove.length === 0) {
       showError("No pending timesheets selected for approval.");
@@ -493,8 +536,22 @@ export default function AccountsTimesheetsTab({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={() => void handleMarkChecked()}
+              disabled={bulkChecking || bulkApproving || selectedVisibleCount === 0}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+            >
+              {bulkChecking ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4 text-green-500" />
+              )}
+              Mark as Checked
+            </button>
+            <button
+              type="button"
               onClick={() => setBulkConfirmOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              disabled={bulkChecking || bulkApproving}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
               Approve Selected
@@ -622,7 +679,7 @@ export default function AccountsTimesheetsTab({
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-left text-sm">
+            <table className="min-w-[1080px] w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   {!readOnly ? (
@@ -680,8 +737,11 @@ export default function AccountsTimesheetsTab({
                     sortDirection={sortDirection}
                     onSort={handleSort}
                   />
+                  <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Checked
+                  </th>
                   <SortableTimesheetHeader
-                    label="Status"
+                    label="Approved"
                     column="status"
                     sortColumn={sortColumn}
                     sortDirection={sortDirection}
@@ -771,6 +831,16 @@ export default function AccountsTimesheetsTab({
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-900">
                         {formatTimesheetHours(dailyTotalHours)}
+                      </td>
+                      <td className="px-3 py-3">
+                        {row.is_checked ? (
+                          <Check
+                            className="h-5 w-5 text-green-500"
+                            aria-label="Checked"
+                          />
+                        ) : (
+                          <span className="sr-only">Not checked</span>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <span
