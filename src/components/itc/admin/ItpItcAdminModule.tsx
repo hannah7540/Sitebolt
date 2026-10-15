@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { ClipboardCheck, Loader2 } from "lucide-react";
 import ItcChecklistDrawer from "@/components/itc/admin/ItcChecklistDrawer";
 import ItpItcBrowseView from "@/components/itc/admin/ItpItcBrowseView";
@@ -179,6 +180,12 @@ export default function ItpItcAdminModule({ initialRecordId = null }: ItpItcAdmi
         <p className="text-sm text-slate-500">
           Browse parent ITPs, then open a plan to view or create its Inspection Test Checklists.
         </p>
+        <Link
+          href="/admin/itc/redline"
+          className="mt-3 inline-flex rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-400"
+        >
+          Red line markup
+        </Link>
       </div>
 
       <div className="flex flex-wrap gap-1">

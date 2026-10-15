@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ChevronLeft,
   Loader2,
@@ -190,6 +191,16 @@ export default function WorkerItcFloorplanViewer({
             Tap a pin to preview an ITC, then add checklist progress collaboratively.
           </p>
         </div>
+        <Link
+          href={
+            selectedProjectId
+              ? `/worker-dashboard/itc/redline?worker_id=${encodeURIComponent(workerId)}&project_id=${encodeURIComponent(selectedProjectId)}`
+              : `/worker-dashboard/itc/redline?worker_id=${encodeURIComponent(workerId)}`
+          }
+          className="inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-500"
+        >
+          Red line markup
+        </Link>
       </div>
 
       <div className={cn(cardClass, "p-4")}>

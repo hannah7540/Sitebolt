@@ -24,6 +24,9 @@ export default function WorkerItcsWidget({
   if (projectId?.trim()) params.set("project_id", projectId.trim());
   const query = params.toString();
   const href = query ? `/worker-dashboard/itc?${query}` : "/worker-dashboard/itc";
+  const redlineHref = query
+    ? `/worker-dashboard/itc/redline?${query}`
+    : "/worker-dashboard/itc/redline";
 
   const actionClassName =
     "inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-500";
@@ -59,9 +62,17 @@ export default function WorkerItcsWidget({
         {layoutEditMode ? (
           <span className={cn(actionClassName, "opacity-70")}>Open ITCs</span>
         ) : (
-          <Link href={href} className={actionClassName}>
-            Open ITCs
-          </Link>
+          <>
+            <Link href={href} className={actionClassName}>
+              Open ITCs
+            </Link>
+            <Link
+              href={redlineHref}
+              className="inline-flex items-center justify-center rounded-lg border border-orange-200 bg-white px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition hover:bg-orange-50"
+            >
+              Red line markup
+            </Link>
+          </>
         )}
         <span className="text-xs text-slate-500">
           No active ITCs? You can still select a job and open the floorplan.
