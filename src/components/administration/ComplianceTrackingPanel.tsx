@@ -23,6 +23,7 @@ export interface ComplianceTrackingRow {
   completedAt: string | null;
   status: "Completed" | "Pending";
   canRemind: boolean;
+  isGuest?: boolean;
 }
 
 interface ComplianceTrackingPanelProps {
@@ -230,7 +231,16 @@ export default function ComplianceTrackingPanel({
                 const busy = remindingId === row.id || remindingAll;
                 return (
                   <tr key={row.id} className="border-b border-slate-100">
-                    <td className="px-3 py-3 font-medium text-slate-900">{row.workerName}</td>
+                    <td className="px-3 py-3 font-medium text-slate-900">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {row.workerName}
+                        {row.isGuest ? (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                            Guest
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-3 py-3 text-slate-600">{row.documentTitle}</td>
                     <td className="px-3 py-3 text-slate-600">{formatDate(row.assignedAt)}</td>
                     <td className="px-3 py-3">

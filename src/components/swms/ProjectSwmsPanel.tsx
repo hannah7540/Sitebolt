@@ -35,6 +35,7 @@ import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
 import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
 import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
+import { isGuestSwmsAssignment } from "@/lib/swms-guest";
 import ProjectSwmsReviewPanel from "@/components/swms/ProjectSwmsReviewPanel";
 import {
   getProjectSwmsReviewPath,
@@ -424,7 +425,14 @@ export default function ProjectSwmsPanel({
                           {matrix.map((row) => (
                             <tr key={row.workerId} className="border-b border-slate-100">
                               <td className="px-3 py-3 font-medium text-slate-900">
-                                {row.workerName}
+                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                  {row.workerName}
+                                  {isGuestSwmsAssignment(row.assignment) ? (
+                                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                                      Guest
+                                    </span>
+                                  ) : null}
+                                </span>
                               </td>
                               <td className="px-3 py-3">
                                 {row.status === "Signed" ? (
@@ -449,7 +457,10 @@ export default function ProjectSwmsPanel({
                                 )}
                               </td>
                               <td className="px-3 py-3">
-                                {row.assignment && row.status === "Pending" ? (
+                                {isGuestSwmsAssignment(row.assignment) &&
+                                row.status === "Pending" ? (
+                                  <span className="text-xs text-slate-500">External guest</span>
+                                ) : row.assignment && row.status === "Pending" ? (
                                   <div className="flex flex-wrap gap-2">
                                     <button
                                       type="button"
@@ -541,6 +552,7 @@ export default function ProjectSwmsPanel({
           onSent={(count) => {
             setSuccessMessage(`${count} SWMS sent to guest.`);
             setSelectedIds([]);
+            void loadData();
           }}
         />
       ) : null}

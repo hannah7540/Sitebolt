@@ -5072,7 +5072,7 @@ export async function insertSwmsDocumentRecord(input: {
   }
 }
 
-export type SwmsAssigneeType = "worker" | "subcontractor";
+export type SwmsAssigneeType = "worker" | "subcontractor" | "guest";
 export type SwmsAssignmentStatus = "Pending" | "Signed";
 
 export interface SwmsAssignmentRecord {
@@ -5191,7 +5191,11 @@ function normalizeSwmsAssignmentRecord(
     id: String(row.id ?? ""),
     swms_id: String(row.swms_id ?? ""),
     assignee_type:
-      row.assignee_type === "subcontractor" ? "subcontractor" : "worker",
+      row.assignee_type === "subcontractor"
+        ? "subcontractor"
+        : row.assignee_type === "guest"
+          ? "guest"
+          : "worker",
     assignee_id: String(row.assignee_id ?? ""),
     worker_id: row.worker_id ? String(row.worker_id) : null,
     assignee_name: assigneeName,

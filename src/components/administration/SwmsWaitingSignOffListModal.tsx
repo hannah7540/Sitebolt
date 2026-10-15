@@ -2,6 +2,7 @@
 
 import { Bell, Loader2, X } from "lucide-react";
 import type { SwmsAssignmentRecord } from "@/lib/supabase";
+import { isGuestSwmsAssignment } from "@/lib/swms-guest";
 import type { SwmsDocumentSummary } from "@/lib/swms";
 import { modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
@@ -103,11 +104,19 @@ export default function SwmsWaitingSignOffListModal({
                     assignment.assignee_name
                   );
                   const busy = sendingId === assignment.id;
-                  const canRemind = Boolean(workerId);
+                  const isGuest = isGuestSwmsAssignment(assignment);
+                  const canRemind = Boolean(workerId) && !isGuest;
                   return (
                     <tr key={assignment.id} className="border-b border-slate-100">
                       <td className="py-3 pr-3 font-semibold text-slate-900">
-                        {workerName}
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {workerName}
+                          {isGuest ? (
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                              Guest
+                            </span>
+                          ) : null}
+                        </span>
                       </td>
                       <td className="py-3 pr-3 text-slate-700">
                         {swmsTitle(assignment, documents)}

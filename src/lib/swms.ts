@@ -37,6 +37,10 @@ import {
   type SwmsAdminTabFilter,
   type SwmsScope,
 } from "./supabase";
+import { listSwmsGuestAssignments } from "@/app/actions/swms-guest";
+import {
+  mapGuestRowToSwmsAssignment,
+} from "@/lib/swms-guest";
 
 export type {
   SwmsAssigneeType,
@@ -301,24 +305,65 @@ function summarizeSwms(doc: SwmsDocument): SwmsDocumentSummary {
   };
 }
 
+function collectDocumentLookupIds(doc: SwmsDocument): string[] {
+  return [
+    ...new Set(
+      [doc.id, ...collectSwmsDocumentIdCandidates(doc as unknown as Record<string, unknown>)]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function assignmentsForDocument(
+  assignmentsBySwms: Map<string, SwmsAssignment[]>,
+  doc: SwmsDocument
+): SwmsAssignment[] {
+  const seen = new Set<string>();
+  const list: SwmsAssignment[] = [];
+  for (const id of collectDocumentLookupIds(doc)) {
+    for (const assignment of assignmentsBySwms.get(id) ?? []) {
+      if (seen.has(assignment.id)) continue;
+      seen.add(assignment.id);
+      list.push(assignment);
+    }
+  }
+  return list;
+}
+
 export async function fetchSwmsDocuments(): Promise<SwmsDocumentSummary[]> {
   if (!isSupabaseConfigured()) return [];
 
   try {
     const docs = (await fetchSwmsDocumentRecords()).map(toSwmsDocument);
-    const assignments = await fetchSwmsAssignmentRecords();
+    const swmsLookupIds = [
+      ...new Set(docs.flatMap((doc) => collectDocumentLookupIds(doc))),
+    ];
+    const [assignments, guestResult] = await Promise.all([
+      fetchSwmsAssignmentRecords(),
+      listSwmsGuestAssignments(swmsLookupIds).catch(() => ({
+        error: "Failed to load guest SWMS assignments.",
+        assignments: [],
+      })),
+    ]);
 
     const assignmentsBySwms = new Map<string, SwmsAssignment[]>();
-    for (const assignment of assignments) {
+    const pushAssignment = (assignment: SwmsAssignment) => {
       const list = assignmentsBySwms.get(assignment.swms_id) ?? [];
       list.push(assignment);
       assignmentsBySwms.set(assignment.swms_id, list);
+    };
+    for (const assignment of assignments) {
+      pushAssignment(assignment);
+    }
+    for (const guest of guestResult.assignments ?? []) {
+      pushAssignment(mapGuestRowToSwmsAssignment(guest));
     }
 
     return docs.map((doc) =>
       summarizeSwms({
         ...doc,
-        assignments: assignmentsBySwms.get(doc.id) ?? [],
+        assignments: assignmentsForDocument(assignmentsBySwms, doc),
       })
     );
   } catch (error) {
@@ -962,12 +1007,23 @@ export function buildSwmsWorkerSignOffMatrix(
   assignments: SwmsAssignment[]
 ): SwmsWorkerSignOffRow[] {
   const assignmentByWorker = new Map<string, SwmsAssignment>();
+  const guestRows: SwmsWorkerSignOffRow[] = [];
   for (const assignment of assignments) {
+    if (assignment.assignee_type === "guest") {
+      guestRows.push({
+        workerId: assignment.id,
+        workerName: assignment.assignee_name,
+        assignment,
+        status: assignment.status,
+        signedAt: assignment.signed_at,
+      });
+      continue;
+    }
     if (assignment.assignee_type !== "worker") continue;
     assignmentByWorker.set(assignment.assignee_id, assignment);
   }
 
-  return projectWorkers.map((worker) => {
+  const workerRows = projectWorkers.map((worker) => {
     const assignment = assignmentByWorker.get(worker.id) ?? null;
     if (!assignment) {
       return {
@@ -987,4 +1043,6 @@ export function buildSwmsWorkerSignOffMatrix(
       signedAt: assignment.signed_at,
     };
   });
+
+  return [...workerRows, ...guestRows];
 }

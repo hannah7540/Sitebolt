@@ -904,11 +904,17 @@ export function formatSignedWorkersCell(
     .join("; ");
 }
 
+function isUnsignedSignOffRow(
+  row: ReturnType<typeof buildSwmsWorkerSignOffMatrix>[number]
+): boolean {
+  return row.status === "Pending" || row.status === "Not Assigned";
+}
+
 export function formatUnsignedWorkersCell(
   rows: ReturnType<typeof buildSwmsWorkerSignOffMatrix>
 ): string {
   return rows
-    .filter((row) => row.status !== "Signed")
+    .filter(isUnsignedSignOffRow)
     .map((row) => row.workerName)
     .join("; ");
 }

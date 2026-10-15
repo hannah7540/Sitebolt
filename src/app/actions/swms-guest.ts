@@ -16,6 +16,7 @@ import {
   GUEST_SWMS_PATH,
   isValidGuestEmail,
   normalizeGuestEmail,
+  parseSwmsGuestAssignmentRow,
   SWMS_GUEST_ASSIGNMENTS_TABLE,
   type GuestPendingSwmsItem,
   type SwmsGuestAssignmentRow,
@@ -69,20 +70,7 @@ async function resolveAssignedByWorkerId(
 }
 
 function asGuestRow(row: Record<string, unknown>): SwmsGuestAssignmentRow {
-  const status = String(row.status ?? "pending").toLowerCase() === "signed"
-    ? "signed"
-    : "pending";
-  return {
-    id: String(row.id ?? ""),
-    swms_id: String(row.swms_id ?? ""),
-    guest_email: String(row.guest_email ?? ""),
-    guest_name: row.guest_name ? String(row.guest_name) : null,
-    signature_data: row.signature_data ? String(row.signature_data) : null,
-    status,
-    signed_at: row.signed_at ? String(row.signed_at) : null,
-    assigned_by: row.assigned_by ? String(row.assigned_by) : null,
-    created_at: row.created_at ? String(row.created_at) : null,
-  };
+  return parseSwmsGuestAssignmentRow(row);
 }
 
 async function loadSwmsMeta(
@@ -211,6 +199,58 @@ export async function assignSwmsToGuest(input: {
 
   revalidatePath("/admin/swms");
   return { error: null, assignedCount: swmsIds.length };
+}
+
+export async function listSwmsGuestAssignments(
+  swmsIds: string[] = []
+): Promise<{ error: string | null; assignments: SwmsGuestAssignmentRow[] }> {
+  const uniqueIds = [
+    ...new Set(swmsIds.map((id) => id.trim()).filter((id) => UUID_RE.test(id))),
+  ];
+  if (uniqueIds.length === 0) {
+    return { error: null, assignments: [] };
+  }
+
+  const server = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await server.auth.getUser();
+  if (authError || !user) {
+    return { error: "You must be signed in to view guest SWMS assignments.", assignments: [] };
+  }
+
+  let admin;
+  try {
+    admin = requireAdmin();
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Unable to load guest SWMS assignments.",
+      assignments: [],
+    };
+  }
+
+  const rows: Record<string, unknown>[] = [];
+  const chunkSize = 100;
+  for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+    const chunk = uniqueIds.slice(index, index + chunkSize);
+    const { data, error } = await admin
+      .from(SWMS_GUEST_ASSIGNMENTS_TABLE)
+      .select(
+        "id, swms_id, guest_email, guest_name, signature_data, status, signed_at, assigned_by, created_at"
+      )
+      .in("swms_id", chunk)
+      .order("created_at", { ascending: false });
+    if (error) {
+      return { error: error.message, assignments: [] };
+    }
+    rows.push(...((data ?? []) as Record<string, unknown>[]));
+  }
+
+  return {
+    error: null,
+    assignments: rows.map(parseSwmsGuestAssignmentRow).filter((row) => row.id && row.swms_id),
+  };
 }
 
 export async function lookupPendingGuestSwms(

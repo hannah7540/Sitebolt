@@ -43,6 +43,7 @@ import UploadSwmsModal from "./UploadSwmsModal";
 import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
 import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
+import { isGuestSwmsAssignment } from "@/lib/swms-guest";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
 import ComplianceTrackingPanel, {
@@ -116,7 +117,8 @@ export default function SwmsManagementPanel({
         ).trim();
         const completed =
           assignment.status === "Signed" || Boolean(assignment.signed_at);
-        const isWorker = assignment.assignee_type !== "subcontractor";
+        const isGuest = isGuestSwmsAssignment(assignment);
+        const isWorker = assignment.assignee_type === "worker";
         const fallbackName =
           resolveSwmsAssigneeName(assignment) || "Unknown worker";
         rows.push({
@@ -124,11 +126,14 @@ export default function SwmsManagementPanel({
           documentId: doc.id,
           documentTitle: doc.title,
           workerId,
-          workerName: trackingWorkerName(workers, workerId, fallbackName),
+          workerName: isGuest
+            ? fallbackName
+            : trackingWorkerName(workers, workerId, fallbackName),
           assignedAt: assignment.created_at ?? null,
           completedAt: assignment.signed_at ?? null,
           status: completed ? "Completed" : "Pending",
           canRemind: !completed && isWorker && Boolean(workerId),
+          isGuest,
         });
       }
     }
@@ -683,6 +688,7 @@ export default function SwmsManagementPanel({
           onSent={(count) => {
             setSuccessMessage(`${count} SWMS sent to guest.`);
             setSelectedIds([]);
+            void fetchSwmsListData({ silent: true });
           }}
         />
       ) : null}

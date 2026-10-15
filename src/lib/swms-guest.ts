@@ -1,5 +1,6 @@
 import { PRODUCTION_APP_ORIGIN } from "@/lib/site-domains";
 import { appendTeamEmailFooter } from "@/lib/email-team-footer";
+import type { SwmsAssignmentRecord } from "@/lib/supabase";
 
 export const SWMS_GUEST_ASSIGNMENTS_TABLE = "swms_guest_assignments";
 export const GUEST_SWMS_PATH = "/guest/swms";
@@ -36,6 +37,58 @@ export function normalizeGuestEmail(value: string): string {
 
 export function isValidGuestEmail(value: string): boolean {
   return EMAIL_RE.test(normalizeGuestEmail(value));
+}
+
+export function formatGuestAssigneeLabel(
+  email: string,
+  name?: string | null
+): string {
+  const who = name?.trim() || email.trim() || "Guest";
+  return /\(guest\)/i.test(who) ? who : `${who} (Guest)`;
+}
+
+export function isGuestSwmsAssignment(
+  assignment: { assignee_type?: string | null } | null | undefined
+): boolean {
+  return assignment?.assignee_type === "guest";
+}
+
+export function parseSwmsGuestAssignmentRow(
+  row: Record<string, unknown>
+): SwmsGuestAssignmentRow {
+  const status =
+    String(row.status ?? "pending").toLowerCase() === "signed"
+      ? "signed"
+      : "pending";
+  return {
+    id: String(row.id ?? ""),
+    swms_id: String(row.swms_id ?? ""),
+    guest_email: String(row.guest_email ?? ""),
+    guest_name: row.guest_name ? String(row.guest_name) : null,
+    signature_data: row.signature_data ? String(row.signature_data) : null,
+    status,
+    signed_at: row.signed_at ? String(row.signed_at) : null,
+    assigned_by: row.assigned_by ? String(row.assigned_by) : null,
+    created_at: row.created_at ? String(row.created_at) : null,
+  };
+}
+
+export function mapGuestRowToSwmsAssignment(
+  row: SwmsGuestAssignmentRow
+): SwmsAssignmentRecord {
+  return {
+    id: row.id,
+    swms_id: row.swms_id,
+    assignee_type: "guest",
+    assignee_id: row.guest_email,
+    worker_id: null,
+    assignee_name: formatGuestAssigneeLabel(row.guest_email, row.guest_name),
+    signing_token: "",
+    status: row.status === "signed" ? "Signed" : "Pending",
+    signature_url: row.signature_data,
+    signed_at: row.signed_at,
+    created_at: row.created_at ?? undefined,
+  };
 }
 
 export function buildGuestSwmsPortalUrl(siteUrl: string): string {
