@@ -108,11 +108,15 @@ const FORMS_HUB_RELOCATED_WIDGET_IDS = new Set([
   "safety_walk",
 ]);
 
-/** Hired labour only see compliance tools, not timesheets, leave, or ITCs. */
-const HIRED_LABOUR_ALLOWED_WIDGET_IDS = ["forms_hub", "inductions", "swms"] as const;
+/** Hired labour see compliance tools plus leave requests, not timesheets or ITCs. */
+const HIRED_LABOUR_ALLOWED_WIDGET_IDS = [
+  "leave",
+  "forms_hub",
+  "inductions",
+  "swms",
+] as const;
 const HIRED_LABOUR_HIDDEN_WIDGET_IDS = new Set([
   "timesheets",
-  "leave",
   "itcs",
   "details",
 ]);

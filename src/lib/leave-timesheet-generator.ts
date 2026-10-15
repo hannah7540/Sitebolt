@@ -1,4 +1,5 @@
-import { supabase, isSupabaseConfigured } from "./supabase";
+import { fetchWorkerById, supabase, isSupabaseConfigured } from "./supabase";
+import { isHiredLabourWorker } from "./hired-labour";
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
 import {
   fetchWorkerLeavePayRuleCondition,
@@ -116,6 +117,11 @@ export async function generateTimesheetsForApprovedLeave(
   input: GenerateLeaveTimesheetsInput
 ): Promise<{ generated: number; error: string | null }> {
   if (!isSupabaseConfigured()) {
+    return { generated: 0, error: null };
+  }
+
+  const worker = await fetchWorkerById(input.workerId);
+  if (isHiredLabourWorker(worker)) {
     return { generated: 0, error: null };
   }
 

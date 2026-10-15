@@ -577,7 +577,9 @@ function isProjectUuid(value: string): boolean {
   );
 }
 
-/** Submit a worker leave request and sync the pending calendar badge. */
+/** Submit a worker leave request and sync the pending calendar badge.
+ *  Hired labour (`worker_category = hired_labour`) may submit the same as internal workers.
+ */
 export async function submitLeaveRequest(
   input: SubmitLeaveRequestInput
 ): Promise<{ error: string | null; data: LeaveRequest | null }> {
