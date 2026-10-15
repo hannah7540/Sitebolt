@@ -9,6 +9,7 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import {
   buildGuestSwmsInviteEmail,
   buildGuestSwmsPortalUrl,
@@ -38,6 +39,33 @@ function requireAdmin() {
     throw new Error("Server database access is not configured.");
   }
   return createSupabaseAdminClient();
+}
+
+async function resolveAssignedByWorkerId(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  user: { id: string; email?: string | null }
+): Promise<{ workerId: string | null; error: string | null }> {
+  const match = await matchWorkerForAuthUser(admin, user, {
+    skipEmailLookup: false,
+  });
+  if (match?.workerId && UUID_RE.test(match.workerId)) {
+    return { workerId: match.workerId, error: null };
+  }
+
+  const byPrimaryKey = await admin
+    .from("workers")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!byPrimaryKey.error && byPrimaryKey.data?.id) {
+    return { workerId: String(byPrimaryKey.data.id), error: null };
+  }
+
+  return {
+    workerId: null,
+    error:
+      "Worker profile not found for this account. Cannot send a SWMS to a guest until your user is linked to public.workers.",
+  };
 }
 
 function asGuestRow(row: Record<string, unknown>): SwmsGuestAssignmentRow {
@@ -116,6 +144,11 @@ export async function assignSwmsToGuest(input: {
     };
   }
 
+  const assignedBy = await resolveAssignedByWorkerId(admin, user);
+  if (!assignedBy.workerId) {
+    return { error: assignedBy.error ?? "Worker profile not found for this account." };
+  }
+
   const existingPending = await admin
     .from(SWMS_GUEST_ASSIGNMENTS_TABLE)
     .select("id")
@@ -135,7 +168,7 @@ export async function assignSwmsToGuest(input: {
         swms_id: swmsId,
         guest_email: guestEmail,
         status: "pending",
-        assigned_by: user.id,
+        assigned_by: assignedBy.workerId,
       })
       .select("id")
       .maybeSingle();
@@ -320,23 +353,23 @@ async function notifyAssignedWorker(
   let workerId: string | null = null;
   let authUserId = assignedBy;
 
-  const byAuth = await admin
+  const byId = await admin
     .from("workers")
     .select("id, auth_user_id")
-    .eq("auth_user_id", assignedBy)
+    .eq("id", assignedBy)
     .maybeSingle();
-  if (!byAuth.error && byAuth.data?.id) {
-    workerId = String(byAuth.data.id);
-    authUserId = String(byAuth.data.auth_user_id ?? assignedBy);
+  if (!byId.error && byId.data?.id) {
+    workerId = String(byId.data.id);
+    authUserId = String(byId.data.auth_user_id ?? assignedBy);
   } else {
-    const byId = await admin
+    const byAuth = await admin
       .from("workers")
       .select("id, auth_user_id")
-      .eq("id", assignedBy)
+      .eq("auth_user_id", assignedBy)
       .maybeSingle();
-    if (!byId.error && byId.data?.id) {
-      workerId = String(byId.data.id);
-      authUserId = String(byId.data.auth_user_id ?? assignedBy);
+    if (!byAuth.error && byAuth.data?.id) {
+      workerId = String(byAuth.data.id);
+      authUserId = String(byAuth.data.auth_user_id ?? assignedBy);
     }
   }
 
