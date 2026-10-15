@@ -37,6 +37,16 @@ export function getServiceWarningLabel(warning: ServiceWarning): string | null {
   return null;
 }
 
+/** Calendar meter copy: `1,250 hrs` or `12,500 km`. */
+export function formatMeterReading(
+  value: number | null | undefined,
+  unit: "hrs" | "km" = "hrs"
+): string {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  const rounded = Math.round(Number(value) * 10) / 10;
+  return `${rounded.toLocaleString()} ${unit}`;
+}
+
 /** Calendar unit-box copy: "Service due (X days)" in red. */
 export function getServiceDueDaysLabel(plant: PlantAsset): string | null {
   const warning = getServiceWarning(plant);

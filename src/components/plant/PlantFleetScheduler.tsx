@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Calendar, Loader2, Truck, Wrench } from "lucide-react";
+import { Calendar, Loader2, Pencil, Truck, Wrench } from "lucide-react";
 import type { PlantAsset, PlantPrestart } from "@/lib/supabase";
-import { fetchPlantPrestarts, resolvePlantPrestartDefect } from "@/lib/supabase";
+import {
+  fetchPlantPrestarts,
+  resolvePlantPrestartDefect,
+  updatePlant,
+} from "@/lib/supabase";
 import EditPlantModal from "@/components/plant/EditPlantModal";
 import {
   fetchPlantMaintenance,
@@ -25,7 +29,12 @@ import {
   resolvePlantServiceDisplayName,
   type PlantServiceSchedule,
 } from "@/lib/plant-services";
-import { getServiceDueDaysLabel, getServiceWarning } from "@/lib/plant-utils";
+import {
+  formatMeterReading,
+  getServiceDueDaysLabel,
+  getServiceMetrics,
+  getServiceWarning,
+} from "@/lib/plant-utils";
 import { plantHasHydrovacCategory } from "@/lib/plant-categories";
 import { SERVICE_TYPES } from "@/lib/projects";
 import {
@@ -90,7 +99,6 @@ import {
 import {
   applyResolvedPrestartPatch,
   formatLastPrestartColumnLabel,
-  formatPrestartHours,
   getLatestPrestartByPlant,
   getPlantCalendarHeaderAlerts,
   getPrestartDefectLabel,
@@ -216,6 +224,104 @@ function PlantDefectBadge({
       ) : null}
     </button>
   );
+}
+
+type PlantMeterKind =
+  | "current"
+  | "next"
+  | "attachment_current"
+  | "attachment_next";
+
+interface PlantMeterOverride {
+  current?: number;
+  next?: number;
+  attachmentCurrent?: number;
+  attachmentNext?: number;
+}
+
+function PlantMeterEditButton({
+  label,
+  valueText,
+  onEdit,
+}: {
+  label: string;
+  valueText: string;
+  onEdit: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Edit ${label}`}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onEdit();
+      }}
+      className="inline-flex max-w-full items-center gap-1 rounded px-0.5 text-left font-semibold text-slate-900 underline decoration-dashed decoration-slate-400 underline-offset-2 hover:bg-orange-50 hover:text-orange-700"
+    >
+      <span className="truncate">{valueText}</span>
+      <Pencil className="h-3 w-3 shrink-0 text-slate-400" />
+    </button>
+  );
+}
+
+function meterPromptCopy(
+  kind: PlantMeterKind,
+  unit: "hrs" | "km"
+): { title: string; field: string; noun: string } {
+  const unitLabel = unit === "km" ? "kilometres" : "hours";
+  if (kind === "current") {
+    return {
+      title: unit === "km" ? "Update current kilometres" : "Update current hours",
+      field: unit === "km" ? "Current kilometres" : "Current hours",
+      noun: unitLabel,
+    };
+  }
+  if (kind === "next") {
+    return {
+      title:
+        unit === "km"
+          ? "Update next service due kilometres"
+          : "Update next service due hours",
+      field:
+        unit === "km" ? "Next service due kilometres" : "Next service due hours",
+      noun: unitLabel,
+    };
+  }
+  if (kind === "attachment_current") {
+    return {
+      title: "Update attachment hours",
+      field: "Attachment hours",
+      noun: "hours",
+    };
+  }
+  return {
+    title: "Update attachment next service due",
+    field: "Attachment next service due hours",
+    noun: "hours",
+  };
+}
+
+function applyMeterOverride(
+  asset: PlantAsset,
+  override?: PlantMeterOverride
+): PlantAsset {
+  if (!override) return asset;
+  const isKm = getServiceMetrics(asset).unit === "km";
+  return {
+    ...asset,
+    current_hours:
+      !isKm && override.current != null ? override.current : asset.current_hours,
+    current_kms:
+      isKm && override.current != null ? override.current : asset.current_kms,
+    next_service_hours:
+      !isKm && override.next != null ? override.next : asset.next_service_hours,
+    next_service_kms:
+      isKm && override.next != null ? override.next : asset.next_service_kms,
+    attachment_hours: override.attachmentCurrent ?? asset.attachment_hours,
+    attachment_next_due_hours:
+      override.attachmentNext ?? asset.attachment_next_due_hours,
+  };
 }
 
 function todayIso(): string {
@@ -373,6 +479,16 @@ export default function PlantFleetScheduler({
   const [datePromptValue, setDatePromptValue] = useState("");
   const [datePromptSaving, setDatePromptSaving] = useState(false);
   const [datePromptError, setDatePromptError] = useState<string | null>(null);
+  const [meterOverrides, setMeterOverrides] = useState<
+    Map<string, PlantMeterOverride>
+  >(() => new Map());
+  const [hoursPrompt, setHoursPrompt] = useState<{
+    plant: PlantAsset;
+    kind: PlantMeterKind;
+  } | null>(null);
+  const [hoursPromptValue, setHoursPromptValue] = useState("");
+  const [hoursPromptSaving, setHoursPromptSaving] = useState(false);
+  const [hoursPromptError, setHoursPromptError] = useState<string | null>(null);
   const [maintenanceRows, setMaintenanceRows] = useState<PlantMaintenanceRecord[]>(
     []
   );
@@ -929,55 +1045,101 @@ export default function PlantFleetScheduler({
     [loadPrestarts, onRefresh, patchPrestartInState, resolveDefectTarget]
   );
 
+  const openHoursPrompt = useCallback(
+    (asset: PlantAsset, kind: PlantMeterKind, currentValue: number | null) => {
+      setErrorMenuPlantId(null);
+      setHoursPromptError(null);
+      setHoursPromptValue(
+        currentValue == null || Number.isNaN(Number(currentValue))
+          ? ""
+          : String(currentValue)
+      );
+      setHoursPrompt({ plant: asset, kind });
+    },
+    []
+  );
+
   const pinnedExtraColumns = useMemo(
     () => [
       {
         key: "current_hours",
         label: "Current Hours",
-        width: 112,
+        width: 128,
         renderCell: (asset: PlantAsset) => {
           const latest = latestPrestartByPlant.get(asset.id);
+          const override = meterOverrides.get(asset.id);
+          const metrics = getServiceMetrics(asset);
           const machineHours =
-            latest?.current_reading ?? asset.current_hours ?? null;
-          const attachmentHours =
-            asset.attachment_hours == null || asset.attachment_hours === ""
+            override?.current ??
+            latest?.current_reading ??
+            metrics.current ??
+            null;
+          const attachmentHoursRaw =
+            override?.attachmentCurrent ??
+            (asset.attachment_hours == null || asset.attachment_hours === ""
               ? null
-              : Number(asset.attachment_hours);
+              : Number(asset.attachment_hours));
+          const attachmentHours =
+            attachmentHoursRaw != null && Number.isFinite(attachmentHoursRaw)
+              ? attachmentHoursRaw
+              : null;
           const showAttachmentHours =
-            plantHasHydrovacCategory(asset.category) &&
-            attachmentHours != null &&
-            Number.isFinite(attachmentHours);
+            plantHasHydrovacCategory(asset.category) && attachmentHours != null;
+
+          const machineButton = (
+            <PlantMeterEditButton
+              label={
+                metrics.unit === "km" ? "current kilometres" : "current hours"
+              }
+              valueText={formatMeterReading(machineHours, metrics.unit)}
+              onEdit={() => openHoursPrompt(asset, "current", machineHours)}
+            />
+          );
 
           if (showAttachmentHours) {
             return (
               <div className="flex flex-col gap-0.5 leading-tight">
-                <span className="font-semibold text-slate-900">
-                  Machine: {formatPrestartHours(machineHours)}
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">
+                    Machine
+                  </span>
+                  {machineButton}
                 </span>
-                <span className="font-semibold text-slate-900">
-                  Attachment: {formatPrestartHours(attachmentHours)}
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">
+                    Attachment
+                  </span>
+                  <PlantMeterEditButton
+                    label="attachment hours"
+                    valueText={formatMeterReading(attachmentHours, "hrs")}
+                    onEdit={() =>
+                      openHoursPrompt(asset, "attachment_current", attachmentHours)
+                    }
+                  />
                 </span>
               </div>
             );
           }
 
-          return (
-            <span className="font-semibold text-slate-900">
-              {formatPrestartHours(machineHours)}
-            </span>
-          );
+          return machineButton;
         },
       },
       {
         key: "next_service_due",
         label: "Next Service Due",
-        width: 124,
+        width: 136,
         renderCell: (asset: PlantAsset) => {
           const latest = latestPrestartByPlant.get(asset.id);
+          const override = meterOverrides.get(asset.id);
+          const metrics = getServiceMetrics(asset);
           const machineServiceDue =
-            latest?.next_service_due ?? asset.next_service_hours ?? null;
+            override?.next ??
+            latest?.next_service_due ??
+            metrics.next ??
+            null;
           const checkData = latest?.check_data ?? {};
           const attachmentServiceDueRaw =
+            override?.attachmentNext ??
             asset.attachment_next_due_hours ??
             checkData.attachment_next_due_hours ??
             checkData.attachment_service_due_hours;
@@ -990,24 +1152,48 @@ export default function PlantFleetScheduler({
             attachmentServiceDue != null &&
             Number.isFinite(attachmentServiceDue);
 
+          const machineButton = (
+            <PlantMeterEditButton
+              label={
+                metrics.unit === "km"
+                  ? "next service due kilometres"
+                  : "next service due hours"
+              }
+              valueText={formatMeterReading(machineServiceDue, metrics.unit)}
+              onEdit={() => openHoursPrompt(asset, "next", machineServiceDue)}
+            />
+          );
+
           if (showAttachmentServiceDue) {
             return (
               <div className="flex flex-col gap-0.5 leading-tight">
-                <span className="font-semibold text-slate-900">
-                  Machine: {formatPrestartHours(machineServiceDue)}
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">
+                    Machine
+                  </span>
+                  {machineButton}
                 </span>
-                <span className="font-semibold text-slate-900">
-                  Attachment: {formatPrestartHours(attachmentServiceDue)}
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">
+                    Attachment
+                  </span>
+                  <PlantMeterEditButton
+                    label="attachment next service due hours"
+                    valueText={formatMeterReading(attachmentServiceDue, "hrs")}
+                    onEdit={() =>
+                      openHoursPrompt(
+                        asset,
+                        "attachment_next",
+                        attachmentServiceDue
+                      )
+                    }
+                  />
                 </span>
               </div>
             );
           }
 
-          return (
-            <span className="font-semibold text-slate-900">
-              {formatPrestartHours(machineServiceDue)}
-            </span>
-          );
+          return machineButton;
         },
       },
       {
@@ -1042,7 +1228,7 @@ export default function PlantFleetScheduler({
         },
       },
     ],
-    [latestPrestartByPlant]
+    [latestPrestartByPlant, meterOverrides, openHoursPrompt]
   );
 
   const showEmptySchedulesNotice =
@@ -1107,8 +1293,98 @@ export default function PlantFleetScheduler({
     onRefresh();
   }, [datePrompt, datePromptValue, loadMaintenance, loadSchedules, onRefresh]);
 
+  const submitHoursPrompt = useCallback(async () => {
+    if (!hoursPrompt) return;
+    const parsed = Number(hoursPromptValue);
+    if (!hoursPromptValue.trim() || !Number.isFinite(parsed) || parsed < 0) {
+      setHoursPromptError("Enter a valid number.");
+      return;
+    }
+
+    setHoursPromptSaving(true);
+    setHoursPromptError(null);
+
+    const metrics = getServiceMetrics(hoursPrompt.plant);
+    const isKm = metrics.unit === "km";
+    const updates: Parameters<typeof updatePlant>[1] = {};
+    if (hoursPrompt.kind === "current") {
+      if (isKm) updates.current_kms = parsed;
+      else updates.current_hours = parsed;
+    } else if (hoursPrompt.kind === "next") {
+      if (isKm) updates.next_service_kms = parsed;
+      else updates.next_service_hours = parsed;
+    } else if (hoursPrompt.kind === "attachment_current") {
+      updates.attachment_hours = parsed;
+    } else {
+      updates.attachment_next_due_hours = parsed;
+    }
+
+    const { error } = await updatePlant(hoursPrompt.plant.id, updates);
+    if (error) {
+      setHoursPromptSaving(false);
+      setHoursPromptError(error);
+      return;
+    }
+
+    setMeterOverrides((current) => {
+      const next = new Map(current);
+      const existing = { ...(next.get(hoursPrompt.plant.id) ?? {}) };
+      if (hoursPrompt.kind === "current") existing.current = parsed;
+      if (hoursPrompt.kind === "next") existing.next = parsed;
+      if (hoursPrompt.kind === "attachment_current") {
+        existing.attachmentCurrent = parsed;
+      }
+      if (hoursPrompt.kind === "attachment_next") {
+        existing.attachmentNext = parsed;
+      }
+      next.set(hoursPrompt.plant.id, existing);
+      return next;
+    });
+
+    if (hoursPrompt.kind === "current" || hoursPrompt.kind === "next") {
+      setLatestPrestartsByPlant((current) => {
+        const latest = current.get(hoursPrompt.plant.id);
+        if (!latest) return current;
+        const next = new Map(current);
+        next.set(hoursPrompt.plant.id, {
+          ...latest,
+          current_reading:
+            hoursPrompt.kind === "current" ? parsed : latest.current_reading,
+          next_service_due:
+            hoursPrompt.kind === "next" ? parsed : latest.next_service_due,
+        });
+        return next;
+      });
+    }
+
+    const patched: PlantAsset = {
+      ...hoursPrompt.plant,
+      ...(hoursPrompt.kind === "current"
+        ? isKm
+          ? { current_kms: parsed }
+          : { current_hours: parsed }
+        : {}),
+      ...(hoursPrompt.kind === "next"
+        ? isKm
+          ? { next_service_kms: parsed }
+          : { next_service_hours: parsed }
+        : {}),
+      ...(hoursPrompt.kind === "attachment_current"
+        ? { attachment_hours: parsed }
+        : {}),
+      ...(hoursPrompt.kind === "attachment_next"
+        ? { attachment_next_due_hours: parsed }
+        : {}),
+    };
+    onPlantSaved?.(patched);
+    setHoursPromptSaving(false);
+    setHoursPrompt(null);
+    onRefresh();
+  }, [hoursPrompt, hoursPromptValue, onPlantSaved, onRefresh]);
+
   const renderStickyColumn = useCallback(
     (asset: PlantAsset) => {
+      asset = applyMeterOverride(asset, meterOverrides.get(asset.id));
       const makeModel = [asset.make, asset.model].filter(Boolean).join(" ").trim();
       const latestForAlerts = showHeaderAlerts
         ? latestPrestartByPlant.get(asset.id)
@@ -1264,6 +1540,7 @@ export default function PlantFleetScheduler({
       latestPrestartByPlant,
       maintenanceByPlant,
       markPrestartResolved,
+      meterOverrides,
       showHeaderAlerts,
       todayIsoDate,
     ]
@@ -1389,6 +1666,13 @@ export default function PlantFleetScheduler({
     [serviceDatesInRange]
   );
 
+  const hoursPromptCopy = hoursPrompt
+    ? meterPromptCopy(
+        hoursPrompt.kind,
+        getServiceMetrics(hoursPrompt.plant).unit
+      )
+    : null;
+
   return (
     <div>
       {successToast ? (
@@ -1436,8 +1720,15 @@ export default function PlantFleetScheduler({
             pinnedExtraColumns={pinnedExtraColumns}
             renderDayCell={renderDayCell}
             getRowClassName={(asset) => {
+              const resolvedAsset = applyMeterOverride(
+                asset,
+                meterOverrides.get(asset.id)
+              );
               if (
-                getFleetStatusLabel(asset, getServiceWarning(asset)) === "Tagged Out"
+                getFleetStatusLabel(
+                  resolvedAsset,
+                  getServiceWarning(resolvedAsset)
+                ) === "Tagged Out"
               ) {
                 return "bg-red-50/60";
               }
@@ -1793,6 +2084,74 @@ export default function PlantFleetScheduler({
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
                 {datePrompt.kind === "service" ? "Add Service" : "Add Maintenance"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {hoursPrompt ? (
+        <div
+          className={modalOverlayClass}
+          role="presentation"
+          onClick={() => {
+            if (hoursPromptSaving) return;
+            setHoursPrompt(null);
+          }}
+        >
+          <div
+            className={cn(modalClass, "max-w-md sm:rounded-2xl")}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plant-hours-prompt-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2
+              id="plant-hours-prompt-title"
+              className="text-lg font-bold text-slate-900"
+            >
+              {hoursPromptCopy?.title}
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Are you sure you want to update the {hoursPromptCopy?.noun} for{" "}
+              <strong>{hoursPrompt.plant.unit_number}</strong>?
+            </p>
+            <label className="mt-4 block">
+              <span className={labelClass}>{hoursPromptCopy?.field}</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                className={inputClass}
+                value={hoursPromptValue}
+                onChange={(event) => setHoursPromptValue(event.target.value)}
+                autoFocus
+              />
+            </label>
+            {hoursPromptError ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {hoursPromptError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                disabled={hoursPromptSaving}
+                onClick={() => setHoursPrompt(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500 disabled:opacity-60"
+                disabled={hoursPromptSaving}
+                onClick={() => void submitHoursPrompt()}
+              >
+                {hoursPromptSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Confirm
               </button>
             </div>
           </div>

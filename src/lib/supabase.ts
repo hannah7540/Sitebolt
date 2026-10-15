@@ -1165,6 +1165,10 @@ const PLANT_EQUIPMENT_OPTIONAL_COLUMNS = [
   "unit_reference",
   "attachment_hours",
   "attachment_next_due_hours",
+  "current_hours",
+  "current_kms",
+  "next_service_hours",
+  "next_service_kms",
 ] as const;
 
 const WORKER_PROJECT_OPTIONAL_COLUMNS = [
@@ -1231,7 +1235,9 @@ const PLANT_MASTER_OPTIONAL_COLUMNS = [
   "service_contact_email",
   "serial_number",
   "current_hours",
+  "current_kms",
   "next_service_hours",
+  "next_service_kms",
   "next_service_due_hours",
   "attachment_hours",
   "attachment_next_due_hours",
@@ -2688,7 +2694,9 @@ export async function updatePlant(
     status?: string;
     prestart_template?: PrestartTemplate | string | null;
     current_hours?: number | null;
+    current_kms?: number | null;
     next_service_hours?: number | null;
+    next_service_kms?: number | null;
     attachment_hours?: number | string | null;
     attachment_next_due_hours?: number | string | null;
     service_contact_name?: string | null;
@@ -2755,6 +2763,9 @@ export async function updatePlant(
   if (updates.current_hours !== undefined) {
     payload.current_hours = numberOrZero(updates.current_hours);
   }
+  if (updates.current_kms !== undefined) {
+    payload.current_kms = numberOrZero(updates.current_kms);
+  }
   if (updates.attachment_hours !== undefined) {
     payload.attachment_hours = numberOrNull(updates.attachment_hours);
   }
@@ -2772,6 +2783,9 @@ export async function updatePlant(
     );
     payload.next_service_due_hours = nextServiceDueHours;
     payload.next_service_hours = nextServiceDueHours;
+  }
+  if (updates.next_service_kms !== undefined) {
+    payload.next_service_kms = numberOrNull(updates.next_service_kms);
   }
   if (updates.service_contact_name !== undefined) {
     payload.service_contact_name = updates.service_contact_name?.trim() || null;
@@ -2883,8 +2897,14 @@ export async function updatePlant(
   if (updates.current_hours !== undefined) {
     equipmentPayload.current_hours = updates.current_hours;
   }
+  if (updates.current_kms !== undefined) {
+    equipmentPayload.current_kms = updates.current_kms;
+  }
   if (updates.next_service_hours !== undefined) {
     equipmentPayload.next_service_hours = updates.next_service_hours;
+  }
+  if (updates.next_service_kms !== undefined) {
+    equipmentPayload.next_service_kms = updates.next_service_kms;
   }
   if (updates.attachment_hours !== undefined) {
     equipmentPayload.attachment_hours = numberOrNull(updates.attachment_hours);
