@@ -199,7 +199,6 @@ export async function assignSwmsToGuest(input: {
     to: [guestEmail],
     subject: email.subject,
     html: email.html,
-    text: email.text,
     skipTeamFooter: true,
   });
 
