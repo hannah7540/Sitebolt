@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import SiteBoltChatWidget from "@/components/ai/SiteBoltChatWidget";
 import AppShell from "@/components/layout/AppShell";
 import NativeAppBootstrap from "@/components/layout/NativeAppBootstrap";
 import ThemeProvider from "@/components/theme/ThemeProvider";
@@ -49,6 +50,7 @@ export default function RootLayout({
         <ThemeProvider>
           <NativeAppBootstrap />
           <AppShell>{children}</AppShell>
+          <SiteBoltChatWidget />
         </ThemeProvider>
       </body>
     </html>
