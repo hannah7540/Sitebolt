@@ -11,8 +11,21 @@ import {
   formatUnsignedWorkersCell,
   resolveProjectLabel,
 } from "./document-pack-service";
+import {
+  downloadExternalSwmsPdf,
+  getExternalSwmsDocumentUrl,
+} from "@/app/actions/swms-external";
 import { appendItcCertificateToPdf } from "./itc-pdf";
+import {
+  mergeExternalPdfsIntoPack,
+  stampPdfPageNumbers,
+  type ExternalPdfInsertion,
+} from "./pdf-merge-external-swms";
 import { getSwmsDocumentUrl, resolveSwmsScope } from "./swms";
+import {
+  formatExternalCompanyName,
+  isExternalSwms,
+} from "./swms-external";
 
 const PAGE_MARGIN = 14;
 const CONTENT_WIDTH = 182;
@@ -406,10 +419,42 @@ async function drawItpSection(
   }
 }
 
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function fetchExternalSwmsPdfBytes(
+  storagePath: string
+): Promise<Uint8Array | null> {
+  const { url } = await getExternalSwmsDocumentUrl(storagePath);
+  if (url) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return new Uint8Array(await response.arrayBuffer());
+      }
+    } catch {
+      /* fall through to admin download */
+    }
+  }
+
+  const downloaded = await downloadExternalSwmsPdf(storagePath);
+  if (downloaded.bytesBase64) {
+    return base64ToUint8Array(downloaded.bytesBase64);
+  }
+  return null;
+}
+
 async function drawSwmsSection(
   doc: JsPdfInstance,
   data: DocumentPackData,
-  autoTable: typeof import("jspdf-autotable").default
+  autoTable: typeof import("jspdf-autotable").default,
+  externalInsertions: ExternalPdfInsertion[]
 ): Promise<void> {
   doc.addPage();
   let y = writeSectionHeading(doc, "Section 2 — SWMS & Signature Log", PAGE_MARGIN + 8);
@@ -424,6 +469,7 @@ async function drawSwmsSection(
     const scope =
       resolveSwmsScope(swms) === "site_specific" ? "Site Specific" : "Company";
     y = writeParagraph(doc, swms.title || "SWMS", y, { bold: true, fontSize: 13 });
+    const builderName = formatExternalCompanyName(swms.external_company_name);
     y = writeParagraph(
       doc,
       [
@@ -433,6 +479,9 @@ async function drawSwmsSection(
           : null,
         `Version: ${formatSwmsVersionLabel(swms.version)}`,
         `Date: ${formatDisplayDate(swms.document_date || swms.created_at?.slice(0, 10) || "")}`,
+        isExternalSwms(swms)
+          ? `External SWMS${builderName ? ` · ${builderName}` : ""}`
+          : null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -440,8 +489,24 @@ async function drawSwmsSection(
       { fontSize: 9 }
     );
 
+    const storagePath = String(swms.storage_path ?? "").trim();
     const fileUrl = getSwmsDocumentUrl(swms);
-    if (fileUrl) {
+    if (isExternalSwms(swms) && storagePath) {
+      const pdfBytes = await fetchExternalSwmsPdfBytes(storagePath);
+      if (pdfBytes) {
+        externalInsertions.push({
+          at: doc.getNumberOfPages(),
+          pdfBytes,
+        });
+      } else {
+        y = writeParagraph(
+          doc,
+          "Could not attach the original builder SWMS PDF from storage.",
+          y,
+          { fontSize: 9 }
+        );
+      }
+    } else if (fileUrl) {
       await embedPdfOrImage(doc, fileUrl);
       y = PAGE_MARGIN + 8;
     } else {
@@ -573,6 +638,7 @@ export async function generateDocumentPackPdf(
   const autoTable = autoTableModule.default;
 
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+  const externalInsertions: ExternalPdfInsertion[] = [];
 
   await drawCoverPage(doc, data);
 
@@ -580,10 +646,22 @@ export async function generateDocumentPackPdf(
     await drawItpSection(doc, data, autoTable);
   }
   if (data.sections.includes("swms")) {
-    await drawSwmsSection(doc, data, autoTable);
+    await drawSwmsSection(doc, data, autoTable, externalInsertions);
   }
   if (data.sections.includes("plant")) {
     await drawPlantSection(doc, data);
+  }
+
+  const fileName = buildDocumentPackFileName(data.projectName, data.exportTimestamp);
+
+  if (externalInsertions.length > 0) {
+    const merged = await mergeExternalPdfsIntoPack(
+      doc.output("arraybuffer"),
+      externalInsertions
+    );
+    const numbered = await stampPdfPageNumbers(merged);
+    const blob = new Blob([new Uint8Array(numbered)], { type: "application/pdf" });
+    return { fileName, blob };
   }
 
   const pageCount = doc.getNumberOfPages();
@@ -600,7 +678,6 @@ export async function generateDocumentPackPdf(
     );
   }
 
-  const fileName = buildDocumentPackFileName(data.projectName, data.exportTimestamp);
   const blob = doc.output("blob");
   return { fileName, blob };
 }

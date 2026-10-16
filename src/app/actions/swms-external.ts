@@ -14,6 +14,7 @@ import { createSwmsStorageSignedUrlWithClient } from "@/lib/swms-external-storag
 import {
   EXTERNAL_SWMS_MAX_BYTES,
   SWMS_DOCUMENTS_BUCKET,
+  normalizeSwmsStoragePath,
   sanitizeSwmsStorageKey,
 } from "@/lib/swms-external";
 
@@ -68,6 +69,39 @@ export async function getExternalSwmsDocumentUrl(
     return {
       url: "",
       error: error instanceof Error ? error.message : "Could not create a document URL.",
+    };
+  }
+}
+
+export async function downloadExternalSwmsPdf(storagePath: string): Promise<{
+  bytesBase64: string | null;
+  error: string | null;
+}> {
+  const auth = await requireSignedInUser();
+  if (!auth.user) {
+    return { bytesBase64: null, error: auth.error };
+  }
+
+  const path = normalizeSwmsStoragePath(storagePath);
+  if (!path) {
+    return { bytesBase64: null, error: "SWMS storage path is missing." };
+  }
+
+  try {
+    const admin = requireAdmin();
+    const { data, error } = await admin.storage.from(SWMS_DOCUMENTS_BUCKET).download(path);
+    if (error || !data) {
+      return {
+        bytesBase64: null,
+        error: error?.message || "Could not download the SWMS PDF.",
+      };
+    }
+    const buffer = Buffer.from(await data.arrayBuffer());
+    return { bytesBase64: buffer.toString("base64"), error: null };
+  } catch (error) {
+    return {
+      bytesBase64: null,
+      error: error instanceof Error ? error.message : "Could not download the SWMS PDF.",
     };
   }
 }
