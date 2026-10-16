@@ -1,13 +1,134 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Bot, MessageCircle, Send, X } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
+import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { isHiredLabourWorker } from "@/lib/hired-labour";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { isSubcontractorWorker } from "@/lib/worker-utils";
 
 const BRAND_ORANGE = "#F48120";
 
+const FORBIDDEN_ROUTE_PREFIXES = [
+  "/guest",
+  "/subcontractors",
+  "/hired-labour",
+  "/swms/sign",
+  "/onboarding/hired-labour",
+] as const;
+
+const BLOCKED_ROLES = new Set(["subcontractor", "guest", "hired_labour"]);
+
+const INTERNAL_ADMIN_ROLES = new Set([
+  "owner",
+  "super_admin",
+  "master_admin",
+  "full_access",
+  "project_team",
+]);
+
+function normalizeLabel(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isForbiddenChatRoute(pathname: string | null): boolean {
+  const path = (pathname ?? "").split("?")[0].toLowerCase();
+  if (!path) return false;
+  return FORBIDDEN_ROUTE_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  );
+}
+
+function isBlockedChatRole(...values: Array<string | null | undefined>): boolean {
+  return values.some((value) => BLOCKED_ROLES.has(normalizeLabel(value)));
+}
+
 export default function SiteBoltChatWidget() {
+  const pathname = usePathname();
+  const [allowed, setAllowed] = useState(false);
+  const forbiddenRoute = isForbiddenChatRoute(pathname);
+
+  useEffect(() => {
+    if (forbiddenRoute) {
+      setAllowed(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadInternalAccess() {
+      const session = await resolveAuthWorkerFromSession();
+      if (cancelled) return;
+
+      if (!session.hasSession) {
+        setAllowed(false);
+        return;
+      }
+
+      if (!session.workerId) {
+        setAllowed(INTERNAL_ADMIN_ROLES.has(normalizeLabel(session.role)));
+        return;
+      }
+
+      const supabase = createSupabaseBrowserClient();
+      const { data, error } = await supabase
+        .from("workers")
+        .select(
+          "worker_category, is_subcontractor, subcontractor_id, worker_type, employment_type"
+        )
+        .eq("id", session.workerId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error || !data) {
+        setAllowed(INTERNAL_ADMIN_ROLES.has(normalizeLabel(session.role)));
+        return;
+      }
+
+      const worker = data as {
+        worker_category?: string | null;
+        is_subcontractor?: boolean | null;
+        subcontractor_id?: string | null;
+        worker_type?: string | null;
+        employment_type?: string | null;
+      };
+
+      if (
+        isBlockedChatRole(
+          session.role,
+          worker.worker_category,
+          worker.employment_type,
+          worker.worker_type
+        ) ||
+        isHiredLabourWorker(worker) ||
+        isSubcontractorWorker(worker)
+      ) {
+        setAllowed(false);
+        return;
+      }
+
+      setAllowed(true);
+    }
+
+    void loadInternalAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [forbiddenRoute, pathname]);
+
+  if (forbiddenRoute || !allowed) return null;
+
+  return <SiteBoltChatPanel />;
+}
+
+function SiteBoltChatPanel() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, error, clearError } = useChat();
