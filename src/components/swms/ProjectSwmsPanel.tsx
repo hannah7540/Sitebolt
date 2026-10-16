@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   PenLine,
+  Upload,
   UserPlus,
 } from "lucide-react";
 import {
@@ -34,7 +35,9 @@ import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { isWorkerRevoked, type Worker } from "@/lib/supabase";
 import WorkerSwmsSignModal from "@/components/workers/WorkerSwmsSignModal";
 import ProjectAssignSwmsModal from "@/components/swms/ProjectAssignSwmsModal";
+import ExternalSwmsBadge from "@/components/swms/ExternalSwmsBadge";
 import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
+import UploadExternalSwmsModal from "@/components/swms/UploadExternalSwmsModal";
 import { isGuestSwmsAssignment } from "@/lib/swms-guest";
 import ProjectSwmsReviewPanel from "@/components/swms/ProjectSwmsReviewPanel";
 import {
@@ -79,6 +82,7 @@ export default function ProjectSwmsPanel({
   const [assignTarget, setAssignTarget] = useState<SwmsDocumentSummary | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [showExternalUpload, setShowExternalUpload] = useState(false);
   const [signAssignment, setSignAssignment] = useState<
     (SwmsAssignment & { swms?: SwmsDocument }) | null
   >(null);
@@ -226,12 +230,24 @@ export default function ProjectSwmsPanel({
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">
-          SWMS <span className="text-orange-500">{projectName}</span>
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Site-specific SWMS assigned to this project with worker sign-off tracking.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">
+              SWMS <span className="text-orange-500">{projectName}</span>
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Site-specific SWMS assigned to this project with worker sign-off tracking.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowExternalUpload(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+          >
+            <Upload className="h-4 w-4" />
+            Upload External SWMS
+          </button>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -370,6 +386,10 @@ export default function ProjectSwmsPanel({
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
                         {formatSwmsVersionLabel(doc.version)}
                       </span>
+                      <ExternalSwmsBadge
+                        isExternal={doc.is_external}
+                        companyName={doc.external_company_name}
+                      />
                     </div>
                     <div className="mt-1 flex flex-wrap gap-3 text-sm text-slate-500">
                       {documentDate ? (
@@ -558,6 +578,16 @@ export default function ProjectSwmsPanel({
       ) : null}
         </>
       )}
+
+      {showExternalUpload && projectId ? (
+        <UploadExternalSwmsModal
+          lockedProjectId={projectId}
+          lockedProjectName={projectName}
+          defaultScope="project"
+          onClose={() => setShowExternalUpload(false)}
+          onSaved={() => void loadData()}
+        />
+      ) : null}
     </div>
   );
 }

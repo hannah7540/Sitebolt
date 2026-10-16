@@ -12,6 +12,7 @@ import {
 } from "@/lib/swms";
 import { WORKER_SWMS_CHANGED_EVENT } from "@/lib/worker-swms-events";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import ExternalSwmsBadge from "@/components/swms/ExternalSwmsBadge";
 import WorkerSwmsSignModal from "./WorkerSwmsSignModal";
 import Toast from "@/components/ui/Toast";
 import { useFormToast } from "@/hooks/useFormToast";
@@ -62,6 +63,12 @@ function AssignmentCard({
             <p className="mt-1 text-xs text-slate-500">
               {version} · {category}
             </p>
+            <div className="mt-1">
+              <ExternalSwmsBadge
+                isExternal={swms?.is_external}
+                companyName={swms?.external_company_name}
+              />
+            </div>
           </div>
           <span
             className={cn(

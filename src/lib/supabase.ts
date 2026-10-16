@@ -4259,6 +4259,9 @@ export interface SwmsDocumentRecord {
   swms_id?: string | null;
   document_id?: string | null;
   swms_document_id?: string | null;
+  is_external?: boolean;
+  external_company_name?: string | null;
+  storage_path?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -4284,6 +4287,9 @@ type RawSwmsDocumentRecord = Record<string, unknown> & {
   swms_id?: string | null;
   document_id?: string | null;
   swms_document_id?: string | null;
+  is_external?: boolean | null;
+  external_company_name?: string | null;
+  storage_path?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -4455,6 +4461,12 @@ function normalizeSwmsDocumentRecord(row: RawSwmsDocumentRecord): SwmsDocumentRe
     previous_version_id: row.previous_version_id
       ? String(row.previous_version_id)
       : null,
+    is_external:
+      row.is_external === true || String(row.is_external ?? "").toLowerCase() === "true",
+    external_company_name: row.external_company_name
+      ? String(row.external_company_name).trim()
+      : null,
+    storage_path: row.storage_path ? String(row.storage_path).trim() : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -4827,9 +4839,19 @@ export async function fetchSwmsDocumentRecords(): Promise<SwmsDocumentRecord[]> 
               project_id: existing.project_id,
               swms_scope: row.swms_scope ?? existing.swms_scope,
             }),
+            is_external: Boolean(row.is_external || existing.is_external),
+            external_company_name:
+              row.external_company_name || existing.external_company_name || null,
+            storage_path: row.storage_path || existing.storage_path || null,
           });
         } else {
-          byId.set(row.id, row);
+          byId.set(row.id, {
+            ...row,
+            is_external: Boolean(row.is_external || existing?.is_external),
+            external_company_name:
+              row.external_company_name || existing?.external_company_name || null,
+            storage_path: row.storage_path || existing?.storage_path || null,
+          });
         }
       }
     }
@@ -4892,11 +4914,23 @@ export async function fetchSwmsDocumentRecordsByIds(
       map.set(doc.id, doc);
     }
 
-    const missingIds = uniqueIds.filter((id) => !map.has(id));
-    if (missingIds.length === 0) return map;
-
-    for (const doc of await fetchSwmsRowsByIdsFromTable("swms", missingIds, orgId)) {
-      map.set(doc.id, doc);
+    for (const doc of await fetchSwmsRowsByIdsFromTable("swms", uniqueIds, orgId)) {
+      const existing = map.get(doc.id);
+      if (!existing) {
+        map.set(doc.id, doc);
+        continue;
+      }
+      map.set(doc.id, {
+        ...existing,
+        ...doc,
+        project_id: existing.project_id || doc.project_id,
+        is_external: Boolean(existing.is_external || doc.is_external),
+        external_company_name:
+          existing.external_company_name || doc.external_company_name || null,
+        storage_path: existing.storage_path || doc.storage_path || null,
+        file_url: existing.file_url || doc.file_url,
+        doc_url: existing.doc_url || doc.doc_url,
+      });
     }
 
     return map;

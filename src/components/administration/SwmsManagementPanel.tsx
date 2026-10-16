@@ -12,6 +12,7 @@ import {
   Plus,
   Send,
   Trash2,
+  Upload,
 } from "lucide-react";
 import {
   deleteSwmsDocument,
@@ -42,7 +43,9 @@ import Toast from "@/components/ui/Toast";
 import UploadSwmsModal from "./UploadSwmsModal";
 import UploadSiteSpecificSwmsModal from "./UploadSiteSpecificSwmsModal";
 import EditSwmsModal from "./EditSwmsModal";
+import ExternalSwmsBadge from "@/components/swms/ExternalSwmsBadge";
 import SendSwmsToGuestModal from "@/components/swms/SendSwmsToGuestModal";
+import UploadExternalSwmsModal from "@/components/swms/UploadExternalSwmsModal";
 import { isGuestSwmsAssignment } from "@/lib/swms-guest";
 import AssignSwmsToProjectModal from "./AssignSwmsToProjectModal";
 import SwmsDeleteConfirmModal from "./SwmsDeleteConfirmModal";
@@ -90,6 +93,7 @@ export default function SwmsManagementPanel({
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showSiteSpecificUpload, setShowSiteSpecificUpload] = useState(false);
+  const [showExternalUpload, setShowExternalUpload] = useState(false);
   const [activeTab, setActiveTab] = useState<SwmsAdminTabFilter>("company");
   const [actionId, setActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -320,26 +324,38 @@ export default function SwmsManagementPanel({
             Manage company master templates, site-specific deployments, and versioning.
           </p>
         </div>
-        {activeTab === "company" ? (
-          <button
-            type="button"
-            onClick={() => setShowUpload(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600"
-          >
-            <Plus className="h-4 w-4" />
-            Add New Company SWMS
-          </button>
-        ) : null}
-        {activeTab === "site_specific" ? (
-          <button
-            type="button"
-            onClick={() => setShowSiteSpecificUpload(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600"
-          >
-            <Plus className="h-4 w-4" />
-            Add Site-Specific SWMS
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {activeTab === "company" ? (
+            <button
+              type="button"
+              onClick={() => setShowUpload(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600"
+            >
+              <Plus className="h-4 w-4" />
+              Add New Company SWMS
+            </button>
+          ) : null}
+          {activeTab === "site_specific" ? (
+            <button
+              type="button"
+              onClick={() => setShowSiteSpecificUpload(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600"
+            >
+              <Plus className="h-4 w-4" />
+              Add Site-Specific SWMS
+            </button>
+          ) : null}
+          {activeTab !== "archived" ? (
+            <button
+              type="button"
+              onClick={() => setShowExternalUpload(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+            >
+              <Upload className="h-4 w-4" />
+              Upload External SWMS
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -462,6 +478,10 @@ export default function SwmsManagementPanel({
                       <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
                         {formatSwmsVersionLabel(doc.version)}
                       </span>
+                      <ExternalSwmsBadge
+                        isExternal={doc.is_external}
+                        companyName={doc.external_company_name}
+                      />
                       {activeTab === "archived" ? (
                         <span className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
                           Archived
@@ -659,6 +679,15 @@ export default function SwmsManagementPanel({
           projects={projects}
           workers={workers}
           onClose={() => setShowSiteSpecificUpload(false)}
+          onSaved={() => void fetchSwmsListData({ silent: true })}
+        />
+      ) : null}
+
+      {showExternalUpload ? (
+        <UploadExternalSwmsModal
+          projects={projects}
+          defaultScope={activeTab === "site_specific" ? "project" : "company"}
+          onClose={() => setShowExternalUpload(false)}
           onSaved={() => void fetchSwmsListData({ silent: true })}
         />
       ) : null}

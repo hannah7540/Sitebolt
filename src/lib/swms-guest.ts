@@ -27,6 +27,9 @@ export interface GuestPendingSwmsItem {
   swmsTitle: string;
   swmsDocumentUrl: string;
   version: string | null;
+  isExternal?: boolean;
+  externalCompanyName?: string | null;
+  storagePath?: string | null;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

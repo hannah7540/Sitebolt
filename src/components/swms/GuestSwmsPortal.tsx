@@ -7,7 +7,8 @@ import {
   submitGuestSwmsSignature,
 } from "@/app/actions/swms-guest";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
-import MobileFriendlyPdfViewer from "@/components/ui/MobileFriendlyPdfViewer";
+import ExternalSwmsBadge from "@/components/swms/ExternalSwmsBadge";
+import SwmsSignatureDocumentViewer from "@/components/swms/SwmsSignatureDocumentViewer";
 import { isValidGuestEmail, type GuestPendingSwmsItem } from "@/lib/swms-guest";
 import { inputClass, labelClass } from "@/lib/ui-classes";
 
@@ -175,6 +176,12 @@ export default function GuestSwmsPortal() {
                       <span className="mt-1 block text-xs text-slate-500">
                         {item.version ? `Version ${item.version}` : "Pending signature"}
                       </span>
+                      <span className="mt-2 block">
+                        <ExternalSwmsBadge
+                          isExternal={item.isExternal}
+                          companyName={item.externalCompanyName}
+                        />
+                      </span>
                     </span>
                   </button>
                 </li>
@@ -207,17 +214,21 @@ export default function GuestSwmsPortal() {
             {selected.version ? (
               <p className="text-sm text-slate-500">Version {selected.version}</p>
             ) : null}
-          </div>
-
-          {selected.swmsDocumentUrl ? (
-            <div className="flex min-h-[50vh] w-full flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <MobileFriendlyPdfViewer
-                documentUrl={selected.swmsDocumentUrl}
-                title={selected.swmsTitle}
-                className="flex h-full min-h-[50vh] w-full flex-col"
+            <div className="mt-2">
+              <ExternalSwmsBadge
+                isExternal={selected.isExternal}
+                companyName={selected.externalCompanyName}
               />
             </div>
-          ) : null}
+          </div>
+
+          <SwmsSignatureDocumentViewer
+            title={selected.swmsTitle}
+            documentUrl={selected.swmsDocumentUrl}
+            isExternal={selected.isExternal}
+            storagePath={selected.storagePath}
+            className="flex min-h-[50vh] w-full flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white"
+          />
 
           <label className="block shrink-0 space-y-1">
             <span className={labelClass}>Your name</span>

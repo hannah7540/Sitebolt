@@ -10,6 +10,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSiteUrl, isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
+import { createSwmsStorageSignedUrlWithClient } from "@/lib/swms-external-storage";
 import {
   buildGuestSwmsInviteEmail,
   buildGuestSwmsPortalUrl,
@@ -73,30 +74,98 @@ function asGuestRow(row: Record<string, unknown>): SwmsGuestAssignmentRow {
   return parseSwmsGuestAssignmentRow(row);
 }
 
+type SwmsMeta = {
+  title: string;
+  documentUrl: string;
+  version: string | null;
+  isExternal: boolean;
+  externalCompanyName: string | null;
+  storagePath: string | null;
+};
+
+function parseSwmsMetaRow(row: Record<string, unknown>): SwmsMeta {
+  const storagePath = String(row.storage_path ?? "").trim();
+  const isExternal =
+    row.is_external === true ||
+    String(row.is_external ?? "").toLowerCase() === "true" ||
+    Boolean(storagePath);
+  return {
+    title: String(row.title ?? "SWMS").trim() || "SWMS",
+    documentUrl: String(row.doc_url || row.file_url || row.document_url || "").trim(),
+    version: row.version ? String(row.version) : null,
+    isExternal,
+    externalCompanyName: String(row.external_company_name ?? "").trim() || null,
+    storagePath: storagePath || null,
+  };
+}
+
+async function loadSwmsRowsFromTable(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  table: "swms_documents" | "swms",
+  ids: string[]
+): Promise<Record<string, unknown>[]> {
+  if (ids.length === 0) return [];
+
+  const fullSelect =
+    "id, title, version, file_url, doc_url, document_url, is_external, external_company_name, storage_path";
+  const { data, error } = await admin.from(table).select(fullSelect).in("id", ids);
+  if (!error) return (data ?? []) as Record<string, unknown>[];
+
+  const missing = parseMissingColumnFromError(error.message);
+  if (
+    missing &&
+    ["is_external", "external_company_name", "storage_path", "document_url"].includes(missing)
+  ) {
+    const { data: fallback } = await admin
+      .from(table)
+      .select("id, title, version, file_url, doc_url")
+      .in("id", ids);
+    return (fallback ?? []) as Record<string, unknown>[];
+  }
+
+  return [];
+}
+
 async function loadSwmsMeta(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   swmsIds: string[]
-): Promise<Map<string, { title: string; documentUrl: string; version: string | null }>> {
+): Promise<Map<string, SwmsMeta>> {
   const unique = [...new Set(swmsIds.filter((id) => UUID_RE.test(id)))];
-  const map = new Map<string, { title: string; documentUrl: string; version: string | null }>();
+  const map = new Map<string, SwmsMeta>();
   if (unique.length === 0) return map;
 
-  const { data, error } = await admin
-    .from("swms_documents")
-    .select("id, title, version, file_url, doc_url")
-    .in("id", unique);
+  const documentsRows = await loadSwmsRowsFromTable(admin, "swms_documents", unique);
+  const swmsRows = await loadSwmsRowsFromTable(admin, "swms", unique);
 
-  if (error || !data) return map;
-
-  for (const row of data) {
-    const record = row as Record<string, unknown>;
-    const id = String(record.id ?? "");
+  for (const row of [...documentsRows, ...swmsRows]) {
+    const id = String(row.id ?? "");
+    if (!id) continue;
+    const next = parseSwmsMetaRow(row);
+    const existing = map.get(id);
+    if (!existing) {
+      map.set(id, next);
+      continue;
+    }
     map.set(id, {
-      title: String(record.title ?? "SWMS").trim() || "SWMS",
-      documentUrl: String(record.doc_url || record.file_url || "").trim(),
-      version: record.version ? String(record.version) : null,
+      title: existing.title || next.title,
+      documentUrl: existing.documentUrl || next.documentUrl,
+      version: existing.version || next.version,
+      isExternal: existing.isExternal || next.isExternal,
+      externalCompanyName: existing.externalCompanyName || next.externalCompanyName,
+      storagePath: existing.storagePath || next.storagePath,
     });
   }
+
+  await Promise.all(
+    [...map.entries()].map(async ([id, meta]) => {
+      if (!meta.storagePath) return;
+      const signed = await createSwmsStorageSignedUrlWithClient(admin, meta.storagePath);
+      if (signed) {
+        map.set(id, { ...meta, documentUrl: signed, isExternal: true });
+      }
+    })
+  );
+
   return map;
 }
 
@@ -299,6 +368,9 @@ export async function lookupPendingGuestSwms(
       swmsTitle: info?.title ?? "SWMS",
       swmsDocumentUrl: info?.documentUrl ?? "",
       version: info?.version ?? null,
+      isExternal: info?.isExternal ?? false,
+      externalCompanyName: info?.externalCompanyName ?? null,
+      storagePath: info?.storagePath ?? null,
     };
   });
 

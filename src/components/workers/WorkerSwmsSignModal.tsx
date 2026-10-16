@@ -4,7 +4,8 @@ import { useCallback, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import SignatureCanvas from "@/components/prestart/SignatureCanvas";
-import MobileFriendlyPdfViewer from "@/components/ui/MobileFriendlyPdfViewer";
+import ExternalSwmsBadge from "@/components/swms/ExternalSwmsBadge";
+import SwmsSignatureDocumentViewer from "@/components/swms/SwmsSignatureDocumentViewer";
 import {
   getSwmsAssigneeName,
   getSwmsDocumentUrl,
@@ -129,6 +130,12 @@ export default function WorkerSwmsSignModal({
               <p className="text-sm text-slate-500">
                 {version} · {category} · Assigned to {assigneeName}
               </p>
+              <div className="mt-2">
+                <ExternalSwmsBadge
+                  isExternal={swms?.is_external}
+                  companyName={swms?.external_company_name}
+                />
+              </div>
             </div>
             <button
               type="button"
@@ -140,14 +147,13 @@ export default function WorkerSwmsSignModal({
             </button>
           </div>
 
-        {swmsDocumentUrl ? (
-          <div className={sectionClass}>
-            <MobileFriendlyPdfViewer
-              documentUrl={swmsDocumentUrl}
-              title={swms?.title ?? "SWMS Document Preview"}
-            />
-          </div>
-        ) : null}
+        <SwmsSignatureDocumentViewer
+          title={swms?.title ?? "SWMS Document Preview"}
+          documentUrl={swmsDocumentUrl}
+          isExternal={swms?.is_external}
+          storagePath={swms?.storage_path}
+          className={sectionClass}
+        />
 
         {assignment.status === "Signed" && assignment.signature_url ? (
           <div className={sectionClass}>
