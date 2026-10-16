@@ -5,12 +5,14 @@ export const maxDuration = 30;
 import { openai } from "@ai-sdk/openai";
 import {
   convertToModelMessages,
+  stepCountIs,
   streamText,
   type UIMessage,
 } from "ai";
+import { getProjectHeadcount } from "@/lib/ai/tools";
 
 const SYSTEM_PROMPT =
-  "You are Site-Bolt AI, a helpful construction management assistant for A Plus Plumbing. Be concise and professional.";
+  "You are Site-Bolt AI, a helpful construction management assistant for A Plus Plumbing. Be concise and professional. Use getProjectHeadcount when asked how many workers are logged on a project for a given date.";
 
 function resolveChatModel() {
   if (process.env.OPENAI_API_KEY) {
@@ -28,6 +30,10 @@ export async function POST(req: Request) {
     model: resolveChatModel(),
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
+    tools: {
+      getProjectHeadcount,
+    },
+    stopWhen: stepCountIs(5),
   });
 
   return result.toUIMessageStreamResponse({
