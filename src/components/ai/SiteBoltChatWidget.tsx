@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Bot, MessageCircle, Send, X } from "lucide-react";
+import { Bot, MessageCircle, Paperclip, Send, X } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { isHiredLabourWorker } from "@/lib/hired-labour";
@@ -128,9 +128,21 @@ export default function SiteBoltChatWidget() {
   return <SiteBoltChatPanel />;
 }
 
+const ACCEPTED_UPLOADS = "application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf";
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+function toFileList(files: File[]): FileList {
+  const transfer = new DataTransfer();
+  for (const file of files) transfer.items.add(file);
+  return transfer.files;
+}
+
 function SiteBoltChatPanel() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { messages, sendMessage, status, error, clearError } = useChat();
 
   const isBusy = status === "submitted" || status === "streaming";
@@ -142,13 +154,42 @@ function SiteBoltChatPanel() {
     [isBusy]
   );
 
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (selected.length === 0) return;
+
+    const next: File[] = [...files];
+    for (const file of selected) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setUploadError(`${file.name} is larger than 8 MB.`);
+        continue;
+      }
+      const duplicate = next.some(
+        (existing) => existing.name === file.name && existing.size === file.size
+      );
+      if (!duplicate) next.push(file);
+    }
+    if (next.length > files.length) setUploadError(null);
+    setFiles(next);
+  };
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const text = input.trim();
-    if (!text || isBusy) return;
+    if (isBusy || (!text && files.length === 0)) return;
     clearError();
-    void sendMessage({ text });
+    setUploadError(null);
+    if (files.length > 0) {
+      void sendMessage({
+        text: text || "Summarize this.",
+        files: toFileList(files),
+      });
+    } else {
+      void sendMessage({ text });
+    }
     setInput("");
+    setFiles([]);
   };
 
   return (
@@ -203,6 +244,24 @@ function SiteBoltChatPanel() {
                 }
               >
                 {message.parts.map((part, index) => {
+                  if (part.type === "file") {
+                    const isImage = part.mediaType.startsWith("image/");
+                    return (
+                      <span key={`${message.id}-${index}`} className="mt-1 block">
+                        {isImage ? (
+                          <img
+                            src={part.url}
+                            alt={part.filename ?? "Uploaded image"}
+                            className="mt-1 max-h-24 max-w-full rounded border border-white/30 object-contain"
+                          />
+                        ) : (
+                          <span className="block truncate text-xs opacity-90">
+                            {part.filename ?? "Attachment"}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  }
                   if (part.type !== "text") return null;
                   return <span key={`${message.id}-${index}`}>{part.text}</span>;
                 })}
@@ -222,24 +281,77 @@ function SiteBoltChatPanel() {
 
           <form
             onSubmit={handleSubmit}
-            className="flex shrink-0 gap-2 border-t border-slate-200 p-3"
+            className="flex shrink-0 flex-col gap-2 border-t border-slate-200 p-3"
           >
-            <input
-              className="min-h-10 flex-1 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-              value={input}
-              placeholder={placeholder}
-              onChange={(event) => setInput(event.target.value)}
-              disabled={isBusy}
-            />
-            <button
-              type="submit"
-              disabled={isBusy || !input.trim()}
-              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-white disabled:opacity-50"
-              style={{ backgroundColor: BRAND_ORANGE }}
-              aria-label="Send"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+            {files.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {files.map((file) => (
+                  <span
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFiles((current) =>
+                          current.filter(
+                            (row) =>
+                              !(
+                                row.name === file.name &&
+                                row.size === file.size &&
+                                row.lastModified === file.lastModified
+                              )
+                          )
+                        )
+                      }
+                      className="rounded-full p-0.5 hover:bg-slate-200"
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {uploadError ? (
+              <p className="text-xs text-red-700">{uploadError}</p>
+            ) : null}
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPTED_UPLOADS}
+                className="hidden"
+                onChange={handleFilesSelected}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isBusy}
+                className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Attach files"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+              <input
+                className="min-h-10 flex-1 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                value={input}
+                placeholder={placeholder}
+                onChange={(event) => setInput(event.target.value)}
+                disabled={isBusy}
+              />
+              <button
+                type="submit"
+                disabled={isBusy || (!input.trim() && files.length === 0)}
+                className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md px-3 text-white disabled:opacity-50"
+                style={{ backgroundColor: BRAND_ORANGE }}
+                aria-label="Send"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
           </form>
         </div>
       ) : null}
