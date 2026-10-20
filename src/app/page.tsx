@@ -56,6 +56,7 @@ import OrganisationProfileDashboard from "@/components/dashboard/OrganisationPro
 import CompanyInformationPanel from "@/components/organisation/CompanyInformationPanel";
 import InsurancesPanel from "@/components/organisation/InsurancesPanel";
 import TagsPanel from "@/components/organisation/TagsPanel";
+import SupplierAccountsPanel from "@/components/organisation/SupplierAccountsPanel";
 import OrganisationDocumentsPanel from "@/components/organisation/OrganisationDocumentsPanel";
 import FormTemplateManager from "@/components/forms/FormTemplateManager";
 import EntityFormsTab from "@/components/forms/EntityFormsTab";
@@ -579,6 +580,9 @@ function HomeConsole() {
           )}
           {activeTab === "org-tags" && canAccessOrganisationView(sessionRole, "org-tags") && (
             <TagsPanel />
+          )}
+          {activeTab === "org-suppliers" && canManageOrganisation(sessionRole) && (
+            <SupplierAccountsPanel />
           )}
           {activeTab === "org-workers" && canAccessOrganisationView(sessionRole, "org-workers") && (
             <WorkerDirectoryPanel

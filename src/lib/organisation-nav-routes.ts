@@ -16,6 +16,7 @@ export const ORGANISATION_NAV_ITEMS: OrganisationNavItem[] = [
   { label: "Workers", href: "/organisation/workers", view: "org-workers" },
   { label: "Bulk Onboarding", href: "/organisation/onboarding/bulk", view: "org-bulk-onboarding" },
   { label: "Tags", href: "/organisation/tags", view: "org-tags" },
+  { label: "Supplier Accounts", href: "/organisation/suppliers", view: "org-suppliers" },
   { label: "Inductions", href: "/admin/forms/inductions", view: "org-inductions" },
   { label: "SWMS", href: "/admin/swms", view: "admin-swms" },
   { label: "Plant", href: "/organisation/plant", view: "org-plant" },

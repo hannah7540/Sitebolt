@@ -27,6 +27,7 @@ export const ORGANISATION_VIEWS: readonly ActiveView[] = [
   "org-workers",
   "org-bulk-onboarding",
   "org-tags",
+  "org-suppliers",
   "org-inductions",
   "admin-swms",
   "org-plant",

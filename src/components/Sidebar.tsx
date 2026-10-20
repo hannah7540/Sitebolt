@@ -108,6 +108,7 @@ export type ActiveView =
   | "org-workers"
   | "org-bulk-onboarding"
   | "org-tags"
+  | "org-suppliers"
   | "org-inductions"
   | "org-plant"
   | "org-assets"
@@ -674,6 +675,7 @@ export default function Sidebar({
         { label: "Workers", href: "/organisation/workers" },
         { label: "Bulk Onboarding", href: "/organisation/onboarding/bulk" },
         { label: "Tags", href: "/organisation/tags" },
+        { label: "Supplier Accounts", href: "/organisation/suppliers" },
         { label: "Inductions", href: "/admin/forms/inductions" }
       );
       if (isFeatureModuleEnabled(featureFlags, "swms", orgId)) {
