@@ -206,10 +206,7 @@ export default function WorkerOnboardingModal({
   const set = (key: keyof WorkerOnboardingInput, value: string | null) => {
     setForm((prev) => ({
       ...prev,
-      [key]:
-        typeof value === "string"
-          ? value.trim() || null
-          : value,
+      [key]: value,
     }));
   };
 
