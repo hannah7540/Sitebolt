@@ -77,6 +77,7 @@ import {
   getCalendarEventPresentation,
 } from "@/lib/calendar-event-styles";
 import { cn } from "@/lib/utils";
+import AutocompleteField from "@/components/ui/AutocompleteField";
 import { inputClass, modalOverlayClass, modalClass, labelClass } from "@/lib/ui-classes";
 
 interface WorkerProjectSchedulerProps {
@@ -948,17 +949,21 @@ export default function WorkerProjectScheduler({
             )}
 
             <form onSubmit={handleMove} className="space-y-3">
-              <select
-                value={selectedWorkerId}
-                onChange={(e) => setSelectedWorkerId(e.target.value)}
-                className={inputClass}
-              >
-                {workers.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.full_name}
-                  </option>
-                ))}
-              </select>
+              <AutocompleteField
+                id="move-worker-select"
+                options={workers.map((worker) => ({
+                  id: worker.id,
+                  label: worker.full_name,
+                }))}
+                selected={selectedWorkerId || null}
+                onChange={(id) => {
+                  if (id) setSelectedWorkerId(id);
+                }}
+                allowClear={false}
+                placeholder="Search workers…"
+                emptyMessage="No workers found."
+                noMatchesMessage="No workers match your search."
+              />
               <select
                 value={targetProjectId}
                 onChange={(e) => setTargetProjectId(e.target.value)}
