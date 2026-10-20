@@ -188,7 +188,7 @@ export async function fetchSupplierAccounts(): Promise<{
     return {
       accounts: (data ?? [])
         .map(mapSupplierAccount)
-        .filter((row: SupplierAccount | null): row is SupplierAccount => Boolean(row)),
+        .filter((row: any): row is SupplierAccount => Boolean(row)),
       error: null,
     };
   } catch (error) {
