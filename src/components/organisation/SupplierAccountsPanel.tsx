@@ -276,6 +276,14 @@ export default function SupplierAccountsPanel() {
               showError(result.error);
               return { error: result.error };
             }
+            const saved = result.account;
+            if (saved) {
+              setAccounts((prev) => {
+                const next = prev.filter((row) => row.id !== saved.id);
+                next.push(saved);
+                return next.sort((a, b) => a.name.localeCompare(b.name));
+              });
+            }
             showSuccess(editingAccount ? "Supplier updated" : "Supplier added");
             await load();
             return { error: null };

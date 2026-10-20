@@ -1,11 +1,29 @@
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseRelationMissingError,
+  isSupabaseSchemaCacheError,
+  toSupabaseRequestError,
+} from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import {
-  resolveActiveOrganisationId,
-  stampOrganisationId,
-  withOrganisationScope,
-} from "./tenant-scope";
+  SUPPLIER_ACCOUNTS_SCHEMA_COLUMNS,
+  SUPPLIER_ACCOUNTS_TABLE_NAME,
+  type SupplierAccountsInsert,
+} from "./supabase/supplier-accounts.database";
+import { resolveActiveOrganisationId } from "./tenant-scope";
 
-export const SUPPLIER_ACCOUNTS_TABLE = "supplier_accounts";
+export const SUPPLIER_ACCOUNTS_TABLE = SUPPLIER_ACCOUNTS_TABLE_NAME;
+
+/**
+ * Prefer this over `client.from("supplier_accounts")` so TypeScript recognizes
+ * the dashboard table without a full generated Database dump.
+ */
+export function fromSupplierAccounts(client: {
+  from: (relation: string) => unknown;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (client as { from: (relation: any) => any }).from(SUPPLIER_ACCOUNTS_TABLE);
+}
 
 export const SUPPLIER_ACCOUNT_STATES = ["WA", "NZ", "ACT", "NSW"] as const;
 
@@ -23,7 +41,6 @@ export interface SupplierAccount {
   state: SupplierAccountState;
   credit_limit: number | null;
   created_at: string | null;
-  organisation_id?: string | null;
 }
 
 export interface SupplierAccountInput {
@@ -36,17 +53,18 @@ export interface SupplierAccountInput {
   credit_limit?: number | string | null;
 }
 
-const SELECT_COLUMNS =
-  "id, name, contact_person, email, phone, description, state, credit_limit, created_at, organisation_id";
+const SELECT_COLUMNS = SUPPLIER_ACCOUNTS_SCHEMA_COLUMNS.join(", ");
 
-function isMissingRelationError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes(SUPPLIER_ACCOUNTS_TABLE) &&
-    (lower.includes("does not exist") ||
-      lower.includes("schema cache") ||
-      lower.includes("could not find"))
-  );
+function formatSupplierAccountsError(error: { message: string; code?: string } | string): string {
+  const requestError = toSupabaseRequestError(error);
+  if (!requestError) return "Could not load supplier accounts.";
+  if (isSupabaseMissingColumnError(requestError)) {
+    return requestError.message;
+  }
+  if (isSupabaseRelationMissingError(requestError) || isSupabaseSchemaCacheError(requestError)) {
+    return "Could not load supplier accounts.";
+  }
+  return requestError.message;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -104,8 +122,6 @@ export function mapSupplierAccount(row: unknown): SupplierAccount | null {
     state,
     credit_limit: creditLimit === "invalid" ? null : creditLimit,
     created_at: typeof record.created_at === "string" ? record.created_at : null,
-    organisation_id:
-      record.organisation_id == null ? null : String(record.organisation_id),
   };
 }
 
@@ -144,7 +160,7 @@ export function validateSupplierAccountInput(
       description: optionalText(input.description),
       state,
       credit_limit: creditLimit,
-    },
+    } satisfies SupplierAccountsInsert,
   };
 }
 
@@ -161,18 +177,12 @@ export async function fetchSupplierAccounts(): Promise<{
   }
 
   try {
-    let query = supabase.from(SUPPLIER_ACCOUNTS_TABLE).select(SELECT_COLUMNS);
-    query = withOrganisationScope(query, orgId);
-    const { data, error } = await query.order("name");
+    const { data, error } = await fromSupplierAccounts(supabase)
+      .select(SELECT_COLUMNS)
+      .order("name");
 
     if (error) {
-      if (isMissingRelationError(error.message)) {
-        return {
-          accounts: [],
-          error: "Supplier accounts table is not available. Apply migration 192.",
-        };
-      }
-      return { accounts: [], error: error.message };
+      return { accounts: [], error: formatSupplierAccountsError(error) };
     }
 
     return {
@@ -202,23 +212,14 @@ export async function createSupplierAccount(
     return { account: null, error: validated.error };
   }
 
-  const payload = stampOrganisationId(validated.payload, orgId);
-
   try {
-    const { data, error } = await supabase
-      .from(SUPPLIER_ACCOUNTS_TABLE)
-      .insert(payload)
+    const { data, error } = await fromSupplierAccounts(supabase)
+      .insert(validated.payload)
       .select(SELECT_COLUMNS)
       .single();
 
     if (error) {
-      if (isMissingRelationError(error.message)) {
-        return {
-          account: null,
-          error: "Supplier accounts table is not available. Apply migration 192.",
-        };
-      }
-      return { account: null, error: error.message };
+      return { account: null, error: formatSupplierAccountsError(error) };
     }
 
     return { account: mapSupplierAccount(data), error: null };
@@ -245,15 +246,14 @@ export async function updateSupplierAccount(
   }
 
   try {
-    let query = supabase
-      .from(SUPPLIER_ACCOUNTS_TABLE)
+    const { data, error } = await fromSupplierAccounts(supabase)
       .update(validated.payload)
-      .eq("id", id);
-    query = withOrganisationScope(query, orgId);
-    const { data, error } = await query.select(SELECT_COLUMNS).maybeSingle();
+      .eq("id", id)
+      .select(SELECT_COLUMNS)
+      .maybeSingle();
 
     if (error) {
-      return { account: null, error: error.message };
+      return { account: null, error: formatSupplierAccountsError(error.message) };
     }
 
     return { account: mapSupplierAccount(data), error: data ? null : "Supplier not found." };
@@ -272,10 +272,8 @@ export async function deleteSupplierAccount(id: string): Promise<{ error: string
   }
 
   try {
-    let query = supabase.from(SUPPLIER_ACCOUNTS_TABLE).delete().eq("id", id);
-    query = withOrganisationScope(query, orgId);
-    const { error } = await query;
-    if (error) return { error: error.message };
+    const { error } = await fromSupplierAccounts(supabase).delete().eq("id", id);
+    if (error) return { error: formatSupplierAccountsError(error) };
     return { error: null };
   } catch (error) {
     return {
