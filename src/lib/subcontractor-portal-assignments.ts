@@ -8,6 +8,7 @@ import {
 } from "./project-assignments";
 import { parseMissingColumnFromError, stripMissingColumn } from "./form-payload-utils";
 import { formatDateOnly } from "./scheduler-utils";
+import type { Worker } from "./supabase";
 import { supabase } from "./supabase/client";
 
 const PLANT_TABLES = ["plant", "plant_equipment", "subcontractor_plant"] as const;
@@ -249,7 +250,7 @@ export async function moveSubcontractorWorkerProject(input: {
       trade: null,
       is_revoked: false,
       is_archived: false,
-    },
+    } as unknown as Worker,
     fromProjectId: input.fromProjectId,
     toProjectId: input.toProjectId,
     effectiveFrom: input.effectiveFrom,
