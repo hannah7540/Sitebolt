@@ -33,6 +33,28 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function absoluteWorkerDashboardUrl(deepLink: string): string {
+  const trimmed = deepLink.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  const origin = getSiteUrl().replace(/\/$/, "");
+  const path = trimmed.startsWith("/") ? trimmed : "/worker-dashboard";
+  return `${origin}${path}`;
+}
+
+function workerDashboardButtonHtml(deepLink: string): string {
+  const href = escapeHtml(absoluteWorkerDashboardUrl(deepLink));
+  return `
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+              <tr>
+                <td align="left" style="border-radius:6px;background-color:#ea580c;">
+                  <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color:#ea580c;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;margin:16px 0;">Open Worker Dashboard</a>
+                </td>
+              </tr>
+            </table>`;
+}
+
 function firstNonEmpty(...values: unknown[]): string | null {
   for (const value of values) {
     const trimmed = typeof value === "string" ? value.trim() : "";
@@ -94,18 +116,21 @@ function copyForNotice(input: {
         `Please update your records before ${expiryLabel}.`,
       ].join("\n"),
       htmlBody: (deepLink) => `
-          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-            <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
-            <p style="margin:0 0 16px">
-              Your ${escapeHtml(noun)} <strong>${escapeHtml(title)}</strong> is
-              ${escapeHtml(daysLabel)}. Please update it before ${escapeHtml(expiryLabel)}.
-            </p>
-            <p style="margin:0 0 24px">
-              <a href="${deepLink}" style="display:inline-block;background:#ea580c;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">
-                Open Worker Dashboard
-              </a>
-            </p>
-          </div>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body style="margin:0;padding:24px;background-color:#ffffff;font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+    <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
+    <p style="margin:0 0 16px">
+      Your ${escapeHtml(noun)} <strong>${escapeHtml(title)}</strong> is
+      ${escapeHtml(daysLabel)}. Please update it before ${escapeHtml(expiryLabel)}.
+    </p>
+    ${workerDashboardButtonHtml(deepLink)}
+  </body>
+</html>
         `,
       smsBody: `SiteBolt: your ${noun} (${title}) is ${daysLabel}. Please update it in your worker dashboard.`,
     };
@@ -150,15 +175,18 @@ function copyForNotice(input: {
     inAppMessage: action,
     textBody: action,
     htmlBody: (deepLink) => `
-          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-            <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
-            <p style="margin:0 0 16px">${escapeHtml(action)}</p>
-            <p style="margin:0 0 24px">
-              <a href="${deepLink}" style="display:inline-block;background:#ea580c;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">
-                Open Worker Dashboard
-              </a>
-            </p>
-          </div>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body style="margin:0;padding:24px;background-color:#ffffff;font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+    <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
+    <p style="margin:0 0 16px">${escapeHtml(action)}</p>
+    ${workerDashboardButtonHtml(deepLink)}
+  </body>
+</html>
         `,
     smsBody: assigned
       ? `SiteBolt: you have been assigned a ${noun} (${title}). Please complete it.`
