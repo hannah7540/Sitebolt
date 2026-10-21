@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email-service";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/site-domains";
 import { getSiteUrl } from "@/lib/supabase/env";
 import { buildWorkerDeepLinkPath } from "@/lib/worker-deep-links";
 import { composeSmsAdmin } from "@/lib/sms-module-admin";
@@ -33,12 +34,42 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function absoluteWorkerDashboardUrl(deepLink: string): string {
-  const trimmed = deepLink.trim();
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
+function resolveEmailAppOrigin(): string {
+  const configured = (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_ORIGIN ||
+    getSiteUrl()
+  )
+    .trim()
+    .replace(/\/$/, "");
+
+  if (
+    /^https?:\/\//i.test(configured) &&
+    !/localhost|127\.0\.0\.1/i.test(configured)
+  ) {
+    return configured;
   }
-  const origin = getSiteUrl().replace(/\/$/, "");
+
+  return PRODUCTION_APP_ORIGIN;
+}
+
+function absoluteWorkerDashboardUrl(deepLink: string): string {
+  const origin = resolveEmailAppOrigin();
+  const trimmed = deepLink.trim();
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      if (!/localhost|127\.0\.0\.1/i.test(parsed.hostname)) {
+        return parsed.toString();
+      }
+      return `${origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      // Fall through to origin + worker dashboard.
+    }
+  }
+
   const path = trimmed.startsWith("/") ? trimmed : "/worker-dashboard";
   return `${origin}${path}`;
 }
@@ -46,13 +77,9 @@ function absoluteWorkerDashboardUrl(deepLink: string): string {
 function workerDashboardButtonHtml(deepLink: string): string {
   const href = escapeHtml(absoluteWorkerDashboardUrl(deepLink));
   return `
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;">
-              <tr>
-                <td align="left" style="border-radius:6px;background-color:#ea580c;">
-                  <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color:#ea580c;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;margin:16px 0;">Open Worker Dashboard</a>
-                </td>
-              </tr>
-            </table>`;
+            <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color:#ea580c;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;margin:16px 0;">Open Worker Dashboard</a>
+            <br>
+            <a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#ea580c;text-decoration:underline;">${href}</a>`;
 }
 
 function firstNonEmpty(...values: unknown[]): string | null {
@@ -116,21 +143,16 @@ function copyForNotice(input: {
         `Please update your records before ${expiryLabel}.`,
       ].join("\n"),
       htmlBody: (deepLink) => `
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  </head>
-  <body style="margin:0;padding:24px;background-color:#ffffff;font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-    <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
-    <p style="margin:0 0 16px">
-      Your ${escapeHtml(noun)} <strong>${escapeHtml(title)}</strong> is
-      ${escapeHtml(daysLabel)}. Please update it before ${escapeHtml(expiryLabel)}.
-    </p>
-    ${workerDashboardButtonHtml(deepLink)}
-  </body>
-</html>
+          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+            <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
+            <p style="margin:0 0 16px">
+              Your ${escapeHtml(noun)} <strong>${escapeHtml(title)}</strong> is
+              ${escapeHtml(daysLabel)}. Please update it before ${escapeHtml(expiryLabel)}.
+            </p>
+            <p style="margin:16px 0">
+              ${workerDashboardButtonHtml(deepLink)}
+            </p>
+          </div>
         `,
       smsBody: `SiteBolt: your ${noun} (${title}) is ${daysLabel}. Please update it in your worker dashboard.`,
     };
@@ -175,18 +197,13 @@ function copyForNotice(input: {
     inAppMessage: action,
     textBody: action,
     htmlBody: (deepLink) => `
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  </head>
-  <body style="margin:0;padding:24px;background-color:#ffffff;font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-    <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
-    <p style="margin:0 0 16px">${escapeHtml(action)}</p>
-    ${workerDashboardButtonHtml(deepLink)}
-  </body>
-</html>
+          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+            <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
+            <p style="margin:0 0 16px">${escapeHtml(action)}</p>
+            <p style="margin:16px 0">
+              ${workerDashboardButtonHtml(deepLink)}
+            </p>
+          </div>
         `,
     smsBody: assigned
       ? `SiteBolt: you have been assigned a ${noun} (${title}). Please complete it.`
@@ -386,7 +403,7 @@ export async function sendComplianceReminders(
         : input.kind === "voc"
           ? "VOC"
           : "Driver's licence");
-  const siteUrl = getSiteUrl().replace(/\/$/, "");
+  const siteUrl = resolveEmailAppOrigin();
   const mode: ComplianceNoticeMode = input.mode ?? "reminder";
   const copy = copyForNotice({
     kind: input.kind,
