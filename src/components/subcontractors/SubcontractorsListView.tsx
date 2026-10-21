@@ -242,6 +242,7 @@ export default function SubcontractorsListView({
                           !archived &&
                             (subbie.status === "active" || subbie.status === "Active") &&
                             "bg-emerald-100 text-emerald-800",
+                          subbie.status === "invited" && "bg-amber-100 text-amber-800",
                           subbie.status === "inactive" && "bg-slate-100 text-slate-600",
                           subbie.status === "suspended" && "bg-red-100 text-red-800"
                         )}

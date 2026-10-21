@@ -1,5 +1,10 @@
+import { parseMissingColumnFromError, stripMissingColumn } from "./form-payload-utils";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { normalizeWorkerUuidArray } from "./project-resolver";
+import {
+  resolveActiveOrganisationId,
+  stampOrganisationId,
+} from "./tenant-scope";
 export type { SubcontractorPlant } from "./subcontractor-plant-service";
 export {
   fetchSubcontractorPlant,
@@ -21,7 +26,7 @@ export interface Subcontractor {
   trade_type: string;
   trade_category: string;
   trade: string;
-  status: "active" | "inactive" | "suspended" | "Active" | "Archived";
+  status: "active" | "inactive" | "suspended" | "invited" | "Active" | "Archived";
   is_archived: boolean;
   notes: string;
   created_at?: string;
@@ -116,6 +121,7 @@ export function getSubcontractorStatusLabel(subbie: Subcontractor): string {
   if (subbie.status === "Active" || subbie.status === "active") return "Active";
   if (subbie.status === "inactive") return "Inactive";
   if (subbie.status === "suspended") return "Suspended";
+  if (subbie.status === "invited") return "Invited";
   return "Active";
 }
 
@@ -145,7 +151,9 @@ export function coerceSubcontractor(
       status: subbie.status ?? "active",
     }),
     status:
-      subbie.status === "inactive" || subbie.status === "suspended"
+      subbie.status === "inactive" ||
+      subbie.status === "suspended" ||
+      subbie.status === "invited"
         ? subbie.status
         : isSubcontractorArchived({
             is_archived: subbie.is_archived ?? false,
@@ -247,7 +255,7 @@ function normalizeSubcontractor(row: Record<string, unknown>): Subcontractor {
     notes: normalizeSubcontractorText(row.notes),
     is_archived: isArchived,
     status:
-      status === "inactive" || status === "suspended"
+      status === "inactive" || status === "suspended" || status === "invited"
         ? status
         : isArchived
           ? "Archived"
@@ -375,6 +383,140 @@ export async function fetchSubcontractorById(id: string): Promise<Subcontractor 
     .maybeSingle();
   if (error || !data) return null;
   return normalizeSubcontractor(data as Record<string, unknown>);
+}
+
+async function insertRowWithMissingColumnRetry<T extends Record<string, unknown>>(
+  table: string,
+  payload: T,
+  select = "id"
+): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  let current: Record<string, unknown> = { ...payload };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabase.from(table).insert(current).select(select).single();
+    if (!error) {
+      return { data: (data as Record<string, unknown> | null) ?? null, error: null };
+    }
+    const missing = parseMissingColumnFromError(error.message);
+    if (missing && missing in current) {
+      current = stripMissingColumn(current, missing);
+      continue;
+    }
+    return { data: null, error: error.message };
+  }
+  return { data: null, error: "Could not save record." };
+}
+
+export async function inviteSubcontractor(input: {
+  companyName: string;
+  contactName: string;
+  email: string;
+  state: string;
+  projectIds: string[];
+}): Promise<{ error: string | null; id: string | null; inviteError: string | null }> {
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) {
+    return {
+      error: "Select an organisation before inviting a subcontractor.",
+      id: null,
+      inviteError: null,
+    };
+  }
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured.", id: null, inviteError: null };
+  }
+
+  const companyName = normalizeSubcontractorText(input.companyName).trim();
+  const contactName = normalizeSubcontractorText(input.contactName).trim();
+  const email = normalizeSubcontractorText(input.email).trim().toLowerCase();
+  const state = normalizeSubcontractorText(input.state).trim().toUpperCase();
+  const projectIds = Array.from(
+    new Set(input.projectIds.map((id) => id.trim()).filter(Boolean))
+  );
+
+  if (!companyName) {
+    return { error: "Company name is required.", id: null, inviteError: null };
+  }
+  if (!contactName) {
+    return { error: "Contact person name is required.", id: null, inviteError: null };
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "A valid email address is required.", id: null, inviteError: null };
+  }
+  if (!["WA", "NZ", "ACT", "NSW"].includes(state)) {
+    return { error: "State is required.", id: null, inviteError: null };
+  }
+  if (projectIds.length === 0) {
+    return { error: "Assign at least one project.", id: null, inviteError: null };
+  }
+
+  const payload = stampOrganisationId(
+    {
+      company_name: companyName,
+      contact_name: contactName,
+      contact_person: contactName,
+      contact_email: email,
+      email,
+      state,
+      status: "invited",
+      notes: `State: ${state}`,
+    },
+    orgId
+  );
+
+  const inserted = await insertRowWithMissingColumnRetry("subcontractors", payload, "id");
+  if (inserted.error || !inserted.data?.id) {
+    return {
+      error: inserted.error ?? "Failed to create subcontractor.",
+      id: null,
+      inviteError: null,
+    };
+  }
+
+  const subcontractorId = String(inserted.data.id);
+  const linkRows = projectIds.map((projectId) => ({
+    project_id: projectId,
+    subcontractor_id: subcontractorId,
+  }));
+
+  const { error: linkError } = await supabase.from("project_subcontractors").insert(linkRows);
+  if (linkError) {
+    return {
+      error: null,
+      id: subcontractorId,
+      inviteError: `Subcontractor saved, but project assignments failed: ${linkError.message}`,
+    };
+  }
+
+  try {
+    const response = await fetch("/api/subcontractors/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        companyName,
+        contactName,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (!response.ok) {
+      return {
+        error: null,
+        id: subcontractorId,
+        inviteError: body?.error ?? "Subcontractor saved, but the invitation email failed.",
+      };
+    }
+  } catch (cause) {
+    return {
+      error: null,
+      id: subcontractorId,
+      inviteError:
+        cause instanceof Error
+          ? cause.message
+          : "Subcontractor saved, but the invitation email failed.",
+    };
+  }
+
+  return { error: null, id: subcontractorId, inviteError: null };
 }
 
 export async function insertSubcontractor(input: {
