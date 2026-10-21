@@ -113,6 +113,8 @@ export default function BulkOnboardingImporter() {
     inviteErrors: string[];
     succeededEmails: string[];
     failedEmails: string[];
+    successCount: number;
+    failedCount: number;
   } | null>(null);
   const [projects, setProjects] = useState<DbProject[]>([]);
 
@@ -274,8 +276,10 @@ export default function BulkOnboardingImporter() {
         inviteErrors: response.inviteErrors ?? [],
         succeededEmails: response.succeededEmails ?? [],
         failedEmails: response.failedEmails ?? [],
+        successCount: response.successCount ?? response.imported,
+        failedCount: response.failedCount ?? (response.failedEmails ?? []).length,
       });
-      if (response.imported > 0) {
+      if ((response.successCount ?? response.imported) > 0 || response.imported > 0) {
         setPhase("done");
         if (response.error) setSubmitError(response.error);
         return;
@@ -715,7 +719,8 @@ export default function BulkOnboardingImporter() {
             <div>
               <h2 className="text-xl font-bold text-slate-900">Onboarding submitted</h2>
               <p className="text-sm text-slate-500">
-                Created {result.imported} worker{result.imported === 1 ? "" : "s"} and sent{" "}
+                {result.successCount} succeeded, {result.failedCount} failed. Created{" "}
+                {result.imported} worker{result.imported === 1 ? "" : "s"} and sent{" "}
                 {result.invited} Set Password invite{result.invited === 1 ? "" : "s"}.
               </p>
             </div>

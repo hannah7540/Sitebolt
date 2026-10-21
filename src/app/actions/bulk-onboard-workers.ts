@@ -44,9 +44,11 @@ export type BulkOnboardResult = {
   inviteErrors: string[];
   succeededEmails: string[];
   failedEmails: string[];
+  successCount: number;
+  failedCount: number;
 };
 
-const BULK_ONBOARD_CHUNK_SIZE = 4;
+const BULK_ONBOARD_CHUNK_SIZE = 10;
 
 function emptyBulkResult(error: string | null): BulkOnboardResult {
   return {
@@ -56,12 +58,15 @@ function emptyBulkResult(error: string | null): BulkOnboardResult {
     inviteErrors: [],
     succeededEmails: [],
     failedEmails: [],
+    successCount: 0,
+    failedCount: 0,
   };
 }
 
 type BulkWorkerOutcome = {
   email: string;
   displayName: string;
+  workerId: string | null;
   imported: boolean;
   invited: boolean;
   error: string | null;
@@ -619,6 +624,7 @@ async function processBulkWorker(input: {
     return {
       email,
       displayName,
+      workerId: null,
       imported: false,
       invited: false,
       error: inserted.error ?? `Failed to create ${displayName}.`,
@@ -632,6 +638,7 @@ async function processBulkWorker(input: {
     return {
       email,
       displayName,
+      workerId,
       imported: true,
       invited: false,
       error: `Created ${displayName} but could not save tickets: ${vocError}`,
@@ -648,6 +655,7 @@ async function processBulkWorker(input: {
     return {
       email,
       displayName,
+      workerId,
       imported: true,
       invited: false,
       error: `Created ${displayName} but could not save tags: ${tagError}`,
@@ -671,6 +679,7 @@ async function processBulkWorker(input: {
     return {
       email,
       displayName,
+      workerId,
       imported: true,
       invited: false,
       error: `Created ${displayName} but could not assign SWMS/inductions: ${assignmentError}`,
@@ -689,20 +698,37 @@ async function processBulkWorker(input: {
     console.warn("[bulk-onboard] public holiday sync skipped:", cause);
   }
 
-  const invite = await sendWorkerInviteEmailViaResend(input.worker.email, { workerId });
+  return {
+    email,
+    displayName,
+    workerId,
+    imported: true,
+    invited: false,
+    error: null,
+  };
+}
+
+async function sendBulkWorkerInvite(
+  worker: BulkOnboardingWorker,
+  workerId: string
+): Promise<BulkWorkerOutcome> {
+  const displayName = workerDisplayName(worker);
+  const email = worker.email.trim().toLowerCase();
+  const invite = await sendWorkerInviteEmailViaResend(worker.email, { workerId });
   if (!invite.success) {
     return {
       email,
       displayName,
+      workerId,
       imported: true,
       invited: false,
       error: `${displayName}: ${invite.error ?? "Invite email failed."}`,
     };
   }
-
   return {
     email,
     displayName,
+    workerId,
     imported: true,
     invited: true,
     error: null,
@@ -793,7 +819,7 @@ export async function submitBulkOnboarding(
 
   for (let offset = 0; offset < workers.length; offset += BULK_ONBOARD_CHUNK_SIZE) {
     const chunk = workers.slice(offset, offset + BULK_ONBOARD_CHUNK_SIZE);
-    const settled = await Promise.allSettled(
+    const insertSettled = await Promise.allSettled(
       chunk.map((worker) => {
         const assignedProjectId = worker.assigned_project_id?.trim() || "";
         return processBulkWorker({
@@ -808,17 +834,23 @@ export async function submitBulkOnboarding(
       })
     );
 
-    settled.forEach((result, index) => {
+    const insertedOutcomes: Array<{
+      worker: BulkOnboardingWorker;
+      outcome: BulkWorkerOutcome;
+    }> = [];
+
+    insertSettled.forEach((result, index) => {
       const worker = chunk[index];
       const email = worker.email.trim().toLowerCase();
       const displayName = workerDisplayName(worker);
       if (result.status === "fulfilled") {
-        outcomes.push(result.value);
+        insertedOutcomes.push({ worker, outcome: result.value });
         return;
       }
       outcomes.push({
         email,
         displayName,
+        workerId: null,
         imported: false,
         invited: false,
         error:
@@ -827,34 +859,72 @@ export async function submitBulkOnboarding(
             : `Failed to process ${displayName}.`,
       });
     });
+
+    const readyToInvite = insertedOutcomes.filter(
+      (row) => row.outcome.imported && row.outcome.workerId && !row.outcome.error
+    );
+    const inviteSettled = await Promise.allSettled(
+      readyToInvite.map((row) =>
+        sendBulkWorkerInvite(row.worker, row.outcome.workerId as string)
+      )
+    );
+
+    const invitedByEmail = new Map<string, BulkWorkerOutcome>();
+    inviteSettled.forEach((result, index) => {
+      const row = readyToInvite[index];
+      if (result.status === "fulfilled") {
+        invitedByEmail.set(row.outcome.email, result.value);
+        return;
+      }
+      invitedByEmail.set(row.outcome.email, {
+        ...row.outcome,
+        invited: false,
+        error:
+          result.reason instanceof Error
+            ? `${row.outcome.displayName}: ${result.reason.message}`
+            : `${row.outcome.displayName}: Invite email failed.`,
+      });
+    });
+
+    for (const row of insertedOutcomes) {
+      outcomes.push(invitedByEmail.get(row.outcome.email) ?? row.outcome);
+    }
   }
 
   const succeededEmails = outcomes
-    .filter((outcome) => outcome.imported)
+    .filter((outcome) => outcome.imported && outcome.invited)
     .map((outcome) => outcome.email);
-  const failedEmails = outcomes
-    .filter((outcome) => !outcome.imported)
-    .map((outcome) => outcome.email);
+  const failedEmails = [
+    ...new Set(
+      outcomes
+        .filter((outcome) => !(outcome.imported && outcome.invited))
+        .map((outcome) => outcome.email)
+    ),
+  ];
   const inviteErrors = outcomes
     .filter((outcome) => outcome.error)
     .map((outcome) => outcome.error as string);
   const imported = outcomes.filter((outcome) => outcome.imported).length;
   const invited = outcomes.filter((outcome) => outcome.invited).length;
+  const successCount = outcomes.filter((outcome) => outcome.imported && outcome.invited).length;
+  const failedCount = workers.length - successCount;
 
   revalidatePath("/organisation/workers");
   revalidatePath("/organisation/onboarding/bulk");
 
   return {
     error:
-      imported === 0
+      successCount === 0
         ? inviteErrors[0] ?? "Bulk onboarding failed."
-        : inviteErrors.length > 0
-          ? `Imported ${imported} worker${imported === 1 ? "" : "s"}; ${failedEmails.length} need attention.`
+        : failedCount > 0
+          ? `Imported ${imported} worker${imported === 1 ? "" : "s"}; ${failedCount} need attention.`
           : null,
     imported,
     invited,
     inviteErrors,
     succeededEmails,
-    failedEmails: [...new Set(failedEmails)],
+    failedEmails,
+    successCount,
+    failedCount,
   };
 }
