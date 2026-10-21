@@ -5,7 +5,7 @@ import { createSupabaseBrowserClient } from "./supabase/client";
 
 export const SUBCONTRACTOR_DOCUMENTS_BUCKET = "subcontractor-documents";
 export const SUBCONTRACTOR_DOCUMENTS_FALLBACK_BUCKET = "subcontractor-docs";
-export const SUBCONTRACTOR_DASHBOARD_PATH = "/subcontractor/dashboard";
+export const SUBCONTRACTOR_DASHBOARD_PATH = "/subcontractor";
 
 const UPLOAD_BUCKETS = [
   SUBCONTRACTOR_DOCUMENTS_BUCKET,
