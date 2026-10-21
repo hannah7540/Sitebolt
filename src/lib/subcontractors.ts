@@ -394,7 +394,7 @@ async function insertRowWithMissingColumnRetry<T extends Record<string, unknown>
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabase.from(table).insert(current).select(select).single();
     if (!error) {
-      return { data: (data as Record<string, unknown> | null) ?? null, error: null };
+      return { data: (data as unknown as Record<string, unknown> | null) ?? null, error: null };
     }
     const missing = parseMissingColumnFromError(error.message);
     if (missing && missing in current) {
