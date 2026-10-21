@@ -7,6 +7,7 @@ export interface SubcontractorPortalWorker {
   email: string;
   phone: string;
   competency_status: string;
+  assigned_project_id: string;
 }
 
 export interface SubcontractorPortalPlant {
@@ -15,6 +16,14 @@ export interface SubcontractorPortalPlant {
   model: string;
   serial_number: string;
   next_service_date: string;
+  assigned_project_id: string;
+}
+
+export interface SubcontractorPortalProject {
+  id: string;
+  name: string;
+  location: string;
+  status: string;
 }
 
 function text(value: unknown): string {
@@ -54,6 +63,11 @@ export function mapSubcontractorPortalWorkerRow(
     phone: text(row.phone) || "—",
     competency_status:
       hasWhiteCard && hasSilica ? "Documents on file" : "Missing Documents",
+    assigned_project_id: firstText(
+      row.assigned_project_id,
+      row.project_id,
+      row.current_project_id
+    ),
   };
 }
 
@@ -79,5 +93,10 @@ export function mapSubcontractorPortalPlantRow(
         row.next_service_due,
         row.next_service_due_date
       ) || "—",
+    assigned_project_id: firstText(
+      row.assigned_project_id,
+      row.project_id,
+      row.current_project_id
+    ),
   };
 }
