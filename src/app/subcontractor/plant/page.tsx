@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import SubcontractorPlantPanel from "@/components/subcontractors/SubcontractorPlantPanel";
-import { loadCurrentSubcontractorPortal } from "@/lib/subcontractor-portal";
-import { fetchSubcontractorPortalPlant } from "@/lib/subcontractor-portal-resources";
+import {
+  fetchSubcontractorPortalPlant,
+  loadCurrentSubcontractorPortal,
+} from "@/lib/subcontractor-portal";
 import { cardClass } from "@/lib/ui-classes";
 
 export const dynamic = "force-dynamic";

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import type { SubcontractorPortalWorker } from "@/lib/subcontractor-portal-resources";
+import type { SubcontractorPortalWorker } from "@/lib/subcontractor-portal-models";
 import { cardClass } from "@/lib/ui-classes";
 import SubcontractorNewWorkerModal from "./SubcontractorNewWorkerModal";
 

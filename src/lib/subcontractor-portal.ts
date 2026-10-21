@@ -1,4 +1,10 @@
 import { parseMissingColumnFromError } from "./form-payload-utils";
+import {
+  mapSubcontractorPortalPlantRow,
+  mapSubcontractorPortalWorkerRow,
+  type SubcontractorPortalPlant,
+  type SubcontractorPortalWorker,
+} from "./subcontractor-portal-models";
 import { createSupabaseServerClient } from "./supabase/server";
 import { getTicketStatus, type TicketStatus } from "./worker-utils";
 
@@ -235,4 +241,63 @@ export async function loadCurrentSubcontractorPortal(): Promise<{
   }
 
   return { userId: user.id, email: email || null, record };
+}
+
+const PLANT_TABLES = ["plant", "plant_equipment", "subcontractor_plant"] as const;
+
+export async function fetchSubcontractorPortalWorkers(
+  subcontractorId: string
+): Promise<SubcontractorPortalWorker[]> {
+  const id = subcontractorId.trim();
+  if (!id) return [];
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("workers")
+    .select(
+      "id, first_name, last_name, full_name, worker_name, email, phone, trade, worker_type, white_card_doc_url, white_card_photo_url, silica_cert_doc_url, silica_cert_photo_url, voc_details, voc_title, voc_document_url, status"
+    )
+    .eq("subcontractor_id", id)
+    .order("full_name", { ascending: true, nullsFirst: false });
+
+  if (error) {
+    const fallback = await supabase
+      .from("workers")
+      .select("id, first_name, last_name, full_name, worker_name, email, phone, trade")
+      .eq("subcontractor_id", id);
+    if (fallback.error || !fallback.data) return [];
+    return fallback.data.map((row) =>
+      mapSubcontractorPortalWorkerRow(row as Record<string, unknown>)
+    );
+  }
+
+  return (data ?? []).map((row) =>
+    mapSubcontractorPortalWorkerRow(row as Record<string, unknown>)
+  );
+}
+
+export async function fetchSubcontractorPortalPlant(
+  subcontractorId: string
+): Promise<SubcontractorPortalPlant[]> {
+  const id = subcontractorId.trim();
+  if (!id) return [];
+  const supabase = await createSupabaseServerClient();
+
+  for (const table of PLANT_TABLES) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("subcontractor_id", id);
+
+    if (error) continue;
+    if (data && data.length > 0) {
+      return data.map((row) =>
+        mapSubcontractorPortalPlantRow(row as Record<string, unknown>)
+      );
+    }
+    if (data) {
+      return [];
+    }
+  }
+
+  return [];
 }
