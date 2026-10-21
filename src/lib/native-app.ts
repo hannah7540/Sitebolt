@@ -6,7 +6,12 @@ import {
   resolveNativeWorkerDashboardPath,
   shouldRedirectNativePath,
 } from "@/lib/native-app-paths";
-import { resolveDefaultLandingPathForRole } from "@/lib/user-session";
+import { isGeneralWorkerAllowedPath } from "@/lib/rbac-guards";
+import { canAccessAdminConsole, normalizeSecurityRole } from "@/lib/security-roles";
+import {
+  isGeneralWorkerRole,
+  resolveDefaultLandingPathForRole,
+} from "@/lib/user-session";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 
 export {
@@ -53,6 +58,9 @@ export function resolvePostLoginPath(
     ) {
       return returnPath;
     }
+    if (isGeneralWorkerRole(role) && options?.defaultPath?.startsWith("/onboarding")) {
+      return options.defaultPath;
+    }
     return resolveNativeWorkerDashboardPath(workerId);
   }
 
@@ -63,8 +71,35 @@ export function resolvePostLoginPath(
     return "/select-company";
   }
 
-  if (returnPath && returnPath.startsWith("/") && !shouldRedirectNativePath(returnPath)) {
-    return returnPath;
+  if (isGeneralWorkerRole(role)) {
+    if (options?.defaultPath?.startsWith("/onboarding")) {
+      return options.defaultPath;
+    }
+    if (
+      returnPath &&
+      returnPath.startsWith("/") &&
+      isGeneralWorkerAllowedPath(returnPathname)
+    ) {
+      return returnPath;
+    }
+    return resolveDefaultLandingPathForRole(role, workerId);
+  }
+
+  if (canAccessAdminConsole(normalizeSecurityRole(role))) {
+    if (
+      returnPath &&
+      returnPath.startsWith("/") &&
+      returnPathname !== "/" &&
+      returnPathname !== "/worker-dashboard" &&
+      !returnPathname.startsWith("/worker-dashboard/") &&
+      !shouldRedirectNativePath(returnPath)
+    ) {
+      return returnPath;
+    }
+    return (
+      options?.defaultPath ??
+      resolveDefaultLandingPathForRole(role, workerId)
+    );
   }
 
   return (

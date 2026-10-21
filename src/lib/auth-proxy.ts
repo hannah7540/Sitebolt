@@ -18,6 +18,7 @@ import {
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 import {
   MASTER_PROJECT_DASHBOARD_PATH,
+  isGeneralWorkerRole,
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
 import {
@@ -33,7 +34,11 @@ import {
   isPublicAuthFlowPath,
 } from "@/lib/public-auth-paths";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
-import { isAppHostname, requestHostHeader } from "@/lib/site-domains";
+import {
+  isAppHostname,
+  requestHostHeader,
+  resolveAppOriginFromRequest,
+} from "@/lib/site-domains";
 import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
@@ -358,6 +363,39 @@ function resolveGeneralWorkerHomePath(context: AuthContext): string {
   return GENERAL_WORKER_HOME_PATH;
 }
 
+function toAppAbsolutePath(request: NextRequest, path: string): string {
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  if (isAppHostname(requestHostHeader(request))) return path;
+  return `${resolveAppOriginFromRequest(request)}${path}`;
+}
+
+function isWorkerRole(role: SecurityRole | string | null | undefined): boolean {
+  return role === "general_worker" || isGeneralWorkerRole(role);
+}
+
+function workerSafeLoginDestination(
+  context: AuthContext,
+  request: NextRequest,
+  nextPath: string
+): string {
+  const nextPathname = nextPath.split("?")[0] ?? "";
+  if (isWorkerRole(context.role)) {
+    if (nextPath.startsWith("/") && isGeneralWorkerAllowedPath(nextPathname)) {
+      return nextPath;
+    }
+    return resolveAuthenticatedHomePath(context, request);
+  }
+  if (
+    nextPath.startsWith("/") &&
+    nextPathname !== "/" &&
+    nextPathname !== GENERAL_WORKER_HOME_PATH &&
+    !nextPathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`)
+  ) {
+    return nextPath;
+  }
+  return resolveAuthenticatedHomePath(context, request);
+}
+
 /**
  * Supabase session refresh + RBAC redirects for Next.js Proxy / Middleware.
  */
@@ -469,10 +507,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
           nextPath = "";
         }
       }
-      let destination =
-        nextPath.startsWith("/")
-          ? nextPath
-          : resolveAuthenticatedHomePath(context, request);
+      let destination = workerSafeLoginDestination(context, request, nextPath);
       if (isNativeAppRequest(request) && shouldRedirectNativePath(destination)) {
         destination = resolveNativeWorkerDashboardPath(context.workerId);
       }
@@ -481,12 +516,23 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     return sessionResponse;
   }
 
-  if (pathname === "/" && context.user && isAppHostname(requestHostHeader(request))) {
+  if (pathname === "/" && context.user) {
     const hasConsoleView = Boolean(request.nextUrl.searchParams.get("view")?.trim());
     const hasAuthPayload =
       request.nextUrl.searchParams.has("code") ||
       request.nextUrl.searchParams.has("token_hash");
-    if (!hasConsoleView && !hasAuthPayload) {
+    if (!hasAuthPayload && isWorkerRole(context.role)) {
+      return redirectWithCookies(
+        request,
+        toAppAbsolutePath(request, resolveAuthenticatedHomePath(context, request)),
+        sessionResponse
+      );
+    }
+    if (
+      !hasAuthPayload &&
+      !hasConsoleView &&
+      isAppHostname(requestHostHeader(request))
+    ) {
       return redirectWithCookies(
         request,
         resolveAuthenticatedHomePath(context, request),

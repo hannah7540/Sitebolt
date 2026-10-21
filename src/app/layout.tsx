@@ -20,6 +20,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SiteBolt — Construction Safety Dashboard",
   description: "Modern construction site safety and compliance management platform",
+  applicationName: "SiteBolt",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "SiteBolt",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {

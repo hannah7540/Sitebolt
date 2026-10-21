@@ -88,12 +88,14 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!isAppSubdomain) {
-    if (pathname === "/" || pathname === "/enquire" || pathname.startsWith("/enquire/")) {
+    if (pathname === "/") {
+      return runAuthProxy(request);
+    }
+
+    if (pathname === "/enquire" || pathname.startsWith("/enquire/")) {
       const dest = request.nextUrl.clone();
       dest.pathname = "/marketing";
-      if (pathname === "/enquire" || pathname.startsWith("/enquire/")) {
-        dest.searchParams.set("enquire", "1");
-      }
+      dest.searchParams.set("enquire", "1");
       return NextResponse.rewrite(dest);
     }
 

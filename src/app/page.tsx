@@ -88,6 +88,7 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarketingLandingPage from "@/components/marketing/MarketingLandingPage";
 import { Capacitor } from "@capacitor/core";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
 
 const DocumentPackView = dynamic(
   () => import("@/components/administration/DocumentPackView"),
@@ -268,6 +269,25 @@ function HomeConsole() {
 
   useEffect(() => {
     if (pathname !== "/") return;
+    if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
+    if (isStandalonePwa()) {
+      router.replace("/worker-dashboard");
+      return;
+    }
+    if (!sessionReady) return;
+
+    if (
+      hasAuthSession &&
+      adminWorkerId &&
+      workers.length > 0 &&
+      !canAccessAdminConsole(sessionRole)
+    ) {
+      router.replace(
+        `/worker-dashboard?worker_id=${encodeURIComponent(adminWorkerId)}`
+      );
+      return;
+    }
+
     const viewParam = searchParams.get(CONSOLE_VIEW_SEARCH_PARAM)?.trim();
     if (viewParam) {
       const dedicated = getDedicatedConsoleHref(viewParam as ActiveView, {
@@ -279,20 +299,18 @@ function HomeConsole() {
       return;
     }
     if (!isAppSubdomainHost()) return;
-    if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
     router.replace(MASTER_PROJECT_DASHBOARD_PATH);
-  }, [pathname, router, searchParams, openAddFromUrl]);
-
-  useEffect(() => {
-    if (!sessionReady || !hasAuthSession || !adminWorkerId || workers.length === 0) {
-      return;
-    }
-    const linked = workers.find((w) => w.id === adminWorkerId);
-    const role = normalizeSecurityRole(linked?.security_role);
-    if (!canAccessAdminConsole(role)) {
-      router.replace(`/worker-dashboard?worker_id=${adminWorkerId}`);
-    }
-  }, [sessionReady, hasAuthSession, adminWorkerId, workers, router]);
+  }, [
+    pathname,
+    router,
+    searchParams,
+    openAddFromUrl,
+    sessionReady,
+    hasAuthSession,
+    sessionRole,
+    adminWorkerId,
+    workers.length,
+  ]);
 
   useEffect(() => {
     if (!sessionReady || !hasAuthSession || sidebarProjects.length === 0) return;
@@ -641,11 +659,12 @@ function RootEntry() {
 
   useEffect(() => {
     const native = Capacitor.isNativePlatform();
+    const standalone = isStandalonePwa();
     setIsNativeApp(native);
     setIsAppHost(isAppSubdomainHost());
     setHostReady(true);
-    if (native) {
-      window.location.replace("/login");
+    if (native || standalone) {
+      window.location.replace(standalone ? "/worker-dashboard" : "/login");
     }
   }, []);
 
