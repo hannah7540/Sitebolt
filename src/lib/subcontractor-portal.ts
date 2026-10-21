@@ -6,6 +6,7 @@ export const SUBCONTRACTOR_PORTAL_PATH = "/subcontractor";
 
 export interface SubcontractorPortalRecord {
   id: string;
+  organisation_id: string;
   company_name: string;
   contact_name: string;
   contact_email: string;
@@ -52,6 +53,7 @@ function isProfessionalIndemnityType(value: string): boolean {
 function mapSubcontractorRow(row: Record<string, unknown>): SubcontractorPortalRecord {
   return {
     id: text(row.id),
+    organisation_id: text(row.organisation_id),
     company_name: text(row.company_name) || "Your company",
     contact_name: firstText(row.contact_name, row.contact_person),
     contact_email: firstText(row.contact_email, row.email),
