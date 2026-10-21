@@ -77,6 +77,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/sms",
   "/select-company",
   "/dashboard",
+  "/subcontractor",
 ] as const;
 
 /** Admin console roles land on the Master Project Dashboard, not a specific project. */

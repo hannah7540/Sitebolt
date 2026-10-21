@@ -98,6 +98,7 @@ const GENERAL_WORKER_ALLOWED_PREFIXES = [
   "/reset-password",
   "/set-password",
   "/onboarding",
+  "/subcontractor",
   "/worker/dashboard",
   "/portal/",
   "/scan/",

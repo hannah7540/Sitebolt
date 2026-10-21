@@ -18,6 +18,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       window.location.pathname.includes("/reset-password") ||
       window.location.pathname.includes("/onboarding") ||
       window.location.pathname.includes("/guest") ||
+      window.location.pathname.includes("/subcontractor") ||
       isPlantPrestartPath(window.location.pathname))
   ) {
     return <>{children}</>;
@@ -37,6 +38,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname === "/" ||
     pathname.startsWith("/scan/") ||
     pathname.startsWith("/guest") ||
+    pathname.startsWith("/subcontractor") ||
     isPlantPrestartPath(pathname)
   ) {
     return <>{children}</>;
