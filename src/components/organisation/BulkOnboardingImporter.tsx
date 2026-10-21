@@ -111,6 +111,8 @@ export default function BulkOnboardingImporter() {
     imported: number;
     invited: number;
     inviteErrors: string[];
+    succeededEmails: string[];
+    failedEmails: string[];
   } | null>(null);
   const [projects, setProjects] = useState<DbProject[]>([]);
 
@@ -266,16 +268,21 @@ export default function BulkOnboardingImporter() {
           vocs: serializeBulkOnboardingVocs(worker.vocs),
         }))
       );
-      if (response.error) {
-        setSubmitError(response.error);
-        return;
-      }
       setResult({
         imported: response.imported,
         invited: response.invited,
-        inviteErrors: response.inviteErrors,
+        inviteErrors: response.inviteErrors ?? [],
+        succeededEmails: response.succeededEmails ?? [],
+        failedEmails: response.failedEmails ?? [],
       });
-      setPhase("done");
+      if (response.imported > 0) {
+        setPhase("done");
+        if (response.error) setSubmitError(response.error);
+        return;
+      }
+      if (response.error) {
+        setSubmitError(response.error);
+      }
     } catch (cause) {
       setSubmitError(cause instanceof Error ? cause.message : "Bulk onboarding failed.");
     } finally {
@@ -713,6 +720,26 @@ export default function BulkOnboardingImporter() {
               </p>
             </div>
           </div>
+          {result.succeededEmails.length > 0 ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <p className="font-semibold">Succeeded</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {result.succeededEmails.map((email) => (
+                  <li key={email}>{email}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {result.failedEmails.length > 0 ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <p className="font-semibold">Failed</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {result.failedEmails.map((email) => (
+                  <li key={email}>{email}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {result.inviteErrors.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <p className="font-semibold">Some invites could not be sent</p>

@@ -17,7 +17,11 @@ import { canManageOrganisation, DEFAULT_WORKER_SECURITY_ROLE, normalizeSecurityR
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { withOrganisationScope } from "@/lib/tenant-scope";
+import {
+  filterRowsByOrganisationStrict,
+  isOrganisationColumnMissing,
+  withOrganisationScope,
+} from "@/lib/tenant-scope";
 import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 import {
   buildWorkerNameFields,
@@ -28,15 +32,39 @@ import {
 } from "@/lib/worker-utils";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
-import { onWorkerOnboardingCompleted } from "@/lib/services/worker-assignment";
 import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
 import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
+import { companyInductionMatchesState } from "@/lib/worker-induction-auto-assign";
+import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 
 export type BulkOnboardResult = {
   error: string | null;
   imported: number;
   invited: number;
   inviteErrors: string[];
+  succeededEmails: string[];
+  failedEmails: string[];
+};
+
+const BULK_ONBOARD_CHUNK_SIZE = 4;
+
+function emptyBulkResult(error: string | null): BulkOnboardResult {
+  return {
+    error,
+    imported: 0,
+    invited: 0,
+    inviteErrors: [],
+    succeededEmails: [],
+    failedEmails: [],
+  };
+}
+
+type BulkWorkerOutcome = {
+  email: string;
+  displayName: string;
+  imported: boolean;
+  invited: boolean;
+  error: string | null;
 };
 
 async function insertWorkerVocs(
@@ -152,6 +180,343 @@ async function insertWorkerTags(
   return null;
 }
 
+type CatalogRow = Record<string, unknown>;
+
+type BulkComplianceCatalog = {
+  swms: CatalogRow[];
+  inductions: CatalogRow[];
+};
+
+function rowId(row: CatalogRow): string {
+  return String(row.id ?? "").trim();
+}
+
+function rowText(row: CatalogRow, key: string): string {
+  return String(row[key] ?? "").trim();
+}
+
+function isArchivedSwms(row: CatalogRow): boolean {
+  return (
+    row.is_archived === true ||
+    String(row.status ?? "").trim().toLowerCase() === "archived"
+  );
+}
+
+function isActiveInduction(row: CatalogRow): boolean {
+  const status = String(row.status ?? "active").trim().toLowerCase();
+  return !status || status === "active";
+}
+
+function signingToken(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+async function queryOrgRows(
+  admin: SupabaseClient,
+  table: string,
+  selects: string[],
+  orgId: string
+): Promise<CatalogRow[]> {
+  let applyScope = true;
+  for (const select of selects) {
+    let query = admin.from(table).select(select);
+    if (applyScope) {
+      query = withOrganisationScope(query, orgId);
+    }
+    const { data, error } = await query;
+    if (!error) {
+      const rows = (data ?? []) as unknown as CatalogRow[];
+      return applyScope ? filterRowsByOrganisationStrict(rows, orgId) : rows;
+    }
+
+    const lower = error.message.toLowerCase();
+    if (isOrganisationColumnMissing(error.message) && applyScope) {
+      applyScope = false;
+      continue;
+    }
+    if (lower.includes("column") || lower.includes("could not find the")) {
+      continue;
+    }
+    if (
+      lower.includes("does not exist") ||
+      lower.includes("could not find the table")
+    ) {
+      return [];
+    }
+    console.warn(`[bulk-onboard] ${table} query failed:`, error.message);
+    return [];
+  }
+  return [];
+}
+
+async function resolveProjectMatchKeys(
+  admin: SupabaseClient,
+  projectIds: string[]
+): Promise<Map<string, Set<string>>> {
+  const unique = [...new Set(projectIds.map((id) => id.trim()).filter(Boolean))];
+  const map = new Map<string, Set<string>>();
+  for (const id of unique) {
+    map.set(id, new Set([id]));
+  }
+  if (unique.length === 0) return map;
+
+  const { data, error } = await admin
+    .from("projects")
+    .select("id, slug")
+    .or(unique.map((id) => `id.eq.${id},slug.eq.${id}`).join(","));
+  if (error || !data) return map;
+
+  for (const id of unique) {
+    const keys = map.get(id) ?? new Set([id]);
+    for (const row of data as Array<{ id?: string; slug?: string }>) {
+      const projectId = String(row.id ?? "").trim();
+      const slug = String(row.slug ?? "").trim();
+      if (projectId === id || slug === id) {
+        if (projectId) keys.add(projectId);
+        if (slug) keys.add(slug);
+      }
+    }
+    map.set(id, keys);
+  }
+  return map;
+}
+
+async function loadBulkComplianceCatalog(
+  admin: SupabaseClient,
+  orgId: string
+): Promise<BulkComplianceCatalog> {
+  const [swmsDocuments, legacySwms, inductions, legacyInductions] = await Promise.all([
+    queryOrgRows(
+      admin,
+      "swms_documents",
+      [
+        "id, title, project_id, swms_scope, is_archived, status, state, organisation_id",
+        "id, title, project_id, swms_scope, is_archived, status, organisation_id",
+        "id, title, project_id, is_archived, status, organisation_id",
+        "id, title, project_id, status, organisation_id",
+        "id, title, project_id, organisation_id",
+      ],
+      orgId
+    ),
+    queryOrgRows(
+      admin,
+      "swms",
+      [
+        "id, title, project_id, swms_scope, is_archived, status, state, organisation_id",
+        "id, title, project_id, status, organisation_id",
+        "id, title, project_id",
+      ],
+      orgId
+    ),
+    queryOrgRows(
+      admin,
+      "induction_form_templates",
+      [
+        "id, title, project_id, scope, status, system_template_key, state, jurisdiction, organisation_id",
+        "id, title, project_id, scope, status, system_template_key, state, organisation_id",
+        "id, title, project_id, scope, status, organisation_id",
+        "id, title, project_id, scope, organisation_id",
+      ],
+      orgId
+    ),
+    queryOrgRows(
+      admin,
+      "inductions",
+      [
+        "id, title, project_id, scope, status, state, organisation_id",
+        "id, title, project_id, scope, status, organisation_id",
+        "id, title, project_id, organisation_id",
+      ],
+      orgId
+    ),
+  ]);
+
+  const swmsById = new Map<string, CatalogRow>();
+  for (const row of [...swmsDocuments, ...legacySwms]) {
+    const id = rowId(row);
+    if (id) swmsById.set(id, row);
+  }
+  const inductionsById = new Map<string, CatalogRow>();
+  for (const row of [...inductions, ...legacyInductions]) {
+    const id = rowId(row);
+    if (id) inductionsById.set(id, row);
+  }
+
+  return {
+    swms: [...swmsById.values()],
+    inductions: [...inductionsById.values()],
+  };
+}
+
+function matchingSwmsForWorker(
+  catalog: BulkComplianceCatalog,
+  state: ReturnType<typeof normalizeWorkerStateRegion>,
+  projectKeys: Set<string>
+): CatalogRow[] {
+  return catalog.swms.filter((row) => {
+    if (!rowId(row) || isArchivedSwms(row)) return false;
+    const docProject = rowText(row, "project_id");
+    const docState = normalizeWorkerStateRegion(rowText(row, "state"));
+    if (docProject) return projectKeys.has(docProject);
+    if (docState) return Boolean(state) && docState === state;
+    const scope = rowText(row, "swms_scope").toLowerCase();
+    return !scope || scope === "company";
+  });
+}
+
+function matchingInductionsForWorker(
+  catalog: BulkComplianceCatalog,
+  state: ReturnType<typeof normalizeWorkerStateRegion>,
+  projectKeys: Set<string>
+): CatalogRow[] {
+  return catalog.inductions.filter((row) => {
+    if (!rowId(row) || !isActiveInduction(row)) return false;
+    const scope = rowText(row, "scope").toLowerCase();
+    const rowProject = rowText(row, "project_id");
+    if (scope === "project" || rowProject) {
+      return Boolean(rowProject) && projectKeys.has(rowProject);
+    }
+    if (!state) return false;
+    return companyInductionMatchesState(
+      rowText(row, "title"),
+      rowText(row, "system_template_key") || null,
+      state,
+      rowText(row, "state") || rowText(row, "jurisdiction") || null
+    );
+  });
+}
+
+async function insertRowsWithFallback(
+  admin: SupabaseClient,
+  table: string,
+  rows: Record<string, unknown>[]
+): Promise<string | null> {
+  if (rows.length === 0) return null;
+
+  let payload = rows.map((row) => ({ ...row }));
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const { error } = await admin.from(table).insert(payload);
+    if (!error) return null;
+
+    const lower = error.message.toLowerCase();
+    if (
+      lower.includes("duplicate key") ||
+      lower.includes("unique constraint") ||
+      lower.includes("already exists") ||
+      error.code === "23505"
+    ) {
+      return null;
+    }
+    if (
+      (lower.includes("does not exist") || lower.includes("could not find the table")) &&
+      lower.includes(table)
+    ) {
+      return null;
+    }
+
+    const missing = parseMissingColumnFromError(error.message);
+    if (missing && payload.some((row) => missing in row)) {
+      payload = payload.map((row) => stripMissingColumn(row, missing));
+      continue;
+    }
+    return error.message;
+  }
+  return `Unable to insert ${table} rows.`;
+}
+
+async function assignBulkWorkerComplianceDirect(
+  admin: SupabaseClient,
+  input: {
+    workerId: string;
+    orgId: string;
+    worker: BulkOnboardingWorker;
+    catalog: BulkComplianceCatalog;
+    projectKeys: Set<string>;
+  }
+): Promise<string | null> {
+  const state = normalizeWorkerStateRegion(input.worker.state);
+  const projectName = input.worker.assigned_project_name?.trim() || "";
+  const workerName = workerDisplayName(input.worker);
+  const swmsDocs = matchingSwmsForWorker(input.catalog, state, input.projectKeys);
+  const inductionDocs = matchingInductionsForWorker(
+    input.catalog,
+    state,
+    input.projectKeys
+  );
+
+  const swmsRows = swmsDocs.map((doc) => {
+    const token = signingToken();
+    const swmsId = rowId(doc);
+    const docProject = rowText(doc, "project_id") || null;
+    return {
+      swms_id: swmsId,
+      assignee_type: "worker",
+      assignee_id: input.workerId,
+      worker_id: input.workerId,
+      assignee_name: workerName,
+      worker_name: workerName,
+      name: workerName,
+      signing_token: token,
+      token,
+      signature_token: token,
+      status: "Pending",
+      project_id: docProject,
+      organisation_id: input.orgId,
+    };
+  });
+
+  const inductionRows = inductionDocs.map((doc) => {
+    const formId = rowId(doc);
+    const title = rowText(doc, "title") || "Induction";
+    const docProject = rowText(doc, "project_id") || null;
+    return {
+      form_id: formId,
+      form_template_id: formId,
+      template_id: formId,
+      induction_id: formId,
+      form_title: title,
+      title,
+      worker_id: input.workerId,
+      worker_name: workerName,
+      status: "Pending",
+      assigned_at: new Date().toISOString(),
+      assigned_by: "system",
+      assigned_by_name: "SiteBolt Bulk Onboarding",
+      project_id: docProject,
+      project_name: projectName || null,
+      organisation_id: input.orgId,
+    };
+  });
+
+  const swmsError = await insertRowsWithFallback(admin, "swms_assignments", swmsRows);
+  if (swmsError) return `SWMS assignment failed: ${swmsError}`;
+
+  const inductionError = await insertRowsWithFallback(
+    admin,
+    "form_worker_assignments",
+    inductionRows
+  );
+  if (inductionError) return `Induction assignment failed: ${inductionError}`;
+
+  const aliasSwms = swmsDocs.map((doc) => ({
+    worker_id: input.workerId,
+    swms_id: rowId(doc),
+    status: "Pending",
+    organisation_id: input.orgId,
+  }));
+  const aliasInductions = inductionDocs.map((doc) => ({
+    worker_id: input.workerId,
+    induction_id: rowId(doc),
+    form_id: rowId(doc),
+    status: "Pending",
+    organisation_id: input.orgId,
+  }));
+  await insertRowsWithFallback(admin, "worker_swms", aliasSwms);
+  await insertRowsWithFallback(admin, "worker_inductions", aliasInductions);
+
+  return null;
+}
+
 async function insertWorkerProfile(
   admin: SupabaseClient,
   orgId: string,
@@ -239,26 +604,121 @@ async function insertWorkerProfile(
   return { workerId: null, error: "Unable to insert worker profile." };
 }
 
+async function processBulkWorker(input: {
+  admin: SupabaseClient;
+  orgId: string;
+  worker: BulkOnboardingWorker;
+  catalog: Awaited<ReturnType<typeof loadBulkComplianceCatalog>>;
+  projectKeys: Set<string>;
+}): Promise<BulkWorkerOutcome> {
+  const displayName = workerDisplayName(input.worker);
+  const email = input.worker.email.trim().toLowerCase();
+
+  const inserted = await insertWorkerProfile(input.admin, input.orgId, input.worker);
+  if (inserted.error || !inserted.workerId) {
+    return {
+      email,
+      displayName,
+      imported: false,
+      invited: false,
+      error: inserted.error ?? `Failed to create ${displayName}.`,
+    };
+  }
+
+  const workerId = inserted.workerId;
+
+  const vocError = await insertWorkerVocs(input.admin, workerId, input.worker);
+  if (vocError) {
+    return {
+      email,
+      displayName,
+      imported: true,
+      invited: false,
+      error: `Created ${displayName} but could not save tickets: ${vocError}`,
+    };
+  }
+
+  const tagError = await insertWorkerTags(
+    input.admin,
+    workerId,
+    input.worker.tag_ids ?? [],
+    input.orgId
+  );
+  if (tagError) {
+    return {
+      email,
+      displayName,
+      imported: true,
+      invited: false,
+      error: `Created ${displayName} but could not save tags: ${tagError}`,
+    };
+  }
+
+  try {
+    await assignDefaultPayRuleToWorkerAdmin(input.admin, workerId, input.worker.state);
+  } catch (cause) {
+    console.warn("[bulk-onboard] pay rule assignment skipped:", cause);
+  }
+
+  const assignmentError = await assignBulkWorkerComplianceDirect(input.admin, {
+    workerId,
+    orgId: input.orgId,
+    worker: input.worker,
+    catalog: input.catalog,
+    projectKeys: input.projectKeys,
+  });
+  if (assignmentError) {
+    return {
+      email,
+      displayName,
+      imported: true,
+      invited: false,
+      error: `Created ${displayName} but could not assign SWMS/inductions: ${assignmentError}`,
+    };
+  }
+
+  try {
+    await notifyUnstampedPendingAssignments(input.admin, workerId);
+  } catch (cause) {
+    console.warn("[bulk-onboard] assignment notification skipped:", cause);
+  }
+
+  try {
+    await syncPublicHolidaysForWorker(workerId);
+  } catch (cause) {
+    console.warn("[bulk-onboard] public holiday sync skipped:", cause);
+  }
+
+  const invite = await sendWorkerInviteEmailViaResend(input.worker.email, { workerId });
+  if (!invite.success) {
+    return {
+      email,
+      displayName,
+      imported: true,
+      invited: false,
+      error: `${displayName}: ${invite.error ?? "Invite email failed."}`,
+    };
+  }
+
+  return {
+    email,
+    displayName,
+    imported: true,
+    invited: true,
+    error: null,
+  };
+}
+
 export async function submitBulkOnboarding(
   rawWorkers: BulkOnboardingWorker[]
 ): Promise<BulkOnboardResult> {
   if (!isSupabaseAdminConfigured()) {
-    return {
-      error: "Server admin client is not configured.",
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
+    return emptyBulkResult("Server admin client is not configured.");
   }
 
   const orgId = await resolveActiveOrganisationIdFromCookies();
   if (!orgId) {
-    return {
-      error: "Active organisation is required.",
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
+    return emptyBulkResult("Active organisation is required.");
   }
 
   const session = await createSupabaseServerClient();
@@ -267,10 +727,10 @@ export async function submitBulkOnboarding(
     error: authError,
   } = await session.auth.getUser();
   if (authError) {
-    return { error: authError.message, imported: 0, invited: 0, inviteErrors: [] };
+    return emptyBulkResult(authError.message);
   }
   if (!user) {
-    return { error: "Not authenticated.", imported: 0, invited: 0, inviteErrors: [] };
+    return emptyBulkResult("Not authenticated.");
   }
 
   const admin = createSupabaseAdminClient();
@@ -284,28 +744,20 @@ export async function submitBulkOnboarding(
     (actorRow as { security_role?: string } | null)?.security_role
   );
   if (!canManageOrganisation(role)) {
-    return { error: "Forbidden.", imported: 0, invited: 0, inviteErrors: [] };
+    return emptyBulkResult("Forbidden.");
   }
 
   if (!Array.isArray(rawWorkers) || rawWorkers.length === 0) {
-    return {
-      error: "No workers to import.",
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
+    return emptyBulkResult("No workers to import.");
   }
 
   const workers = rawWorkers.map((worker) => normalizeBulkOnboardingWorker(worker));
   for (const worker of workers) {
     const invalid = getInvalidBulkOnboardingFields(worker);
     if (invalid.length > 0) {
-      return {
-        error: `${workerDisplayName(worker)} still has incomplete fields.`,
-        imported: 0,
-        invited: 0,
-        inviteErrors: [],
-      };
+      return emptyBulkResult(
+        `${workerDisplayName(worker)} still has incomplete fields.`
+      );
     }
   }
 
@@ -317,121 +769,92 @@ export async function submitBulkOnboarding(
     .in("email", emails);
 
   if (existingError) {
-    return {
-      error: existingError.message,
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
+    return emptyBulkResult(existingError.message);
   }
 
   const existing = (existingRows ?? [])
     .map((row) => String((row as { email?: string }).email ?? "").trim().toLowerCase())
     .filter(Boolean);
   if (existing.length > 0) {
-    return {
-      error: `These emails already exist in this organisation: ${existing.join(", ")}.`,
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
-  }
-
-  const insertedIds: string[] = [];
-
-  try {
-    for (const worker of workers) {
-      const inserted = await insertWorkerProfile(admin, orgId, worker);
-      if (inserted.error || !inserted.workerId) {
-        throw new Error(
-          inserted.error ?? `Failed to create ${workerDisplayName(worker)}.`
-        );
-      }
-
-      insertedIds.push(inserted.workerId);
-
-      const vocError = await insertWorkerVocs(admin, inserted.workerId, worker);
-      if (vocError) {
-        throw new Error(
-          `Created ${workerDisplayName(worker)} but could not save tickets: ${vocError}`
-        );
-      }
-
-      const tagError = await insertWorkerTags(
-        admin,
-        inserted.workerId,
-        worker.tag_ids ?? [],
-        orgId
-      );
-      if (tagError) {
-        throw new Error(
-          `Created ${workerDisplayName(worker)} but could not save tags: ${tagError}`
-        );
-      }
-
-      try {
-        await assignDefaultPayRuleToWorkerAdmin(admin, inserted.workerId, worker.state);
-      } catch (cause) {
-        console.warn("[bulk-onboard] pay rule assignment skipped:", cause);
-      }
-
-      const projectId = worker.assigned_project_id?.trim() || "";
-      const projectName = worker.assigned_project_name?.trim() || "";
-      try {
-        await onWorkerOnboardingCompleted(admin, inserted.workerId, {
-          state: worker.state || null,
-          projectIds: projectId ? [projectId] : [],
-          projectNames:
-            projectId && projectName ? { [projectId]: projectName } : undefined,
-        });
-        await notifyUnstampedPendingAssignments(admin, inserted.workerId);
-      } catch (cause) {
-        console.warn("[bulk-onboard] SWMS/induction auto-assign skipped:", cause);
-      }
-
-      try {
-        await syncPublicHolidaysForWorker(inserted.workerId);
-      } catch (cause) {
-        console.warn("[bulk-onboard] public holiday sync skipped:", cause);
-      }
-    }
-  } catch (cause) {
-    if (insertedIds.length > 0) {
-      await admin.from("worker_tags").delete().in("worker_id", insertedIds);
-      await admin.from("worker_vocs").delete().in("worker_id", insertedIds);
-      await admin.from("workers").delete().in("id", insertedIds);
-    }
-    return {
-      error: cause instanceof Error ? cause.message : "Bulk onboarding failed.",
-      imported: 0,
-      invited: 0,
-      inviteErrors: [],
-    };
-  }
-
-  const inviteErrors: string[] = [];
-  let invited = 0;
-
-  for (let index = 0; index < workers.length; index += 1) {
-    const worker = workers[index];
-    const workerId = insertedIds[index];
-    const result = await sendWorkerInviteEmailViaResend(worker.email, { workerId });
-    if (result.success) {
-      invited += 1;
-      continue;
-    }
-    inviteErrors.push(
-      `${workerDisplayName(worker)}: ${result.error ?? "Invite email failed."}`
+    return emptyBulkResult(
+      `These emails already exist in this organisation: ${existing.join(", ")}.`
     );
   }
+
+  const [catalog, projectKeyMap] = await Promise.all([
+    loadBulkComplianceCatalog(admin, orgId),
+    resolveProjectMatchKeys(
+      admin,
+      workers.map((worker) => worker.assigned_project_id ?? "")
+    ),
+  ]);
+
+  const outcomes: BulkWorkerOutcome[] = [];
+
+  for (let offset = 0; offset < workers.length; offset += BULK_ONBOARD_CHUNK_SIZE) {
+    const chunk = workers.slice(offset, offset + BULK_ONBOARD_CHUNK_SIZE);
+    const settled = await Promise.allSettled(
+      chunk.map((worker) => {
+        const assignedProjectId = worker.assigned_project_id?.trim() || "";
+        return processBulkWorker({
+          admin,
+          orgId,
+          worker,
+          catalog,
+          projectKeys:
+            projectKeyMap.get(assignedProjectId) ??
+            new Set(assignedProjectId ? [assignedProjectId] : []),
+        });
+      })
+    );
+
+    settled.forEach((result, index) => {
+      const worker = chunk[index];
+      const email = worker.email.trim().toLowerCase();
+      const displayName = workerDisplayName(worker);
+      if (result.status === "fulfilled") {
+        outcomes.push(result.value);
+        return;
+      }
+      outcomes.push({
+        email,
+        displayName,
+        imported: false,
+        invited: false,
+        error:
+          result.reason instanceof Error
+            ? result.reason.message
+            : `Failed to process ${displayName}.`,
+      });
+    });
+  }
+
+  const succeededEmails = outcomes
+    .filter((outcome) => outcome.imported)
+    .map((outcome) => outcome.email);
+  const failedEmails = outcomes
+    .filter((outcome) => !outcome.imported)
+    .map((outcome) => outcome.email);
+  const inviteErrors = outcomes
+    .filter((outcome) => outcome.error)
+    .map((outcome) => outcome.error as string);
+  const imported = outcomes.filter((outcome) => outcome.imported).length;
+  const invited = outcomes.filter((outcome) => outcome.invited).length;
 
   revalidatePath("/organisation/workers");
   revalidatePath("/organisation/onboarding/bulk");
 
   return {
-    error: null,
-    imported: insertedIds.length,
+    error:
+      imported === 0
+        ? inviteErrors[0] ?? "Bulk onboarding failed."
+        : inviteErrors.length > 0
+          ? `Imported ${imported} worker${imported === 1 ? "" : "s"}; ${failedEmails.length} need attention.`
+          : null,
+    imported,
     invited,
     inviteErrors,
+    succeededEmails,
+    failedEmails: [...new Set(failedEmails)],
   };
 }
