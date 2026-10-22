@@ -4,7 +4,6 @@ export const revalidate = 0;
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { parseMissingColumnFromError, stripMissingColumn } from "@/lib/form-payload-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PostgrestLikeError = {
@@ -125,49 +124,53 @@ async function loadInvitedByToken(token: string): Promise<{
   return { record: toRecord(data), row: data, error: null, status: 200 };
 }
 
-async function updateWithMissingColumnRetry(
-  table: string,
-  id: string,
-  payload: Record<string, unknown>
-): Promise<{ error: string | null }> {
-  const admin = createOnboardServiceRoleClient();
-  let current = { ...payload };
-  let lastError: string | null = null;
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { error } = await admin.from(table).update(current).eq("id", id);
-    if (!error) return { error: null };
-    lastError = formatPostgrestError(error, error.message);
-    console.error(`[subcontractor-onboard] ${table} update failed`, { attempt, id, error });
-    const missing = parseMissingColumnFromError(error.message);
-    if (missing && missing in current) {
-      current = stripMissingColumn(current, missing);
-      continue;
-    }
-    return { error: lastError };
-  }
-  return { error: lastError };
+/** Columns that exist on public.subcontractors (015 + 194/195). */
+function mapSubcontractorOnboardingUpdate(input: {
+  address: string;
+  abn: string;
+}): {
+  address: string;
+  abn: string;
+  status: "active";
+  invite_token: null;
+  subcontractor_invite_expire_at: null;
+  updated_at: string;
+} {
+  return {
+    address: input.address,
+    abn: input.abn,
+    status: "active",
+    invite_token: null,
+    subcontractor_invite_expire_at: null,
+    updated_at: new Date().toISOString(),
+  };
 }
 
-async function insertWithMissingColumnRetry(
-  table: string,
-  payload: Record<string, unknown>
-): Promise<{ error: string | null }> {
-  const admin = createOnboardServiceRoleClient();
-  let current = { ...payload };
-  let lastError: string | null = null;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { error } = await admin.from(table).insert(current);
-    if (!error) return { error: null };
-    lastError = formatPostgrestError(error, error.message);
-    console.error(`[subcontractor-onboard] ${table} insert failed`, { attempt, error });
-    const missing = parseMissingColumnFromError(error.message);
-    if (missing && missing in current) {
-      current = stripMissingColumn(current, missing);
-      continue;
-    }
-    return { error: lastError };
-  }
-  return { error: lastError };
+/** Columns that exist on public.subcontractor_documents (015). */
+function mapSubcontractorDocumentInsert(input: {
+  subcontractorId: string;
+  documentType: "public_liability" | "professional_indemnity";
+  policyValue: string;
+  expiryDate: string;
+  documentUrl: string;
+}): {
+  subcontractor_id: string;
+  document_type: string;
+  title: string;
+  expiry_date: string;
+  document_url: string;
+} {
+  const label =
+    input.documentType === "public_liability"
+      ? "Public Liability"
+      : "Professional Indemnity";
+  return {
+    subcontractor_id: input.subcontractorId,
+    document_type: input.documentType,
+    title: `${label} — ${input.policyValue}`,
+    expiry_date: input.expiryDate,
+    document_url: input.documentUrl,
+  };
 }
 
 export async function GET(request: Request) {
@@ -306,61 +309,73 @@ export async function POST(request: Request) {
       }
     }
 
-    const updatePayload: Record<string, unknown> = {
-      address,
-      abn,
-      status: "active",
-      public_liability_expiry: plExpiry,
-      public_liability_value: plValue,
-      public_liability_policy_value: plValue,
-      public_liability_document_url: plDocumentUrl,
-      pl_expiry: plExpiry,
-      pl_policy_value: plValue,
-      pl_document_url: plDocumentUrl,
-      professional_indemnity_expiry: piExpiry,
-      professional_indemnity_value: piValue,
-      professional_indemnity_document_url: piDocumentUrl,
-      pi_expiry: piExpiry,
-      pi_policy_value: piValue,
-      pi_document_url: piDocumentUrl,
-      invite_token: null,
-      subcontractor_invite_expire_at: null,
-      updated_at: new Date().toISOString(),
-    };
-    if (authUserId) {
-      updatePayload.user_id = authUserId;
-      updatePayload.auth_user_id = authUserId;
-    }
-
-    const update = await updateWithMissingColumnRetry(
-      "subcontractors",
-      invited.record.id,
-      updatePayload
-    );
-    if (update.error) {
-      console.error("[subcontractor-onboard] Update failed", update.error);
-      return NextResponse.json({ error: update.error }, { status: 500 });
-    }
-
-    const plDoc = await insertWithMissingColumnRetry("subcontractor_documents", {
-      subcontractor_id: invited.record.id,
-      document_type: "public_liability",
-      title: `Public Liability — ${plValue}`,
-      expiry_date: plExpiry,
-      document_url: plDocumentUrl,
+    const updatePayload = mapSubcontractorOnboardingUpdate({ address, abn });
+    const plDocument = mapSubcontractorDocumentInsert({
+      subcontractorId: invited.record.id,
+      documentType: "public_liability",
+      policyValue: plValue,
+      expiryDate: plExpiry,
+      documentUrl: plDocumentUrl,
     });
-    if (plDoc.error) {
-      return NextResponse.json({ error: plDoc.error }, { status: 500 });
-    }
-    const piDoc = await insertWithMissingColumnRetry("subcontractor_documents", {
-      subcontractor_id: invited.record.id,
-      document_type: "professional_indemnity",
-      title: `Professional Indemnity — ${piValue}`,
-      expiry_date: piExpiry,
-      document_url: piDocumentUrl,
+    const piDocument = mapSubcontractorDocumentInsert({
+      subcontractorId: invited.record.id,
+      documentType: "professional_indemnity",
+      policyValue: piValue,
+      expiryDate: piExpiry,
+      documentUrl: piDocumentUrl,
     });
-    if (piDoc.error) {
-      return NextResponse.json({ error: piDoc.error }, { status: 500 });
+
+    try {
+      console.log("[subcontractor-onboard] Updating subcontractors with mapped payload", {
+        id: invited.record.id,
+        authUserId,
+        payload: updatePayload,
+      });
+      const { error: updateError } = await admin
+        .from("subcontractors")
+        .update(updatePayload)
+        .eq("id", invited.record.id);
+      if (updateError) {
+        console.error("[subcontractor-onboard] Update failed", updateError);
+        return NextResponse.json(
+          { error: formatPostgrestError(updateError, updateError.message) },
+          { status: 500 }
+        );
+      }
+
+      console.log("[subcontractor-onboard] Inserting insurance documents", {
+        plDocument,
+        piDocument,
+      });
+      const { error: plDocError } = await admin
+        .from("subcontractor_documents")
+        .insert(plDocument);
+      if (plDocError) {
+        console.error("[subcontractor-onboard] PL document insert failed", plDocError);
+        return NextResponse.json(
+          { error: formatPostgrestError(plDocError, plDocError.message) },
+          { status: 500 }
+        );
+      }
+      const { error: piDocError } = await admin
+        .from("subcontractor_documents")
+        .insert(piDocument);
+      if (piDocError) {
+        console.error("[subcontractor-onboard] PI document insert failed", piDocError);
+        return NextResponse.json(
+          { error: formatPostgrestError(piDocError, piDocError.message) },
+          { status: 500 }
+        );
+      }
+    } catch (updateError) {
+      console.error("[subcontractor-onboard] Update threw", {
+        payload: updatePayload,
+        error: updateError,
+      });
+      return NextResponse.json(
+        { error: errorMessage(updateError, "Onboarding update failed.") },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
