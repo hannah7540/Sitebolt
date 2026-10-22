@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       .eq("invite_token", token)
       .maybeSingle();
 
-    let data = primary.data;
+    let data = (primary.data as unknown as Record<string, unknown> | null) ?? null;
     let error = primary.error;
     if (error && /subcontractor_invite_expire_at|does not exist|schema cache/i.test(error.message)) {
       const fallback = await admin
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         .select(SELECT_BASE)
         .eq("invite_token", token)
         .maybeSingle();
-      data = fallback.data;
+      data = (fallback.data as unknown as Record<string, unknown> | null) ?? null;
       error = fallback.error;
     }
 
