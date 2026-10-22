@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import {
+  canAccessAdminConsole,
   normalizeSecurityRole,
   type SecurityRole,
 } from "@/lib/security-roles";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/worker-revocation";
 import {
   isPublicAuthFlowPath,
+  isSubcontractorOnboardPath,
 } from "@/lib/public-auth-paths";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import {
@@ -62,6 +64,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/reset-password",
   "/set-password",
   "/onboarding",
+  "/subcontractor/onboard",
   "/portal/",
   "/swms/sign/",
   "/guest",
@@ -412,7 +415,9 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     pathname.startsWith("/set-password") ||
     request.nextUrl.searchParams.has("code") ||
     request.nextUrl.searchParams.has("token_hash") ||
-    (isPublicAuthFlowPath(pathname) && !pathname.startsWith("/onboarding"))
+    (isPublicAuthFlowPath(pathname) &&
+      !pathname.startsWith("/onboarding") &&
+      !isSubcontractorOnboardPath(pathname))
   ) {
     return NextResponse.next({ request });
   }
@@ -554,9 +559,19 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     !pathname.startsWith("/update-password") &&
     !pathname.startsWith("/accept-invite") &&
     !pathname.startsWith("/auth/") &&
-    !pathname.startsWith("/guest")
+    !pathname.startsWith("/guest") &&
+    !isSubcontractorOnboardPath(pathname)
   ) {
     return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
+  }
+
+  if (
+    context.user &&
+    canAccessAdminConsole(context.role) &&
+    isSubcontractorOnboardPath(pathname) &&
+    !request.nextUrl.searchParams.get("token")?.trim()
+  ) {
+    return redirectWithCookies(request, "/dashboard/subcontractors", sessionResponse);
   }
 
   if (isPublicPath(pathname)) {

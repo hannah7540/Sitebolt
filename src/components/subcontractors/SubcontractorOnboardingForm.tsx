@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
   completeSubcontractorOnboarding,
-  fetchInvitedSubcontractorByEmail,
+  fetchInvitedSubcontractor,
   SUBCONTRACTOR_DASHBOARD_PATH,
   type InvitedSubcontractor,
 } from "@/lib/subcontractor-onboarding";
@@ -14,7 +14,8 @@ import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 export default function SubcontractorOnboardingForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const email = searchParams.get("email")?.trim() ?? "";
+  const token = searchParams.get("token")?.trim() ?? "";
+  const emailParam = searchParams.get("email")?.trim() ?? "";
 
   const [invite, setInvite] = useState<InvitedSubcontractor | null>(null);
   const [loadingInvite, setLoadingInvite] = useState(true);
@@ -37,7 +38,10 @@ export default function SubcontractorOnboardingForm() {
     let cancelled = false;
     async function load() {
       setLoadingInvite(true);
-      const result = await fetchInvitedSubcontractorByEmail(email);
+      const result = await fetchInvitedSubcontractor({
+        token,
+        email: emailParam,
+      });
       if (cancelled) return;
       setInvite(result.record);
       setInviteError(result.error);
@@ -47,7 +51,7 @@ export default function SubcontractorOnboardingForm() {
     return () => {
       cancelled = true;
     };
-  }, [email]);
+  }, [token, emailParam]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -58,7 +62,8 @@ export default function SubcontractorOnboardingForm() {
     setSaving(true);
     setError(null);
     const result = await completeSubcontractorOnboarding({
-      email,
+      token,
+      email: emailParam || invite?.email || "",
       password,
       address,
       abn,
@@ -114,7 +119,7 @@ export default function SubcontractorOnboardingForm() {
           </h1>
           <p className="mt-2 text-sm text-slate-500">
             Complete account setup for <strong>{invite.company_name}</strong> (
-            {email || invite.email}).
+            {invite.email || emailParam}).
           </p>
         </div>
 
@@ -122,7 +127,7 @@ export default function SubcontractorOnboardingForm() {
           <h2 className="text-lg font-bold text-slate-900">Account Setup</h2>
           <label className="block space-y-1">
             <span className={labelClass}>Email</span>
-            <input className={inputClass} type="email" value={email} readOnly />
+            <input className={inputClass} type="email" value={invite.email || emailParam} readOnly />
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1">

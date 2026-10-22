@@ -16,10 +16,14 @@ import {
   setSubcontractorArchiveState,
   type Subcontractor,
 } from "@/lib/subcontractors";
-import AddSubcontractorModal from "./AddSubcontractorModal";
+import AddSubcontractorModal, {
+  type AddSubcontractorSavedDetails,
+} from "./AddSubcontractorModal";
 import SubcontractorProfileView from "./SubcontractorProfileView";
 import { cn } from "@/lib/utils";
 import { cardClass } from "@/lib/ui-classes";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
 
 type SubcontractorTabFilter = "Current" | "Archived" | "All";
 
@@ -51,6 +55,7 @@ export default function SubcontractorsListView({
     null
   );
   const [actionId, setActionId] = useState<string | null>(null);
+  const { toast, showError, showSuccess, dismissToast } = useFormToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,9 +92,31 @@ export default function SubcontractorsListView({
     });
   }, [subcontractorsList, activeTab]);
 
-  const handleSaved = (subcontractorId: string) => {
-    load();
-    setSelectedId(subcontractorId);
+  const handleSaved = (
+    subcontractorId: string,
+    details?: AddSubcontractorSavedDetails
+  ) => {
+    void load();
+    setSelectedId(null);
+    setShowAdd(false);
+    const email = details?.email?.trim() ?? "";
+    if (details?.inviteSent && email) {
+      showSuccess(`Subcontractor added and onboarding email sent to ${email}`);
+      return;
+    }
+    if (details?.inviteError) {
+      showError(
+        email
+          ? `Subcontractor added, but the onboarding email to ${email} failed: ${details.inviteError}`
+          : details.inviteError
+      );
+      return;
+    }
+    showSuccess(
+      email
+        ? `Subcontractor added and onboarding email sent to ${email}`
+        : "Subcontractor added."
+    );
   };
 
   const patchSubcontractor = (updated: Subcontractor) => {
@@ -143,6 +170,9 @@ export default function SubcontractorsListView({
 
   return (
     <div>
+      {toast ? (
+        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+      ) : null}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">

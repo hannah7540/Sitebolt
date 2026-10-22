@@ -33,6 +33,52 @@ function sanitizeFileName(fileName: string): string {
   return sanitized.replace(/^_+|_+$/g, "") || "document";
 }
 
+export async function fetchInvitedSubcontractorByToken(
+  token: string
+): Promise<{ record: InvitedSubcontractor | null; error: string | null }> {
+  const normalized = token.trim();
+  if (!normalized) {
+    return { record: null, error: "This invite link is missing an onboarding token." };
+  }
+
+  try {
+    const response = await fetch(
+      `/api/subcontractors/onboard?token=${encodeURIComponent(normalized)}`,
+      { method: "GET", cache: "no-store" }
+    );
+    const body = (await response.json().catch(() => null)) as {
+      record?: InvitedSubcontractor | null;
+      error?: string;
+    } | null;
+    if (!response.ok) {
+      return {
+        record: null,
+        error: body?.error ?? "This onboarding link is invalid or has expired.",
+      };
+    }
+    if (!body?.record?.id) {
+      return { record: null, error: "This onboarding link is invalid or has expired." };
+    }
+    return { record: body.record, error: null };
+  } catch (error) {
+    return {
+      record: null,
+      error:
+        error instanceof Error ? error.message : "Failed to load the onboarding invite.",
+    };
+  }
+}
+
+export async function fetchInvitedSubcontractor(
+  input: { token?: string; email?: string }
+): Promise<{ record: InvitedSubcontractor | null; error: string | null }> {
+  const token = input.token?.trim() ?? "";
+  if (token) {
+    return fetchInvitedSubcontractorByToken(token);
+  }
+  return fetchInvitedSubcontractorByEmail(input.email ?? "");
+}
+
 export async function fetchInvitedSubcontractorByEmail(
   email: string
 ): Promise<{ record: InvitedSubcontractor | null; error: string | null }> {
@@ -134,6 +180,7 @@ async function updateSubcontractorWithColumnRetry(
 }
 
 export async function completeSubcontractorOnboarding(input: {
+  token?: string;
   email: string;
   password: string;
   address: string;
@@ -145,7 +192,7 @@ export async function completeSubcontractorOnboarding(input: {
   piValue: string;
   piFile: File | null;
 }): Promise<{ error: string | null }> {
-  const email = input.email.trim().toLowerCase();
+  const token = input.token?.trim() ?? "";
   const password = input.password;
   const address = input.address.trim();
   const abn = input.abn.trim();
@@ -154,7 +201,6 @@ export async function completeSubcontractorOnboarding(input: {
   const piExpiry = input.piExpiry.trim();
   const piValue = input.piValue.trim();
 
-  if (!email) return { error: "This invite link is missing an email address." };
   if (password.length < 8) return { error: "Password must be at least 8 characters." };
   if (!address) return { error: "Full address is required." };
   if (!abn) return { error: "ABN is required." };
@@ -165,10 +211,15 @@ export async function completeSubcontractorOnboarding(input: {
     return { error: "Professional Indemnity expiry, policy value, and document are required." };
   }
 
-  const invited = await fetchInvitedSubcontractorByEmail(email);
+  const invited = await fetchInvitedSubcontractor({
+    token,
+    email: input.email,
+  });
   if (invited.error || !invited.record?.id) {
     return { error: invited.error ?? "Invite not found." };
   }
+  const email = (invited.record.email || input.email).trim().toLowerCase();
+  if (!email) return { error: "This invite is missing an email address." };
 
   const client = createSupabaseBrowserClient();
   let userId: string | null = null;
@@ -239,6 +290,8 @@ export async function completeSubcontractorOnboarding(input: {
     pi_expiry: piExpiry,
     pi_policy_value: piValue,
     pi_document_url: piUpload.url,
+    invite_token: null,
+    invite_expires_at: null,
     updated_at: new Date().toISOString(),
   };
   if (userId) {

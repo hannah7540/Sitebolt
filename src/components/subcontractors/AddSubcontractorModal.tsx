@@ -15,9 +15,15 @@ import {
 
 const INVITE_STATES = ["WA", "NZ", "ACT", "NSW"] as const;
 
+export interface AddSubcontractorSavedDetails {
+  email: string;
+  inviteSent: boolean;
+  inviteError: string | null;
+}
+
 interface AddSubcontractorModalProps {
   onClose: () => void;
-  onSaved: (subcontractorId: string) => void;
+  onSaved: (subcontractorId: string, details: AddSubcontractorSavedDetails) => void;
 }
 
 export default function AddSubcontractorModal({
@@ -70,11 +76,11 @@ export default function AddSubcontractorModal({
       setError(result.error ?? "Failed to invite subcontractor.");
       return;
     }
-    onSaved(result.id);
-    if (result.inviteError) {
-      setError(result.inviteError);
-      return;
-    }
+    onSaved(result.id, {
+      email,
+      inviteSent: !result.inviteError,
+      inviteError: result.inviteError,
+    });
     onClose();
   };
 

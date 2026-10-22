@@ -449,6 +449,11 @@ export async function inviteSubcontractor(input: {
     return { error: "Assign at least one project.", id: null, inviteError: null };
   }
 
+  const inviteToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  const inviteExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
   const payload = stampOrganisationId(
     {
       company_name: companyName,
@@ -459,6 +464,8 @@ export async function inviteSubcontractor(input: {
       state,
       status: "invited",
       notes: `State: ${state}`,
+      invite_token: inviteToken,
+      invite_expires_at: inviteExpiresAt,
     },
     orgId
   );
@@ -495,6 +502,8 @@ export async function inviteSubcontractor(input: {
         email,
         companyName,
         contactName,
+        subcontractorId,
+        token: inviteToken,
       }),
     });
     const body = (await response.json().catch(() => null)) as { error?: string } | null;

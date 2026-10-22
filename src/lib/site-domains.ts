@@ -42,6 +42,8 @@ const OPERATIONAL_APP_PREFIXES = [
   "/guest",
   "/select-company",
   "/dashboard",
+  "/onboarding/subcontractor",
+  "/subcontractor/onboard",
 ] as const;
 
 export function hostnameFromHost(host: string | null | undefined): string {

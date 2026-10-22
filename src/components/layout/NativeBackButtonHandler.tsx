@@ -17,6 +17,7 @@ function isWorkerAppPath(pathname: string): boolean {
     pathname.startsWith("/worker-dashboard/") ||
     pathname.startsWith("/worker/") ||
     pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/subcontractor/onboard") ||
     pathname.startsWith("/portal/")
   );
 }

@@ -19,6 +19,7 @@ const FORBIDDEN_ROUTE_PREFIXES = [
   "/swms/sign",
   "/onboarding/hired-labour",
   "/onboarding/subcontractor",
+  "/subcontractor/onboard",
 ] as const;
 
 const BLOCKED_ROLES = new Set(["subcontractor", "guest", "hired_labour"]);

@@ -8,7 +8,18 @@ export const PUBLIC_AUTH_FLOW_PATHS = [
   "/auth/callback",
   "/auth/confirm",
   "/onboarding",
+  "/subcontractor/onboard",
 ] as const;
+
+export function isSubcontractorOnboardPath(pathname: string): boolean {
+  const path = pathname.split("?")[0] || pathname;
+  return (
+    path === "/onboarding/subcontractor" ||
+    path.startsWith("/onboarding/subcontractor/") ||
+    path === "/subcontractor/onboard" ||
+    path.startsWith("/subcontractor/onboard/")
+  );
+}
 
 export function isPublicAuthFlowPath(pathname: string): boolean {
   const path = pathname.split("?")[0] || pathname;
@@ -25,6 +36,7 @@ export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
       path.includes("/setyourpassword") ||
       path.includes("/reset-password") ||
       path.includes("/onboarding") ||
+      path.includes("/subcontractor/onboard") ||
       path.includes("/auth/confirm") ||
       path.includes("/guest") ||
       isPlantPrestartPath(path)
@@ -38,6 +50,7 @@ export function shouldSkipAuthRedirect(pathname?: string | null): boolean {
     path.includes("/setyourpassword") ||
     path.includes("/reset-password") ||
     path.includes("/onboarding") ||
+    path.includes("/subcontractor/onboard") ||
     isExemptFromAuthRedirect(pathname)
   );
 }
@@ -53,6 +66,7 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/reset-password") ||
     path.startsWith("/set-password") ||
     path.startsWith("/onboarding") ||
+    path.startsWith("/subcontractor/onboard") ||
     path.startsWith("/auth/callback") ||
     path.startsWith("/auth/confirm") ||
     path.startsWith("/privacy") ||
