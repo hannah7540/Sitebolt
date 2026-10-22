@@ -22,7 +22,8 @@ import {
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import { applyWorkerSwmsWorkflowRules } from "@/lib/worker-swms-auto-assign";
 import { notifyWorkersOfSwmsAssignment } from "@/lib/swms-assignment-notify";
-import { resolveActiveOrganisationId } from "@/lib/tenant-scope";
+import { isAPlusOrganisationId, resolveActiveOrganisationId } from "@/lib/tenant-scope";
+import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-server";
 
 const PLANT_TABLES = ["plant", "plant_equipment", "subcontractor_plant"] as const;
 const WORKER_CALENDAR_TABLES = ["worker_calendar", "worker_calendar_events"] as const;
@@ -219,6 +220,24 @@ async function resolveCallerSubcontractorId(
 function stampOrgId(organisationId: string | null): string | null {
   const active = resolveActiveOrganisationId();
   return organisationId || active || null;
+}
+
+async function resolveApprovalOrganisationId(): Promise<string | null> {
+  return (
+    (await resolveActiveOrganisationIdFromCookies()) ||
+    resolveActiveOrganisationId()
+  );
+}
+
+function rowBelongsToActiveOrg(
+  rowOrg: string | null,
+  projectOrg: string | null,
+  orgId: string
+): boolean {
+  if (rowOrg && rowOrg !== orgId) return false;
+  if (projectOrg && projectOrg !== orgId) return false;
+  if (!rowOrg && !projectOrg) return isAPlusOrganisationId(orgId);
+  return true;
 }
 
 async function syncWorkerCalendar(
@@ -484,7 +503,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
   const denied = await requireAdminUser(admin, auth.user);
   if (denied) return [];
 
-  const orgId = resolveActiveOrganisationId();
+  const orgId = await resolveApprovalOrganisationId();
   if (!orgId) return [];
 
   const pending: PendingResourceApproval[] = [];
@@ -492,8 +511,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
   const { data: workerRows } = await admin
     .from("project_workers")
     .select("id, project_id, worker_id, subcontractor_id, organisation_id, approval_status")
-    .eq("approval_status", RESOURCE_APPROVAL_PENDING)
-    .eq("organisation_id", orgId);
+    .eq("approval_status", RESOURCE_APPROVAL_PENDING);
 
   const workerIds = [
     ...new Set((workerRows ?? []).map((row) => textValue((row as { worker_id?: unknown }).worker_id))),
@@ -511,7 +529,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
 
   for (const row of assignmentRows ?? []) {
     const record = row as Record<string, unknown>;
-    const rowOrg = textValue(record.organisation_id);
+    const rowOrg = textValue(record.organisation_id) || null;
     if (rowOrg && rowOrg !== orgId) continue;
     const projectId = textValue(record.project_id);
     const workerId = textValue(record.worker_id);
@@ -532,6 +550,8 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
 
   for (const row of workerRows ?? []) {
     const record = row as Record<string, unknown>;
+    const rowOrg = textValue(record.organisation_id) || null;
+    if (rowOrg && rowOrg !== orgId) continue;
     const projectId = textValue(record.project_id);
     const workerId = textValue(record.worker_id);
     if (!projectId || !workerId) continue;
@@ -585,11 +605,21 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
     if (error) continue;
     for (const row of plantRows ?? []) {
       const record = row as Record<string, unknown>;
-      const rowOrg = textValue(record.organisation_id);
+      const rowOrg = textValue(record.organisation_id) || null;
       if (rowOrg && rowOrg !== orgId) continue;
       const projectId =
         textValue(record.pending_project_id) || textValue(record.assigned_project_id);
       if (!projectId) continue;
+      if (
+        pending.some(
+          (item) =>
+            item.kind === "plant" &&
+            item.resourceId === textValue(record.id) &&
+            item.projectId === projectId
+        )
+      ) {
+        continue;
+      }
       pending.push({
         id: `plant:${textValue(record.id)}:${projectId}`,
         kind: "plant",
@@ -604,20 +634,63 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
         approvalStatus: RESOURCE_APPROVAL_PENDING,
       });
     }
-    break;
+  }
+
+  const { data: plantAssignmentRows } = await admin
+    .from("project_plant_assignments")
+    .select(
+      "id, plant_id, project_id, project_name, subcontractor_id, organisation_id, approval_status"
+    )
+    .eq("approval_status", RESOURCE_APPROVAL_PENDING);
+  for (const row of plantAssignmentRows ?? []) {
+    const record = row as Record<string, unknown>;
+    const rowOrg = textValue(record.organisation_id) || null;
+    if (rowOrg && rowOrg !== orgId) continue;
+    const projectId = textValue(record.project_id);
+    const plantId = textValue(record.plant_id);
+    if (!projectId || !plantId) continue;
+    if (
+      pending.some(
+        (item) =>
+          item.kind === "plant" && item.resourceId === plantId && item.projectId === projectId
+      )
+    ) {
+      continue;
+    }
+    pending.push({
+      id: `plant:${textValue(record.id) || `${plantId}:${projectId}`}`,
+      kind: "plant",
+      resourceId: plantId,
+      resourceName: "Plant",
+      projectId,
+      projectName: textValue(record.project_name) || "Project",
+      subcontractorId: textValue(record.subcontractor_id) || null,
+      approvalStatus: RESOURCE_APPROVAL_PENDING,
+    });
   }
 
   const uniqueProjectIds = [...new Set(pending.map((item) => item.projectId))];
+  const projectOrgs = new Map<string, string | null>();
   if (uniqueProjectIds.length > 0) {
-    const { data: projects } = await admin
+    let projectSelect = "id, project_name, name, organisation_id";
+    let { data: projects, error: projectError } = await admin
       .from("projects")
-      .select("id, project_name, name")
+      .select(projectSelect)
       .in("id", uniqueProjectIds);
+    if (projectError && /organisation_id/i.test(projectError.message)) {
+      projectSelect = "id, project_name, name";
+      ({ data: projects, error: projectError } = await admin
+        .from("projects")
+        .select(projectSelect)
+        .in("id", uniqueProjectIds));
+    }
     const names = new Map(
       (projects ?? []).map((row) => {
         const record = row as Record<string, unknown>;
+        const id = textValue(record.id);
+        projectOrgs.set(id, textValue(record.organisation_id) || null);
         return [
-          textValue(record.id),
+          id,
           textValue(record.project_name) || textValue(record.name) || "Project",
         ] as const;
       })
@@ -627,7 +700,9 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
     }
   }
 
-  return pending;
+  return pending.filter((item) =>
+    rowBelongsToActiveOrg(null, projectOrgs.get(item.projectId) ?? null, orgId)
+  );
 }
 
 export async function approveResourceAssignment(input: {
@@ -646,7 +721,7 @@ export async function approveResourceAssignment(input: {
   const denied = await requireAdminUser(admin, auth.user);
   if (denied) return { error: denied };
 
-  const orgId = resolveActiveOrganisationId();
+  const orgId = await resolveApprovalOrganisationId();
   if (!orgId) return { error: "No active organisation selected." };
 
   const now = new Date().toISOString();
@@ -787,6 +862,7 @@ export async function approveResourceAssignment(input: {
   }
 
   revalidatePath("/admin/dashboard");
+  revalidatePath("/");
   revalidatePath("/subcontractor");
   revalidatePath(`/subcontractor/projects/${input.projectId}`);
   return { error: null };
