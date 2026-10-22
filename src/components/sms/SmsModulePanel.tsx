@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Inbox,
@@ -93,6 +93,8 @@ export default function SmsModulePanel() {
     void loadData();
   }, [loadData]);
 
+  const openedQueryRef = useRef<string | null>(null);
+
   const openThread = async (thread: SmsThreadSummary) => {
     setSelectedThread(thread);
     setThreadLoading(true);
@@ -121,6 +123,25 @@ export default function SmsModulePanel() {
       setThreadLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (threads.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const threadId = params.get("threadId")?.trim() || "";
+    const phone = params.get("phone")?.trim() || "";
+    const workerId = params.get("workerId")?.trim() || "";
+    const key = `${threadId}|${phone}|${workerId}`;
+    if (!threadId && !phone && !workerId) return;
+    if (openedQueryRef.current === key) return;
+    openedQueryRef.current = key;
+    const match = threads.find(
+      (thread) =>
+        thread.threadKey === threadId ||
+        (phone && thread.phone_number === phone) ||
+        (workerId && thread.worker_id === workerId)
+    );
+    if (match) void openThread(match);
+  }, [threads]);
 
   const handleReply = async () => {
     if (!selectedThread || !replyBody.trim()) return;

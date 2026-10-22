@@ -4,6 +4,7 @@ import CompanyLogo from "@/components/ui/CompanyLogo";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import GlobalSearchBar from "@/components/search/GlobalSearchBar";
 import CompanySwitcher from "@/components/organisation/CompanySwitcher";
+import HeaderNotificationIcons from "@/components/layout/HeaderNotificationIcons";
 import { cn } from "@/lib/utils";
 
 interface AppScreenHeaderProps {
@@ -26,6 +27,7 @@ export default function AppScreenHeader({ className }: AppScreenHeaderProps) {
         <GlobalSearchBar />
       </div>
       <div className="flex items-center justify-end gap-2 justify-self-end">
+        <HeaderNotificationIcons />
         <span className="text-sm font-semibold tracking-wide text-foreground">Site-Bolt</span>
         <SiteBoltMark className="h-8 w-8" />
       </div>

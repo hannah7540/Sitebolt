@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarClock,
   FileSignature,
@@ -198,7 +198,7 @@ export default function EmailsModulePanel() {
     void loadData();
   }, [loadData]);
 
-  const openThread = async (message: EmailMessageRow) => {
+  const openThread = useCallback(async (message: EmailMessageRow) => {
     const threadId = message.thread_id ?? message.id;
     setSelectedThreadId(threadId);
     setThreadLoading(true);
@@ -209,7 +209,26 @@ export default function EmailsModulePanel() {
       await markEmailThreadRead(threadId);
       void loadData();
     }
-  };
+  }, [loadData]);
+
+  const openedQueryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const threadId = new URLSearchParams(window.location.search).get("threadId")?.trim();
+    if (!threadId || openedQueryRef.current === threadId) return;
+    openedQueryRef.current = threadId;
+    const match = messages.find((row) => row.id === threadId || row.thread_id === threadId);
+    if (match) {
+      void openThread(match);
+      return;
+    }
+    setSelectedThreadId(threadId);
+    setThreadLoading(true);
+    void fetchEmailThread(threadId).then((result) => {
+      setThreadMessages(result.messages);
+      setThreadLoading(false);
+    });
+  }, [messages, openThread]);
 
   const handlePauseScheduled = async (message: EmailMessageRow) => {
     setSaving(true);
