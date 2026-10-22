@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -25,6 +26,20 @@ const NAV_ITEMS = [
   { id: "features", label: "Features" },
   { id: "preview", label: "Take a Look Around" },
   { id: "custom-build", label: "Custom Software" },
+  { id: "download", label: "Get the App" },
+] as const;
+
+const APP_DOWNLOAD_QR_CODES = [
+  {
+    src: "/apple-qr.jpg",
+    label: "iOS",
+    alt: "QR code to download SiteBolt on iPhone and iPad",
+  },
+  {
+    src: "/android-qr.jpg",
+    label: "Android",
+    alt: "QR code to download SiteBolt on Android",
+  },
 ] as const;
 
 const INDUSTRIES = [
@@ -374,6 +389,53 @@ export default function MarketingLandingPage() {
               <Link href="/login" className={ghostButtonClass}>
                 Existing Log In
               </Link>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="download"
+          className="border-t border-slate-200 bg-slate-50 px-4 py-16"
+        >
+          <div className="mx-auto max-w-6xl">
+            <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
+              Mobile App
+            </p>
+            <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+              Download Site-Bolt
+            </h2>
+            <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-500">
+              Scan to download on iOS or Android. Open the camera on your phone and point it at
+              the code for your device.
+            </p>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {APP_DOWNLOAD_QR_CODES.map((item) => (
+                <article
+                  key={item.src}
+                  className={`${glassCardClass} flex flex-col items-center text-center`}
+                >
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#FF6B00]">
+                    {item.label}
+                  </p>
+                  <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
+                    <Image
+                      src={item.src}
+                      alt={item.alt}
+                      width={220}
+                      height={220}
+                      className="h-auto w-44 max-w-full sm:w-52"
+                    />
+                  </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-900">
+                    Scan to install
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {item.label === "iOS"
+                      ? "App Store for iPhone and iPad"
+                      : "Google Play or Android install"}
+                  </p>
+                </article>
+              ))}
             </div>
           </div>
         </section>
