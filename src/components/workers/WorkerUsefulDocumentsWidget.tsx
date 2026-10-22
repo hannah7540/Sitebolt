@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, FileText, FolderOpen, Loader2 } from "lucide-react";
 import WorkerUsefulDocumentsPortal from "@/components/workers/WorkerUsefulDocumentsPortal";
+import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import {
   fetchOrganizationDocuments,
+  resolveWorkerDocumentState,
   type OrganizationDocument,
 } from "@/lib/organization-documents";
 import { cn } from "@/lib/utils";
@@ -21,7 +23,12 @@ export default function WorkerUsefulDocumentsWidget() {
 
     void (async () => {
       setLoading(true);
-      const { data, error: loadError } = await fetchOrganizationDocuments();
+      const session = await resolveAuthWorkerFromSession();
+      const workerState = await resolveWorkerDocumentState(session.workerId);
+      const { data, error: loadError } = await fetchOrganizationDocuments({
+        workerScoped: true,
+        workerState,
+      });
       if (cancelled) return;
       if (loadError) {
         setError(loadError);

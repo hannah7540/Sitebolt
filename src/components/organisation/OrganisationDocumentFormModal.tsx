@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { Loader2, X } from "lucide-react";
-import type { OrganizationDocument } from "@/lib/organization-documents";
+import {
+  DOCUMENT_VISIBILITY_STATES,
+  type DocumentVisibilityScope,
+  type OrganizationDocument,
+} from "@/lib/organization-documents";
 import { cn } from "@/lib/utils";
 import {
   inputClass,
@@ -11,12 +15,19 @@ import {
   modalOverlayClass,
 } from "@/lib/ui-classes";
 
+export type OrganisationDocumentFormValues = {
+  name: string;
+  file: File | null;
+  scope: DocumentVisibilityScope;
+  state: string | null;
+};
+
 interface OrganisationDocumentFormModalProps {
   document?: OrganizationDocument | null;
   saving?: boolean;
   error?: string | null;
   onClose: () => void;
-  onSubmit: (input: { name: string; file: File | null }) => Promise<void>;
+  onSubmit: (input: OrganisationDocumentFormValues) => Promise<void>;
 }
 
 export default function OrganisationDocumentFormModal({
@@ -29,6 +40,10 @@ export default function OrganisationDocumentFormModal({
   const isEdit = Boolean(document);
   const [name, setName] = useState(document?.name ?? "");
   const [file, setFile] = useState<File | null>(null);
+  const [scope, setScope] = useState<DocumentVisibilityScope>(
+    document?.scope === "state_specific" ? "state_specific" : "company_wide"
+  );
+  const [state, setState] = useState(document?.state ?? "");
   const [localError, setLocalError] = useState<string | null>(null);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -42,8 +57,17 @@ export default function OrganisationDocumentFormModal({
       setLocalError("A file attachment is required.");
       return;
     }
+    if (scope === "state_specific" && !state) {
+      setLocalError("Select an Australian state for state-specific documents.");
+      return;
+    }
     setLocalError(null);
-    await onSubmit({ name: trimmed, file });
+    await onSubmit({
+      name: trimmed,
+      file,
+      scope,
+      state: scope === "state_specific" ? state : null,
+    });
   };
 
   return (
@@ -88,6 +112,47 @@ export default function OrganisationDocumentFormModal({
               Current file:{" "}
               <span className="font-medium">{document.file_name}</span>
             </p>
+          ) : null}
+
+          <fieldset className="space-y-2">
+            <legend className={labelClass}>Visibility Scope *</legend>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="document-visibility-scope"
+                checked={scope === "company_wide"}
+                onChange={() => setScope("company_wide")}
+              />
+              Company Wide
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="document-visibility-scope"
+                checked={scope === "state_specific"}
+                onChange={() => setScope("state_specific")}
+              />
+              State Specific
+            </label>
+          </fieldset>
+
+          {scope === "state_specific" ? (
+            <label className="block">
+              <span className={labelClass}>Australian State *</span>
+              <select
+                className={inputClass}
+                value={state}
+                onChange={(event) => setState(event.target.value)}
+                required
+              >
+                <option value="">Select state</option>
+                {DOCUMENT_VISIBILITY_STATES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
 
           <label className="block">

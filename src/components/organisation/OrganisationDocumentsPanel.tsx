@@ -9,10 +9,12 @@ import {
   deleteOrganizationDocument,
   fetchOrganizationDocuments,
   formatDocumentAddedDate,
+  formatDocumentScopeLabel,
   insertOrganizationDocument,
   updateOrganizationDocument,
   type OrganizationDocument,
 } from "@/lib/organization-documents";
+import type { OrganisationDocumentFormValues } from "./OrganisationDocumentFormModal";
 import {
   deleteOrganizationDocumentFile,
   uploadOrganizationDocumentFile,
@@ -60,7 +62,7 @@ export default function OrganisationDocumentsPanel() {
     setFormError(null);
   };
 
-  const handleCreate = async (input: { name: string; file: File | null }) => {
+  const handleCreate = async (input: OrganisationDocumentFormValues) => {
     if (!input.file) {
       setFormError("A file attachment is required.");
       return;
@@ -81,6 +83,8 @@ export default function OrganisationDocumentsPanel() {
       file_url: upload.url,
       file_name: input.file.name,
       file_size: input.file.size,
+      scope: input.scope,
+      state: input.state,
     });
 
     if (result.error) {
@@ -96,7 +100,7 @@ export default function OrganisationDocumentsPanel() {
     await load();
   };
 
-  const handleUpdate = async (input: { name: string; file: File | null }) => {
+  const handleUpdate = async (input: OrganisationDocumentFormValues) => {
     if (!editingDocument) return;
     setSaving(true);
     setFormError(null);
@@ -126,6 +130,8 @@ export default function OrganisationDocumentsPanel() {
       file_url: nextUrl,
       file_name: nextFileName,
       file_size: nextFileSize,
+      scope: input.scope,
+      state: input.state,
     });
 
     if (result.error) {
@@ -200,6 +206,7 @@ export default function OrganisationDocumentsPanel() {
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Visibility</th>
                 <th className="px-4 py-3">Date Added</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -215,6 +222,9 @@ export default function OrganisationDocumentsPanel() {
                     {item.file_name ? (
                       <p className="text-xs font-normal text-slate-500">{item.file_name}</p>
                     ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {formatDocumentScopeLabel(item)}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     {formatDocumentAddedDate(item.created_at)}
