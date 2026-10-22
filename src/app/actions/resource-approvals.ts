@@ -317,7 +317,7 @@ async function insertApprovalNotification(
     .select("id, user_id, auth_user_id, email, contact_email")
     .eq("id", input.subcontractorId)
     .maybeSingle();
-  const row = (sub ?? {}) as Record<string, unknown>;
+  const row = (sub ?? {}) as unknown as Record<string, unknown>;
   const authUserId =
     textValue(row.user_id) || textValue(row.auth_user_id) || null;
 
@@ -528,7 +528,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
     .eq("approval_status", RESOURCE_APPROVAL_PENDING);
 
   for (const row of assignmentRows ?? []) {
-    const record = row as Record<string, unknown>;
+    const record = row as unknown as Record<string, unknown>;
     const rowOrg = textValue(record.organisation_id) || null;
     if (rowOrg && rowOrg !== orgId) continue;
     const projectId = textValue(record.project_id);
@@ -549,7 +549,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
   }
 
   for (const row of workerRows ?? []) {
-    const record = row as Record<string, unknown>;
+    const record = row as unknown as Record<string, unknown>;
     const rowOrg = textValue(record.organisation_id) || null;
     if (rowOrg && rowOrg !== orgId) continue;
     const projectId = textValue(record.project_id);
@@ -578,7 +578,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
       .in("id", uniqueWorkerIds);
     const names = new Map(
       (workers ?? []).map((row) => {
-        const record = row as Record<string, unknown>;
+        const record = row as unknown as Record<string, unknown>;
         const name =
           textValue(record.full_name) ||
           textValue(record.worker_name) ||
@@ -604,7 +604,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
       .eq("approval_status", RESOURCE_APPROVAL_PENDING);
     if (error) continue;
     for (const row of plantRows ?? []) {
-      const record = row as Record<string, unknown>;
+      const record = row as unknown as Record<string, unknown>;
       const rowOrg = textValue(record.organisation_id) || null;
       if (rowOrg && rowOrg !== orgId) continue;
       const projectId =
@@ -643,7 +643,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
     )
     .eq("approval_status", RESOURCE_APPROVAL_PENDING);
   for (const row of plantAssignmentRows ?? []) {
-    const record = row as Record<string, unknown>;
+    const record = row as unknown as Record<string, unknown>;
     const rowOrg = textValue(record.organisation_id) || null;
     if (rowOrg && rowOrg !== orgId) continue;
     const projectId = textValue(record.project_id);
@@ -686,7 +686,7 @@ export async function listPendingResourceApprovals(): Promise<PendingResourceApp
     }
     const names = new Map(
       (projects ?? []).map((row) => {
-        const record = row as Record<string, unknown>;
+        const record = row as unknown as Record<string, unknown>;
         const id = textValue(record.id);
         projectOrgs.set(id, textValue(record.organisation_id) || null);
         return [
@@ -751,7 +751,7 @@ export async function approveResourceAssignment(input: {
       .select("id, full_name, worker_name, assigned_project_ids, organisation_id, subcontractor_id")
       .eq("id", input.resourceId)
       .maybeSingle();
-    const workerRow = (worker ?? {}) as Record<string, unknown>;
+    const workerRow = (worker ?? {}) as unknown as Record<string, unknown>;
     const existingIds = Array.isArray(workerRow.assigned_project_ids)
       ? workerRow.assigned_project_ids.map(textValue).filter(Boolean)
       : [];
@@ -887,14 +887,14 @@ export async function listSubcontractorApprovedAlerts(): Promise<
     .limit(20);
   if (error || !data) return [];
 
-  return (data as Record<string, unknown>[])
+  return (data as unknown as Record<string, unknown>[])
     .filter((row) => {
       const read = row.read === true || row.is_read === true;
       if (read) return false;
       if (textValue(row.user_id) === auth.user.id) return true;
       if (textValue(row.recipient_id) === auth.user.id) return true;
       if (textValue(row.subcontractor_id) === subcontractorId) return true;
-      const metadata = row.metadata as Record<string, unknown> | null;
+      const metadata = row.metadata as unknown as Record<string, unknown> | null;
       return textValue(metadata?.subcontractor_id) === subcontractorId;
     })
     .map((row) => ({
