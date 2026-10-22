@@ -14,6 +14,7 @@ import {
   resolvePostAuthPathForUser,
 } from "@/lib/auth-profile";
 import { resolvePostLoginPath } from "@/lib/native-app";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
 import { fetchWorkerOnboardingCompleted } from "@/lib/worker-onboarding";
 import { resolvePostInvitePasswordPath } from "@/lib/worker-invite-redirect";
 import {
@@ -230,9 +231,10 @@ export default function AuthSetPasswordForm({
         }
       }
       if (!nextPath) nextPath = "/worker-dashboard";
+      const relativeNext = toRelativeAppPath(nextPath, "/worker-dashboard");
 
       setSuccess(true);
-      window.setTimeout(() => router.replace(nextPath), 2000);
+      window.setTimeout(() => router.push(relativeNext), 2000);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to set password.");
     } finally {

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
 const VALID_OTP_TYPES = new Set<EmailOtpType>([
@@ -21,28 +22,24 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
 }
 
 function resolveSafeNext(next: string | null): string {
+  const relative = toRelativeAppPath(next, "/setyourpassword");
   if (
-    next &&
-    next.startsWith("/") &&
-    !next.startsWith("//") &&
-    !next.startsWith("/login") &&
-    !next.startsWith("/admin")
+    relative.startsWith("/") &&
+    !relative.startsWith("//") &&
+    !relative.startsWith("/login") &&
+    !relative.startsWith("/admin")
   ) {
-    return next.split("?")[0] || "/setyourpassword";
+    return relative.split("?")[0] || "/setyourpassword";
   }
   return "/setyourpassword";
 }
 
-function resolveOrigin(request: Request): string {
-  const configured = (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    ""
-  ).replace(/\/$/, "");
-  if (configured.startsWith("http") && !configured.includes("localhost")) {
-    return configured;
-  }
+function requestOrigin(request: Request): string {
   return new URL(request.url).origin;
+}
+
+function redirectSameOrigin(request: Request, path: string): NextResponse {
+  return NextResponse.redirect(new URL(toRelativeAppPath(path, "/setyourpassword"), request.url));
 }
 
 function redirectRecoveryToResetPage(
@@ -50,8 +47,7 @@ function redirectRecoveryToResetPage(
   tokenHash: string,
   type: string
 ): NextResponse {
-  const origin = resolveOrigin(request);
-  const target = new URL("/reset-password", origin);
+  const target = new URL("/reset-password", request.url);
   target.searchParams.set("token_hash", tokenHash);
   target.searchParams.set("type", type || "recovery");
   return NextResponse.redirect(target);
@@ -95,7 +91,7 @@ async function exchangeTokenHash(input: {
   type: EmailOtpType;
   next: string;
 }): Promise<NextResponse> {
-  const origin = resolveOrigin(input.request);
+  const origin = requestOrigin(input.request);
   const incomingCookies = input.request.headers.get("cookie") ?? "";
   const cookieMap = new Map<string, string>();
   incomingCookies.split(";").forEach((part) => {
@@ -104,7 +100,9 @@ async function exchangeTokenHash(input: {
     cookieMap.set(rawName, rest.join("="));
   });
 
-  const successResponse = NextResponse.redirect(new URL(input.next, origin));
+  const successResponse = NextResponse.redirect(
+    new URL(toRelativeAppPath(input.next, "/setyourpassword"), origin)
+  );
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -162,11 +160,10 @@ async function readConfirmParams(
 }
 
 export async function handleAuthConfirmRequest(request: Request): Promise<NextResponse> {
-  const origin = resolveOrigin(request);
   const { tokenHash, type, next } = await readConfirmParams(request);
 
   if (!tokenHash || !type || !VALID_OTP_TYPES.has(type as EmailOtpType)) {
-    return NextResponse.redirect(new URL(EXPIRED_REDIRECT, origin));
+    return redirectSameOrigin(request, EXPIRED_REDIRECT);
   }
 
   const otpType = type as EmailOtpType;

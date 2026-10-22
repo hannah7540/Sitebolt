@@ -36,6 +36,7 @@ import {
   isSubcontractorOnboardPath,
 } from "@/lib/public-auth-paths";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
 import {
   isAppHostname,
   requestHostHeader,
@@ -130,7 +131,14 @@ function redirectWithCookies(
   path: string,
   sessionResponse: NextResponse
 ): NextResponse {
-  const redirect = NextResponse.redirect(new URL(path, request.url));
+  const dest = request.nextUrl.clone();
+  const relative = toRelativeAppPath(path, GENERAL_WORKER_HOME_PATH);
+  const [pathnameAndSearch] = relative.split("#");
+  const [pathname, search] = (pathnameAndSearch || GENERAL_WORKER_HOME_PATH).split("?");
+  dest.pathname = pathname || GENERAL_WORKER_HOME_PATH;
+  dest.search = search ? `?${search}` : "";
+  dest.hash = "";
+  const redirect = NextResponse.redirect(dest);
   copyCookies(sessionResponse, redirect);
   return redirect;
 }
@@ -374,20 +382,21 @@ function workerSafeLoginDestination(
   request: NextRequest,
   nextPath: string
 ): string {
-  const nextPathname = nextPath.split("?")[0] ?? "";
+  const relativeNext = toRelativeAppPath(nextPath, "");
+  const nextPathname = relativeNext.split("?")[0] ?? "";
   if (isWorkerRole(context.role)) {
-    if (nextPath.startsWith("/") && isGeneralWorkerAllowedPath(nextPathname)) {
-      return nextPath;
+    if (relativeNext.startsWith("/") && isGeneralWorkerAllowedPath(nextPathname)) {
+      return relativeNext;
     }
     return resolveAuthenticatedHomePath(context, request);
   }
   if (
-    nextPath.startsWith("/") &&
+    relativeNext.startsWith("/") &&
     nextPathname !== "/" &&
     nextPathname !== GENERAL_WORKER_HOME_PATH &&
     !nextPathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`)
   ) {
-    return nextPath;
+    return relativeNext;
   }
   return resolveAuthenticatedHomePath(context, request);
 }

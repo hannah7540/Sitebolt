@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
 
 export const dynamic = "force-dynamic";
 
@@ -15,40 +16,47 @@ function isInviteAuthType(type: string | null, next: string | null): boolean {
  * Password-reset codes are parsed and handed to the client reset page only.
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const next = searchParams.get("next");
 
-  const targetUrl = new URL("/reset-password", origin);
+  const dest = request.nextUrl.clone();
+  dest.pathname = "/reset-password";
+  dest.search = "";
+  dest.hash = "";
 
   if (code && !isInviteAuthType(type, next)) {
-    targetUrl.searchParams.set("code", code);
-    targetUrl.searchParams.set("type", type || "recovery");
-    if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
-    return NextResponse.redirect(targetUrl);
+    dest.searchParams.set("code", code);
+    dest.searchParams.set("type", type || "recovery");
+    if (token_hash) dest.searchParams.set("token_hash", token_hash);
+    return NextResponse.redirect(dest);
   }
 
   if (token_hash && (type || "recovery") === "recovery") {
-    targetUrl.searchParams.set("token_hash", token_hash);
-    targetUrl.searchParams.set("type", type || "recovery");
-    if (code) targetUrl.searchParams.set("code", code);
-    return NextResponse.redirect(targetUrl);
+    dest.searchParams.set("token_hash", token_hash);
+    dest.searchParams.set("type", type || "recovery");
+    if (code) dest.searchParams.set("code", code);
+    return NextResponse.redirect(dest);
   }
 
   if (next?.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")) {
-    const inviteTarget = new URL(next.split("?")[0] || "/setyourpassword", origin);
+    const inviteTarget = request.nextUrl.clone();
+    const relative = toRelativeAppPath(next.split("?")[0] || "/setyourpassword", "/setyourpassword");
+    inviteTarget.pathname = relative.split("?")[0] || "/setyourpassword";
+    inviteTarget.search = "";
+    inviteTarget.hash = "";
     if (token_hash) inviteTarget.searchParams.set("token_hash", token_hash);
     if (type) inviteTarget.searchParams.set("type", type);
     if (code) inviteTarget.searchParams.set("code", code);
     return NextResponse.redirect(inviteTarget);
   }
 
-  if (code) targetUrl.searchParams.set("code", code);
-  if (token_hash) targetUrl.searchParams.set("token_hash", token_hash);
-  targetUrl.searchParams.set("type", type || "recovery");
-  return NextResponse.redirect(targetUrl);
+  if (code) dest.searchParams.set("code", code);
+  if (token_hash) dest.searchParams.set("token_hash", token_hash);
+  dest.searchParams.set("type", type || "recovery");
+  return NextResponse.redirect(dest);
 }
 
 export async function HEAD() {

@@ -16,6 +16,9 @@ import { isSuperAdminAccount } from "@/lib/super-admin";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import { resolvePostLoginPath } from "@/lib/native-app";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
+import { isGeneralWorkerRole } from "@/lib/user-session";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
   hasAuthHashFragment,
@@ -62,16 +65,23 @@ function LoginPageContent() {
 
   const navigateAfterLogin = useCallback(
     (path: string) => {
-      const target = path.trim();
-      if (!target.startsWith("/")) {
+      const relative = toRelativeAppPath(path, "/worker-dashboard");
+      if (!relative.startsWith("/") || relative.startsWith("//")) {
         const message = "Sign in succeeded but the destination was invalid.";
         setError(message);
         showError(message);
         return;
       }
 
+      const destination =
+        isStandalonePwa() && !relative.startsWith("/onboarding")
+          ? relative.startsWith("/worker-dashboard")
+            ? relative
+            : "/worker-dashboard"
+          : relative;
+
       try {
-        router.replace(target);
+        router.push(destination);
       } catch (cause) {
         const message =
           cause instanceof Error ? cause.message : "Unable to open the app after sign in.";
@@ -139,6 +149,20 @@ function LoginPageContent() {
         return;
       }
 
+      if (isGeneralWorkerRole(bound.role) || isStandalonePwa()) {
+        const onboardingPath = await resolvePostAuthPathForUser(data.user);
+        if (onboardingPath.startsWith("/onboarding")) {
+          navigateAfterLogin(onboardingPath);
+          return;
+        }
+        router.push(
+          bound.workerId
+            ? `/worker-dashboard?worker_id=${encodeURIComponent(bound.workerId)}`
+            : "/worker-dashboard"
+        );
+        return;
+      }
+
       const targetPath = resolvePostLoginPath(bound.role, bound.workerId, {
         returnPath,
         defaultPath: await resolvePostAuthPathForUser(data.user),
@@ -173,14 +197,13 @@ function LoginPageContent() {
       return;
     }
 
-    if (hasAuthCodeQuery()) {
-      window.location.replace(
-        `/reset-password${window.location.search}${window.location.hash}`
-      );
+    if (hasAuthCodeQuery() && !hasAuthHashFragment()) {
+      router.replace(`/reset-password${window.location.search}`);
       return;
     }
 
     if (hasAuthHashFragment()) {
+      // Hash tokens cannot be passed through Next.js router; keep a same-origin relative path.
       window.location.replace(
         `/reset-password${window.location.search}${window.location.hash}`
       );
@@ -238,6 +261,19 @@ function LoginPageContent() {
       if (cancelled) return;
 
       if (bound.ok) {
+        if (isGeneralWorkerRole(bound.role) || isStandalonePwa()) {
+          const defaultPath = await resolvePostAuthPathForUser(user);
+          if (defaultPath.startsWith("/onboarding")) {
+            navigateAfterLogin(defaultPath);
+            return;
+          }
+          router.push(
+            bound.workerId
+              ? `/worker-dashboard?worker_id=${encodeURIComponent(bound.workerId)}`
+              : "/worker-dashboard"
+          );
+          return;
+        }
         navigateAfterLogin(
           resolvePostLoginPath(bound.role, bound.workerId, {
             returnPath,
@@ -415,7 +451,7 @@ function LoginPageContent() {
             ) : null}
 
             <p className="mt-6 text-center text-sm text-slate-500">
-              <Link href="/" className="font-medium text-[#FF6B00] hover:text-[#E66000]">
+              <Link href="/worker-dashboard" className="font-medium text-[#FF6B00] hover:text-[#E66000]">
                 Back to SiteBolt
               </Link>
             </p>

@@ -5,7 +5,6 @@ import {
   isMarketingPublicPath,
   isOperationalAppPath,
   isWorkerStandalonePath,
-  resolveAppOriginFromRequest,
 } from "@/lib/site-domains";
 
 const PUBLIC_AUTH_PROXY_PATHS = [
@@ -109,11 +108,7 @@ export async function proxy(request: NextRequest) {
     }
 
     if (isOperationalAppPath(pathname) || isPlantPrestartPath(pathname)) {
-      const dest = new URL(
-        `${pathname}${request.nextUrl.search}`,
-        resolveAppOriginFromRequest(request)
-      );
-      return NextResponse.redirect(dest);
+      return runAuthProxy(request);
     }
 
     return NextResponse.next();

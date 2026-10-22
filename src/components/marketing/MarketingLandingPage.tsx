@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   Check,
@@ -19,7 +20,6 @@ import EverythingIncluded from "@/components/marketing/EverythingIncluded";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import TakeALookAround from "@/components/marketing/TakeALookAround";
 import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
-import { getAppLoginUrl } from "@/lib/site-domains";
 
 const NAV_ITEMS = [
   { id: "features", label: "Features" },
@@ -67,11 +67,6 @@ export default function MarketingLandingPage() {
   const searchParams = useSearchParams();
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [customBuildOpen, setCustomBuildOpen] = useState(false);
-  const [loginUrl, setLoginUrl] = useState("/login");
-
-  useEffect(() => {
-    setLoginUrl(getAppLoginUrl());
-  }, []);
 
   useEffect(() => {
     if (searchParams.get("enquire") === "1") {
@@ -110,9 +105,9 @@ export default function MarketingLandingPage() {
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <a href={loginUrl} className={ghostButtonClass + " !px-3 !py-2"}>
+            <Link href="/login" className={ghostButtonClass + " !px-3 !py-2"}>
               Existing Log In
-            </a>
+            </Link>
             <button type="button" onClick={openEnquire} className={primaryButtonClass + " !px-3 !py-2"}>
               Enquire Now
             </button>
@@ -376,9 +371,9 @@ export default function MarketingLandingPage() {
               <button type="button" onClick={openEnquire} className={primaryButtonClass}>
                 Enquire Now
               </button>
-              <a href={loginUrl} className={ghostButtonClass}>
+              <Link href="/login" className={ghostButtonClass}>
                 Existing Log In
-              </a>
+              </Link>
             </div>
           </div>
         </section>

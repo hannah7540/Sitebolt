@@ -125,19 +125,5 @@ export function resolveAppOriginFromRequest(request: NextRequest): string {
 }
 
 export function getAppLoginUrl(): string {
-  if (typeof window !== "undefined") {
-    const hostname = hostnameFromHost(window.location.host);
-    if (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "www.localhost"
-    ) {
-      const port = window.location.port ? `:${window.location.port}` : "";
-      return `${window.location.protocol}//app.localhost${port}/login`;
-    }
-    if (!isMarketingHostname(window.location.host)) {
-      return `${window.location.origin}/login`;
-    }
-  }
-  return PRODUCTION_APP_LOGIN_URL;
+  return "/login";
 }
