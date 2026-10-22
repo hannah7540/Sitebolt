@@ -130,7 +130,7 @@ export async function POST(request: Request) {
         status: "invited",
         notes: `State: ${state}`,
         invite_token: token,
-        invite_expires_at: expiresAt,
+        subcontractor_invite_expire_at: expiresAt,
       },
       orgId
     );

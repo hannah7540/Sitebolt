@@ -291,7 +291,7 @@ export async function completeSubcontractorOnboarding(input: {
     pi_policy_value: piValue,
     pi_document_url: piUpload.url,
     invite_token: null,
-    invite_expires_at: null,
+    subcontractor_invite_expire_at: null,
     updated_at: new Date().toISOString(),
   };
   if (userId) {

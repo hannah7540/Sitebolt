@@ -33,7 +33,7 @@ async function persistInviteToken(input: {
 
   let payload: Record<string, unknown> = {
     invite_token: input.token,
-    invite_expires_at: input.expiresAt,
+    subcontractor_invite_expire_at: input.expiresAt,
   };
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
