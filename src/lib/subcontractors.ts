@@ -379,7 +379,14 @@ export async function fetchSubcontractors(): Promise<Subcontractor[]> {
 export interface SubcontractorSelectOption {
   id: string;
   name: string;
+  trading_name?: string | null;
 }
+
+type SubcontractorSelectRow = {
+  id: unknown;
+  company_name?: string | null;
+  trading_name?: string | null;
+};
 
 /** Lightweight org-scoped list for worker onboarding assignment. */
 export async function fetchSubcontractorSelectOptions(): Promise<SubcontractorSelectOption[]> {
@@ -392,7 +399,10 @@ export async function fetchSubcontractorSelectOptions(): Promise<SubcontractorSe
     .select("id, company_name, trading_name")
     .order("company_name", { ascending: true });
   query = withOrganisationScope(query, orgId);
-  let { data, error } = await query;
+  const first = await query;
+  let data: SubcontractorSelectRow[] | null =
+    (first.data ?? null) as SubcontractorSelectRow[] | null;
+  let error = first.error;
 
   if (error && /trading_name/i.test(error.message)) {
     let retry = supabase
@@ -400,7 +410,9 @@ export async function fetchSubcontractorSelectOptions(): Promise<SubcontractorSe
       .select("id, company_name, trading_name")
       .order("company_name", { ascending: true });
     retry = withOrganisationScope(retry, orgId);
-    ({ data, error } = await retry);
+    const retried = await retry;
+    data = (retried.data ?? null) as SubcontractorSelectRow[] | null;
+    error = retried.error;
   }
 
   if (error && isOrganisationColumnMissing(error.message)) {
