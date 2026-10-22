@@ -5,6 +5,8 @@ import {
   type SubcontractorPortalPlant,
   type SubcontractorPortalWorker,
 } from "./subcontractor-portal-models";
+import { createSupabaseAdminClient } from "./supabase/admin";
+import { isSupabaseAdminConfigured } from "./supabase/env";
 import { createSupabaseServerClient } from "./supabase/server";
 import { getTicketStatus, type TicketStatus } from "./worker-utils";
 
@@ -129,11 +131,11 @@ function applyDocument(
 }
 
 async function querySubcontractorBy(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  client: { from: Awaited<ReturnType<typeof createSupabaseServerClient>>["from"] },
   column: string,
   value: string
 ): Promise<{ row: Record<string, unknown> | null; missingColumn: boolean }> {
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("subcontractors")
     .select("*")
     .eq(column, value)
@@ -214,9 +216,11 @@ export async function loadCurrentSubcontractorPortal(): Promise<{
     lookups.push({ column: "contact_email", value: email });
   }
 
+  const reader = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : supabase;
+
   let row: Record<string, unknown> | null = null;
   for (const lookup of lookups) {
-    const result = await querySubcontractorBy(supabase, lookup.column, lookup.value);
+    const result = await querySubcontractorBy(reader, lookup.column, lookup.value);
     if (result.row) {
       row = result.row;
       break;

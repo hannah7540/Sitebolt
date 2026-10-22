@@ -5,6 +5,8 @@ import {
   type SubcontractorPortalProject,
   type SubcontractorPortalWorker,
 } from "./subcontractor-portal-models";
+import { createSupabaseAdminClient } from "./supabase/admin";
+import { isSupabaseAdminConfigured } from "./supabase/env";
 import { createSupabaseServerClient } from "./supabase/server";
 
 export type { SubcontractorPortalProject };
@@ -20,27 +22,57 @@ export async function fetchSubcontractorAssignedProjects(
 ): Promise<SubcontractorPortalProject[]> {
   const id = subcontractorId.trim();
   if (!id) return [];
-  const supabase = await createSupabaseServerClient();
+  if (!isSupabaseAdminConfigured()) {
+    console.error("[subcontractor-portal] Service role is not configured for project fetch.");
+    return [];
+  }
 
-  const { data: links, error: linkError } = await supabase
+  const admin = createSupabaseAdminClient();
+  const projectIds = new Set<string>();
+
+  const { data: links, error: linkError } = await admin
     .from("project_subcontractors")
     .select("project_id")
     .eq("subcontractor_id", id);
 
-  if (linkError || !links?.length) return [];
+  if (linkError) {
+    console.error("[subcontractor-portal] project_subcontractors fetch failed", linkError);
+  } else {
+    for (const row of links ?? []) {
+      const projectId = text((row as Record<string, unknown>).project_id);
+      if (projectId) projectIds.add(projectId);
+    }
+  }
 
-  const projectIds = [
-    ...new Set(links.map((row) => text((row as Record<string, unknown>).project_id)).filter(Boolean)),
-  ];
-  if (projectIds.length === 0) return [];
+  const { data: subcontractor, error: subError } = await admin
+    .from("subcontractors")
+    .select("assigned_project_ids")
+    .eq("id", id)
+    .maybeSingle();
+  if (subError) {
+    console.warn("[subcontractor-portal] assigned_project_ids fetch skipped", subError);
+  } else {
+    const assigned = (subcontractor as { assigned_project_ids?: unknown } | null)
+      ?.assigned_project_ids;
+    if (Array.isArray(assigned)) {
+      for (const value of assigned) {
+        const projectId = text(value);
+        if (projectId) projectIds.add(projectId);
+      }
+    }
+  }
 
-  const { data: projects, error } = await supabase
+  if (projectIds.size === 0) return [];
+  const ids = [...projectIds];
+
+  const { data: projects, error } = await admin
     .from("projects")
-    .select("id, project_name, slug, location, status, is_active")
-    .in("id", projectIds);
+    .select("*")
+    .in("id", ids);
 
-  if (error || !projects) {
-    return projectIds.map((projectId) => ({
+  if (error) {
+    console.error("[subcontractor-portal] projects fetch failed", error);
+    return ids.map((projectId) => ({
       id: projectId,
       name: "Assigned project",
       location: "",
@@ -49,13 +81,17 @@ export async function fetchSubcontractorAssignedProjects(
   }
 
   const byId = new Map(
-    projects.map((row) => {
+    (projects ?? []).map((row) => {
       const record = row as Record<string, unknown>;
       return [
         text(record.id),
         {
           id: text(record.id),
-          name: text(record.project_name) || text(record.slug) || "Assigned project",
+          name:
+            text(record.project_name) ||
+            text(record.name) ||
+            text(record.slug) ||
+            "Assigned project",
           location: text(record.location),
           status: text(record.status) || (record.is_active === false ? "inactive" : "active"),
         } satisfies SubcontractorPortalProject,
@@ -63,7 +99,7 @@ export async function fetchSubcontractorAssignedProjects(
     })
   );
 
-  return projectIds.map(
+  return ids.map(
     (projectId) =>
       byId.get(projectId) ?? {
         id: projectId,

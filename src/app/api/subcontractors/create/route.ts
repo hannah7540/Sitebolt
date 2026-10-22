@@ -156,18 +156,46 @@ export async function POST(request: Request) {
 
     let assignPayload: Record<string, unknown>[] = linkRows;
     let assignError: string | null = null;
+    console.log("[subcontractor-create] Inserting project_subcontractors", {
+      subcontractorId,
+      projectIds,
+      payload: assignPayload,
+    });
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const { error } = await admin.from("project_subcontractors").insert(assignPayload);
       if (!error) {
         assignError = null;
         break;
       }
+      console.error("[subcontractor-create] project_subcontractors insert failed", {
+        attempt,
+        error,
+        payload: assignPayload,
+      });
       const missing = parseMissingColumnFromError(error.message);
       if (missing && assignPayload.some((row) => missing in row)) {
         assignPayload = assignPayload.map((row) => stripMissingColumn(row, missing));
         continue;
       }
       assignError = error.message;
+      break;
+    }
+
+    let assignedIdsPayload: Record<string, unknown> = {
+      assigned_project_ids: projectIds,
+    };
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const { error } = await admin
+        .from("subcontractors")
+        .update(assignedIdsPayload)
+        .eq("id", subcontractorId);
+      if (!error) break;
+      const missing = parseMissingColumnFromError(error.message);
+      if (missing && missing in assignedIdsPayload) {
+        assignedIdsPayload = stripMissingColumn(assignedIdsPayload, missing);
+        continue;
+      }
+      console.warn("[subcontractor-create] assigned_project_ids update failed", error);
       break;
     }
 
