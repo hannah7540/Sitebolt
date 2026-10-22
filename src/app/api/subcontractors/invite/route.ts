@@ -23,9 +23,13 @@ async function persistInviteToken(input: {
   subcontractorId?: string;
   email?: string;
 }): Promise<{ error: string | null }> {
-  const client = isSupabaseAdminConfigured()
-    ? createSupabaseAdminClient()
-    : await createSupabaseServerClient();
+  if (!isSupabaseAdminConfigured()) {
+    return {
+      error:
+        "SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to .env.local or Vercel (server-only).",
+    };
+  }
+  const client = createSupabaseAdminClient();
 
   let payload: Record<string, unknown> = {
     invite_token: input.token,

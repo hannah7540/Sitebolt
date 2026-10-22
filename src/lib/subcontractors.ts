@@ -449,83 +449,44 @@ export async function inviteSubcontractor(input: {
     return { error: "Assign at least one project.", id: null, inviteError: null };
   }
 
-  const inviteToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-  const inviteExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const response = await fetch("/api/subcontractors/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyName,
+        contactName,
+        email,
+        state,
+        projectIds,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      id?: string;
+      inviteError?: string;
+    } | null;
+    const id = typeof body?.id === "string" && body.id.trim() ? body.id : null;
+    const apiError = body?.error?.trim() || null;
+    const inviteError = body?.inviteError?.trim() || null;
 
-  const payload = stampOrganisationId(
-    {
-      company_name: companyName,
-      contact_name: contactName,
-      contact_person: contactName,
-      contact_email: email,
-      email,
-      state,
-      status: "invited",
-      notes: `State: ${state}`,
-      invite_token: inviteToken,
-      invite_expires_at: inviteExpiresAt,
-    },
-    orgId
-  );
+    if (!response.ok) {
+      return {
+        error: apiError ?? "Failed to create subcontractor.",
+        id,
+        inviteError,
+      };
+    }
 
-  const inserted = await insertRowWithMissingColumnRetry("subcontractors", payload, "id");
-  if (inserted.error || !inserted.data?.id) {
+    return { error: null, id, inviteError };
+  } catch (cause) {
     return {
-      error: inserted.error ?? "Failed to create subcontractor.",
+      error:
+        cause instanceof Error ? cause.message : "Failed to create subcontractor.",
       id: null,
       inviteError: null,
     };
   }
-
-  const subcontractorId = String(inserted.data.id);
-  const linkRows = projectIds.map((projectId) => ({
-    project_id: projectId,
-    subcontractor_id: subcontractorId,
-  }));
-
-  const { error: linkError } = await supabase.from("project_subcontractors").insert(linkRows);
-  if (linkError) {
-    return {
-      error: null,
-      id: subcontractorId,
-      inviteError: `Subcontractor saved, but project assignments failed: ${linkError.message}`,
-    };
-  }
-
-  try {
-    const response = await fetch("/api/subcontractors/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email,
-        companyName,
-        contactName,
-        subcontractorId,
-        token: inviteToken,
-      }),
-    });
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    if (!response.ok) {
-      return {
-        error: null,
-        id: subcontractorId,
-        inviteError: body?.error ?? "Subcontractor saved, but the invitation email failed.",
-      };
-    }
-  } catch (cause) {
-    return {
-      error: null,
-      id: subcontractorId,
-      inviteError:
-        cause instanceof Error
-          ? cause.message
-          : "Subcontractor saved, but the invitation email failed.",
-    };
-  }
-
-  return { error: null, id: subcontractorId, inviteError: null };
 }
 
 export async function insertSubcontractor(input: {

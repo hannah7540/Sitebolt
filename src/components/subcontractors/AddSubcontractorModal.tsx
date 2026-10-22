@@ -24,11 +24,13 @@ export interface AddSubcontractorSavedDetails {
 interface AddSubcontractorModalProps {
   onClose: () => void;
   onSaved: (subcontractorId: string, details: AddSubcontractorSavedDetails) => void;
+  onError?: (message: string) => void;
 }
 
 export default function AddSubcontractorModal({
   onClose,
   onSaved,
+  onError,
 }: AddSubcontractorModalProps) {
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -73,7 +75,9 @@ export default function AddSubcontractorModal({
     });
     setSaving(false);
     if (result.error || !result.id) {
-      setError(result.error ?? "Failed to invite subcontractor.");
+      const message = result.error ?? "Failed to invite subcontractor.";
+      setError(message);
+      onError?.(message);
       return;
     }
     onSaved(result.id, {

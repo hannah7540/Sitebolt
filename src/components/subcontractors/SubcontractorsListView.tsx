@@ -171,7 +171,12 @@ export default function SubcontractorsListView({
   return (
     <div>
       {toast ? (
-        <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+        <Toast
+          message={toast.message}
+          variant={toast.variant}
+          onDismiss={dismissToast}
+          durationMs={toast.variant === "error" ? 14000 : 7000}
+        />
       ) : null}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -320,6 +325,7 @@ export default function SubcontractorsListView({
         <AddSubcontractorModal
           onClose={() => setShowAdd(false)}
           onSaved={handleSaved}
+          onError={showError}
         />
       )}
     </div>
