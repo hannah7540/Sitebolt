@@ -22,6 +22,7 @@ export const NATIVE_ALLOWED_PATH_PREFIXES = [
   "/onboarding",
   "/subcontractor",
   "/portal/",
+  "/swms",
   "/swms/sign/",
   "/guest",
   "/prestart/",

@@ -11,7 +11,10 @@ import {
 import { DATABASE_CONNECTION_ERROR_MESSAGE } from "@/lib/project-resolver";
 import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
 import { cardClass } from "@/lib/ui-classes";
-import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import {
+  resolveAuthWorkerFromSession,
+  WORKER_PROFILE_NOT_LINKED_MESSAGE,
+} from "@/lib/auth-profile";
 import { fetchSessionHome, isSubcontractorHomePath } from "@/lib/auth-session-home";
 import { redirectToLogin } from "@/lib/auth-guard";
 import { toRelativeAppPath } from "@/lib/relative-app-path";
@@ -29,12 +32,6 @@ import {
   resolveDashboardWorkerId,
   workerDashboardUrl,
 } from "@/lib/user-session";
-import {
-  fetchHiredLabourAccess,
-  HIRED_LABOUR_ONBOARDING_PATH,
-  hiredLabourCanAccessApp,
-  isHiredLabourWorker,
-} from "@/lib/hired-labour";
 
 function WorkerDashboardContent() {
   const searchParams = useSearchParams();
@@ -77,14 +74,6 @@ function WorkerDashboardContent() {
               null
             : null;
         const sessionRole = normalizeSecurityRole(sessionWorker?.security_role);
-
-        if (sessionWorker && isHiredLabourWorker(sessionWorker)) {
-          const access = await fetchHiredLabourAccess(sessionWorker.id);
-          if (!hiredLabourCanAccessApp(access)) {
-            router.replace(HIRED_LABOUR_ONBOARDING_PATH);
-            return;
-          }
-        }
 
         if (
           sessionWorker &&
@@ -140,9 +129,7 @@ function WorkerDashboardContent() {
             );
             return;
           }
-          setFetchError(
-            "No worker profile is linked to your account. Contact your administrator."
-          );
+          setFetchError(WORKER_PROFILE_NOT_LINKED_MESSAGE);
         }
       } catch (error) {
         console.error("Worker dashboard profile resolution failed:", error);

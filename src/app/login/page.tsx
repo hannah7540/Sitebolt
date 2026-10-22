@@ -10,7 +10,13 @@ import Toast from "@/components/ui/Toast";
 import TechAmbientBackdrop from "@/components/marketing/TechAmbientBackdrop";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import { useFormToast } from "@/hooks/useFormToast";
-import { bindAuthSessionForUser, resolvePostAuthPathForUser } from "@/lib/auth-profile";
+import {
+  bindAuthSessionForUser,
+  resolvePostAuthPathForUser,
+  WORKER_PROFILE_NOT_LINKED_ERROR_PARAM,
+  WORKER_PROFILE_NOT_LINKED_MESSAGE,
+} from "@/lib/auth-profile";
+import { isGeneralWorkerRole } from "@/lib/user-session";
 import { clearOrganisationWorkspace } from "@/lib/activate-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -53,6 +59,8 @@ function LoginPageContent() {
   const resetSuccess = searchParams.get("reset") === "success";
   const passwordSetMessage = searchParams.get("message");
   const revokedError = searchParams.get("error") === WORKER_REVOKED_LOGIN_ERROR_PARAM;
+  const profileLinkError =
+    searchParams.get("error") === WORKER_PROFILE_NOT_LINKED_ERROR_PARAM;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -133,7 +141,17 @@ function LoginPageContent() {
       const bound = await bindAuthSessionForUser(data.user);
       if (!bound.ok) {
         await supabase.auth.signOut();
-        displayAuthError(bound.error ?? "Unable to sign in. Contact your administrator.");
+        displayAuthError(bound.error ?? WORKER_PROFILE_NOT_LINKED_MESSAGE);
+        return;
+      }
+
+      if (
+        isGeneralWorkerRole(bound.role) &&
+        !bound.workerId &&
+        !bound.subcontractorId
+      ) {
+        await supabase.auth.signOut();
+        displayAuthError(WORKER_PROFILE_NOT_LINKED_MESSAGE);
         return;
       }
 
@@ -247,6 +265,18 @@ function LoginPageContent() {
 
       if (bound.ok) {
         if (
+          isGeneralWorkerRole(bound.role) &&
+          !bound.workerId &&
+          !bound.subcontractorId
+        ) {
+          await supabase.auth.signOut();
+          if (!cancelled) {
+            displayAuthError(WORKER_PROFILE_NOT_LINKED_MESSAGE);
+            setCheckingSession(false);
+          }
+          return;
+        }
+        if (
           isSuperAdminAccount({
             email: user.email,
             metadata: (user.user_metadata ?? null) as Record<string, unknown> | null,
@@ -266,17 +296,20 @@ function LoginPageContent() {
         return;
       }
 
-      if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
+      if (
+        bound.error === WORKER_REVOKED_LOGIN_MESSAGE ||
+        bound.error === WORKER_PROFILE_NOT_LINKED_MESSAGE
+      ) {
         await supabase.auth.signOut();
         if (!cancelled) {
-          displayAuthError(WORKER_REVOKED_LOGIN_MESSAGE);
+          displayAuthError(bound.error);
           setCheckingSession(false);
         }
         return;
       }
 
       if (!cancelled) {
-        displayAuthError(bound.error ?? "Unable to sign in. Contact your administrator.");
+        displayAuthError(bound.error ?? WORKER_PROFILE_NOT_LINKED_MESSAGE);
         setCheckingSession(false);
       }
     }
@@ -355,6 +388,12 @@ function LoginPageContent() {
             {revokedError ? (
               <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {WORKER_REVOKED_LOGIN_MESSAGE}
+              </p>
+            ) : null}
+
+            {profileLinkError && !error ? (
+              <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {WORKER_PROFILE_NOT_LINKED_MESSAGE}
               </p>
             ) : null}
 

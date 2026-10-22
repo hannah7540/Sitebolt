@@ -30,15 +30,14 @@ export async function GET() {
     });
   }
 
-  const worker = await matchWorkerForAuthUser(supabase, user);
-  const workerId = worker?.workerId ?? null;
-
   const lookupClient = isSupabaseAdminConfigured()
     ? createSupabaseAdminClient()
     : supabase;
+  const worker = await matchWorkerForAuthUser(lookupClient, user);
+  const workerId = worker?.workerId ?? null;
   const subcontractorId = await lookupSubcontractorIdForAuthUser(lookupClient, user);
 
-  const { data: profile } = await supabase
+  const { data: profile } = await lookupClient
     .from("profiles")
     .select("role, worker_id")
     .eq("id", user.id)

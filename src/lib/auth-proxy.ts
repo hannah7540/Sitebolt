@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import {
   canAccessAdminConsole,
@@ -14,6 +14,7 @@ import {
   isGeneralWorkerAllowedPath,
   isOrganisationPath,
   isProjectTeamAllowedPath,
+  isWorkerSwmsPath,
   resolveProjectTeamFallbackPath,
 } from "@/lib/rbac-guards";
 import {
@@ -94,6 +95,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/select-company",
   "/dashboard",
   "/subcontractor",
+  "/swms",
 ] as const;
 
 /** Admin console roles land on the Master Project Dashboard, not a specific project. */
@@ -124,7 +126,25 @@ function requiresAuthentication(pathname: string, request: NextRequest): boolean
 function isWorkerHomePath(pathname: string): boolean {
   return (
     isGeneralWorkerAllowedPath(pathname) ||
+    isWorkerSwmsPath(pathname) ||
     isPlantPrestartPath(pathname)
+  );
+}
+
+function isWorkerDashboardPath(pathname: string): boolean {
+  return (
+    pathname === GENERAL_WORKER_HOME_PATH ||
+    pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`)
+  );
+}
+
+/** Workers in public.workers keep dashboard + SWMS even with subcontractor_id / hired_labour. */
+function isGrantedWorkerAppPath(pathname: string): boolean {
+  return (
+    isWorkerDashboardPath(pathname) ||
+    isWorkerSwmsPath(pathname) ||
+    isPlantPrestartPath(pathname) ||
+    pathname.startsWith("/scan/")
   );
 }
 
@@ -163,7 +183,7 @@ interface AuthContext {
 }
 
 async function resolveWorkerAccess(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: SupabaseClient,
   workerId: string | null
 ): Promise<{ category: string | null; hiredLabourStatus: string | null }> {
   if (!workerId) return { category: null, hiredLabourStatus: null };
@@ -209,7 +229,7 @@ async function linkWorkerForSession(
 }
 
 async function resolveWorkerOnboardingCompleted(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: SupabaseClient,
   workerId: string
 ): Promise<boolean> {
   const selectVariants = [
@@ -265,15 +285,15 @@ async function resolveAuthContext(
   }
 
   const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(supabase, user);
-  const subcontractorLookupClient = isSupabaseAdminConfigured()
+  const privilegedClient = isSupabaseAdminConfigured()
     ? createSupabaseAdminClient()
     : supabase;
   const subcontractorId = await lookupSubcontractorIdForAuthUser(
-    subcontractorLookupClient,
+    privilegedClient,
     user
   );
 
-  const { data: profile } = await supabase
+  const { data: profile } = await privilegedClient
     .from("profiles")
     .select("role, worker_id")
     .eq("id", user.id)
@@ -284,9 +304,13 @@ async function resolveAuthContext(
     if (!workerId && !accessRevoked) {
       workerId = (await linkWorkerForSession(user)).workerId;
     }
-    const access = await resolveWorkerAccess(supabase, workerId);
+    if (!workerId) {
+      workerId =
+        (await matchWorkerForAuthUser(privilegedClient, user))?.workerId ?? null;
+    }
+    const access = await resolveWorkerAccess(privilegedClient, workerId);
     const onboardingCompleted = workerId
-      ? await resolveWorkerOnboardingCompleted(supabase, workerId)
+      ? await resolveWorkerOnboardingCompleted(privilegedClient, workerId)
       : true;
 
     return {
@@ -301,14 +325,14 @@ async function resolveAuthContext(
     };
   }
 
-  const match = await matchWorkerForAuthUser(supabase, user);
+  const match = await matchWorkerForAuthUser(privilegedClient, user);
   if (match?.workerId) {
     const onboardingCompleted = await resolveWorkerOnboardingCompleted(
-      supabase,
+      privilegedClient,
       match.workerId
     );
 
-    const access = await resolveWorkerAccess(supabase, match.workerId);
+    const access = await resolveWorkerAccess(privilegedClient, match.workerId);
     return {
       user,
       role: normalizeSecurityRole(match.securityRole),
@@ -325,10 +349,10 @@ async function resolveAuthContext(
     const linked = await linkWorkerForSession(user);
     if (linked.workerId) {
       const onboardingCompleted = await resolveWorkerOnboardingCompleted(
-        supabase,
+        privilegedClient,
         linked.workerId
       );
-      const access = await resolveWorkerAccess(supabase, linked.workerId);
+      const access = await resolveWorkerAccess(privilegedClient, linked.workerId);
       return {
         user,
         role: normalizeSecurityRole(linked.securityRole),
@@ -366,12 +390,6 @@ function resolveAuthenticatedHomePath(
   request: NextRequest
 ): string {
   if (
-    String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
-    context.hiredLabourStatus !== "approved"
-  ) {
-    return "/onboarding/hired-labour";
-  }
-  if (
     isSuperAdminAccount({
       email: context.user?.email,
       metadata: (context.user?.user_metadata ?? null) as Record<string, unknown> | null,
@@ -379,6 +397,22 @@ function resolveAuthenticatedHomePath(
     !request.cookies.get(ACTIVE_ORG_COOKIE)?.value?.trim()
   ) {
     return "/select-company";
+  }
+  if (canAccessAdminConsole(context.role)) {
+    return resolveDefaultLandingPathForRole(
+      context.role,
+      context.workerId,
+      context.subcontractorId
+    );
+  }
+  if (context.workerId && isWorkerRole(context.role)) {
+    return resolveGeneralWorkerHomePath(context);
+  }
+  if (
+    String(context.workerCategory ?? "").toLowerCase() === "hired_labour" &&
+    context.hiredLabourStatus !== "approved"
+  ) {
+    return "/onboarding/hired-labour";
   }
   if (isNativeAppRequest(request) && isWorkerRole(context.role) && !context.subcontractorId) {
     return resolveNativeWorkerDashboardPath(context.workerId);
@@ -592,6 +626,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   const hiredLabourOnboardingPath = "/onboarding/hired-labour";
   if (
     hiredLabourBlocked &&
+    !isGrantedWorkerAppPath(pathname) &&
     !pathname.startsWith(hiredLabourOnboardingPath) &&
     !pathname.startsWith("/setyourpassword") &&
     !pathname.startsWith("/reset-password") &&
@@ -687,8 +722,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     if (
       context.subcontractorId &&
       !context.workerId &&
-      (pathname === GENERAL_WORKER_HOME_PATH ||
-        pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`))
+      isWorkerDashboardPath(pathname)
     ) {
       return redirectWithCookies(request, SUBCONTRACTOR_PORTAL_HOME_PATH, sessionResponse);
     }
@@ -697,7 +731,11 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
       ? hiredLabourOnboardingPath
       : "/onboarding";
 
-    if (hiredLabourBlocked && !pathname.startsWith(hiredLabourOnboardingPath)) {
+    if (
+      hiredLabourBlocked &&
+      !isGrantedWorkerAppPath(pathname) &&
+      !pathname.startsWith(hiredLabourOnboardingPath)
+    ) {
       return redirectWithCookies(request, hiredLabourOnboardingPath, sessionResponse);
     }
 

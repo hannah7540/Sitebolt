@@ -72,7 +72,10 @@ export function pickWorkerAuthRow(
   const pool = active.length > 0 ? active : rows;
 
   const linked = pool.find(
-    (row) => row.auth_user_id === options.userId || row.user_id === options.userId
+    (row) =>
+      row.id === options.userId ||
+      row.auth_user_id === options.userId ||
+      row.user_id === options.userId
   );
   if (linked) return linked;
 
@@ -223,7 +226,7 @@ async function selectWorkersByNormalizedEmail(
 
 async function selectWorkerRows(
   supabase: SupabaseClient,
-  column: "auth_user_id" | "user_id" | "email",
+  column: "id" | "auth_user_id" | "user_id" | "email",
   value: string
 ): Promise<WorkerAuthLookupRow[]> {
   if (column === "email") {
@@ -255,8 +258,13 @@ export async function matchWorkerForAuthUser(
   const email = user.email?.trim() || "";
   const activeOrgId = options?.activeOrgId ?? (typeof window === "undefined" ? null : getActiveOrganisationId());
 
-  const byAuthUserId = await selectWorkerRows(supabase, "auth_user_id", user.id);
-  let row = pickWorkerAuthRow(byAuthUserId, { userId: user.id, email, activeOrgId });
+  const byPrimaryId = await selectWorkerRows(supabase, "id", user.id);
+  let row = pickWorkerAuthRow(byPrimaryId, { userId: user.id, email, activeOrgId });
+
+  if (!row) {
+    const byAuthUserId = await selectWorkerRows(supabase, "auth_user_id", user.id);
+    row = pickWorkerAuthRow(byAuthUserId, { userId: user.id, email, activeOrgId });
+  }
 
   if (!row) {
     const byUserId = await selectWorkerRows(supabase, "user_id", user.id);

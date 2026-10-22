@@ -12,7 +12,10 @@ import { loadCurrentSubcontractorPortal } from "@/lib/subcontractor-portal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { stampOrganisationId } from "@/lib/tenant-scope";
-import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
+import {
+  findAuthUserByEmail,
+  sendWorkerInviteEmailViaResend,
+} from "@/lib/worker-invite-resend";
 import { buildWorkerNameFields } from "@/lib/worker-utils";
 
 type PostgrestLikeError = {
@@ -40,6 +43,48 @@ function text(value: unknown): string {
 
 function createInviteToken(): string {
   return randomBytes(32).toString("hex");
+}
+
+function isDuplicateKeyError(message: string | null | undefined): boolean {
+  const text = String(message ?? "").toLowerCase();
+  return (
+    text.includes("duplicate") ||
+    text.includes("unique") ||
+    text.includes("already exists") ||
+    text.includes("23505")
+  );
+}
+
+async function ensureAuthUserForSubcontractorWorker(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  email: string,
+  firstName: string,
+  lastName: string
+): Promise<{ id: string } | { error: string }> {
+  const existing = await findAuthUserByEmail(admin, email);
+  if (existing?.id) return { id: existing.id };
+
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: {
+      first_name: firstName,
+      last_name: lastName,
+      full_name: `${firstName} ${lastName}`.trim(),
+      role: DEFAULT_WORKER_SECURITY_ROLE,
+    },
+  });
+  if (data?.user?.id) return { id: data.user.id };
+
+  const raced = await findAuthUserByEmail(admin, email);
+  if (raced?.id) return { id: raced.id };
+
+  return {
+    error: formatPostgrestError(
+      error ? { message: error.message } : null,
+      "Could not create an auth user for this worker."
+    ),
+  };
 }
 
 async function insertWithMissingColumnRetry(
@@ -140,8 +185,23 @@ export async function POST(request: Request) {
 
     const names = buildWorkerNameFields(firstName, lastName);
     const inviteToken = createInviteToken();
+    const admin = createSupabaseAdminClient();
+    const authUser = await ensureAuthUserForSubcontractorWorker(
+      admin,
+      email,
+      firstName,
+      lastName
+    );
+    if ("error" in authUser) {
+      return NextResponse.json({ error: authUser.error }, { status: 500 });
+    }
+    const authUserId = authUser.id;
+
     const payload = stampOrganisationId(
       {
+        id: authUserId,
+        auth_user_id: authUserId,
+        user_id: authUserId,
         first_name: names.first_name,
         last_name: names.last_name,
         full_name: names.full_name,
@@ -173,7 +233,12 @@ export async function POST(request: Request) {
       organisationId
     );
 
-    const inserted = await insertWithMissingColumnRetry("workers", payload, "id");
+    let inserted = await insertWithMissingColumnRetry("workers", payload, "id");
+    if (inserted.error && isDuplicateKeyError(inserted.error)) {
+      const { id: _ignoredId, ...withoutPrimaryId } = payload;
+      void _ignoredId;
+      inserted = await insertWithMissingColumnRetry("workers", withoutPrimaryId, "id");
+    }
     if (inserted.error || !inserted.data?.id) {
       return NextResponse.json(
         { error: inserted.error ?? "Failed to create worker." },
@@ -182,12 +247,12 @@ export async function POST(request: Request) {
     }
 
     const workerId = String(inserted.data.id);
-    const admin = createSupabaseAdminClient();
     const prepared = await ensureWorkerInviteRecord(admin, {
       email,
       workerId,
       firstName,
       lastName,
+      authUserId,
     });
     if (prepared.error || !prepared.workerId) {
       return NextResponse.json(

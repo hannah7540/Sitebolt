@@ -41,10 +41,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(dest);
   }
 
+  const profileError = searchParams.get("error");
+  if (profileError === "worker_profile") {
+    dest.pathname = "/login";
+    dest.search = "";
+    dest.searchParams.set("error", "worker_profile");
+    return NextResponse.redirect(dest);
+  }
+
   if (next?.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")) {
     const inviteTarget = request.nextUrl.clone();
-    const relative = toRelativeAppPath(next.split("?")[0] || "/setyourpassword", "/setyourpassword");
-    inviteTarget.pathname = relative.split("?")[0] || "/setyourpassword";
+    const fallback =
+      next.startsWith("/worker-dashboard") || next.startsWith("/swms")
+        ? "/worker-dashboard"
+        : "/setyourpassword";
+    const relative = toRelativeAppPath(next.split("?")[0] || fallback, fallback);
+    inviteTarget.pathname = relative.split("?")[0] || fallback;
     inviteTarget.search = "";
     inviteTarget.hash = "";
     if (token_hash) inviteTarget.searchParams.set("token_hash", token_hash);

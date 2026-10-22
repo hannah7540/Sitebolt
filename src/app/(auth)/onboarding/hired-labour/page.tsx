@@ -11,7 +11,10 @@ import {
   uploadHiredLabourDocument,
 } from "@/lib/hired-labour";
 import type { HiredLabourStatus } from "@/lib/hired-labour-status";
-import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import {
+  resolveAuthWorkerFromSession,
+  WORKER_PROFILE_NOT_LINKED_MESSAGE,
+} from "@/lib/auth-profile";
 import { fetchAuthenticatedWorkerById, type Worker } from "@/lib/supabase";
 import { redirectToLogin } from "@/lib/auth-guard";
 import HiredLabourCertCapture from "@/components/onboarding/HiredLabourCertCapture";
@@ -39,8 +42,15 @@ function HiredLabourOnboardingForm() {
     let cancelled = false;
     async function load() {
       const session = await resolveAuthWorkerFromSession();
-      if (!session.hasSession || !session.workerId) {
+      if (!session.hasSession) {
         redirectToLogin(router, "/onboarding/hired-labour");
+        return;
+      }
+      if (!session.workerId) {
+        if (!cancelled) {
+          setError(WORKER_PROFILE_NOT_LINKED_MESSAGE);
+          setLoading(false);
+        }
         return;
       }
       const row = await fetchAuthenticatedWorkerById(session.workerId);
@@ -140,6 +150,20 @@ function HiredLabourOnboardingForm() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+      </div>
+    );
+  }
+
+  if (error && !worker) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm">
+          <ShieldX className="mx-auto h-10 w-10 text-red-600" />
+          <h1 className="mt-3 text-2xl font-bold text-slate-900">Unable to open profile</h1>
+          <p role="alert" className="mt-2 text-sm text-slate-600">
+            {error}
+          </p>
+        </div>
       </div>
     );
   }

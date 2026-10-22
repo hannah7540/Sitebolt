@@ -102,7 +102,15 @@ const GENERAL_WORKER_ALLOWED_PREFIXES = [
   "/worker/dashboard",
   "/portal/",
   "/scan/",
+  "/swms",
 ] as const;
+
+export function isWorkerSwmsPath(pathname: string): boolean {
+  const path = pathname.split("?")[0] || pathname;
+  if (path === "/swms" || path.startsWith("/swms/")) return true;
+  if (path.startsWith("/guest/swms")) return true;
+  return /^\/projects\/[^/]+\/swms(\/|$)/.test(path);
+}
 
 export function isOrganisationView(view: ActiveView): boolean {
   return ORGANISATION_VIEWS.includes(view);
@@ -153,6 +161,7 @@ function pathStartsWithAny(pathname: string, prefixes: readonly string[]): boole
 export function isGeneralWorkerAllowedPath(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname === "/worker/dashboard") return true;
   if (isPlantPrestartPath(pathname)) return true;
+  if (isWorkerSwmsPath(pathname)) return true;
   return pathStartsWithAny(pathname, GENERAL_WORKER_ALLOWED_PREFIXES);
 }
 

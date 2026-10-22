@@ -31,6 +31,10 @@ import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import { lookupSubcontractorIdForAuthUser } from "@/lib/subcontractor-auth";
 import { fetchSessionHome } from "@/lib/auth-session-home";
 
+export const WORKER_PROFILE_NOT_LINKED_MESSAGE =
+  "Worker profile not found or linked incorrectly";
+export const WORKER_PROFILE_NOT_LINKED_ERROR_PARAM = "worker_profile";
+
 export interface UserProfileRow {
   role: string;
   worker_id: string | null;
@@ -290,10 +294,12 @@ export async function bindAuthSessionForUser(user: User): Promise<{
     user
   );
 
-  if (!workerId && !subcontractorId) {
+  if (!workerId) {
     const sessionHome = await fetchSessionHome();
     if (sessionHome?.workerId) workerId = sessionHome.workerId;
-    if (sessionHome?.subcontractorId) subcontractorId = sessionHome.subcontractorId;
+    if (!subcontractorId && sessionHome?.subcontractorId) {
+      subcontractorId = sessionHome.subcontractorId;
+    }
   }
 
   if (workerId) {
@@ -304,6 +310,21 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   }
 
   await bindHomeOrganisationForUser(user, worker.organisationId, workerId);
+
+  if (
+    !workerId &&
+    !subcontractorId &&
+    isGeneralWorkerRole(role) &&
+    !canAccessAdminConsole(normalizeSecurityRole(role))
+  ) {
+    return {
+      ok: false,
+      error: WORKER_PROFILE_NOT_LINKED_MESSAGE,
+      workerId: null,
+      role,
+      subcontractorId: null,
+    };
+  }
 
   return { ok: true, workerId, role, subcontractorId };
 }
