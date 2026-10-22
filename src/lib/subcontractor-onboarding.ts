@@ -1,5 +1,3 @@
-import { parseMissingColumnFromError, stripMissingColumn } from "./form-payload-utils";
-import { insertSubcontractorDocument } from "./subcontractors";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import { createSupabaseBrowserClient } from "./supabase/client";
 
@@ -161,24 +159,6 @@ export async function uploadSubcontractorInsuranceDocument(
   };
 }
 
-async function updateSubcontractorWithColumnRetry(
-  id: string,
-  payload: Record<string, unknown>
-): Promise<{ error: string | null }> {
-  let current = { ...payload };
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const { error } = await supabase.from("subcontractors").update(current).eq("id", id);
-    if (!error) return { error: null };
-    const missing = parseMissingColumnFromError(error.message);
-    if (missing && missing in current) {
-      current = stripMissingColumn(current, missing);
-      continue;
-    }
-    return { error: error.message };
-  }
-  return { error: "Could not update subcontractor details." };
-}
-
 export async function completeSubcontractorOnboarding(input: {
   token?: string;
   email: string;
@@ -273,49 +253,33 @@ export async function completeSubcontractorOnboarding(input: {
     return { error: piUpload.error ?? "Failed to upload Professional Indemnity document." };
   }
 
-  const updatePayload: Record<string, unknown> = {
-    address,
-    abn,
-    status: "active",
-    public_liability_expiry: plExpiry,
-    public_liability_value: plValue,
-    public_liability_policy_value: plValue,
-    public_liability_document_url: plUpload.url,
-    pl_expiry: plExpiry,
-    pl_policy_value: plValue,
-    pl_document_url: plUpload.url,
-    professional_indemnity_expiry: piExpiry,
-    professional_indemnity_value: piValue,
-    professional_indemnity_document_url: piUpload.url,
-    pi_expiry: piExpiry,
-    pi_policy_value: piValue,
-    pi_document_url: piUpload.url,
-    invite_token: null,
-    subcontractor_invite_expire_at: null,
-    updated_at: new Date().toISOString(),
-  };
-  if (userId) {
-    updatePayload.user_id = userId;
-    updatePayload.auth_user_id = userId;
+  try {
+    const response = await fetch("/api/subcontractors/onboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        authUserId: userId,
+        address,
+        abn,
+        plExpiry,
+        plValue,
+        plDocumentUrl: plUpload.url,
+        piExpiry,
+        piValue,
+        piDocumentUrl: piUpload.url,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (!response.ok) {
+      return { error: body?.error ?? "Could not update subcontractor details." };
+    }
+  } catch (cause) {
+    return {
+      error:
+        cause instanceof Error ? cause.message : "Could not update subcontractor details.",
+    };
   }
-
-  const update = await updateSubcontractorWithColumnRetry(invited.record.id, updatePayload);
-  if (update.error) return { error: update.error };
-
-  await insertSubcontractorDocument({
-    subcontractorId: invited.record.id,
-    documentType: "public_liability",
-    title: `Public Liability — ${plValue}`,
-    expiryDate: plExpiry,
-    documentUrl: plUpload.url,
-  });
-  await insertSubcontractorDocument({
-    subcontractorId: invited.record.id,
-    documentType: "professional_indemnity",
-    title: `Professional Indemnity — ${piValue}`,
-    expiryDate: piExpiry,
-    documentUrl: piUpload.url,
-  });
 
   return { error: null };
 }
