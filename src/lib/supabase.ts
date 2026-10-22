@@ -1994,7 +1994,7 @@ export async function addWorker(
     .select("id")
     .single();
 
-  if (error && /invite_status|onboarding_completed|worker_category|hired_labour_status|white_card_provided|silica_cert_provided|emergency_contact_number/i.test(error.message)) {
+  if (error && /invite_status|onboarding_completed|worker_category|hired_labour_status|white_card_provided|silica_cert_provided|emergency_contact_number|subcontractor_id|is_subcontractor/i.test(error.message)) {
     const fallbackPayload = { ...insertPayload };
     delete fallbackPayload.invite_status;
     if (/onboarding_completed/i.test(error.message)) {
@@ -2014,6 +2014,12 @@ export async function addWorker(
     }
     if (/emergency_contact_number/i.test(error.message)) {
       delete fallbackPayload.emergency_contact_number;
+    }
+    if (/subcontractor_id/i.test(error.message)) {
+      delete fallbackPayload.subcontractor_id;
+    }
+    if (/is_subcontractor/i.test(error.message)) {
+      delete fallbackPayload.is_subcontractor;
     }
     ({ data, error } = await supabase
       .from("workers")

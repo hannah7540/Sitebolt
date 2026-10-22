@@ -20,6 +20,7 @@ import { nullIfBlankWorkerDate, nullIfBlankWorkerText } from "@/lib/worker-utils
 import { requestWorkerAuthInvite } from "@/lib/worker-invite-client";
 import { scrubPayRuleConditionSaveError } from "@/lib/pay-rule-condition-errors";
 import ProjectSelect from "@/components/ui/ProjectSelect";
+import SubcontractorSelect from "@/components/workers/SubcontractorSelect";
 import TagMultiSelect from "@/components/workers/TagMultiSelect";
 import { cn } from "@/lib/utils";
 import {
@@ -104,6 +105,7 @@ const emptyForm = (): Partial<WorkerOnboardingInput> => ({
   redundancy_fund_name: "",
   redundancy_member_number: "",
   assigned_project_id: null,
+  subcontractor_id: null,
   state: null,
   is_apprentice: false,
   has_company_vehicle: false,
@@ -400,6 +402,8 @@ export default function WorkerOnboardingModal({
         email: (form.email ?? "").trim(),
         phone: nullIfBlankWorkerText(form.phone),
         assigned_project_id: resolvedProjectId,
+        subcontractor_id: form.subcontractor_id?.trim() || null,
+        is_subcontractor: Boolean(form.subcontractor_id?.trim()),
         state: form.state,
         is_apprentice: form.is_apprentice ?? false,
         has_company_vehicle: form.has_company_vehicle ?? false,
@@ -424,6 +428,8 @@ export default function WorkerOnboardingModal({
           suburb: nullIfBlankWorkerText(form.suburb),
           postcode: nullIfBlankWorkerText(form.postcode),
           assigned_project_id: resolvedProjectId,
+          subcontractor_id: form.subcontractor_id?.trim() || null,
+          is_subcontractor: Boolean(form.subcontractor_id?.trim()),
           dob: nullIfBlankWorkerDate(form.dob),
           white_card_issue_date: nullIfBlankWorkerDate(form.white_card_issue_date),
           drivers_licence_expiry: nullIfBlankWorkerDate(form.drivers_licence_expiry),
@@ -704,6 +710,11 @@ export default function WorkerOnboardingModal({
                 label="Project Allocation (optional)"
                 value={form.assigned_project_id}
                 onChange={(id) => set("assigned_project_id", id)}
+              />
+              <SubcontractorSelect
+                value={form.subcontractor_id}
+                onChange={(id) => set("subcontractor_id", id)}
+                disabled={submitting}
               />
               <TagMultiSelect
                 selectedIds={selectedTagIds}
@@ -1161,6 +1172,11 @@ export default function WorkerOnboardingModal({
                 label="Assign to Project (optional)"
                 value={form.assigned_project_id}
                 onChange={(id) => set("assigned_project_id", id)}
+              />
+              <SubcontractorSelect
+                value={form.subcontractor_id}
+                onChange={(id) => set("subcontractor_id", id)}
+                disabled={submitting}
               />
               <TagMultiSelect
                 selectedIds={selectedTagIds}

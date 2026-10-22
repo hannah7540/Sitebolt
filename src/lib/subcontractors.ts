@@ -2,8 +2,10 @@ import { parseMissingColumnFromError, stripMissingColumn } from "./form-payload-
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { normalizeWorkerUuidArray } from "./project-resolver";
 import {
+  isOrganisationColumnMissing,
   resolveActiveOrganisationId,
   stampOrganisationId,
+  withOrganisationScope,
 } from "./tenant-scope";
 export type { SubcontractorPlant } from "./subcontractor-plant-service";
 export {
@@ -372,6 +374,54 @@ export async function fetchSubcontractors(): Promise<Subcontractor[]> {
     return [];
   }
   return (data ?? []).map((row) => normalizeSubcontractor(row as Record<string, unknown>));
+}
+
+export interface SubcontractorSelectOption {
+  id: string;
+  name: string;
+}
+
+/** Lightweight org-scoped list for worker onboarding assignment. */
+export async function fetchSubcontractorSelectOptions(): Promise<SubcontractorSelectOption[]> {
+  if (!isSupabaseConfigured()) return [];
+  const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
+
+  let query = supabase
+    .from("subcontractors")
+    .select("id, company_name, trading_name")
+    .order("company_name", { ascending: true });
+  query = withOrganisationScope(query, orgId);
+  let { data, error } = await query;
+
+  if (error && /trading_name/i.test(error.message)) {
+    let retry = supabase
+      .from("subcontractors")
+      .select("id, company_name")
+      .order("company_name", { ascending: true });
+    retry = withOrganisationScope(retry, orgId);
+    ({ data, error } = await retry);
+  }
+
+  if (error && isOrganisationColumnMissing(error.message)) {
+    return [];
+  }
+  if (error) {
+    console.error("fetchSubcontractorSelectOptions failed:", error.message);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => {
+      const record = row as Record<string, unknown>;
+      const id = String(record.id ?? "").trim();
+      const name =
+        String(record.trading_name ?? "").trim() ||
+        String(record.company_name ?? "").trim() ||
+        "Unnamed subcontractor";
+      return { id, name };
+    })
+    .filter((row) => row.id);
 }
 
 export async function fetchSubcontractorById(id: string): Promise<Subcontractor | null> {
