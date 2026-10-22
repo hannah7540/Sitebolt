@@ -158,7 +158,7 @@ function mapSubcontractorDocumentInsert(input: {
   document_type: string;
   title: string;
   expiry_date: string;
-  document_url: string;
+  file_url: string;
 } {
   const label =
     input.documentType === "public_liability"
@@ -169,7 +169,7 @@ function mapSubcontractorDocumentInsert(input: {
     document_type: input.documentType,
     title: `${label} — ${input.policyValue}`,
     expiry_date: input.expiryDate,
-    document_url: input.documentUrl,
+    file_url: input.documentUrl,
   };
 }
 
