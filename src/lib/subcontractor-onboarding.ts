@@ -270,14 +270,17 @@ export async function completeSubcontractorOnboarding(input: {
         piDocumentUrl: piUpload.url,
       }),
     });
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      details?: string;
+    } | null;
     if (!response.ok) {
-      return { error: body?.error ?? "Could not update subcontractor details." };
+      const raw = [body?.error, body?.details].filter(Boolean).join(" | ");
+      return { error: raw || `Onboarding update failed (HTTP ${response.status}).` };
     }
   } catch (cause) {
     return {
-      error:
-        cause instanceof Error ? cause.message : "Could not update subcontractor details.",
+      error: cause instanceof Error ? cause.message : "Onboarding update request failed.",
     };
   }
 

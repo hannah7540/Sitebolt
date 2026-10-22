@@ -2,11 +2,52 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { parseMissingColumnFromError, stripMissingColumn } from "@/lib/form-payload-utils";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+type PostgrestLikeError = {
+  message?: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+} | null;
+
+function formatPostgrestError(error: PostgrestLikeError, fallback: string): string {
+  if (!error) return fallback;
+  const parts = [error.message, error.details, error.hint, error.code ? `code=${error.code}` : ""]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean);
+  return parts.join(" | ") || fallback;
+}
+
+function createOnboardServiceRoleClient(): SupabaseClient {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for onboarding updates."
+    );
+  }
+  console.log("[subcontractor-onboard] Using direct service-role createClient", {
+    url,
+    serviceRoleKeyLength: serviceRoleKey.length,
+  });
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    },
+  });
+}
 
 const SELECT_BASE =
   "id, company_name, email, contact_email, contact_name, contact_person, status";
@@ -35,7 +76,7 @@ async function loadInvitedByToken(token: string): Promise<{
   error: string | null;
   status: number;
 }> {
-  const admin = createSupabaseAdminClient();
+  const admin = createOnboardServiceRoleClient();
   const primary = await admin
     .from("subcontractors")
     .select(SELECT_WITH_EXPIRY)
@@ -55,7 +96,12 @@ async function loadInvitedByToken(token: string): Promise<{
   }
 
   if (error) {
-    return { record: null, row: null, error: error.message, status: 500 };
+    return {
+      record: null,
+      row: null,
+      error: formatPostgrestError(error, error.message),
+      status: 500,
+    };
   }
   if (!data) {
     return {
@@ -84,45 +130,54 @@ async function updateWithMissingColumnRetry(
   id: string,
   payload: Record<string, unknown>
 ): Promise<{ error: string | null }> {
-  const admin = createSupabaseAdminClient();
+  const admin = createOnboardServiceRoleClient();
   let current = { ...payload };
+  let lastError: string | null = null;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const { error } = await admin.from(table).update(current).eq("id", id);
     if (!error) return { error: null };
+    lastError = formatPostgrestError(error, error.message);
+    console.error(`[subcontractor-onboard] ${table} update failed`, { attempt, id, error });
     const missing = parseMissingColumnFromError(error.message);
     if (missing && missing in current) {
       current = stripMissingColumn(current, missing);
       continue;
     }
-    return { error: error.message };
+    return { error: lastError };
   }
-  return { error: `Could not update ${table}.` };
+  return { error: lastError };
 }
 
 async function insertWithMissingColumnRetry(
   table: string,
   payload: Record<string, unknown>
 ): Promise<{ error: string | null }> {
-  const admin = createSupabaseAdminClient();
+  const admin = createOnboardServiceRoleClient();
   let current = { ...payload };
+  let lastError: string | null = null;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { error } = await admin.from(table).insert(current);
     if (!error) return { error: null };
+    lastError = formatPostgrestError(error, error.message);
+    console.error(`[subcontractor-onboard] ${table} insert failed`, { attempt, error });
     const missing = parseMissingColumnFromError(error.message);
     if (missing && missing in current) {
       current = stripMissingColumn(current, missing);
       continue;
     }
-    return { error: error.message };
+    return { error: lastError };
   }
-  return { error: `Could not insert into ${table}.` };
+  return { error: lastError };
 }
 
 export async function GET(request: Request) {
   try {
-    if (!isSupabaseAdminConfigured()) {
+    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim() || !(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
       return NextResponse.json(
-        { error: "Onboarding lookup is not configured." },
+        {
+          error:
+            "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for onboarding updates.",
+        },
         { status: 500 }
       );
     }
@@ -155,11 +210,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (!isSupabaseAdminConfigured()) {
+    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim() || !(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
       return NextResponse.json(
         {
           error:
-            "SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to .env.local or Vercel (server-only).",
+            "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for onboarding updates.",
         },
         { status: 500 }
       );
@@ -226,7 +281,7 @@ export async function POST(request: Request) {
 
     // Service-role client bypasses RLS after the invite token is verified.
     // Credentials: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
-    const admin = createSupabaseAdminClient();
+    const admin = createOnboardServiceRoleClient();
     const inviteEmail = invited.record.email.trim().toLowerCase();
     let authUserId: string | null = null;
 
@@ -284,26 +339,29 @@ export async function POST(request: Request) {
     );
     if (update.error) {
       console.error("[subcontractor-onboard] Update failed", update.error);
-      return NextResponse.json(
-        { error: update.error || "Could not update subcontractor details." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: update.error }, { status: 500 });
     }
 
-    await insertWithMissingColumnRetry("subcontractor_documents", {
+    const plDoc = await insertWithMissingColumnRetry("subcontractor_documents", {
       subcontractor_id: invited.record.id,
       document_type: "public_liability",
       title: `Public Liability — ${plValue}`,
       expiry_date: plExpiry,
       document_url: plDocumentUrl,
     });
-    await insertWithMissingColumnRetry("subcontractor_documents", {
+    if (plDoc.error) {
+      return NextResponse.json({ error: plDoc.error }, { status: 500 });
+    }
+    const piDoc = await insertWithMissingColumnRetry("subcontractor_documents", {
       subcontractor_id: invited.record.id,
       document_type: "professional_indemnity",
       title: `Professional Indemnity — ${piValue}`,
       expiry_date: piExpiry,
       document_url: piDocumentUrl,
     });
+    if (piDoc.error) {
+      return NextResponse.json({ error: piDoc.error }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -313,7 +371,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[subcontractor-onboard] Complete route failed", error);
     return NextResponse.json(
-      { error: errorMessage(error, "Could not update subcontractor details.") },
+      { error: errorMessage(error, "Onboarding update failed.") },
       { status: 500 }
     );
   }

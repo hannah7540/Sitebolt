@@ -10,6 +10,8 @@ import {
   type InvitedSubcontractor,
 } from "@/lib/subcontractor-onboarding";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
+import { useFormToast } from "@/hooks/useFormToast";
+import Toast from "@/components/ui/Toast";
 
 export default function SubcontractorOnboardingForm() {
   const router = useRouter();
@@ -33,6 +35,7 @@ export default function SubcontractorOnboardingForm() {
   const [piFile, setPiFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast, showError, dismissToast } = useFormToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +80,7 @@ export default function SubcontractorOnboardingForm() {
     setSaving(false);
     if (result.error) {
       setError(result.error);
+      showError(result.error);
       return;
     }
     router.replace(SUBCONTRACTOR_DASHBOARD_PATH);
@@ -106,6 +110,14 @@ export default function SubcontractorOnboardingForm() {
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8">
+      {toast ? (
+        <Toast
+          message={toast.message}
+          variant={toast.variant}
+          onDismiss={dismissToast}
+          durationMs={14000}
+        />
+      ) : null}
       <form
         onSubmit={(event) => void handleSubmit(event)}
         className="mx-auto w-full max-w-3xl space-y-6"
