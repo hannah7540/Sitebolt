@@ -39,7 +39,6 @@ import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import {
   isAppHostname,
   requestHostHeader,
-  resolveAppOriginFromRequest,
 } from "@/lib/site-domains";
 import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
@@ -366,12 +365,6 @@ function resolveGeneralWorkerHomePath(context: AuthContext): string {
   return GENERAL_WORKER_HOME_PATH;
 }
 
-function toAppAbsolutePath(request: NextRequest, path: string): string {
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  if (isAppHostname(requestHostHeader(request))) return path;
-  return `${resolveAppOriginFromRequest(request)}${path}`;
-}
-
 function isWorkerRole(role: SecurityRole | string | null | undefined): boolean {
   return role === "general_worker" || isGeneralWorkerRole(role);
 }
@@ -529,7 +522,7 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     if (!hasAuthPayload && isWorkerRole(context.role)) {
       return redirectWithCookies(
         request,
-        toAppAbsolutePath(request, resolveAuthenticatedHomePath(context, request)),
+        resolveAuthenticatedHomePath(context, request),
         sessionResponse
       );
     }

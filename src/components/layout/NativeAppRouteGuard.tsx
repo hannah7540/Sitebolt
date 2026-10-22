@@ -8,6 +8,7 @@ import {
   resolveNativeWorkerDashboardPath,
 } from "@/lib/native-app";
 import { shouldRedirectNativePath } from "@/lib/native-app-paths";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
 import { getStoredWorkerId } from "@/lib/user-session";
 import {
   hasAuthHashFragment,
@@ -40,7 +41,7 @@ export default function NativeAppRouteGuard() {
     ) {
       return;
     }
-    if (!isNativeMobileApp() || !pathname) return;
+    if ((!isNativeMobileApp() && !isStandalonePwa()) || !pathname) return;
     if (isPublicAuthFlowPath(pathname) || shouldSkipAuthRedirect(pathname)) return;
     if (hasAuthHashFragment()) {
       window.location.replace(resetPasswordLocationWithHash());

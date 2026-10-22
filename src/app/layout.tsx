@@ -20,12 +20,17 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SiteBolt — Construction Safety Dashboard",
   description: "Modern construction site safety and compliance management platform",
-  applicationName: "SiteBolt",
+  applicationName: "Site-Bolt",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "SiteBolt",
     statusBarStyle: "default",
+    title: "Site-Bolt",
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-title": "Site-Bolt",
   },
 };
 
@@ -52,6 +57,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Site-Bolt" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      </head>
       <body className="flex min-h-full flex-col bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: UI_THEME_BOOTSTRAP_SCRIPT }} />
         <ThemeProvider>

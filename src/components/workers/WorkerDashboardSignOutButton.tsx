@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 import ThemePicker from "@/components/theme/ThemePicker";
 
 export default function WorkerDashboardSignOutButton() {
+  const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
 
   const handleSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await signOutAndRedirect();
+      await signOutAndRedirect(undefined, router);
     } catch {
       setSigningOut(false);
     }

@@ -4,6 +4,7 @@ import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
 import {
   isMarketingPublicPath,
   isOperationalAppPath,
+  isWorkerStandalonePath,
   resolveAppOriginFromRequest,
 } from "@/lib/site-domains";
 
@@ -101,6 +102,10 @@ export async function proxy(request: NextRequest) {
 
     if (isMarketingPublicPath(pathname)) {
       return NextResponse.next();
+    }
+
+    if (isWorkerStandalonePath(pathname)) {
+      return runAuthProxy(request);
     }
 
     if (isOperationalAppPath(pathname) || isPlantPrestartPath(pathname)) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { markNativeAppCookie } from "@/lib/native-app";
 
@@ -13,6 +13,7 @@ const NATIVE_MARKETING_START_PATHS = new Set(["/", "/marketing"]);
  */
 export default function NativeAppBootstrap() {
   const pathname = usePathname() ?? "";
+  const router = useRouter();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -26,9 +27,9 @@ export default function NativeAppBootstrap() {
       .catch(() => undefined);
 
     if (NATIVE_MARKETING_START_PATHS.has(pathname)) {
-      window.location.replace("/login");
+      router.replace("/login");
     }
-  }, [pathname]);
+  }, [pathname, router]);
 
   return null;
 }

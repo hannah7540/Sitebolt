@@ -86,6 +86,7 @@ import {
   type SecurityRole,
 } from "@/lib/security-roles";
 import { isNativeMobileApp } from "@/lib/native-app";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import { useWorkerHistoryLayer } from "@/hooks/useWorkerHistoryLayer";
 import { useCompanyBranding } from "@/components/branding/CompanyBrandingProvider";
@@ -1106,7 +1107,8 @@ export default function WorkerDashboardView({
   }
 
   const ticketStatus = worker ? getWorkerTicketStatus(worker, vocs) : "unknown";
-  const showAdminNav = showAdminSwitch && !embedded && !isNativeMobileApp();
+  const showAdminNav =
+    showAdminSwitch && !embedded && !isNativeMobileApp() && !isStandalonePwa();
   const profileName = worker ? getWorkerDisplayName(worker, "Worker Profile") : "Worker Profile";
   const profileStatus = worker?.status ?? "pending_induction";
   const isProfileLoading = (loading || resolvingWorker) && !worker;

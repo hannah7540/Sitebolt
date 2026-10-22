@@ -15,11 +15,11 @@ import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
 import { redirectToLogin } from "@/lib/auth-guard";
 import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { isNativeMobileApp } from "@/lib/native-app";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
 import {
   canAccessAdminConsole,
   normalizeSecurityRole,
 } from "@/lib/security-roles";
-import { useWebDashboardProfileShell } from "./profile-shell";
 import {
   DASHBOARD_LOADING_TIMEOUT_MS,
   getAdminWorkerId,
@@ -39,7 +39,7 @@ function WorkerDashboardContent() {
   const queryWorkerId = searchParams.get("worker_id");
   const fromAdmin = searchParams.get("from") === "admin";
   const showWelcome = searchParams.get("welcome") === "1";
-  const webDashboardShell = useWebDashboardProfileShell();
+  const standaloneShell = isNativeMobileApp() || isStandalonePwa();
 
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [pickerLoading, setPickerLoading] = useState(true);
@@ -88,7 +88,7 @@ function WorkerDashboardContent() {
           canAccessAdminConsole(sessionRole) &&
           !fromAdmin &&
           !queryWorkerId &&
-          !isNativeMobileApp()
+          !standaloneShell
         ) {
           router.replace("/");
           return;
@@ -145,7 +145,7 @@ function WorkerDashboardContent() {
   }, [queryWorkerId, fromAdmin, router]);
 
   const showAdminSwitch =
-    !isNativeMobileApp() && (fromAdmin || (!!workerId && getAdminWorkerId() === workerId));
+    !standaloneShell && (fromAdmin || (!!workerId && getAdminWorkerId() === workerId));
 
   if (pickerLoading && !workerId) {
     return (
@@ -186,7 +186,7 @@ function WorkerDashboardContent() {
       ) : null}
       <WorkerDashboardView
         workerId={workerId}
-        embedded={webDashboardShell}
+        embedded={false}
         showAdminSwitch={showAdminSwitch}
         preferAdminProfile={fromAdmin}
         sessionRole={sessionRole}

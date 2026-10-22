@@ -13,6 +13,7 @@ import {
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
 import { isPlantPrestartPath } from "@/lib/plant-prestart-url";
+import { isStandalonePwa } from "@/lib/pwa-standalone";
 
 export {
   NATIVE_WORKER_HOME_PATH,
@@ -51,7 +52,7 @@ export function resolvePostLoginPath(
   const returnPath = options?.returnPath?.trim();
   const returnPathname = returnPath?.split("?")[0] ?? "";
 
-  if (isNativeMobileApp()) {
+  if (isNativeMobileApp() || isStandalonePwa()) {
     if (
       returnPath &&
       (isPlantPrestartPath(returnPathname) || returnPathname.startsWith("/scan/"))

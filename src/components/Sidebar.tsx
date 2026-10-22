@@ -595,7 +595,7 @@ export default function Sidebar({
     useAuthProfileDisplay();
   const profileName = profileNameOverride ?? sessionProfileName;
   const handleSignOut = () => {
-    void signOutAndRedirect();
+    void signOutAndRedirect(undefined, router);
   };
   const handleProfileClick = () => {
     if (onOpenProfile) {

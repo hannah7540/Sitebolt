@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "SiteBolt Worker",
-    short_name: "SiteBolt",
+    name: "Site-Bolt",
+    short_name: "Site-Bolt",
     description: "SiteBolt worker dashboard for timesheets, SWMS, and site tasks.",
     start_url: "/worker-dashboard",
     scope: "/",

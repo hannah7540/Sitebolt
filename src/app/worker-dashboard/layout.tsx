@@ -1,24 +1,14 @@
-"use client";
-
 import type { ReactNode } from "react";
-import AdminConsoleShell from "@/components/layout/AdminConsoleShell";
-import { useWebDashboardProfileShell } from "./profile-shell";
 
 /**
- * Profile / worker-dashboard routing wrapper.
- * Web browsers render inside the shared dashboard shell (persistent left sidebar).
- * Native app wrappers and standalone PWAs keep the existing full-screen layout.
+ * Worker dashboard stays in its own full-screen shell.
+ * Do not wrap this route in the admin console, marketing header, or other
+ * navigation that would let a worker leave the dashboard (iOS PWA standalone).
  */
 export default function WorkerDashboardLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const useDashboardShell = useWebDashboardProfileShell();
-
-  if (!useDashboardShell) {
-    return children;
-  }
-
-  return <AdminConsoleShell>{children}</AdminConsoleShell>;
+  return children;
 }

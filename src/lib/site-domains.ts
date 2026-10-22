@@ -85,6 +85,27 @@ export function isOperationalAppPath(pathname: string): boolean {
   );
 }
 
+/** Same-origin worker/PWA routes. Cross-host 302s pop iOS standalone into Safari. */
+const WORKER_STANDALONE_PATH_PREFIXES = [
+  "/worker-dashboard",
+  "/login",
+  "/onboarding",
+  "/account",
+  "/settings/account",
+  "/scan/",
+  "/portal/",
+  "/worker/",
+  "/dashboard",
+  "/swms/sign/",
+] as const;
+
+export function isWorkerStandalonePath(pathname: string): boolean {
+  if (pathname === "/dashboard" || pathname === "/worker/dashboard") return true;
+  return WORKER_STANDALONE_PATH_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix.replace(/\/$/, "")}/`)
+  );
+}
+
 export function resolveAppOriginFromRequest(request: NextRequest): string {
   const host = requestHostHeader(request);
   const hostname = hostnameFromHost(host);

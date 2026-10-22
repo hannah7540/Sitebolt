@@ -66,9 +66,17 @@ export function redirectToLogin(
 }
 
 /** Sign out, clear legacy worker storage, and return to login. */
-export async function signOutAndRedirect(nextPath?: string | null): Promise<void> {
+export async function signOutAndRedirect(
+  nextPath?: string | null,
+  router?: AppRouterInstance
+): Promise<void> {
   await signOutSupabase();
+  const path = buildLoginRedirectPath(nextPath);
+  if (router) {
+    router.replace(path);
+    return;
+  }
   if (typeof window !== "undefined") {
-    window.location.href = buildLoginRedirectPath(nextPath);
+    window.history.replaceState(null, "", path);
   }
 }

@@ -653,6 +653,7 @@ function HomeConsole() {
 
 function RootEntry() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isAppHost, setIsAppHost] = useState(false);
   const [hostReady, setHostReady] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
@@ -663,10 +664,14 @@ function RootEntry() {
     setIsNativeApp(native);
     setIsAppHost(isAppSubdomainHost());
     setHostReady(true);
-    if (native || standalone) {
-      window.location.replace(standalone ? "/worker-dashboard" : "/login");
+    if (standalone) {
+      router.replace("/worker-dashboard");
+      return;
     }
-  }, []);
+    if (native) {
+      router.replace("/login");
+    }
+  }, [router]);
 
   if (isNativeApp) {
     return (
