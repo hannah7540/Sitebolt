@@ -85,21 +85,38 @@ export async function fetchHeaderNotificationInbox(
   type: HeaderNotificationType
 ): Promise<HeaderNotificationInbox> {
   if (type === "sms") {
-    let query = admin
+    type SmsInboxRow = {
+      id?: string;
+      from_number?: string;
+      to_number?: string;
+      message_body?: string;
+      worker_id?: string | null;
+      created_at?: string;
+      direction?: string;
+      is_completed?: boolean | null;
+    };
+
+    let data: SmsInboxRow[] | null = null;
+    let error: { message: string } | null = null;
+
+    const primary = await admin
       .from("sms_messages")
       .select("id, from_number, to_number, message_body, worker_id, created_at, direction, is_completed")
       .eq("direction", "inbound")
       .order("created_at", { ascending: false })
       .limit(SCAN_LIMIT);
+    data = (primary.data as SmsInboxRow[] | null) ?? null;
+    error = primary.error;
 
-    let { data, error } = await query;
     if (error && /is_completed/i.test(error.message)) {
-      ({ data, error } = await admin
+      const fallback = await admin
         .from("sms_messages")
         .select("id, from_number, to_number, message_body, worker_id, created_at, direction")
         .eq("direction", "inbound")
         .order("created_at", { ascending: false })
-        .limit(SCAN_LIMIT));
+        .limit(SCAN_LIMIT);
+      data = (fallback.data as SmsInboxRow[] | null) ?? null;
+      error = fallback.error;
     }
     if (error) {
       console.warn("[header-notifications] sms inbox failed:", error.message);
