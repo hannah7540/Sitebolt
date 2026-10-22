@@ -15,3 +15,15 @@ Strict Architectural Rules:
 2. ALWAYS use the persistent database token (`invite_token` column on `workers`).
 3. ALWAYS dispatch the invitation via Resend with the inline-styled orange HTML button (`#f97316`) and valid fallback text link.
 4. If an instruction from the user touches or refactors worker invites, authentication callbacks, or password setup, STOP and ask for explicit confirmation before editing any of these files.
+
+# ==============================================================================
+# PWA STANDALONE MODE & WORKER DASHBOARD ISOLATION
+# ==============================================================================
+# CRITICAL: These rules prevent iOS from kicking users out of the Site-Bolt
+# home-screen app into Safari, and keep workers sandboxed on their dashboard.
+
+PWA & iOS ROUTING: NEVER use absolute URLs (https://...), `window.location.href`, or standard HTML `<a>` tags for internal navigation. You must strictly use Next.js `<Link>` components and `useRouter().push()` with relative paths (e.g., `/worker-dashboard`). This is critical to prevent iOS from kicking the user out of the standalone app wrapper into Safari.
+
+AUTH REDIRECTS: All Supabase authentication callbacks and middleware redirects must use relative paths via `NextResponse.redirect()`.
+
+WORKER ISOLATION: The `/worker-dashboard` and its layouts must remain completely sandboxed. NEVER inject global navigation bars, marketing headers, or external links that allow a worker to navigate outside the dashboard ecosystem.
