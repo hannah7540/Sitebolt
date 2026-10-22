@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Check, Loader2, Mail, MessageSquareText } from "lucide-react";
-import {
-  approveResourceAssignment,
-  listPendingResourceApprovals,
-} from "@/app/actions/resource-approvals";
+import { approveResourceAssignment } from "@/app/actions/resource-approvals";
 import { useHeaderNotifications } from "@/hooks/useHeaderNotifications";
 import {
   clearHeaderNotificationsClient,
@@ -192,8 +189,14 @@ export default function HeaderNotificationIcons() {
 
   const loadApprovals = useCallback(async () => {
     try {
-      const items = await listPendingResourceApprovals();
-      setApprovals(items);
+      const response = await fetch(`/api/admin/pending-approvals?_=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        items?: PendingResourceApproval[];
+      } | null;
+      setApprovals(Array.isArray(payload?.items) ? payload.items : []);
     } catch (cause) {
       console.warn("[header-approvals] load failed:", cause);
     }
