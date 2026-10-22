@@ -1,11 +1,5 @@
 import { parseMissingColumnFromError, stripMissingColumn } from "./form-payload-utils";
-import { HIRED_LABOUR_CATEGORY } from "./hired-labour";
-import { DEFAULT_WORKER_SECURITY_ROLE } from "./security-roles";
-import { setActiveOrganisationId } from "./active-organisation";
-import { addWorker } from "./supabase";
 import { supabase } from "./supabase/client";
-import { buildWorkerFullName } from "./worker-utils";
-import { requestWorkerAuthInvite } from "./worker-invite-client";
 
 export type {
   SubcontractorPortalPlant,
@@ -30,14 +24,20 @@ function parseHours(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export async function uploadSubcontractorPortalPlantDocument(
+export async function uploadSubcontractorPortalDocument(
   file: File | null | undefined,
   subcontractorId: string,
-  kind: "last-service-report" | "plant-risk-assessment" | "operations-manual"
+  kind:
+    | "last-service-report"
+    | "plant-risk-assessment"
+    | "operations-manual"
+    | "white-card"
+    | "silica"
 ): Promise<{ url: string | null; error: string | null }> {
   if (!file) return { url: null, error: null };
   const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
-  const path = `plant/${subcontractorId}/${kind}/${Date.now()}-${sanitizeFileName(file.name || `${kind}.${ext}`)}`;
+  const folder = kind === "white-card" || kind === "silica" ? "workers" : "plant";
+  const path = `${folder}/${subcontractorId}/${kind}/${Date.now()}-${sanitizeFileName(file.name || `${kind}.${ext}`)}`;
   try {
     const { error } = await supabase.storage.from(SUBCONTRACTOR_DOCS_BUCKET).upload(path, file, {
       upsert: true,
@@ -74,6 +74,14 @@ async function insertWithMissingColumnRetry(
   return { error: `Could not insert into ${table}.` };
 }
 
+export async function uploadSubcontractorPortalPlantDocument(
+  file: File | null | undefined,
+  subcontractorId: string,
+  kind: "last-service-report" | "plant-risk-assessment" | "operations-manual"
+): Promise<{ url: string | null; error: string | null }> {
+  return uploadSubcontractorPortalDocument(file, subcontractorId, kind);
+}
+
 export async function createSubcontractorPortalWorker(input: {
   subcontractorId: string;
   organisationId?: string;
@@ -82,6 +90,8 @@ export async function createSubcontractorPortalWorker(input: {
   email: string;
   phone: string;
   trade: string;
+  whiteCardUrl?: string | null;
+  silicaUrl?: string | null;
 }): Promise<{ error: string | null; inviteError: string | null }> {
   const subcontractorId = input.subcontractorId.trim();
   const firstName = input.firstName.trim();
@@ -95,67 +105,41 @@ export async function createSubcontractorPortalWorker(input: {
   if (!firstName || !lastName || !email || !phone || !trade) {
     return { error: "First name, last name, email, phone, and trade are required.", inviteError: null };
   }
-
-  if (organisationId) {
-    setActiveOrganisationId(organisationId);
-  }
-
-  const hiredLabourPayload = {
-    first_name: firstName,
-    last_name: lastName,
-    email,
-    phone,
-    trade,
-    worker_type: trade,
-    subcontractor_id: subcontractorId,
-    is_subcontractor: true,
-    worker_category: HIRED_LABOUR_CATEGORY,
-    hired_labour_status: "invited" as const,
-    onboarding_completed: false,
-    white_card_provided: false,
-    silica_cert_provided: false,
-    status: "pending_induction" as const,
-    security_role: DEFAULT_WORKER_SECURITY_ROLE,
-    invite_status: "pending",
-    ...(organisationId ? { organisation_id: organisationId } : {}),
-  };
-
-  let workerId: string | null = null;
-
-  if (organisationId) {
-    const created = await addWorker(hiredLabourPayload);
-    if (created.error || !created.workerId) {
-      return {
-        error: created.error ?? "Failed to add worker.",
-        inviteError: null,
-      };
-    }
-    workerId = created.workerId;
-  } else {
-    const inserted = await insertWithMissingColumnRetry("workers", {
-      ...hiredLabourPayload,
-      full_name: buildWorkerFullName(firstName, lastName),
-      worker_name: buildWorkerFullName(firstName, lastName),
-    });
-    if (inserted.error) return { error: inserted.error, inviteError: null };
-    const { data } = await supabase
-      .from("workers")
-      .select("id")
-      .eq("email", email)
-      .eq("subcontractor_id", subcontractorId)
-      .limit(1)
-      .maybeSingle();
-    workerId = data ? text((data as Record<string, unknown>).id) : null;
+  if (!text(input.whiteCardUrl) || !text(input.silicaUrl)) {
+    return { error: "White Card and Silica Certificate uploads are required.", inviteError: null };
   }
 
   try {
-    await requestWorkerAuthInvite(email, workerId ?? undefined, firstName, lastName);
-    return { error: null, inviteError: null };
+    const response = await fetch("/api/subcontractors/workers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subcontractorId,
+        organisationId,
+        firstName,
+        lastName,
+        email,
+        phone,
+        trade,
+        whiteCardUrl: text(input.whiteCardUrl),
+        silicaUrl: text(input.silicaUrl),
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      inviteError?: string;
+    } | null;
+    if (!response.ok) {
+      return {
+        error: body?.error ?? `Failed to add worker (HTTP ${response.status}).`,
+        inviteError: body?.inviteError ?? null,
+      };
+    }
+    return { error: null, inviteError: body?.inviteError ?? null };
   } catch (cause) {
     return {
-      error: null,
-      inviteError:
-        cause instanceof Error ? cause.message : "Worker saved, but the invite email could not be sent.",
+      error: cause instanceof Error ? cause.message : "Failed to add worker.",
+      inviteError: null,
     };
   }
 }
