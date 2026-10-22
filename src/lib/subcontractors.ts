@@ -397,7 +397,7 @@ export async function fetchSubcontractorSelectOptions(): Promise<SubcontractorSe
   if (error && /trading_name/i.test(error.message)) {
     let retry = supabase
       .from("subcontractors")
-      .select("id, company_name")
+      .select("id, company_name, trading_name")
       .order("company_name", { ascending: true });
     retry = withOrganisationScope(retry, orgId);
     ({ data, error } = await retry);
