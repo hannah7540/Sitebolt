@@ -23,6 +23,7 @@ import { getCachedProjects, resolveProjectId } from "./project-resolver";
 import { formatDateOnly } from "./scheduler-utils";
 import { applyPermanentProjectAssignmentTransfer } from "./project-worker-assignment-transfer";
 import { applyPermanentPlantAssignmentTransfer } from "./project-plant-assignment-transfer";
+import { isApprovedOrLegacyStatus } from "./resource-approval";
 
 export interface ProjectPlantAssignment {
   id: string;
@@ -32,6 +33,7 @@ export interface ProjectPlantAssignment {
   start_date?: string | null;
   end_date?: string | null;
   project_name?: string | null;
+  approval_status?: string | null;
 }
 
 export interface ProjectWorkerAssignment {
@@ -42,13 +44,15 @@ export interface ProjectWorkerAssignment {
   start_date?: string | null;
   end_date?: string | null;
   project_name?: string | null;
+  approval_status?: string | null;
 }
 
 export function isActiveProjectWorkerAssignment(
   row: ProjectWorkerAssignment,
   onDate: string = formatDateOnly(new Date())
 ): boolean {
-  if (row.status === "Transferred" || row.status === "Unassigned") return false;
+  if (!isApprovedOrLegacyStatus(row.approval_status)) return false;
+  if (row.status === "Transferred" || row.status === "Unassigned" || row.status === "Pending") return false;
   const start = formatDateOnly(row.start_date);
   const end = formatDateOnly(row.end_date);
   if (start && start > onDate) return false;
@@ -60,7 +64,8 @@ export function assignmentCoversDay(
   row: ProjectWorkerAssignment,
   dayIso: string
 ): boolean {
-  if (row.status === "Unassigned") return false;
+  if (!isApprovedOrLegacyStatus(row.approval_status)) return false;
+  if (row.status === "Unassigned" || row.status === "Pending") return false;
   const day = formatDateOnly(dayIso);
   if (!day) return false;
   const start = formatDateOnly(row.start_date);
@@ -75,7 +80,8 @@ export function isActiveProjectPlantAssignment(
   row: ProjectPlantAssignment,
   onDate: string = formatDateOnly(new Date())
 ): boolean {
-  if (row.status === "Transferred" || row.status === "Unassigned") return false;
+  if (!isApprovedOrLegacyStatus(row.approval_status)) return false;
+  if (row.status === "Transferred" || row.status === "Unassigned" || row.status === "Pending") return false;
   const start = formatDateOnly(row.start_date);
   const end = formatDateOnly(row.end_date);
   if (start && start > onDate) return false;
@@ -88,7 +94,8 @@ export function plantAssignmentCoversDay(
   row: ProjectPlantAssignment,
   dayIso: string
 ): boolean {
-  if (row.status === "Unassigned") return false;
+  if (!isApprovedOrLegacyStatus(row.approval_status)) return false;
+  if (row.status === "Unassigned" || row.status === "Pending") return false;
   const day = formatDateOnly(dayIso);
   if (!day) return false;
   const start = formatDateOnly(row.start_date);
@@ -150,7 +157,7 @@ export async function fetchProjectPlantAssignments(): Promise<ProjectPlantAssign
   if (!isSupabaseConfigured()) return [];
 
   const datedSelect =
-    "id, project_id, plant_id, status, start_date, end_date, project_name";
+    "id, project_id, plant_id, status, start_date, end_date, project_name, approval_status";
   const legacySelect = "id, project_id, plant_id, status";
 
   try {
@@ -165,7 +172,8 @@ export async function fetchProjectPlantAssignments(): Promise<ProjectPlantAssign
     const missingDates =
       error.message.toLowerCase().includes("start_date") ||
       error.message.toLowerCase().includes("end_date") ||
-      error.message.toLowerCase().includes("project_name");
+      error.message.toLowerCase().includes("project_name") ||
+      error.message.toLowerCase().includes("approval_status");
 
     if (missingDates) {
       const fallback = await supabase
@@ -189,7 +197,8 @@ export async function fetchProjectPlantAssignments(): Promise<ProjectPlantAssign
 export async function fetchProjectWorkerAssignments(): Promise<ProjectWorkerAssignment[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const datedSelect = "id, project_id, worker_id, status, start_date, end_date, project_name";
+  const datedSelect =
+    "id, project_id, worker_id, status, start_date, end_date, project_name, approval_status";
   const legacySelect = "id, project_id, worker_id, status";
 
   try {
@@ -204,7 +213,8 @@ export async function fetchProjectWorkerAssignments(): Promise<ProjectWorkerAssi
     const missingDates =
       error.message.toLowerCase().includes("start_date") ||
       error.message.toLowerCase().includes("end_date") ||
-      error.message.toLowerCase().includes("project_name");
+      error.message.toLowerCase().includes("project_name") ||
+      error.message.toLowerCase().includes("approval_status");
 
     if (missingDates) {
       const fallback = await supabase

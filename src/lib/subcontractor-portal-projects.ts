@@ -167,18 +167,38 @@ export async function fetchSubcontractorProjectWorkspace(
   }
 
   const supabase = await createSupabaseServerClient();
-  const [workers, plant, workerLinks, plantLinks] = await Promise.all([
+  const reader = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : supabase;
+  const [workers, plant, workerLinks, plantLinks, pendingWorkers] = await Promise.all([
     fetchOwnedWorkers(supabase, subcontractorId),
     fetchOwnedPlant(supabase, subcontractorId),
-    supabase
+    reader
       .from("project_worker_assignments")
-      .select("worker_id, status, end_date")
+      .select("worker_id, status, end_date, approval_status")
       .eq("project_id", projectId),
-    supabase
+    reader
       .from("project_plant_assignments")
-      .select("plant_id, status, end_date")
+      .select("plant_id, status, end_date, approval_status")
+      .eq("project_id", projectId),
+    reader
+      .from("project_workers")
+      .select("worker_id, approval_status")
       .eq("project_id", projectId),
   ]);
+
+  const approvalByWorkerId = new Map<string, string>();
+  for (const row of [...(workerLinks.data ?? []), ...(pendingWorkers.data ?? [])]) {
+    const record = row as Record<string, unknown>;
+    const workerId = text(record.worker_id);
+    const approval = text(record.approval_status);
+    if (workerId && approval) approvalByWorkerId.set(workerId, approval);
+  }
+  const approvalByPlantId = new Map<string, string>();
+  for (const row of plantLinks.data ?? []) {
+    const record = row as Record<string, unknown>;
+    const plantId = text(record.plant_id);
+    const approval = text(record.approval_status);
+    if (plantId && approval) approvalByPlantId.set(plantId, approval);
+  }
 
   const activeWorkerIds = new Set(
     (workerLinks.data ?? [])
@@ -189,6 +209,10 @@ export async function fetchSubcontractorProjectWorkspace(
       })
       .map((row) => text((row as Record<string, unknown>).worker_id))
   );
+  for (const row of pendingWorkers.data ?? []) {
+    const workerId = text((row as Record<string, unknown>).worker_id);
+    if (workerId) activeWorkerIds.add(workerId);
+  }
   const activePlantIds = new Set(
     (plantLinks.data ?? [])
       .filter((row) => {
@@ -199,12 +223,22 @@ export async function fetchSubcontractorProjectWorkspace(
       .map((row) => text((row as Record<string, unknown>).plant_id))
   );
 
-  const assignedWorkers = workers.filter(
-    (worker) => worker.assigned_project_id === projectId || activeWorkerIds.has(worker.id)
-  );
-  const assignedPlant = plant.filter(
-    (item) => item.assigned_project_id === projectId || activePlantIds.has(item.id)
-  );
+  const assignedWorkers = workers
+    .filter(
+      (worker) => worker.assigned_project_id === projectId || activeWorkerIds.has(worker.id)
+    )
+    .map((worker) => ({
+      ...worker,
+      approval_status: approvalByWorkerId.get(worker.id) ?? worker.approval_status ?? null,
+    }));
+  const assignedPlant = plant
+    .filter(
+      (item) => item.assigned_project_id === projectId || activePlantIds.has(item.id)
+    )
+    .map((item) => ({
+      ...item,
+      approval_status: approvalByPlantId.get(item.id) ?? item.approval_status ?? null,
+    }));
 
   return { project, projects, workers, plant, assignedWorkers, assignedPlant };
 }

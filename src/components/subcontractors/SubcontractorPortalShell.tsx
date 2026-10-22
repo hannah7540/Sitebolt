@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SubcontractorApprovalAlerts from "@/components/subcontractors/SubcontractorApprovalAlerts";
 
 const NAV_ITEMS = [
   { href: "/subcontractor", label: "Overview", icon: LayoutDashboard },
@@ -137,6 +138,7 @@ export default function SubcontractorPortalShell({
           )}
         </header>
 
+        <SubcontractorApprovalAlerts />
         <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </div>

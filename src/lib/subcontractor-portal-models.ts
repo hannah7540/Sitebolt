@@ -8,6 +8,7 @@ export interface SubcontractorPortalWorker {
   phone: string;
   competency_status: string;
   assigned_project_id: string;
+  approval_status?: string | null;
 }
 
 export interface SubcontractorPortalPlant {
@@ -17,6 +18,7 @@ export interface SubcontractorPortalPlant {
   serial_number: string;
   next_service_date: string;
   assigned_project_id: string;
+  approval_status?: string | null;
 }
 
 export interface SubcontractorPortalProject {
@@ -68,6 +70,7 @@ export function mapSubcontractorPortalWorkerRow(
       row.project_id,
       row.current_project_id
     ),
+    approval_status: text(row.approval_status) || null,
   };
 }
 
@@ -98,5 +101,6 @@ export function mapSubcontractorPortalPlantRow(
       row.project_id,
       row.current_project_id
     ),
+    approval_status: text(row.approval_status) || null,
   };
 }

@@ -914,18 +914,21 @@ export interface PlantAsset {
   registration_expiry_date?: string | null;
   registration_document_url?: string | null;
   created_at?: string;
+  approval_status?: string | null;
 }
 
 export type PlantProjectFieldSource = Pick<
   PlantAsset,
   "assigned_project_id" | "project_id" | "current_project_id"
->;
+> & { approval_status?: string | null };
 
 /** Resolve the active project id from plant row aliases. */
 export function resolvePlantAssignedProjectId(
   plant: PlantProjectFieldSource | null | undefined
 ): string {
   if (!plant) return "";
+  const approval = String(plant.approval_status ?? "").trim().toLowerCase();
+  if (approval && approval !== "approved") return "";
   return String(
     plant.assigned_project_id?.trim() ||
       plant.project_id?.trim() ||
@@ -1126,6 +1129,9 @@ function normalizePlantRecord(row: RawPlantRow): PlantAsset {
       ? String(record.registration_document_url)
       : null,
     created_at: record.created_at,
+    approval_status: record.approval_status
+      ? String(record.approval_status)
+      : null,
   };
 }
 

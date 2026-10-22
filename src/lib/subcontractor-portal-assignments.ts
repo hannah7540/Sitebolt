@@ -1,6 +1,8 @@
 import {
-  assignPlantToProjectAssignment,
-  assignWorkerToProjectAssignment,
+  requestSubcontractorPlantAssignment,
+  requestSubcontractorWorkerAssignment,
+} from "@/app/actions/resource-approvals";
+import {
   transferPlantToProject,
   transferWorkerToProject,
   unassignPlantFromProject,
@@ -174,25 +176,7 @@ export async function assignSubcontractorWorkerToProject(input: {
   projectId: string;
   projectName: string;
 }): Promise<{ error: string | null }> {
-  const accessError = await assertProjectAccess(input.subcontractorId, input.projectId);
-  if (accessError) return { error: accessError };
-  const ownerError = await assertOwnedWorker(input.subcontractorId, input.workerId);
-  if (ownerError) return { error: ownerError };
-
-  const assigned = await assignWorkerToProjectAssignment(
-    { id: input.workerId },
-    input.projectId
-  );
-  if (assigned.error) return assigned;
-
-  await syncWorkerCalendar({
-    workerId: input.workerId,
-    workerName: input.workerName,
-    projectId: input.projectId,
-    projectName: input.projectName,
-    startDate: formatDateOnly(new Date()),
-  });
-  return { error: null };
+  return requestSubcontractorWorkerAssignment(input);
 }
 
 export async function assignSubcontractorPlantToProject(input: {
@@ -201,24 +185,7 @@ export async function assignSubcontractorPlantToProject(input: {
   projectId: string;
   projectName: string;
 }): Promise<{ error: string | null }> {
-  const accessError = await assertProjectAccess(input.subcontractorId, input.projectId);
-  if (accessError) return { error: accessError };
-  const ownerError = await assertOwnedPlant(input.subcontractorId, input.plantId);
-  if (ownerError) return { error: ownerError };
-
-  const assigned = await assignPlantToProjectAssignment(
-    { id: input.plantId },
-    input.projectId
-  );
-  if (assigned.error) return assigned;
-
-  await syncPlantCalendar({
-    plantId: input.plantId,
-    projectId: input.projectId,
-    projectName: input.projectName,
-    startDate: formatDateOnly(new Date()),
-  });
-  return { error: null };
+  return requestSubcontractorPlantAssignment(input);
 }
 
 export async function moveSubcontractorWorkerProject(input: {

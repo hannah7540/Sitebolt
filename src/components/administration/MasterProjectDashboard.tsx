@@ -69,6 +69,11 @@ import { FLEET_ASSIGNMENT_STATES } from "@/lib/fleet-prestart";
 import type { SiteFormSubmission } from "@/lib/site-forms";
 import type { FormWorkerAssignment } from "@/lib/induction-form-builder";
 import type { SwmsAssignmentRecord } from "@/lib/supabase";
+import {
+  approveResourceAssignment,
+  listPendingResourceApprovals,
+} from "@/app/actions/resource-approvals";
+import type { PendingResourceApproval } from "@/lib/resource-approval";
 
 const LEFT_WIDGETS: Array<{
   key: Exclude<keyof MasterProjectDashboardSnapshot, "swmsDocuments" | "plant">;
@@ -224,16 +229,22 @@ export default function MasterProjectDashboard() {
   const [leaveActingId, setLeaveActingId] = useState<string | null>(null);
   const [sendingInductionId, setSendingInductionId] = useState<string | null>(null);
   const [sendingSwmsId, setSendingSwmsId] = useState<string | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingResourceApproval[]>([]);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       await fetchProjects();
       const nextWorkers = await fetchWorkers();
-      const nextSnapshot = await fetchMasterProjectDashboardSnapshot();
+      const [nextSnapshot, nextPending] = await Promise.all([
+        fetchMasterProjectDashboardSnapshot(),
+        listPendingResourceApprovals().catch(() => [] as PendingResourceApproval[]),
+      ]);
       setWorkers(nextWorkers ?? []);
       setProjects(filterActiveProjects(getCachedProjects()));
       setSnapshot(nextSnapshot);
+      setPendingApprovals(nextPending);
     } catch (error) {
       console.warn("[master-dashboard] load failed:", error);
       setSnapshot(createEmptyMasterProjectDashboardSnapshot());
@@ -422,6 +433,36 @@ export default function MasterProjectDashboard() {
     return raw?.slice(0, 10) || "—";
   };
 
+  const visiblePendingApprovals = useMemo(() => {
+    if (effectiveProjectIds.length === 0) return pendingApprovals;
+    const allowed = new Set(effectiveProjectIds);
+    return pendingApprovals.filter((item) => allowed.has(item.projectId));
+  }, [effectiveProjectIds, pendingApprovals]);
+
+  const handleApproveResource = async (item: PendingResourceApproval) => {
+    setApprovingId(item.id);
+    const result = await approveResourceAssignment({
+      kind: item.kind,
+      resourceId: item.resourceId,
+      projectId: item.projectId,
+      projectName: item.projectName,
+      resourceName: item.resourceName,
+      subcontractorId: item.subcontractorId,
+    });
+    setApprovingId(null);
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+    showSuccess(
+      item.kind === "worker"
+        ? `${item.resourceName} approved. SWMS sent.`
+        : `${item.resourceName} approved.`
+    );
+    setPendingApprovals((current) => current.filter((row) => row.id !== item.id));
+    await load();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -489,6 +530,56 @@ export default function MasterProjectDashboard() {
           Loading master dashboard…
         </div>
       ) : (
+        <>
+        <section className={`${cardClass} p-5`}>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Pending Approvals</h2>
+              <p className="text-sm text-slate-500">
+                Subcontractor workers and plant waiting for project access.
+              </p>
+            </div>
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-sm font-bold text-amber-900">
+              {visiblePendingApprovals.length}
+            </span>
+          </div>
+          {visiblePendingApprovals.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+              No pending subcontractor assignments.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {visiblePendingApprovals.map((item) => {
+                const busy = approvingId === item.id;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">
+                        {item.resourceName}
+                      </p>
+                      <p className="truncate text-xs text-slate-600">
+                        {item.kind === "worker" ? "Worker" : "Plant"} · {item.projectName}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleApproveResource(item)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      Approve
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <div className="grid min-w-0 flex-1 gap-4 md:grid-cols-2">
             <SubmittedFormsWidget
@@ -599,6 +690,7 @@ export default function MasterProjectDashboard() {
             />
           </aside>
         </div>
+        </>
       )}
 
       {expanded?.type === "incident" ? (

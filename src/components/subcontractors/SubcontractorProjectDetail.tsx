@@ -145,6 +145,7 @@ export default function SubcontractorProjectDetail({
             rows={assignedWorkers.map((worker) => ({
               id: worker.id,
               cells: [worker.name, worker.trade, worker.email],
+              pending: String(worker.approval_status ?? "").toLowerCase() === "pending",
               onMove: () => setModal({ kind: "move-worker", worker }),
               onRemove: () =>
                 void run(() =>
@@ -177,6 +178,7 @@ export default function SubcontractorProjectDetail({
             rows={assignedPlant.map((item) => ({
               id: item.id,
               cells: [item.make, item.model, item.serial_number],
+              pending: String(item.approval_status ?? "").toLowerCase() === "pending",
               onMove: () => setModal({ kind: "move-plant", plant: item }),
               onRemove: () =>
                 void run(() =>
@@ -302,6 +304,7 @@ function AssignmentTable({
   rows: Array<{
     id: string;
     cells: string[];
+    pending?: boolean;
     onMove: () => void;
     onRemove: () => void;
   }>;
@@ -318,13 +321,14 @@ function AssignmentTable({
                 {header}
               </th>
             ))}
+            <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Actions</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td className="px-4 py-8 text-slate-500" colSpan={headers.length + 1}>
+              <td className="px-4 py-8 text-slate-500" colSpan={headers.length + 2}>
                 {empty}
               </td>
             </tr>
@@ -336,6 +340,15 @@ function AssignmentTable({
                     {cell}
                   </td>
                 ))}
+                <td className="px-4 py-3">
+                  {row.pending ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+                      Sent for approval
+                    </span>
+                  ) : (
+                    <span className="text-xs font-semibold text-emerald-700">Approved</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-2">
                     <button
