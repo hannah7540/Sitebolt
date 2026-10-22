@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email-service";
+import { appendTeamEmailFooter } from "@/lib/email-team-footer";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/site-domains";
 import { getSiteUrl } from "@/lib/supabase/env";
-import { buildWorkerDeepLinkPath } from "@/lib/worker-deep-links";
 import { composeSmsAdmin } from "@/lib/sms-module-admin";
 import {
   parseMissingColumnFromError,
@@ -54,32 +54,41 @@ function resolveEmailAppOrigin(): string {
   return PRODUCTION_APP_ORIGIN;
 }
 
-function absoluteWorkerDashboardUrl(deepLink: string): string {
+function workerDashboardHref(workerId?: string | null): string {
   const origin = resolveEmailAppOrigin();
-  const trimmed = deepLink.trim();
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      if (!/localhost|127\.0\.0\.1/i.test(parsed.hostname)) {
-        return parsed.toString();
-      }
-      return `${origin}${parsed.pathname}${parsed.search}`;
-    } catch {
-      // Fall through to origin + worker dashboard.
-    }
+  const id = workerId?.trim();
+  if (id) {
+    return `${origin}/worker-dashboard?worker_id=${encodeURIComponent(id)}`;
   }
-
-  const path = trimmed.startsWith("/") ? trimmed : "/worker-dashboard";
-  return `${origin}${path}`;
+  return `${origin}/worker-dashboard`;
 }
 
-function workerDashboardButtonHtml(deepLink: string): string {
-  const href = escapeHtml(absoluteWorkerDashboardUrl(deepLink));
+function workerDashboardButtonHtml(workerId?: string | null): string {
+  const href = escapeHtml(workerDashboardHref(workerId));
   return `
-            <a href="${href}" target="_blank" rel="noopener noreferrer" style="background-color:#ea580c;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;margin:16px 0;">Open Worker Dashboard</a>
-            <br>
-            <a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#ea580c;text-decoration:underline;">${href}</a>`;
+<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:16px 0;">
+  <tr>
+    <td align="center" bgcolor="#ea580c" style="border-radius:6px;background-color:#ea580c;">
+      <a href="${href}" target="_blank" style="background-color:#ea580c;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold;">Open Worker Dashboard</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:8px 0 0;font-size:13px;line-height:1.5;">
+  <a href="${href}" target="_blank" style="color:#ea580c;text-decoration:underline;">${href}</a>
+</p>`;
+}
+
+function buildComplianceEmailDocument(innerHtml: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body style="margin:0;padding:24px;background-color:#ffffff;">
+    ${appendTeamEmailFooter(innerHtml)}
+  </body>
+</html>`;
 }
 
 function firstNonEmpty(...values: unknown[]): string | null {
@@ -116,7 +125,7 @@ function copyForNotice(input: {
   inAppType: string;
   inAppMessage: string;
   textBody: string;
-  htmlBody: (deepLink: string) => string;
+  htmlBody: (workerId?: string | null) => string;
   smsBody: string;
 } {
   const title = input.title;
@@ -142,16 +151,14 @@ function copyForNotice(input: {
         `Your ${noun} (${title}) is ${daysLabel}.`,
         `Please update your records before ${expiryLabel}.`,
       ].join("\n"),
-      htmlBody: (deepLink) => `
+      htmlBody: (workerId) => `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
             <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
             <p style="margin:0 0 16px">
               Your ${escapeHtml(noun)} <strong>${escapeHtml(title)}</strong> is
               ${escapeHtml(daysLabel)}. Please update it before ${escapeHtml(expiryLabel)}.
             </p>
-            <p style="margin:16px 0">
-              ${workerDashboardButtonHtml(deepLink)}
-            </p>
+            ${workerDashboardButtonHtml(workerId)}
           </div>
         `,
       smsBody: `SiteBolt: your ${noun} (${title}) is ${daysLabel}. Please update it in your worker dashboard.`,
@@ -196,13 +203,11 @@ function copyForNotice(input: {
         : "induction_reminder",
     inAppMessage: action,
     textBody: action,
-    htmlBody: (deepLink) => `
+    htmlBody: (workerId) => `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
             <h2 style="margin:0 0 12px">${escapeHtml(heading)}</h2>
             <p style="margin:0 0 16px">${escapeHtml(action)}</p>
-            <p style="margin:16px 0">
-              ${workerDashboardButtonHtml(deepLink)}
-            </p>
+            ${workerDashboardButtonHtml(workerId)}
           </div>
         `,
     smsBody: assigned
@@ -403,7 +408,6 @@ export async function sendComplianceReminders(
         : input.kind === "voc"
           ? "VOC"
           : "Driver's licence");
-  const siteUrl = resolveEmailAppOrigin();
   const mode: ComplianceNoticeMode = input.mode ?? "reminder";
   const copy = copyForNotice({
     kind: input.kind,
@@ -412,13 +416,6 @@ export async function sendComplianceReminders(
     daysRemaining: input.daysRemaining,
     expiryDate: input.expiryDate,
   });
-
-  const deepLinkType =
-    input.kind === "swms"
-      ? "swms"
-      : input.kind === "induction"
-        ? "induction"
-        : "details";
 
   let emailed = 0;
   let notified = 0;
@@ -436,10 +433,6 @@ export async function sendComplianceReminders(
       (row as { auth_user_id?: string | null }).auth_user_id,
       (row as { user_id?: string | null }).user_id
     );
-    const deepLink = `${siteUrl}${buildWorkerDeepLinkPath(
-      { type: deepLinkType },
-      workerId
-    )}`;
 
     if (authUserId) {
       await insertInAppNotification(admin, {
@@ -454,11 +447,13 @@ export async function sendComplianceReminders(
     }
 
     if (email && email.includes("@")) {
+      const dashboardUrl = workerDashboardHref(workerId);
       const result = await sendEmail({
         to: [email],
         subject: copy.subject,
-        text: [copy.textBody, "", "Open your worker dashboard:", deepLink].join("\n"),
-        html: copy.htmlBody(deepLink),
+        text: [copy.textBody, "", "Open your worker dashboard:", dashboardUrl].join("\n"),
+        html: buildComplianceEmailDocument(copy.htmlBody(workerId)),
+        skipTeamFooter: true,
       });
       if (result.sent) emailed += 1;
       else if (result.error) errors.push(`${email}: ${result.error}`);
