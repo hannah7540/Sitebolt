@@ -16,9 +16,7 @@ import { isSuperAdminAccount } from "@/lib/super-admin";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPasswordRecoverySession } from "@/lib/auth-session-utils";
 import { resolvePostLoginPath } from "@/lib/native-app";
-import { isStandalonePwa } from "@/lib/pwa-standalone";
 import { toRelativeAppPath } from "@/lib/relative-app-path";
-import { isGeneralWorkerRole } from "@/lib/user-session";
 import { readLoginReturnPath } from "@/lib/console-nav-routes";
 import {
   hasAuthHashFragment,
@@ -63,34 +61,36 @@ function LoginPageContent() {
   const [error, setError] = useState<string | null>(null);
   const { toast, showError, dismissToast } = useFormToast();
 
+  const displayAuthError = useCallback(
+    (message: string) => {
+      const text = message.trim() || "Sign in failed.";
+      setError(text);
+      showError(text);
+    },
+    [showError]
+  );
+
   const navigateAfterLogin = useCallback(
     (path: string) => {
-      const relative = toRelativeAppPath(path, "/worker-dashboard");
-      if (!relative.startsWith("/") || relative.startsWith("//")) {
+      const relative = toRelativeAppPath(path, "");
+      if (!relative.startsWith("/") || relative.startsWith("//") || relative.startsWith("/login")) {
         const message = "Sign in succeeded but the destination was invalid.";
-        setError(message);
-        showError(message);
+        displayAuthError(message);
+        setCheckingSession(false);
         return;
       }
 
-      const destination =
-        isStandalonePwa() && !relative.startsWith("/onboarding")
-          ? relative.startsWith("/worker-dashboard")
-            ? relative
-            : "/worker-dashboard"
-          : relative;
-
       try {
-        router.push(destination);
+        router.push(relative);
       } catch (cause) {
         const message =
           cause instanceof Error ? cause.message : "Unable to open the app after sign in.";
         console.error("Post-login navigation failed:", cause);
-        setError(message);
-        showError(message);
+        displayAuthError(message);
+        setCheckingSession(false);
       }
     },
-    [router, showError]
+    [displayAuthError, router]
   );
 
   const handleLogin = useCallback(async () => {
@@ -98,9 +98,7 @@ function LoginPageContent() {
     const cleanPassword = password.trim();
 
     if (!cleanEmail || !cleanPassword) {
-      const message = "Please enter your email and password.";
-      setError(message);
-      showError(message);
+      displayAuthError("Please enter your email and password.");
       return;
     }
 
@@ -114,27 +112,28 @@ function LoginPageContent() {
         password: cleanPassword,
       });
 
-      if (signInError || !data.user) {
-        const message = signInError?.message ?? "Invalid email or password";
-        setError(message);
-        showError(message);
+      if (signInError) {
+        console.error("Supabase signInWithPassword error:", signInError);
+        displayAuthError(signInError.message || "Invalid email or password");
+        return;
+      }
+      if (!data.user) {
+        displayAuthError("Invalid email or password");
         return;
       }
 
       const sessionReady = await waitForAuthSession(supabase);
       if (!sessionReady) {
-        const message = "Sign in succeeded but the session could not be established. Please try again.";
-        setError(message);
-        showError(message);
+        displayAuthError(
+          "Sign in succeeded but the session could not be established. Please try again."
+        );
         return;
       }
 
       const bound = await bindAuthSessionForUser(data.user);
       if (!bound.ok) {
         await supabase.auth.signOut();
-        const message = bound.error ?? "Unable to sign in. Contact your administrator.";
-        setError(message);
-        showError(message);
+        displayAuthError(bound.error ?? "Unable to sign in. Contact your administrator.");
         return;
       }
 
@@ -149,35 +148,21 @@ function LoginPageContent() {
         return;
       }
 
-      if (isGeneralWorkerRole(bound.role) || isStandalonePwa()) {
-        const onboardingPath = await resolvePostAuthPathForUser(data.user);
-        if (onboardingPath.startsWith("/onboarding")) {
-          navigateAfterLogin(onboardingPath);
-          return;
-        }
-        router.push(
-          bound.workerId
-            ? `/worker-dashboard?worker_id=${encodeURIComponent(bound.workerId)}`
-            : "/worker-dashboard"
-        );
-        return;
-      }
-
+      const defaultPath = await resolvePostAuthPathForUser(data.user);
       const targetPath = resolvePostLoginPath(bound.role, bound.workerId, {
         returnPath,
-        defaultPath: await resolvePostAuthPathForUser(data.user),
+        defaultPath,
+        subcontractorId: bound.subcontractorId,
       });
-
       navigateAfterLogin(targetPath);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Sign in failed.";
       console.error("Login error:", cause);
-      setError(message);
-      showError(message);
+      displayAuthError(message);
     } finally {
       setSubmitting(false);
     }
-  }, [email, password, navigateAfterLogin, returnPath, showError]);
+  }, [displayAuthError, email, password, navigateAfterLogin, returnPath]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,23 +246,21 @@ function LoginPageContent() {
       if (cancelled) return;
 
       if (bound.ok) {
-        if (isGeneralWorkerRole(bound.role) || isStandalonePwa()) {
-          const defaultPath = await resolvePostAuthPathForUser(user);
-          if (defaultPath.startsWith("/onboarding")) {
-            navigateAfterLogin(defaultPath);
-            return;
-          }
-          router.push(
-            bound.workerId
-              ? `/worker-dashboard?worker_id=${encodeURIComponent(bound.workerId)}`
-              : "/worker-dashboard"
-          );
+        if (
+          isSuperAdminAccount({
+            email: user.email,
+            metadata: (user.user_metadata ?? null) as Record<string, unknown> | null,
+          })
+        ) {
+          navigateAfterLogin("/select-company");
           return;
         }
+        const defaultPath = await resolvePostAuthPathForUser(user);
         navigateAfterLogin(
           resolvePostLoginPath(bound.role, bound.workerId, {
             returnPath,
-            defaultPath: await resolvePostAuthPathForUser(user),
+            defaultPath,
+            subcontractorId: bound.subcontractorId,
           })
         );
         return;
@@ -285,11 +268,17 @@ function LoginPageContent() {
 
       if (bound.error === WORKER_REVOKED_LOGIN_MESSAGE) {
         await supabase.auth.signOut();
-        navigateAfterLogin(`/login?error=${WORKER_REVOKED_LOGIN_ERROR_PARAM}`);
+        if (!cancelled) {
+          displayAuthError(WORKER_REVOKED_LOGIN_MESSAGE);
+          setCheckingSession(false);
+        }
         return;
       }
 
-      navigateAfterLogin("/setyourpassword");
+      if (!cancelled) {
+        displayAuthError(bound.error ?? "Unable to sign in. Contact your administrator.");
+        setCheckingSession(false);
+      }
     }
 
     void redirectIfSignedIn().catch((cause) => {
@@ -300,7 +289,7 @@ function LoginPageContent() {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [navigateAfterLogin, returnPath, router]);
+  }, [displayAuthError, navigateAfterLogin, returnPath, router]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

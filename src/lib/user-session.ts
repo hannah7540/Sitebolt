@@ -14,6 +14,9 @@ export const PROJECT_DASHBOARD_HOME_PATH = "/";
 /** Administration Master Project Dashboard — default landing for admin console roles. */
 export const MASTER_PROJECT_DASHBOARD_PATH = "/admin/dashboard";
 
+/** Subcontractor company portal home. */
+export const SUBCONTRACTOR_PORTAL_HOME_PATH = "/subcontractor";
+
 export const WORKER_ID_KEY = "sitebolt_worker_id";
 export const ADMIN_WORKER_ID_KEY = "sitebolt_admin_worker_id";
 export const DASHBOARD_LOADING_TIMEOUT_MS = 3000;
@@ -137,21 +140,28 @@ export function isGeneralWorkerRole(role: string | null | undefined): boolean {
 /** Post-login / post-setup default route from security role. */
 export function resolveDefaultLandingPathForRole(
   role: string | null | undefined,
-  workerId?: string | null
+  workerId?: string | null,
+  subcontractorId?: string | null
 ): string {
   const normalized = normalizeSecurityRole(role);
-
-  if (isGeneralWorkerRole(normalized)) {
-    const trimmedId = workerId?.trim();
-    if (trimmedId) return workerDashboardUrl(trimmedId);
-    return "/worker-dashboard";
-  }
 
   if (canAccessAdminConsole(normalized)) {
     return MASTER_PROJECT_DASHBOARD_PATH;
   }
 
+  if (isGeneralWorkerRole(normalized) && workerId?.trim()) {
+    return workerDashboardUrl(workerId);
+  }
+
+  if (subcontractorId?.trim()) {
+    return SUBCONTRACTOR_PORTAL_HOME_PATH;
+  }
+
+  if (isGeneralWorkerRole(normalized)) {
+    return "/worker-dashboard";
+  }
+
   const trimmedId = workerId?.trim();
   if (trimmedId) return workerDashboardUrl(trimmedId);
-  return "/worker-dashboard";
+  return MASTER_PROJECT_DASHBOARD_PATH;
 }

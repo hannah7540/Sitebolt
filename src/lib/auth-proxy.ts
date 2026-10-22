@@ -19,6 +19,7 @@ import {
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 import {
   MASTER_PROJECT_DASHBOARD_PATH,
+  SUBCONTRACTOR_PORTAL_HOME_PATH,
   isGeneralWorkerRole,
   resolveDefaultLandingPathForRole,
 } from "@/lib/user-session";
@@ -45,6 +46,7 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/active-organisation";
 import { isSuperAdminAccount } from "@/lib/super-admin";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import { linkWorkerProfile } from "@/lib/link-worker-profile";
+import { lookupSubcontractorIdForAuthUser } from "@/lib/subcontractor-auth";
 import { resolveHiredLabourAccessStatus } from "@/lib/hired-labour-status";
 
 const PUBLIC_PATH_PREFIXES = [
@@ -151,6 +153,7 @@ interface AuthContext {
   accessRevoked: boolean;
   workerCategory: string | null;
   hiredLabourStatus: string | null;
+  subcontractorId: string | null;
 }
 
 async function resolveWorkerAccess(
@@ -251,10 +254,12 @@ async function resolveAuthContext(
       accessRevoked: false,
       workerCategory: null,
       hiredLabourStatus: null,
+      subcontractorId: null,
     };
   }
 
   const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(supabase, user);
+  const subcontractorId = await lookupSubcontractorIdForAuthUser(supabase, user);
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -280,6 +285,7 @@ async function resolveAuthContext(
       accessRevoked,
       workerCategory: access.category,
       hiredLabourStatus: access.hiredLabourStatus,
+      subcontractorId,
     };
   }
 
@@ -299,6 +305,7 @@ async function resolveAuthContext(
       accessRevoked,
       workerCategory: access.category,
       hiredLabourStatus: access.hiredLabourStatus,
+      subcontractorId,
     };
   }
 
@@ -318,6 +325,7 @@ async function resolveAuthContext(
         accessRevoked,
         workerCategory: access.category,
         hiredLabourStatus: access.hiredLabourStatus,
+        subcontractorId,
       };
     }
   }
@@ -333,6 +341,7 @@ async function resolveAuthContext(
     accessRevoked,
     workerCategory: null,
     hiredLabourStatus: null,
+    subcontractorId,
   };
 }
 
@@ -350,9 +359,6 @@ function resolveAuthenticatedHomePath(
   ) {
     return "/onboarding/hired-labour";
   }
-  if (isNativeAppRequest(request)) {
-    return resolveNativeWorkerDashboardPath(context.workerId);
-  }
   if (
     isSuperAdminAccount({
       email: context.user?.email,
@@ -362,7 +368,14 @@ function resolveAuthenticatedHomePath(
   ) {
     return "/select-company";
   }
-  return resolveDefaultLandingPathForRole(context.role, context.workerId);
+  if (isNativeAppRequest(request) && isWorkerRole(context.role) && !context.subcontractorId) {
+    return resolveNativeWorkerDashboardPath(context.workerId);
+  }
+  return resolveDefaultLandingPathForRole(
+    context.role,
+    context.workerId,
+    context.subcontractorId
+  );
 }
 
 function resolveGeneralWorkerHomePath(context: AuthContext): string {
@@ -384,6 +397,14 @@ function workerSafeLoginDestination(
 ): string {
   const relativeNext = toRelativeAppPath(nextPath, "");
   const nextPathname = relativeNext.split("?")[0] ?? "";
+  if (
+    context.subcontractorId &&
+    !context.workerId &&
+    (nextPathname === GENERAL_WORKER_HOME_PATH ||
+      nextPathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`))
+  ) {
+    return SUBCONTRACTOR_PORTAL_HOME_PATH;
+  }
   if (isWorkerRole(context.role)) {
     if (relativeNext.startsWith("/") && isGeneralWorkerAllowedPath(nextPathname)) {
       return relativeNext;
@@ -515,7 +536,12 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
         }
       }
       let destination = workerSafeLoginDestination(context, request, nextPath);
-      if (isNativeAppRequest(request) && shouldRedirectNativePath(destination)) {
+      if (
+        isNativeAppRequest(request) &&
+        isWorkerRole(context.role) &&
+        !context.subcontractorId &&
+        shouldRedirectNativePath(destination)
+      ) {
         destination = resolveNativeWorkerDashboardPath(context.workerId);
       }
       return redirectWithCookies(request, destination, sessionResponse);
@@ -585,11 +611,19 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     isNativeAppRequest(request) &&
     shouldRedirectNativePath(pathname)
   ) {
-    return redirectWithCookies(
-      request,
-      resolveNativeWorkerDashboardPath(context.workerId),
-      sessionResponse
-    );
+    if (canAccessAdminConsole(context.role)) {
+      return sessionResponse;
+    }
+    if (context.subcontractorId && !context.workerId) {
+      return redirectWithCookies(request, SUBCONTRACTOR_PORTAL_HOME_PATH, sessionResponse);
+    }
+    if (isWorkerRole(context.role)) {
+      return redirectWithCookies(
+        request,
+        resolveNativeWorkerDashboardPath(context.workerId),
+        sessionResponse
+      );
+    }
   }
 
   if (context.user) {
@@ -605,7 +639,11 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
     } else if (pathname === "/select-company" || pathname.startsWith("/select-company/")) {
       return redirectWithCookies(
         request,
-        resolveDefaultLandingPathForRole(context.role, context.workerId),
+        resolveDefaultLandingPathForRole(
+          context.role,
+          context.workerId,
+          context.subcontractorId
+        ),
         sessionResponse
       );
     }
@@ -634,6 +672,15 @@ export async function runAuthProxy(request: NextRequest): Promise<NextResponse> 
   );
 
   if (context.user && !superAdminUser && context.role === "general_worker") {
+    if (
+      context.subcontractorId &&
+      !context.workerId &&
+      (pathname === GENERAL_WORKER_HOME_PATH ||
+        pathname.startsWith(`${GENERAL_WORKER_HOME_PATH}/`))
+    ) {
+      return redirectWithCookies(request, SUBCONTRACTOR_PORTAL_HOME_PATH, sessionResponse);
+    }
+
     const incompleteOnboardingPath = isHiredLabour
       ? hiredLabourOnboardingPath
       : "/onboarding";

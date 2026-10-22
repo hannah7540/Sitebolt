@@ -28,6 +28,7 @@ import {
   fetchWorkerAccessRevokedForAuthUser,
 } from "@/lib/worker-revocation";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
+import { lookupSubcontractorIdForAuthUser } from "@/lib/subcontractor-auth";
 
 export interface UserProfileRow {
   role: string;
@@ -263,6 +264,7 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   error?: string;
   workerId?: string | null;
   role: ProfileRole;
+  subcontractorId?: string | null;
 }> {
   const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(
     createSupabaseBrowserClient(),
@@ -274,6 +276,7 @@ export async function bindAuthSessionForUser(user: User): Promise<{
       error: WORKER_REVOKED_LOGIN_MESSAGE,
       workerId: null,
       role: "general_worker",
+      subcontractorId: null,
     };
   }
 
@@ -281,6 +284,10 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   const profile = await fetchUserProfile(user.id);
   const worker = await resolveLinkedWorkerForAuthUser(user);
   const workerId = profile?.worker_id ?? worker.workerId;
+  const subcontractorId = await lookupSubcontractorIdForAuthUser(
+    createSupabaseBrowserClient(),
+    user
+  );
 
   if (workerId) {
     setStoredWorkerId(workerId);
@@ -291,7 +298,7 @@ export async function bindAuthSessionForUser(user: User): Promise<{
 
   await bindHomeOrganisationForUser(user, worker.organisationId, workerId);
 
-  return { ok: true, workerId, role };
+  return { ok: true, workerId, role, subcontractorId };
 }
 
 export async function resolvePostAuthPathForUser(user: User): Promise<string> {
@@ -324,7 +331,11 @@ export async function resolvePostAuthPathForUser(user: User): Promise<string> {
           : null,
     });
   }
-  return resolveDefaultLandingPathForRole(bound.role, bound.workerId);
+  return resolveDefaultLandingPathForRole(
+    bound.role,
+    bound.workerId,
+    bound.subcontractorId
+  );
 }
 
 async function resolveWorkerIdForAuthUser(user: User): Promise<string | null> {

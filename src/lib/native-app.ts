@@ -4,7 +4,6 @@ import { Capacitor } from "@capacitor/core";
 import {
   NATIVE_APP_COOKIE,
   resolveNativeWorkerDashboardPath,
-  shouldRedirectNativePath,
 } from "@/lib/native-app-paths";
 import { isGeneralWorkerAllowedPath } from "@/lib/rbac-guards";
 import { canAccessAdminConsole, normalizeSecurityRole } from "@/lib/security-roles";
@@ -47,22 +46,23 @@ export function resolveNativeAppLandingPath(workerId?: string | null): string {
 export function resolvePostLoginPath(
   role: string | null | undefined,
   workerId: string | null | undefined,
-  options?: { returnPath?: string | null; defaultPath?: string }
+  options?: {
+    returnPath?: string | null;
+    defaultPath?: string;
+    subcontractorId?: string | null;
+  }
 ): string {
   const returnPath = options?.returnPath?.trim();
   const returnPathname = returnPath?.split("?")[0] ?? "";
+  const subcontractorId = options?.subcontractorId?.trim() || null;
+  const securityRole = normalizeSecurityRole(role);
 
-  if (isNativeMobileApp() || isStandalonePwa()) {
-    if (
-      returnPath &&
-      (isPlantPrestartPath(returnPathname) || returnPathname.startsWith("/scan/"))
-    ) {
-      return returnPath;
-    }
-    if (isGeneralWorkerRole(role) && options?.defaultPath?.startsWith("/onboarding")) {
-      return options.defaultPath;
-    }
-    return resolveNativeWorkerDashboardPath(workerId);
+  if (
+    (isNativeMobileApp() || isStandalonePwa()) &&
+    returnPath &&
+    (isPlantPrestartPath(returnPathname) || returnPathname.startsWith("/scan/"))
+  ) {
+    return returnPath;
   }
 
   if (
@@ -72,10 +72,27 @@ export function resolvePostLoginPath(
     return "/select-company";
   }
 
-  if (isGeneralWorkerRole(role)) {
-    if (options?.defaultPath?.startsWith("/onboarding")) {
-      return options.defaultPath;
+  if (options?.defaultPath?.startsWith("/onboarding")) {
+    return options.defaultPath;
+  }
+
+  if (canAccessAdminConsole(securityRole)) {
+    if (
+      returnPath &&
+      returnPath.startsWith("/") &&
+      returnPathname !== "/" &&
+      returnPathname !== "/worker-dashboard" &&
+      !returnPathname.startsWith("/worker-dashboard/")
+    ) {
+      return returnPath;
     }
+    return (
+      options?.defaultPath ??
+      resolveDefaultLandingPathForRole(role, workerId, subcontractorId)
+    );
+  }
+
+  if (isGeneralWorkerRole(role) && workerId?.trim()) {
     if (
       returnPath &&
       returnPath.startsWith("/") &&
@@ -83,28 +100,15 @@ export function resolvePostLoginPath(
     ) {
       return returnPath;
     }
-    return resolveDefaultLandingPathForRole(role, workerId);
+    return resolveDefaultLandingPathForRole(role, workerId, subcontractorId);
   }
 
-  if (canAccessAdminConsole(normalizeSecurityRole(role))) {
-    if (
-      returnPath &&
-      returnPath.startsWith("/") &&
-      returnPathname !== "/" &&
-      returnPathname !== "/worker-dashboard" &&
-      !returnPathname.startsWith("/worker-dashboard/") &&
-      !shouldRedirectNativePath(returnPath)
-    ) {
-      return returnPath;
-    }
-    return (
-      options?.defaultPath ??
-      resolveDefaultLandingPathForRole(role, workerId)
-    );
+  if (subcontractorId) {
+    return "/subcontractor";
   }
 
   return (
     options?.defaultPath ??
-    resolveDefaultLandingPathForRole(role, workerId)
+    resolveDefaultLandingPathForRole(role, workerId, subcontractorId)
   );
 }

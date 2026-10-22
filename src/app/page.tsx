@@ -270,10 +270,6 @@ function HomeConsole() {
   useEffect(() => {
     if (pathname !== "/") return;
     if (hasAuthCodeQuery() || hasAuthHashFragment()) return;
-    if (isStandalonePwa()) {
-      router.replace("/worker-dashboard");
-      return;
-    }
     if (!sessionReady) return;
 
     if (
@@ -664,11 +660,7 @@ function RootEntry() {
     setIsNativeApp(native);
     setIsAppHost(isAppSubdomainHost());
     setHostReady(true);
-    if (standalone) {
-      router.replace("/worker-dashboard");
-      return;
-    }
-    if (native) {
+    if (standalone || native) {
       router.replace("/login");
     }
   }, [router]);

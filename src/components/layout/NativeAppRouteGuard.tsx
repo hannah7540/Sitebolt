@@ -48,8 +48,23 @@ export default function NativeAppRouteGuard() {
       return;
     }
     if (!shouldRedirectNativePath(pathname)) return;
+    if (
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/organisation") ||
+      pathname.startsWith("/accounts") ||
+      pathname.startsWith("/subcontractor") ||
+      pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/select-company")
+    ) {
+      return;
+    }
 
-    router.replace(resolveNativeWorkerDashboardPath(getStoredWorkerId()));
+    const storedWorkerId = getStoredWorkerId();
+    if (storedWorkerId) {
+      router.replace(resolveNativeWorkerDashboardPath(storedWorkerId));
+      return;
+    }
+    router.replace("/login");
   }, [pathname, router]);
 
   return null;
