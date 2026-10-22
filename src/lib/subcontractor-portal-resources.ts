@@ -13,9 +13,47 @@ export type {
 } from "./subcontractor-portal-models";
 
 const PLANT_TABLES = ["plant", "plant_equipment", "subcontractor_plant"] as const;
+const SUBCONTRACTOR_DOCS_BUCKET = "subcontractor-docs";
 
 function text(value: unknown): string {
   return value == null ? "" : String(value).trim();
+}
+
+function sanitizeFileName(fileName: string): string {
+  const sanitized = fileName.trim().replace(/[^a-zA-Z0-9.-]/g, "_").replace(/_+/g, "_");
+  return sanitized.replace(/^_+|_+$/g, "") || "document";
+}
+
+function parseHours(value: string | number | null | undefined): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const parsed = Number.parseFloat(text(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function uploadSubcontractorPortalPlantDocument(
+  file: File | null | undefined,
+  subcontractorId: string,
+  kind: "last-service-report" | "plant-risk-assessment" | "operations-manual"
+): Promise<{ url: string | null; error: string | null }> {
+  if (!file) return { url: null, error: null };
+  const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+  const path = `plant/${subcontractorId}/${kind}/${Date.now()}-${sanitizeFileName(file.name || `${kind}.${ext}`)}`;
+  try {
+    const { error } = await supabase.storage.from(SUBCONTRACTOR_DOCS_BUCKET).upload(path, file, {
+      upsert: true,
+      contentType: file.type || (ext === "pdf" ? "application/pdf" : undefined),
+    });
+    if (error) {
+      return { url: null, error: error.message };
+    }
+    const { data } = supabase.storage.from(SUBCONTRACTOR_DOCS_BUCKET).getPublicUrl(path);
+    return { url: data.publicUrl, error: null };
+  } catch (error) {
+    return {
+      url: null,
+      error: error instanceof Error ? error.message : "Document upload failed.",
+    };
+  }
 }
 
 async function insertWithMissingColumnRetry(
@@ -130,6 +168,11 @@ export async function createSubcontractorPortalPlant(input: {
   model: string;
   serialNumber: string;
   nextServiceDate: string;
+  currentMachineHours?: string | number;
+  nextServiceDueHours?: string | number;
+  lastServiceReportUrl?: string | null;
+  plantRiskAssessmentUrl?: string | null;
+  operationsManualUrl?: string | null;
 }): Promise<{ error: string | null }> {
   const subcontractorId = input.subcontractorId.trim();
   const name = input.name.trim();
@@ -138,6 +181,11 @@ export async function createSubcontractorPortalPlant(input: {
   const serialNumber = input.serialNumber.trim();
   const nextServiceDate = input.nextServiceDate.trim();
   const organisationId = input.organisationId?.trim() || "";
+  const currentMachineHours = parseHours(input.currentMachineHours);
+  const nextServiceDueHours = parseHours(input.nextServiceDueHours);
+  const lastServiceReportUrl = text(input.lastServiceReportUrl) || null;
+  const plantRiskAssessmentUrl = text(input.plantRiskAssessmentUrl) || null;
+  const operationsManualUrl = text(input.operationsManualUrl) || null;
 
   if (!subcontractorId) return { error: "Subcontractor profile is missing." };
   if (!name || !make || !model || !serialNumber || !nextServiceDate) {
@@ -162,19 +210,36 @@ export async function createSubcontractorPortalPlant(input: {
     service_expiry: nextServiceDate,
     next_service_due: nextServiceDate,
     next_service_due_date: nextServiceDate,
+    current_machine_hours: currentMachineHours,
+    current_hours: currentMachineHours,
+    next_service_due_hours: nextServiceDueHours,
+    next_service_hours: nextServiceDueHours,
+    last_service_report_url: lastServiceReportUrl,
+    plant_risk_assessment_url: plantRiskAssessmentUrl,
+    operations_manual_url: operationsManualUrl,
     subcontractor_id: subcontractorId,
     is_subcontractor_plant: true,
     ownership_type: "Subcontractor",
     status: "available",
-    ...(organisationId ? { organisation_id: organisationId } : {}),
   };
-
-  let lastError: string | null = null;
-  for (const table of PLANT_TABLES) {
-    const result = await insertWithMissingColumnRetry(table, payload);
-    if (!result.error) return { error: null };
-    lastError = result.error;
+  if (organisationId) {
+    payload.organisation_id = organisationId;
   }
 
-  return { error: lastError ?? "Failed to save plant." };
+  try {
+    console.log("[subcontractor-portal-plant] Insert payload", payload);
+    let lastError: string | null = null;
+    for (const table of PLANT_TABLES) {
+      const result = await insertWithMissingColumnRetry(table, payload);
+      if (!result.error) return { error: null };
+      lastError = result.error;
+      console.error(`[subcontractor-portal-plant] ${table} insert failed`, result.error);
+    }
+    return { error: lastError ?? "Failed to save plant." };
+  } catch (error) {
+    console.error("[subcontractor-portal-plant] Insert threw", error);
+    return {
+      error: error instanceof Error ? error.message : "Failed to save plant.",
+    };
+  }
 }
