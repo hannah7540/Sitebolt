@@ -12,7 +12,9 @@ import { DATABASE_CONNECTION_ERROR_MESSAGE } from "@/lib/project-resolver";
 import WorkerDashboardView from "@/components/workers/WorkerDashboardView";
 import { cardClass } from "@/lib/ui-classes";
 import { resolveAuthWorkerFromSession } from "@/lib/auth-profile";
+import { fetchSessionHome, isSubcontractorHomePath } from "@/lib/auth-session-home";
 import { redirectToLogin } from "@/lib/auth-guard";
+import { toRelativeAppPath } from "@/lib/relative-app-path";
 import { shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import { isNativeMobileApp } from "@/lib/native-app";
 import { isStandalonePwa } from "@/lib/pwa-standalone";
@@ -22,6 +24,7 @@ import {
 } from "@/lib/security-roles";
 import {
   DASHBOARD_LOADING_TIMEOUT_MS,
+  SUBCONTRACTOR_PORTAL_HOME_PATH,
   getAdminWorkerId,
   resolveDashboardWorkerId,
   workerDashboardUrl,
@@ -118,6 +121,25 @@ function WorkerDashboardContent() {
             router.replace(workerDashboardUrl(resolved, { fromAdmin: true }));
           }
         } else {
+          const sessionHome = await fetchSessionHome();
+          if (cancelled) return;
+          const destination = sessionHome?.homePath ?? "";
+          if (
+            sessionHome?.subcontractorId ||
+            isSubcontractorHomePath(destination) ||
+            (destination.startsWith("/") &&
+              !destination.startsWith("//") &&
+              destination !== "/worker-dashboard" &&
+              !destination.startsWith("/worker-dashboard"))
+          ) {
+            router.replace(
+              toRelativeAppPath(
+                destination || SUBCONTRACTOR_PORTAL_HOME_PATH,
+                SUBCONTRACTOR_PORTAL_HOME_PATH
+              )
+            );
+            return;
+          }
           setFetchError(
             "No worker profile is linked to your account. Contact your administrator."
           );

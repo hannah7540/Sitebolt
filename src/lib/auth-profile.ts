@@ -29,6 +29,7 @@ import {
 } from "@/lib/worker-revocation";
 import { matchWorkerForAuthUser } from "@/lib/worker-auth-lookup";
 import { lookupSubcontractorIdForAuthUser } from "@/lib/subcontractor-auth";
+import { fetchSessionHome } from "@/lib/auth-session-home";
 
 export interface UserProfileRow {
   role: string;
@@ -283,11 +284,17 @@ export async function bindAuthSessionForUser(user: User): Promise<{
   const role = await resolveRoleForAuthUser(user);
   const profile = await fetchUserProfile(user.id);
   const worker = await resolveLinkedWorkerForAuthUser(user);
-  const workerId = profile?.worker_id ?? worker.workerId;
-  const subcontractorId = await lookupSubcontractorIdForAuthUser(
+  let workerId = profile?.worker_id ?? worker.workerId;
+  let subcontractorId = await lookupSubcontractorIdForAuthUser(
     createSupabaseBrowserClient(),
     user
   );
+
+  if (!workerId && !subcontractorId) {
+    const sessionHome = await fetchSessionHome();
+    if (sessionHome?.workerId) workerId = sessionHome.workerId;
+    if (sessionHome?.subcontractorId) subcontractorId = sessionHome.subcontractorId;
+  }
 
   if (workerId) {
     setStoredWorkerId(workerId);

@@ -16,7 +16,13 @@ import {
   isProjectTeamAllowedPath,
   resolveProjectTeamFallbackPath,
 } from "@/lib/rbac-guards";
-import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+import {
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured,
+  supabaseAnonKey,
+  supabaseUrl,
+} from "@/lib/supabase/env";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   MASTER_PROJECT_DASHBOARD_PATH,
   SUBCONTRACTOR_PORTAL_HOME_PATH,
@@ -259,7 +265,13 @@ async function resolveAuthContext(
   }
 
   const accessRevoked = await fetchWorkerAccessRevokedForAuthUser(supabase, user);
-  const subcontractorId = await lookupSubcontractorIdForAuthUser(supabase, user);
+  const subcontractorLookupClient = isSupabaseAdminConfigured()
+    ? createSupabaseAdminClient()
+    : supabase;
+  const subcontractorId = await lookupSubcontractorIdForAuthUser(
+    subcontractorLookupClient,
+    user
+  );
 
   const { data: profile } = await supabase
     .from("profiles")

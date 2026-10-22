@@ -149,6 +149,10 @@ export function resolveDefaultLandingPathForRole(
     return MASTER_PROJECT_DASHBOARD_PATH;
   }
 
+  if (subcontractorId?.trim() && !workerId?.trim()) {
+    return SUBCONTRACTOR_PORTAL_HOME_PATH;
+  }
+
   if (isGeneralWorkerRole(normalized) && workerId?.trim()) {
     return workerDashboardUrl(workerId);
   }

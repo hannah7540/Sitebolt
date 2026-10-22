@@ -225,6 +225,7 @@ export default function AuthSetPasswordForm({
               workerId: bound.workerId,
               role: bound.role,
             }),
+            subcontractorId: bound.subcontractorId,
           });
         } else {
           nextPath = await resolvePostAuthPathForUser(user);
