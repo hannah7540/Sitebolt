@@ -561,84 +561,14 @@ export async function notifyInductionAssignedAndStamp(
   return result;
 }
 
-/** Immediate notify for pending SWMS/induction rows that have not yet been stamped. */
+/**
+ * Immediate SWMS/induction emails are disabled. Assignments stay in the
+ * database; `/api/cron/reminders` emails only if they are still incomplete
+ * after 7 days.
+ */
 export async function notifyUnstampedPendingAssignments(
-  admin: SupabaseClient,
-  workerId: string
+  _admin: SupabaseClient,
+  _workerId: string
 ): Promise<void> {
-  const trimmed = workerId.trim();
-  if (!trimmed) return;
-
-  const swmsSelects = [
-    "id, swms_id, status, last_reminded_at, assignee_id, worker_id",
-    "id, swms_id, status, assignee_id, worker_id",
-    "id, swms_id, status, assignee_id",
-  ];
-  let swmsLookup = await admin
-    .from("swms_assignments")
-    .select(swmsSelects[0])
-    .or(`assignee_id.eq.${trimmed},worker_id.eq.${trimmed}`)
-    .eq("status", "Pending");
-  if (swmsLookup.error) {
-    swmsLookup = await admin
-      .from("swms_assignments")
-      .select(swmsSelects[2])
-      .eq("assignee_id", trimmed)
-      .eq("status", "Pending");
-  }
-
-  const swmsByDoc = new Map<string, true>();
-  for (const raw of swmsLookup.data ?? []) {
-    const row = raw as {
-      swms_id?: string;
-      last_reminded_at?: string | null;
-    };
-    if (row.last_reminded_at) continue;
-    const swmsId = String(row.swms_id ?? "").trim();
-    if (!swmsId || swmsByDoc.has(swmsId)) continue;
-    swmsByDoc.set(swmsId, true);
-    await notifySwmsAssignedAndStamp(admin, {
-      workerIds: [trimmed],
-      swmsId,
-    });
-  }
-
-  const inductionSelects = [
-    "id, form_id, form_title, status, last_reminded_at",
-    "id, form_id, form_title, status",
-    "id, form_id, status",
-  ];
-  let inductionLookup = await admin
-    .from("form_worker_assignments")
-    .select(inductionSelects[0])
-    .eq("worker_id", trimmed);
-  if (inductionLookup.error) {
-    inductionLookup = await admin
-      .from("form_worker_assignments")
-      .select(inductionSelects[2])
-      .eq("worker_id", trimmed);
-  }
-
-  const forms = new Map<string, string>();
-  for (const raw of inductionLookup.data ?? []) {
-    const row = raw as {
-      form_id?: string;
-      form_title?: string | null;
-      status?: string | null;
-      last_reminded_at?: string | null;
-    };
-    if (String(row.status ?? "").toLowerCase() === "completed") continue;
-    if (row.last_reminded_at) continue;
-    const formId = String(row.form_id ?? "").trim();
-    if (!formId || forms.has(formId)) continue;
-    forms.set(formId, String(row.form_title ?? "Induction"));
-  }
-
-  for (const [formId, formTitle] of forms) {
-    await notifyInductionAssignedAndStamp(admin, {
-      workerIds: [trimmed],
-      formId,
-      formTitle,
-    });
-  }
+  return;
 }

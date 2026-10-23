@@ -32,7 +32,6 @@ import {
 } from "@/lib/worker-utils";
 import { sendWorkerInviteEmailViaResend } from "@/lib/worker-invite-resend";
 import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignment";
-import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
 import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
 import { companyInductionMatchesState } from "@/lib/worker-induction-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
@@ -699,12 +698,6 @@ async function processBulkWorker(input: {
     }
   } catch (cause) {
     console.warn("[bulk-onboard] SWMS/induction assignment failed:", cause);
-  }
-
-  try {
-    await notifyUnstampedPendingAssignments(input.admin, workerId);
-  } catch (cause) {
-    console.warn("[bulk-onboard] assignment notification skipped:", cause);
   }
 
   try {

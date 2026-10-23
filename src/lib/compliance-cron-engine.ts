@@ -247,6 +247,7 @@ async function collectDueSwms(
     admin,
     "swms_assignments",
     [
+      "id, swms_id, assignee_id, worker_id, assignee_type, status, last_reminded_at, created_at, assigned_at",
       "id, swms_id, assignee_id, worker_id, assignee_type, status, last_reminded_at, created_at",
       "id, swms_id, assignee_id, worker_id, assignee_type, status, created_at",
       "id, swms_id, assignee_id, assignee_type, status, created_at",
@@ -271,7 +272,11 @@ async function collectDueSwms(
       documentId: String(row.swms_id ?? ""),
       workerId,
       lastRemindedAt: row.last_reminded_at ? String(row.last_reminded_at) : null,
-      assignedAt: row.created_at ? String(row.created_at) : null,
+      assignedAt: row.created_at
+        ? String(row.created_at)
+        : row.assigned_at
+          ? String(row.assigned_at)
+          : null,
       title: "SWMS",
     };
     if (!mapped.id || !mapped.documentId) continue;
@@ -306,8 +311,10 @@ async function collectDueInductions(
     admin,
     "form_worker_assignments",
     [
+      "id, form_id, worker_id, status, last_reminded_at, assigned_at, created_at, form_title",
       "id, form_id, worker_id, status, last_reminded_at, assigned_at, form_title",
       "id, form_id, worker_id, status, assigned_at, form_title",
+      "id, form_id, worker_id, status, assigned_at, created_at",
       "id, form_id, worker_id, status, assigned_at",
     ],
     (query) => query.neq("status", "completed")
@@ -331,7 +338,11 @@ async function collectDueInductions(
       documentId: String(row.form_id ?? ""),
       workerId,
       lastRemindedAt: row.last_reminded_at ? String(row.last_reminded_at) : null,
-      assignedAt: row.assigned_at ? String(row.assigned_at) : null,
+      assignedAt: row.assigned_at
+        ? String(row.assigned_at)
+        : row.created_at
+          ? String(row.created_at)
+          : null,
       title: String(row.form_title ?? "Induction"),
     };
     if (!mapped.id || !mapped.documentId || !workerId) continue;

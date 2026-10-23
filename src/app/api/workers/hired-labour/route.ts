@@ -14,7 +14,6 @@ import {
 } from "@/lib/security-roles";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { onWorkerOnboardingCompleted, onWorkerProjectAssigned } from "@/lib/services/worker-assignment";
-import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
 
 const HIRED_LABOUR_CATEGORY = "hired_labour";
 
@@ -316,7 +315,6 @@ export async function POST(req: Request) {
           ? [loaded.worker.assigned_project_id]
           : [],
       });
-      await notifyUnstampedPendingAssignments(admin, workerId);
     } catch (cause) {
       console.warn("[hired-labour] SWMS and induction assignment failed:", cause);
     }

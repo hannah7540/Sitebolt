@@ -7,7 +7,6 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { applyWorkerInductionWorkflowRulesAdmin } from "@/lib/worker-induction-auto-assign";
-import { notifyUnstampedPendingAssignments } from "@/lib/compliance-reminders";
 import { canAssignPayRules, normalizeSecurityRole } from "@/lib/security-roles";
 
 function readString(value: unknown): string {
@@ -121,10 +120,6 @@ export async function POST(req: Request) {
     projectNames,
     includeExistingProjects,
   });
-
-  if (result.companyAssigned + result.projectAssigned > 0) {
-    await notifyUnstampedPendingAssignments(admin, workerId);
-  }
 
   return NextResponse.json({
     success: true,

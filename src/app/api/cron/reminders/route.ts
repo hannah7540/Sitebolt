@@ -8,6 +8,13 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { runDailyComplianceReminders } from "@/lib/compliance-cron-engine";
 
+/**
+ * Daily Vercel cron: remind workers about SWMS/inductions that are still
+ * pending 7 days after assignment. Immediate assignment emails are disabled
+ * during onboarding — only the set-password invite is sent then.
+ *
+ * Auth: Vercel sends `Authorization: Bearer ${CRON_SECRET}`.
+ */
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
@@ -39,6 +46,7 @@ async function runReminders() {
     };
   }
 
+  // Service-role client bypasses RLS so every tenant's pending rows are visible.
   const admin = createSupabaseAdminClient();
   const result = await runDailyComplianceReminders(admin);
   return { skipped: false, ...result };
