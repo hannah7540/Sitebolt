@@ -25,15 +25,15 @@ const ALL_DAYS: WeekdayCode[] = [...WEEKDAYS, ...WEEKEND];
 
 /** Card display lines for the hardcoded WA Site Worker template. */
 export const WA_SITE_WORKER_DISPLAY_LINES: string[] = [
-  "Base Hourly | Mon-Fri | First 8 hours worked | 1.0x",
-  "Overtime (1.5x) | Mon-Fri | After 8 hours worked | 1.5x",
-  "Overtime (1.5x) | Sat-Sun | All hours worked | 1.5x",
-  "Personal Leave Pay | Mon-Fri | Flat rate = 8 hours worked (Auto-applied on leave booked)",
-  "Annual Leave Pay | Mon-Fri | Flat rate = 8 hours worked (Auto-applied on leave booked)",
-  "Annual Leave Loading | Mon-Fri | Flat rate = 8 hours worked (Auto-applied on leave booked)",
-  "RDO Taken | Mon-Fri | Flat rate = 8 hours worked (Auto-applied on leave booked)",
-  "Leave Without Pay | Mon-Fri | Flat rate (Auto-applied on leave booked)",
-  "Public Holiday Pay | Mon-Sun | Flat rate = 8 hours worked (Auto-applied on leave booked)",
+  "Base Hourly | Mon-Fri | First 7.6 hours + 0.4 RDO Accrual | 1.0x",
+  "Overtime 1.5 | Mon-Fri | After 8 hours worked | 1.5x",
+  "Overtime 1.5 | Sat-Sun & Public Holidays | All hours worked | 1.5x",
+  "Personal Leave Pay | Mon-Fri | Flat 7.6 hours (Auto-applied on leave booked)",
+  "Annual Leave Pay | Mon-Fri | Flat 7.6 hours (Auto-applied on leave booked)",
+  "Annual Leave Loading | Mon-Fri | 17.5 units when Annual Leave Pay is booked",
+  "RDO Taken | Mon-Fri | Flat 7.6 hours (Auto-applied on leave booked)",
+  "Leave without pay | Mon-Fri | Flat rate (Auto-applied on leave booked)",
+  "Public Holiday | Mon-Sun | Flat 7.6 hours (Auto-applied on leave booked)",
 ];
 
 function buildWaCondition(

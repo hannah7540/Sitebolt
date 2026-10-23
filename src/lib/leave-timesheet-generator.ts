@@ -186,7 +186,9 @@ export async function generateTimesheetsForApprovedLeave(
         : classified?.classification === "rdo"
           ? "RDO"
           : leaveType;
-    const daySpec = resolveLeaveTimesheetDaySpec(dayLeaveType, day.iso);
+    const daySpec = resolveLeaveTimesheetDaySpec(dayLeaveType, day.iso, {
+      workerState: worker?.state ?? null,
+    });
     const dayNotes = `${dayLeaveType}${payRuleSuffix} - Auto-generated from approved leave request`;
 
     const fullPayload = stripNullishFields({

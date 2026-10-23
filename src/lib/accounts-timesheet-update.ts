@@ -205,6 +205,8 @@ export function mergeAccountsTimesheetRow(
     worker_is_apprentice: previous.worker_is_apprentice,
     worker_has_company_vehicle: previous.worker_has_company_vehicle,
     worker_state: previous.worker_state,
+    worker_is_leading_hand: previous.worker_is_leading_hand,
+    worker_tags: previous.worker_tags,
     is_leave_preview: previous.is_leave_preview,
     leave_preview_request_status: previous.leave_preview_request_status,
   };

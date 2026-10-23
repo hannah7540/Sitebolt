@@ -47,6 +47,8 @@ import {
 } from "@/lib/timesheet-line-items";
 import {
   isActTimesheetJurisdiction,
+  mandatoryTimesheetBreakMessage,
+  requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
@@ -233,16 +235,19 @@ export default function WorkerTimesheetModal({
   const workerTrade = selectedTask?.name ?? resolveWorkerTrade(worker);
   const isNewEntry = !entryForSelectedDate;
   const assignedPayRuleName = resolvePayRuleTemplateNameForWorker(worker.state);
-  const isActWorker = isActTimesheetJurisdiction({
+  const breakJurisdiction = {
     workerState: worker.state,
     payRuleName: assignedPayRuleName,
-  });
+  };
+  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
+  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
+  const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
   const showBreakSection = hasWorkLineItems(activities);
 
   useEffect(() => {
-    if (!isActWorker || !showBreakSection) return;
+    if (!requiresBreak || !showBreakSection) return;
     setBreaks((rows) => (rows.length === 0 ? [createEmptyBreakSlot()] : rows));
-  }, [isActWorker, showBreakSection]);
+  }, [requiresBreak, showBreakSection]);
 
   const breakErrors = useMemo(
     () =>
@@ -734,9 +739,11 @@ export default function WorkerTimesheetModal({
               </button>
             </div>
 
-            {isActWorker ? (
+            {requiresBreak ? (
               <p className="text-xs font-semibold text-amber-800">
-                Break start and finish times are required for ACT timesheets.
+                {isActWorker
+                  ? "Break start and finish times are required for ACT timesheets."
+                  : breakRequiredMessage}
               </p>
             ) : (
               <p className="text-xs text-slate-500">Breaks are optional.</p>
@@ -766,11 +773,11 @@ export default function WorkerTimesheetModal({
                       type="button"
                       onClick={() =>
                         setBreaks((rows) => {
-                          if (isActWorker && rows.length <= 1) return rows;
+                          if (requiresBreak && rows.length <= 1) return rows;
                           return rows.filter((item) => item.id !== row.id);
                         })
                       }
-                      disabled={isActWorker && breaks.length <= 1}
+                      disabled={requiresBreak && breaks.length <= 1}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -780,12 +787,12 @@ export default function WorkerTimesheetModal({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label className={labelClass}>
-                        Start{isActWorker ? " *" : ""}
+                        Start{requiresBreak ? " *" : ""}
                       </label>
                       <input
                         type="time"
                         value={row.startTime}
-                        required={isActWorker}
+                        required={requiresBreak}
                         onChange={(event) =>
                           updateBreak(row.id, "startTime", event.target.value)
                         }
@@ -794,12 +801,12 @@ export default function WorkerTimesheetModal({
                     </div>
                     <div>
                       <label className={labelClass}>
-                        Finish{isActWorker ? " *" : ""}
+                        Finish{requiresBreak ? " *" : ""}
                       </label>
                       <input
                         type="time"
                         value={row.endTime}
-                        required={isActWorker}
+                        required={requiresBreak}
                         onChange={(event) =>
                           updateBreak(row.id, "endTime", event.target.value)
                         }

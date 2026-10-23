@@ -10,6 +10,10 @@ import {
   type WorkerStateRegion,
 } from "./worker-state-region";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  isWaTimesheetJurisdiction,
+  WA_BREAK_REQUIRED_MESSAGE,
+} from "@/lib/payroll/rules/wa";
 
 export const ACT_BREAK_REQUIRED_MESSAGE =
   "A break must be recorded for ACT timesheets.";
@@ -57,6 +61,25 @@ export function isActTimesheetJurisdiction(input: {
   payRuleName?: string | null;
 }): boolean {
   return isActWorkerState(input.workerState) || isActPayRuleName(input.payRuleName);
+}
+
+export function requiresMandatoryTimesheetBreak(input: {
+  workerState?: string | null;
+  payRuleName?: string | null;
+}): boolean {
+  return (
+    isActTimesheetJurisdiction(input) ||
+    isWaTimesheetJurisdiction(input)
+  );
+}
+
+export function mandatoryTimesheetBreakMessage(input: {
+  workerState?: string | null;
+  payRuleName?: string | null;
+}): string {
+  return isWaTimesheetJurisdiction(input)
+    ? WA_BREAK_REQUIRED_MESSAGE
+    : ACT_BREAK_REQUIRED_MESSAGE;
 }
 
 export function hasRecordedTimesheetBreak(
@@ -125,12 +148,15 @@ export function validateActBreakRequirement(
   input: ActBreakValidationInput
 ): string | null {
   if (!input.submit) return null;
-  if (
-    !isActTimesheetJurisdiction({
-      workerState: input.workerState,
-      payRuleName: input.payRuleName,
-    })
-  ) {
+  const isAct = isActTimesheetJurisdiction({
+    workerState: input.workerState,
+    payRuleName: input.payRuleName,
+  });
+  const isWa = isWaTimesheetJurisdiction({
+    workerState: input.workerState,
+    payRuleName: input.payRuleName,
+  });
+  if (!isAct && !isWa) {
     return null;
   }
   if (
@@ -157,7 +183,7 @@ export function validateActBreakRequirement(
     return null;
   }
 
-  return ACT_BREAK_REQUIRED_MESSAGE;
+  return isWa ? WA_BREAK_REQUIRED_MESSAGE : ACT_BREAK_REQUIRED_MESSAGE;
 }
 
 export function validateActBreakForTimesheetPayload(

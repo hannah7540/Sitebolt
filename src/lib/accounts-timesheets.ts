@@ -59,6 +59,8 @@ import { enumerateDateRange } from "./scheduler-utils";
 import { getProjectDisplayName } from "./project-resolver";
 import { isDateInPayWeek } from "./pay-week-utils";
 import { resolvePayRuleTemplateNameForWorker } from "./worker-pay-rule-assignment";
+import { fetchTags, fetchWorkerTagAssignments } from "./worker-tags";
+import { isLeadingHandTagName } from "@/lib/payroll/rules/wa";
 
 export type AccountsTimesheetFilter =
   | "all"
@@ -84,6 +86,8 @@ export interface AccountsTimesheetRow extends WorkerTimesheet {
   worker_is_apprentice?: boolean;
   worker_has_company_vehicle?: boolean;
   worker_state?: string | null;
+  worker_is_leading_hand?: boolean;
+  worker_tags?: string[] | null;
   is_leave_preview?: boolean;
   leave_preview_request_status?: LeaveRequestStatus;
 }
@@ -112,7 +116,9 @@ function buildLeavePreviewTimesheetRow(
   workerMeta: AccountsTimesheetRow | null
 ): AccountsTimesheetRow {
   const leaveType = normalizeLeaveTypeLabel(request.leave_type);
-  const daySpec = resolveLeaveTimesheetDaySpec(leaveType, dayIso);
+  const daySpec = resolveLeaveTimesheetDaySpec(leaveType, dayIso, {
+    workerState: workerMeta?.worker_state ?? null,
+  });
   const projectId = request.project_id?.trim() || null;
   const projectName = projectId ? getProjectDisplayName(projectId) : null;
   const previewSuffix = isLeaveRequestPending(request.status)
@@ -155,6 +161,8 @@ function buildLeavePreviewTimesheetRow(
     worker_is_apprentice: workerMeta?.worker_is_apprentice ?? false,
     worker_has_company_vehicle: workerMeta?.worker_has_company_vehicle ?? false,
     worker_state: workerMeta?.worker_state ?? null,
+    worker_is_leading_hand: workerMeta?.worker_is_leading_hand ?? false,
+    worker_tags: workerMeta?.worker_tags ?? null,
     myob_export_status: "not_exported",
     overtime_hours: 0,
     is_checked: false,
@@ -450,7 +458,11 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
     if (timesheets.length === 0) return [];
 
     const workerIds = [...new Set(timesheets.map((row) => row.worker_id))];
-    const workerRows = await fetchWorkerPayrollRows(workerIds);
+    const [workerRows, tagResult, assignmentResult] = await Promise.all([
+      fetchWorkerPayrollRows(workerIds),
+      fetchTags(),
+      fetchWorkerTagAssignments(),
+    ]);
 
     const workerNameById = new Map<string, string>();
     const workerFirstNameById = new Map<string, string | null>();
@@ -461,6 +473,22 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
     const workerApprenticeById = new Map<string, boolean>();
     const workerCompanyVehicleById = new Map<string, boolean>();
     const workerStateById = new Map<string, string | null>();
+    const workerTagsById = new Map<string, string[]>();
+    const workerLeadingHandById = new Map<string, boolean>();
+
+    const tagNameById = new Map(
+      tagResult.tags.map((tag) => [tag.id, tag.name] as const)
+    );
+    for (const assignment of assignmentResult.assignments) {
+      const tagName = tagNameById.get(assignment.tag_id);
+      if (!tagName) continue;
+      const current = workerTagsById.get(assignment.worker_id) ?? [];
+      current.push(tagName);
+      workerTagsById.set(assignment.worker_id, current);
+      if (isLeadingHandTagName(tagName)) {
+        workerLeadingHandById.set(assignment.worker_id, true);
+      }
+    }
 
     for (const worker of workerRows) {
       const row = worker as WorkerPayrollRow;
@@ -476,6 +504,9 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
       workerApprenticeById.set(row.id, Boolean(row.is_apprentice));
       workerCompanyVehicleById.set(row.id, Boolean(row.has_company_vehicle));
       workerStateById.set(row.id, row.state?.trim() || null);
+      if (isLeadingHandTagName(row.trade)) {
+        workerLeadingHandById.set(row.id, true);
+      }
     }
 
     return timesheets.map((row) => ({
@@ -489,6 +520,8 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
       worker_is_apprentice: workerApprenticeById.get(row.worker_id) ?? false,
       worker_has_company_vehicle: workerCompanyVehicleById.get(row.worker_id) ?? false,
       worker_state: workerStateById.get(row.worker_id) ?? null,
+      worker_is_leading_hand: workerLeadingHandById.get(row.worker_id) ?? false,
+      worker_tags: workerTagsById.get(row.worker_id) ?? null,
       myob_export_status: (row.myob_export_status ?? "not_exported") as MyobExportStatus,
       overtime_hours: resolveTimesheetOvertimeHours(row),
     }));

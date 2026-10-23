@@ -1082,15 +1082,15 @@ export async function fetchPayRuleTemplateIdByName(
 
 /** Display labels for the WA Site Worker preset template card. */
 export const WA_SITE_WORKER_CONDITION_DISPLAY: Record<number, string> = {
-  0: "Base Hourly (Mon-Fri First 8 hrs @ 1.0x)",
-  1: "Overtime 1.5x (Mon-Fri After 8 hrs)",
-  2: "Overtime 1.5x (Sat & Sun All Hours)",
-  3: "Personal Leave Pay (Auto 8 hrs when booked)",
-  4: "Annual Leave Pay (Auto 8 hrs when booked)",
-  5: "Annual Leave Loading (Auto 8 hrs when Annual Leave booked)",
-  6: "RDO Taken (Auto 8 hrs when booked)",
-  7: "Leave Without Pay (Auto applied when booked)",
-  8: "Public Holiday Pay (Auto 8 hrs when booked)",
+  0: "Base Hourly (Mon-Fri First 7.6 hrs @ 1.0x)",
+  1: "Overtime 1.5 (Mon-Fri After 8 hrs)",
+  2: "Overtime 1.5 (Sat, Sun & Public Holidays All Hours)",
+  3: "Personal Leave Pay (Auto 7.6 hrs when booked)",
+  4: "Annual Leave Pay (Auto 7.6 hrs when booked)",
+  5: "Annual Leave Loading (17.5 units when Annual Leave Pay booked)",
+  6: "RDO Taken (Auto 7.6 hrs when booked)",
+  7: "Leave without pay (Auto applied when booked)",
+  8: "Public Holiday (Auto 7.6 hrs when booked)",
 };
 
 export function formatTemplateConditionDisplay(

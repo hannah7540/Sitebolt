@@ -33,6 +33,8 @@ import {
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
 import {
   isActTimesheetJurisdiction,
+  mandatoryTimesheetBreakMessage,
+  requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
@@ -160,10 +162,13 @@ export default function AccountsAddTimesheets() {
     return resolvePayRuleTemplateNameForWorker(selectedWorker.state) ?? "—";
   }, [selectedWorker]);
 
-  const isActWorker = isActTimesheetJurisdiction({
+  const breakJurisdiction = {
     workerState: selectedWorker?.state,
     payRuleName: payRuleLabel === "—" ? null : payRuleLabel,
-  });
+  };
+  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
+  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
+  const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
 
   const resetForm = () => {
     setWorkDate(todayIso);
@@ -513,23 +518,25 @@ export default function AccountsAddTimesheets() {
               {!isLeaveEntry ? (
               <div>
                 <label htmlFor="break-minutes" className={labelClass}>
-                  Break (minutes){isActWorker ? " *" : ""}
+                  Break (minutes){requiresBreak ? " *" : ""}
                 </label>
                 <input
                   id="break-minutes"
                   type="number"
-                  min={isActWorker ? 1 : 0}
+                  min={requiresBreak ? 1 : 0}
                   step={1}
-                  required={isActWorker}
+                  required={requiresBreak}
                   value={breakMinutes}
                   onChange={(event) =>
                     setBreakMinutes(Math.max(0, Number(event.target.value) || 0))
                   }
                   className={inputClass}
                 />
-                {isActWorker ? (
+                {requiresBreak ? (
                   <p className="mt-1 text-xs font-semibold text-amber-800">
-                    A break must be recorded for ACT timesheets.
+                    {isActWorker
+                      ? "A break must be recorded for ACT timesheets."
+                      : breakRequiredMessage}
                   </p>
                 ) : (
                   <p className="mt-1 text-xs text-slate-500">Optional for this worker.</p>

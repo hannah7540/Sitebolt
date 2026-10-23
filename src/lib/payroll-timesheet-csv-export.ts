@@ -28,6 +28,16 @@ import {
 import { resolveTravelPayrollCategory } from "./worker-pay-rule-assignment";
 import { splitWorkerFullName } from "./worker-utils";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
+import {
+  calculateWaWorkHours,
+  capWaLeaveHours,
+  isLeadingHandWorker,
+  isWaTimesheetJurisdiction,
+  isWaWeekendOrHoliday,
+  mapWaLeaveTypeToPayrollCategory,
+  WA_ANNUAL_LEAVE_LOADING_UNITS,
+  WA_MYOB_CATEGORIES,
+} from "@/lib/payroll/rules/wa";
 
 /** MYOB AccountRight timesheet import headers (tab-delimited, no leading empty column). */
 export const MYOB_TIMESHEET_HEADERS = [
@@ -53,6 +63,9 @@ export type PayrollExportTimesheetRow = WorkerTimesheet & {
   worker_is_apprentice?: boolean;
   worker_has_company_vehicle?: boolean;
   worker_state?: string | null;
+  worker_is_leading_hand?: boolean;
+  worker_tags?: string[] | null;
+  worker_trade?: string | null;
   pay_rate_id?: string | null;
   /** Legacy or denormalised job number when present on the timesheet row. */
   project_code?: string | null;
@@ -310,6 +323,16 @@ export function isNswPayrollExportContext(
   return payRule?.preset_key === NSW_SITE_WORKER_PRESET_KEY;
 }
 
+export function isWaPayrollExportContext(
+  payRule: PayRateRule | null | undefined,
+  workerState?: string | null
+): boolean {
+  return isWaTimesheetJurisdiction({
+    workerState,
+    payRuleName: payRule?.rule_name,
+  });
+}
+
 /** NSW-only MYOB label translation. Other states keep their existing export strings. */
 export function mapNswMyobPayrollCategory(category: string): string {
   const trimmed = category.trim();
@@ -398,6 +421,21 @@ export function resolvePayrollCategoryNames(
     payRule?.rule_name?.toLowerCase().includes("apprentice") ??
     false;
   const isNsw = isNswPayrollExportContext(payRule, options?.workerState);
+  const isWa = isWaPayrollExportContext(payRule, options?.workerState);
+
+  if (isWa) {
+    return {
+      baseHourly: WA_MYOB_CATEGORIES.baseHourly,
+      overtime: WA_MYOB_CATEGORIES.overtime,
+      siteAllowance: "Site Allowance WA",
+      productivity: "Productivity Allowance WA",
+      travel: "Travel WA",
+      meal: "Meal Allowance WA",
+      hsr: "HSR allowance",
+      annualLeavePay: WA_MYOB_CATEGORIES.annualLeavePay,
+      annualLeaveLoading: WA_MYOB_CATEGORIES.annualLeaveLoading,
+    };
+  }
 
   if (isNsw) {
     return {
@@ -566,6 +604,8 @@ function injectDailyAllowanceRows(
 
 const PAYROLL_CATEGORY_SORT_ORDER: Record<string, number> = {
   "Base Hourly": 10,
+  "RDO Accrual": 15,
+  "Overtime 1.5": 20,
   "Overtime (2x)": 20,
   "Overtime NSW (2x)": 20,
   "Travel NSW": 30,
@@ -574,6 +614,7 @@ const PAYROLL_CATEGORY_SORT_ORDER: Record<string, number> = {
   "Site Allowance 2026": 50,
   AAC: 55,
   "AAC Productivity Allowance": 60,
+  "Leading Hand Allowance": 65,
   "Leading Hand 1-10": 65,
   "Safety on site": 70,
   "HSR allowance": 70,
@@ -581,7 +622,9 @@ const PAYROLL_CATEGORY_SORT_ORDER: Record<string, number> = {
   "Annual Leave Pay": 120,
   "Annual Leave Loading": 130,
   "RDO Taken": 140,
+  "Public Holiday": 150,
   "Public Holiday Pay": 150,
+  "Leave without pay": 160,
   "Leave Without Pay": 160,
 };
 
@@ -664,26 +707,48 @@ function pushLeaveExportLine(
   row: PayrollExportTimesheetRow,
   lookups: PayrollCsvProjectLookups,
   payrollCategory: string,
-  units: number
+  units: number,
+  options?: { isWa?: boolean }
 ): void {
-  pushLine(lines, row, lookups, payrollCategory, units);
+  const isWa = options?.isWa === true;
+  const leaveUnits = isWa ? capWaLeaveHours(units) : units;
+  pushLine(lines, row, lookups, payrollCategory, leaveUnits);
   if (isAnnualLeavePayrollCategory(payrollCategory)) {
-    pushLine(lines, row, lookups, PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY, units);
+    pushLine(
+      lines,
+      row,
+      lookups,
+      PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY,
+      isWa ? WA_ANNUAL_LEAVE_LOADING_UNITS : leaveUnits
+    );
   }
+}
+
+function resolveWaLeavePayrollCategory(
+  row: PayrollExportTimesheetRow,
+  category: TimesheetLineCategory,
+  label: string
+): string {
+  const mapped = resolveLeavePayrollCategory(row, category, label);
+  return mapWaLeaveTypeToPayrollCategory(mapped);
 }
 
 function buildLeaveExportLines(
   row: PayrollExportTimesheetRow,
   lookups: PayrollCsvProjectLookups,
-  breakdown: TimesheetPayBreakdown | null
+  breakdown: TimesheetPayBreakdown | null,
+  isWa = false
 ): PayrollCsvExportLine[] {
   const lines: PayrollCsvExportLine[] = [];
+  const mapCategory = isWa
+    ? resolveWaLeavePayrollCategory
+    : resolveLeavePayrollCategory;
 
   if (breakdown) {
     for (const item of breakdown.line_items) {
       if (!isLeaveLineCategory(item.category) || item.hours <= 0) continue;
-      const payrollCategory = resolveLeavePayrollCategory(row, item.category, item.label);
-      pushLeaveExportLine(lines, row, lookups, payrollCategory, item.hours);
+      const payrollCategory = mapCategory(row, item.category, item.label);
+      pushLeaveExportLine(lines, row, lookups, payrollCategory, item.hours, { isWa });
     }
     return lines;
   }
@@ -694,24 +759,29 @@ function buildLeaveExportLines(
       lines,
       row,
       lookups,
-      resolveLeavePayrollCategory(
+      mapCategory(
         row,
         item.category,
         LEAVE_LINE_TO_PAYROLL_CATEGORY[item.category]
       ),
-      item.hours
+      item.hours,
+      { isWa }
     );
   }
 
   const leaveDisplay = resolveLeaveTimesheetDisplay(row);
   if (lines.length === 0 && leaveDisplay) {
     const totals = resolveTimesheetDisplayTotals(row);
+    const leaveCategory = isWa
+      ? mapWaLeaveTypeToPayrollCategory(leaveDisplay.leaveType)
+      : mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType);
     pushLeaveExportLine(
       lines,
       row,
       lookups,
-      mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType),
-      totals.dailyTotalHours
+      leaveCategory,
+      totals.dailyTotalHours,
+      { isWa }
     );
   }
 
@@ -730,10 +800,31 @@ function buildWorkAndAllowanceExportLines(
     workerState: row.worker_state,
   });
   const isNsw = isNswPayrollExportContext(payRule, row.worker_state);
+  const isWa = isWaPayrollExportContext(payRule, row.worker_state);
   const shiftHours = resolveWorkedShiftHours(row, breakdown);
   const workedDay = hasWorkedPayLines(breakdown);
 
   if (!workedDay) {
+    return lines;
+  }
+
+  if (isWa) {
+    const split = calculateWaWorkHours(
+      shiftHours,
+      isWaWeekendOrHoliday(row.work_date)
+    );
+    if (split.baseHourly > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.baseHourly);
+    }
+    if (split.rdoAccrual > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
+    }
+    if (split.overtime15 > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
+    }
+    if (isLeadingHandWorker(row) && shiftHours > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.leadingHand, 1);
+    }
     return lines;
   }
 
@@ -776,10 +867,31 @@ function buildFallbackWorkExportLines(
     workerState: row.worker_state,
   });
   const isNsw = isNswPayrollExportContext(null, row.worker_state);
+  const isWa = isWaPayrollExportContext(null, row.worker_state);
   const totals = resolveTimesheetDisplayTotals(row);
   const shiftHours = Math.max(0, roundUnits(totals.workHours - totals.breakHours));
 
   if (shiftHours <= 0) return lines;
+
+  if (isWa) {
+    const split = calculateWaWorkHours(
+      shiftHours,
+      isWaWeekendOrHoliday(row.work_date)
+    );
+    if (split.baseHourly > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.baseHourly);
+    }
+    if (split.rdoAccrual > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
+    }
+    if (split.overtime15 > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
+    }
+    if (isLeadingHandWorker(row) && shiftHours > 0) {
+      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.leadingHand, 1);
+    }
+    return lines;
+  }
 
   const baseHours = Math.min(8, shiftHours);
   const overtimeHours = Math.max(0, roundUnits(shiftHours - 8));
@@ -825,7 +937,12 @@ export function buildPayrollExportLinesForTimesheet(
       })
     : null;
 
-  const leaveLines = buildLeaveExportLines(row, lookups, breakdown);
+  const leaveLines = buildLeaveExportLines(
+    row,
+    lookups,
+    breakdown,
+    isWaPayrollExportContext(payRule, row.worker_state)
+  );
   const workLines =
     breakdown && payRule && hasWorkedPayLines(breakdown)
       ? buildWorkAndAllowanceExportLines(row, lookups, payRule, breakdown)

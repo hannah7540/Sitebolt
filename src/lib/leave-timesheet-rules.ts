@@ -1,6 +1,8 @@
 import { isLeaveTimesheet } from "./calculateTimesheetPay";
 import { leaveTypeDisplayBadge, normalizeLeaveTypeLabel } from "./leave-type-calendar";
+import { isWaTimesheetJurisdiction, WA_LEAVE_DAY_HOURS } from "@/lib/payroll/rules/wa";
 import { isWeekdayIso } from "./scheduler-utils";
+import { addHoursToTime } from "./timesheet-utils";
 import type { WorkerTimesheet } from "./supabase";
 
 export const LEAVE_TIMESHEET_START = "06:30";
@@ -29,21 +31,25 @@ export interface LeaveTimesheetDaySpec {
 /** Resolve hours and clock times for one calendar day in an approved leave range. */
 export function resolveLeaveTimesheetDaySpec(
   leaveType: string | null | undefined,
-  dayIso: string
+  dayIso: string,
+  options?: { workerState?: string | null; payRuleName?: string | null }
 ): LeaveTimesheetDaySpec {
   const label = normalizeLeaveTypeLabel(leaveType);
+  const waLeave = isWaTimesheetJurisdiction({
+    workerState: options?.workerState,
+    payRuleName: options?.payRuleName,
+  });
 
   if (isZeroHourLeaveType(label)) {
     return buildLeaveDaySpec(label, 0, "00:00", "00:00");
   }
 
   if (isWeekdayIso(dayIso)) {
-    return buildLeaveDaySpec(
-      label,
-      LEAVE_TIMESHEET_WEEKDAY_HOURS,
-      LEAVE_TIMESHEET_START,
-      LEAVE_TIMESHEET_FINISH
-    );
+    const hours = waLeave ? WA_LEAVE_DAY_HOURS : LEAVE_TIMESHEET_WEEKDAY_HOURS;
+    const finishTime = waLeave
+      ? addHoursToTime(LEAVE_TIMESHEET_START, hours)
+      : LEAVE_TIMESHEET_FINISH;
+    return buildLeaveDaySpec(label, hours, LEAVE_TIMESHEET_START, finishTime);
   }
 
   return buildLeaveDaySpec(label, 0, "00:00", "00:00");

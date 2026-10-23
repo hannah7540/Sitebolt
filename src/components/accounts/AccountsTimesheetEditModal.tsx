@@ -29,6 +29,8 @@ import {
 } from "@/lib/timesheet-utils";
 import {
   isActTimesheetJurisdiction,
+  mandatoryTimesheetBreakMessage,
+  requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
@@ -62,10 +64,13 @@ export default function AccountsTimesheetEditModal({
   const assignedPayRuleName =
     resolveTimesheetPayRule(timesheet, payRules)?.rule_name ??
     resolvePayRuleTemplateNameForWorker(timesheet.worker_state);
-  const isActWorker = isActTimesheetJurisdiction({
+  const breakJurisdiction = {
     workerState: timesheet.worker_state,
     payRuleName: assignedPayRuleName,
-  });
+  };
+  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
+  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
+  const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
 
   const [startTime, setStartTime] = useState(totals.startTime?.slice(0, 5) || "06:30");
   const [finishTime, setFinishTime] = useState(totals.endTime?.slice(0, 5) || "14:30");
@@ -338,13 +343,13 @@ export default function AccountsTimesheetEditModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
               <span className={labelClass}>
-                Break start{isActWorker ? " *" : ""}
+                Break start{requiresBreak ? " *" : ""}
               </span>
               <input
                 type="time"
                 className={inputClass}
                 value={breakStartTime}
-                required={isActWorker && canEdit}
+                required={requiresBreak && canEdit}
                 disabled={fieldDisabled}
                 onChange={(event) => {
                   setBreakStartTime(event.target.value.slice(0, 5));
@@ -354,13 +359,13 @@ export default function AccountsTimesheetEditModal({
             </label>
             <label className="block space-y-1">
               <span className={labelClass}>
-                Break finish{isActWorker ? " *" : ""}
+                Break finish{requiresBreak ? " *" : ""}
               </span>
               <input
                 type="time"
                 className={inputClass}
                 value={breakEndTime}
-                required={isActWorker && canEdit}
+                required={requiresBreak && canEdit}
                 disabled={fieldDisabled}
                 onChange={(event) => {
                   setBreakEndTime(event.target.value.slice(0, 5));
@@ -372,13 +377,13 @@ export default function AccountsTimesheetEditModal({
 
           <label className="block space-y-1">
             <span className={labelClass}>
-              Break duration (minutes){isActWorker ? " *" : ""}
+              Break duration (minutes){requiresBreak ? " *" : ""}
             </span>
             <input
               type="number"
-              min={isActWorker ? 1 : 0}
+              min={requiresBreak ? 1 : 0}
               step={1}
-              required={isActWorker && canEdit}
+              required={requiresBreak && canEdit}
               className={inputClass}
               value={resolvedBreakMinutes}
               disabled={fieldDisabled}
@@ -389,12 +394,14 @@ export default function AccountsTimesheetEditModal({
                 setTotalHoursDirty(false);
               }}
             />
-            {isActWorker ? (
+            {requiresBreak ? (
               <p className="text-xs font-semibold text-amber-800">
-                A break must be recorded for ACT timesheets.
+                {isActWorker
+                  ? "A break must be recorded for ACT timesheets."
+                  : breakRequiredMessage}
               </p>
             ) : (
-              <p className="text-xs text-slate-500">Optional for NSW, WA, and NZ.</p>
+              <p className="text-xs text-slate-500">Optional for NSW and NZ.</p>
             )}
           </label>
 
