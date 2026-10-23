@@ -5,8 +5,9 @@ import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { configurePdfjsWorker } from "@/lib/pdfjs-worker";
 
-pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+configurePdfjsWorker(pdfjs);
 
 function isLikelyPdfUrl(url: string): boolean {
   const lower = url.toLowerCase();

@@ -156,7 +156,8 @@ async function embedPdfOrImage(
     if (blob.type.includes("pdf") || sourceUrl.toLowerCase().includes(".pdf")) {
       const { pdfjs } = await import("react-pdf");
       if (typeof window !== "undefined") {
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        const { configurePdfjsWorker } = await import("@/lib/pdfjs-worker");
+        configurePdfjsWorker(pdfjs);
       }
       const buffer = await blob.arrayBuffer();
       const pdf = await pdfjs.getDocument({ data: buffer }).promise;

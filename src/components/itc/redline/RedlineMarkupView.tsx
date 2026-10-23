@@ -23,6 +23,7 @@ import {
   type RedlinePoint,
   type RedlineSeg,
 } from "@/lib/redline-geometry";
+import { configurePdfjsWorker } from "@/lib/pdfjs-worker";
 
 type Mode = "tap" | "free" | "move" | "label";
 
@@ -518,7 +519,7 @@ export default function RedlineMarkupView({
             promise: Promise<PdfDoc>;
           };
         };
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        configurePdfjsWorker(pdfjs);
         const buffer = new Uint8Array(await file.arrayBuffer());
         const pdf = await pdfjs.getDocument({ data: buffer, disableWorker: true }).promise;
         pdfRef.current = pdf;
