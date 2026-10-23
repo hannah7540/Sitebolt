@@ -429,6 +429,15 @@ async function insertRowsWithFallback(
   return `Unable to insert ${table} rows.`;
 }
 
+function isUuid(value: string | null | undefined): boolean {
+  return Boolean(
+    value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value
+      )
+  );
+}
+
 async function assignBulkWorkerComplianceDirect(
   admin: SupabaseClient,
   input: {
@@ -437,6 +446,7 @@ async function assignBulkWorkerComplianceDirect(
     worker: BulkOnboardingWorker;
     catalog: BulkComplianceCatalog;
     projectKeys: Set<string>;
+    assignedById: string | null;
   }
 ): Promise<string | null> {
   const state = normalizeWorkerStateRegion(input.worker.state);
@@ -485,7 +495,8 @@ async function assignBulkWorkerComplianceDirect(
       worker_name: workerName,
       status: "Pending",
       assigned_at: new Date().toISOString(),
-      assigned_by: "system",
+      assigned_by: input.assignedById,
+      assigned_by_id: input.assignedById,
       assigned_by_name: "SiteBolt Bulk Onboarding",
       project_id: docProject,
       project_name: projectName || null,
@@ -493,31 +504,36 @@ async function assignBulkWorkerComplianceDirect(
     };
   });
 
-  const swmsError = await insertRowsWithFallback(admin, "swms_assignments", swmsRows);
-  if (swmsError) return `SWMS assignment failed: ${swmsError}`;
+  try {
+    const swmsError = await insertRowsWithFallback(admin, "swms_assignments", swmsRows);
+    if (swmsError) return `SWMS assignment failed: ${swmsError}`;
 
-  const inductionError = await insertRowsWithFallback(
-    admin,
-    "form_worker_assignments",
-    inductionRows
-  );
-  if (inductionError) return `Induction assignment failed: ${inductionError}`;
+    const inductionError = await insertRowsWithFallback(
+      admin,
+      "form_worker_assignments",
+      inductionRows
+    );
+    if (inductionError) return `Induction assignment failed: ${inductionError}`;
 
-  const aliasSwms = swmsDocs.map((doc) => ({
-    worker_id: input.workerId,
-    swms_id: rowId(doc),
-    status: "Pending",
-    organisation_id: input.orgId,
-  }));
-  const aliasInductions = inductionDocs.map((doc) => ({
-    worker_id: input.workerId,
-    induction_id: rowId(doc),
-    form_id: rowId(doc),
-    status: "Pending",
-    organisation_id: input.orgId,
-  }));
-  await insertRowsWithFallback(admin, "worker_swms", aliasSwms);
-  await insertRowsWithFallback(admin, "worker_inductions", aliasInductions);
+    const aliasSwms = swmsDocs.map((doc) => ({
+      worker_id: input.workerId,
+      swms_id: rowId(doc),
+      status: "Pending",
+      organisation_id: input.orgId,
+    }));
+    const aliasInductions = inductionDocs.map((doc) => ({
+      worker_id: input.workerId,
+      induction_id: rowId(doc),
+      form_id: rowId(doc),
+      status: "Pending",
+      organisation_id: input.orgId,
+    }));
+    await insertRowsWithFallback(admin, "worker_swms", aliasSwms);
+    await insertRowsWithFallback(admin, "worker_inductions", aliasInductions);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "Assignment insert failed.";
+    return message;
+  }
 
   return null;
 }
@@ -615,6 +631,7 @@ async function processBulkWorker(input: {
   worker: BulkOnboardingWorker;
   catalog: Awaited<ReturnType<typeof loadBulkComplianceCatalog>>;
   projectKeys: Set<string>;
+  assignedById: string | null;
 }): Promise<BulkWorkerOutcome> {
   const displayName = workerDisplayName(input.worker);
   const email = input.worker.email.trim().toLowerCase();
@@ -668,22 +685,20 @@ async function processBulkWorker(input: {
     console.warn("[bulk-onboard] pay rule assignment skipped:", cause);
   }
 
-  const assignmentError = await assignBulkWorkerComplianceDirect(input.admin, {
-    workerId,
-    orgId: input.orgId,
-    worker: input.worker,
-    catalog: input.catalog,
-    projectKeys: input.projectKeys,
-  });
-  if (assignmentError) {
-    return {
-      email,
-      displayName,
+  try {
+    const assignmentError = await assignBulkWorkerComplianceDirect(input.admin, {
       workerId,
-      imported: true,
-      invited: false,
-      error: `Created ${displayName} but could not assign SWMS/inductions: ${assignmentError}`,
-    };
+      orgId: input.orgId,
+      worker: input.worker,
+      catalog: input.catalog,
+      projectKeys: input.projectKeys,
+      assignedById: input.assignedById,
+    });
+    if (assignmentError) {
+      console.warn("[bulk-onboard] SWMS/induction assignment skipped:", assignmentError);
+    }
+  } catch (cause) {
+    console.warn("[bulk-onboard] SWMS/induction assignment failed:", cause);
   }
 
   try {
@@ -766,6 +781,13 @@ export async function submitBulkOnboarding(
     .eq("email", user.email ?? "")
     .maybeSingle();
 
+  const actorWorkerId = String((actorRow as { id?: string } | null)?.id ?? "").trim();
+  const assignedById = isUuid(actorWorkerId)
+    ? actorWorkerId
+    : isUuid(user.id)
+      ? user.id
+      : null;
+
   const role = normalizeSecurityRole(
     (actorRow as { security_role?: string } | null)?.security_role
   );
@@ -827,6 +849,7 @@ export async function submitBulkOnboarding(
           orgId,
           worker,
           catalog,
+          assignedById,
           projectKeys:
             projectKeyMap.get(assignedProjectId) ??
             new Set(assignedProjectId ? [assignedProjectId] : []),
@@ -861,7 +884,7 @@ export async function submitBulkOnboarding(
     });
 
     const readyToInvite = insertedOutcomes.filter(
-      (row) => row.outcome.imported && row.outcome.workerId && !row.outcome.error
+      (row) => row.outcome.imported && row.outcome.workerId
     );
     const inviteSettled = await Promise.allSettled(
       readyToInvite.map((row) =>

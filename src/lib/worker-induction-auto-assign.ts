@@ -332,7 +332,7 @@ async function insertInductionAssignment(
       project_name: input.projectName ?? null,
     },
     assignedBy: {
-      id: "system",
+      id: "",
       full_name: input.assignedByName ?? "SiteBolt Auto-Assign",
     },
     assignedAt: now,
