@@ -9,6 +9,7 @@ import { resolveRequestAuthUser } from "@/lib/auth-request-user";
 import { profileApiJson } from "@/lib/profile-api-response";
 import { linkWorkerAuthAccount } from "@/lib/worker-auth-email";
 import {
+  attachSilicaOptional,
   buildFallbackOnboardingRecord,
   ensureWorkerProfileForAuthUser,
   loadWorkerForOnboardingRecord,
@@ -95,7 +96,10 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
   };
 }
 
-function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string | null {
+function validateOnboardingPayload(
+  payload: WorkerOnboardingFormPayload,
+  silicaOptional: boolean
+): string | null {
   if (!payload.fullName) return "Full name is required.";
   if (!payload.email) return "Email address is required.";
   if (!payload.phone) return "Phone number is required.";
@@ -120,9 +124,13 @@ function validateOnboardingPayload(payload: WorkerOnboardingFormPayload): string
   if (!normalizeWorkerStateRegion(payload.whiteCardState)) {
     return "White card state / region is required.";
   }
-  if (!payload.silicaCertNumber) return "Silica awareness certificate number is required.";
-  if (!payload.silicaCertIssueDate) {
-    return "Silica awareness issue date is required.";
+  if (!silicaOptional) {
+    if (!payload.silicaCertNumber) {
+      return "Silica awareness certificate number is required.";
+    }
+    if (!payload.silicaCertIssueDate) {
+      return "Silica awareness issue date is required.";
+    }
   }
   if (!isValidProfilePhotoUrl(payload.photoUrl)) {
     return PROFILE_PHOTO_API_REQUIRED_MESSAGE;
@@ -193,7 +201,10 @@ async function resolveOnboardingWorker(user: User | null) {
 
   const worker =
     (await loadWorkerForOnboardingRecord(admin, ensured.workerId)) ??
-    buildFallbackOnboardingRecord(ensured.workerId, user);
+    (await attachSilicaOptional(
+      admin,
+      buildFallbackOnboardingRecord(ensured.workerId, user)
+    ));
 
   return { error: null, status: 200 as const, worker };
 }
@@ -235,14 +246,17 @@ export async function POST(req: Request) {
     return profileApiJson({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const validationError = validateOnboardingPayload(payload);
-  if (validationError) {
-    return profileApiJson({ error: validationError }, { status: 400 });
-  }
-
   const resolved = await resolveOnboardingWorker(user);
   if (resolved.error || !resolved.worker) {
     return profileApiJson({ error: resolved.error }, { status: resolved.status });
+  }
+
+  const validationError = validateOnboardingPayload(
+    payload,
+    Boolean(resolved.worker.silicaOptional)
+  );
+  if (validationError) {
+    return profileApiJson({ error: validationError }, { status: 400 });
   }
 
   const workerId = resolved.worker.id;

@@ -7,6 +7,8 @@ import {
 import { DEFAULT_WORKER_SECURITY_ROLE } from "@/lib/security-roles";
 import { buildWorkerNameFields, splitWorkerFullName } from "@/lib/worker-utils";
 import { linkWorkerProfile } from "@/lib/link-worker-profile";
+import { A_PLUS_ORGANISATION_ID, A_PLUS_ORGANISATION_NAME } from "@/lib/active-organisation";
+import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
 
 export interface EnsureWorkerInviteInput {
   email: string;
@@ -445,6 +447,16 @@ function mapWorkerRowToOnboardingRecord(
       typeof row.onboarding_completed === "boolean"
         ? row.onboarding_completed
         : false,
+    organisation_id:
+      typeof row.organisation_id === "string" ? row.organisation_id : null,
+    organisation_name:
+      typeof row.organisation_name === "string" ? row.organisation_name : null,
+    subcontractor_id:
+      typeof row.subcontractor_id === "string" ? row.subcontractor_id : null,
+    subcontractor_name:
+      typeof row.subcontractor_name === "string" ? row.subcontractor_name : null,
+    is_subcontractor: row.is_subcontractor === true,
+    silicaOptional: row.silicaOptional === true,
     vocs,
   };
 }
@@ -518,12 +530,90 @@ export function buildFallbackOnboardingRecord(
 }
 
 const WORKER_ONBOARDING_SELECT_VARIANTS = [
+  "id, email, full_name, first_name, last_name, phone, photo_url, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed, organisation_id, subcontractor_id, is_subcontractor",
+  "id, email, full_name, first_name, last_name, phone, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed, organisation_id, subcontractor_id",
   "id, email, full_name, first_name, last_name, phone, photo_url, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, address_line_1, address_line_2, suburb, postcode, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, bank_name, bank_bsb, bank_account_number, super_fund, super_member_number, super_usi, tfn, redundancy_fund_name, redundancy_member_number, white_card_number, state, silica_cert_number, silica_cert_issue_date, drivers_licence_number, drivers_licence_class, drivers_licence_expiry, onboarding_completed",
   "id, email, full_name, first_name, last_name, phone, emergency_contact_name, emergency_contact_phone, white_card_number, drivers_licence_number, onboarding_completed",
   "id, email, full_name, phone, trade",
 ] as const;
+
+export async function attachSilicaOptional(
+  admin: SupabaseClient,
+  record: WorkerOnboardingRecord
+): Promise<WorkerOnboardingRecord> {
+  let organisationId = record.organisation_id?.trim() || null;
+  let subcontractorId = record.subcontractor_id?.trim() || null;
+  let isSubcontractor = record.is_subcontractor === true;
+
+  if (!organisationId || subcontractorId == null) {
+    const affiliationSelects = [
+      "organisation_id, subcontractor_id, is_subcontractor",
+      "organisation_id, subcontractor_id",
+      "organisation_id",
+    ];
+    for (const select of affiliationSelects) {
+      const { data, error } = await admin
+        .from("workers")
+        .select(select)
+        .eq("id", record.id)
+        .maybeSingle();
+      if (error) continue;
+      const row = (data ?? {}) as Record<string, unknown>;
+      organisationId =
+        typeof row.organisation_id === "string" ? row.organisation_id.trim() : organisationId;
+      subcontractorId =
+        typeof row.subcontractor_id === "string" ? row.subcontractor_id.trim() : subcontractorId;
+      isSubcontractor = row.is_subcontractor === true || isSubcontractor;
+      break;
+    }
+  }
+
+  let organisationName = record.organisation_name?.trim() || null;
+  if (!organisationName && organisationId === A_PLUS_ORGANISATION_ID) {
+    organisationName = A_PLUS_ORGANISATION_NAME;
+  } else if (!organisationName && organisationId) {
+    const { data } = await admin
+      .from("organisations")
+      .select("company_name")
+      .eq("id", organisationId)
+      .maybeSingle();
+    const orgRow = (data ?? {}) as Record<string, unknown>;
+    organisationName =
+      typeof orgRow.company_name === "string" ? orgRow.company_name.trim() : null;
+  }
+
+  let subcontractorName = record.subcontractor_name?.trim() || null;
+  if (!subcontractorName && subcontractorId) {
+    const first = await admin
+      .from("subcontractors")
+      .select("company_name, trading_name")
+      .eq("id", subcontractorId)
+      .maybeSingle();
+    const row = (first.data ?? {}) as Record<string, unknown>;
+    subcontractorName =
+      (typeof row.trading_name === "string" && row.trading_name.trim()) ||
+      (typeof row.company_name === "string" && row.company_name.trim()) ||
+      null;
+  }
+
+  return {
+    ...record,
+    organisation_id: organisationId,
+    organisation_name: organisationName,
+    subcontractor_id: subcontractorId,
+    subcontractor_name: subcontractorName,
+    is_subcontractor: isSubcontractor || Boolean(subcontractorId),
+    silicaOptional: isSilicaOptionalForWorker({
+      organisationId,
+      organisationName,
+      subcontractorId,
+      subcontractorName,
+      isSubcontractor: isSubcontractor || Boolean(subcontractorId),
+    }),
+  };
+}
 
 export async function loadWorkerForOnboardingRecord(
   admin: SupabaseClient,
@@ -544,10 +634,11 @@ export async function loadWorkerForOnboardingRecord(
     if (!data) return null;
 
     const vocs = await fetchWorkerVocsForOnboarding(admin, workerId);
-    return mapWorkerRowToOnboardingRecord(
+    const record = mapWorkerRowToOnboardingRecord(
       data as unknown as Record<string, unknown>,
       vocs
     );
+    return attachSilicaOptional(admin, record);
   }
 
   return null;

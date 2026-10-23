@@ -41,6 +41,8 @@ import {
 } from "@/lib/voc-utils";
 import { fetchProjects, type DbProject } from "@/lib/project-resolver";
 import TagMultiSelect from "@/components/workers/TagMultiSelect";
+import { getActiveOrganisationId } from "@/lib/active-organisation";
+import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
 
 type WizardPhase = "upload" | "fix" | "summary" | "done";
 
@@ -125,13 +127,22 @@ export default function BulkOnboardingImporter() {
   }, []);
 
   const currentWorker = workers[currentIndex] ?? null;
+  const silicaOptional = isSilicaOptionalForWorker({
+    organisationId: getActiveOrganisationId(),
+  });
   const missingFields = useMemo(
-    () => (currentWorker ? getInvalidBulkOnboardingFields(currentWorker) : []),
-    [currentWorker]
+    () =>
+      currentWorker
+        ? getInvalidBulkOnboardingFields(currentWorker, silicaOptional)
+        : [],
+    [currentWorker, silicaOptional]
   );
   const filledFields = useMemo(
-    () => (currentWorker ? getFilledBulkOnboardingFields(currentWorker) : []),
-    [currentWorker]
+    () =>
+      currentWorker
+        ? getFilledBulkOnboardingFields(currentWorker, silicaOptional)
+        : [],
+    [currentWorker, silicaOptional]
   );
   const otherMissingFields = useMemo(
     () => missingFields.filter((key) => !BULK_TICKET_FIELD_KEYS.includes(key)),
@@ -167,7 +178,7 @@ export default function BulkOnboardingImporter() {
 
       setWorkers(parsed.workers);
       setCurrentIndex(0);
-      setDraft(buildWizardDraft(parsed.workers[0]));
+      setDraft(buildWizardDraft(parsed.workers[0], silicaOptional));
       setFieldErrors({});
       setPhase("fix");
     };
@@ -206,7 +217,7 @@ export default function BulkOnboardingImporter() {
 
     for (const key of keysToMerge) {
       const value = (draft[key] ?? currentWorker[key] ?? "").toString();
-      const error = validateBulkOnboardingField(key, value);
+      const error = validateBulkOnboardingField(key, value, silicaOptional);
       if (error) {
         nextErrors[key] = error;
         continue;
@@ -227,17 +238,18 @@ export default function BulkOnboardingImporter() {
     setVocError(null);
 
     const normalized = normalizeBulkOnboardingWorker(merged);
-    const remaining = getInvalidBulkOnboardingFields(normalized);
+    const remaining = getInvalidBulkOnboardingFields(normalized, silicaOptional);
     if (remaining.length > 0) {
       setWorkers((current) =>
         current.map((worker, index) => (index === currentIndex ? normalized : worker))
       );
-      setDraft(buildWizardDraft(normalized));
+      setDraft(buildWizardDraft(normalized, silicaOptional));
       setFieldErrors(
         Object.fromEntries(
           remaining.map((key) => [
             key,
-            validateBulkOnboardingField(key, normalized[key]) ?? "This field is required.",
+            validateBulkOnboardingField(key, normalized[key], silicaOptional) ??
+              "This field is required.",
           ])
         )
       );
@@ -256,7 +268,7 @@ export default function BulkOnboardingImporter() {
     }
 
     const nextWorker = workers[currentIndex + 1];
-    setDraft(nextWorker ? buildWizardDraft(nextWorker) : {});
+    setDraft(nextWorker ? buildWizardDraft(nextWorker, silicaOptional) : {});
     setCurrentIndex((index) => index + 1);
   };
 
@@ -539,7 +551,14 @@ export default function BulkOnboardingImporter() {
           </div>
 
           <div className={sectionClass}>
-            <h3 className="text-sm font-semibold text-orange-600">Silica Certificate</h3>
+            <h3 className="text-sm font-semibold text-orange-600">
+              Silica Certificate
+              {silicaOptional ? (
+                <span className="font-normal text-slate-500"> (optional)</span>
+              ) : (
+                <span className="text-orange-500"> *</span>
+              )}
+            </h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="space-y-1">
                 <span className={labelClass}>Silica certificate number</span>

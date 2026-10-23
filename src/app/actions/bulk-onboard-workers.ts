@@ -35,6 +35,7 @@ import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignm
 import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
 import { companyInductionMatchesState } from "@/lib/worker-induction-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
+import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
 
 export type BulkOnboardResult = {
   error: string | null;
@@ -793,8 +794,9 @@ export async function submitBulkOnboarding(
   }
 
   const workers = rawWorkers.map((worker) => normalizeBulkOnboardingWorker(worker));
+  const silicaOptional = isSilicaOptionalForWorker({ organisationId: orgId });
   for (const worker of workers) {
-    const invalid = getInvalidBulkOnboardingFields(worker);
+    const invalid = getInvalidBulkOnboardingFields(worker, silicaOptional);
     if (invalid.length > 0) {
       return emptyBulkResult(
         `${workerDisplayName(worker)} still has incomplete fields.`

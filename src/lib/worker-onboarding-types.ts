@@ -67,6 +67,12 @@ export interface WorkerOnboardingRecord {
   drivers_licence_expiry: string | null;
   photo_url: string | null;
   onboarding_completed: boolean;
+  organisation_id?: string | null;
+  organisation_name?: string | null;
+  subcontractor_id?: string | null;
+  subcontractor_name?: string | null;
+  is_subcontractor?: boolean;
+  silicaOptional?: boolean;
   vocs: Array<{
     id?: string;
     title: string;

@@ -115,6 +115,18 @@ export const OPTIONAL_BULK_ONBOARDING_FIELDS: readonly BulkOnboardingFieldKey[] 
   "drivers_licence_expiry",
 ];
 
+const SILICA_BULK_FIELDS: readonly BulkOnboardingFieldKey[] = [
+  "silica_cert_number",
+  "silica_cert_issue_date",
+];
+
+export function optionalBulkOnboardingFields(
+  silicaOptional = false
+): readonly BulkOnboardingFieldKey[] {
+  if (!silicaOptional) return OPTIONAL_BULK_ONBOARDING_FIELDS;
+  return [...OPTIONAL_BULK_ONBOARDING_FIELDS, ...SILICA_BULK_FIELDS];
+}
+
 export const BULK_ONBOARDING_FIELD_LABELS: Record<BulkOnboardingFieldKey, string> = {
   first_name: "First name",
   last_name: "Last name",
@@ -251,20 +263,24 @@ function mapCleanRowToWorker(
 }
 
 export function buildWizardDraft(
-  worker: BulkOnboardingWorker
+  worker: BulkOnboardingWorker,
+  silicaOptional = false
 ): Partial<Record<BulkOnboardingFieldKey, string>> {
   const draft: Partial<Record<BulkOnboardingFieldKey, string>> = {};
-  for (const key of getInvalidBulkOnboardingFields(worker)) {
+  for (const key of getInvalidBulkOnboardingFields(worker, silicaOptional)) {
     draft[key] = worker[key] ?? "";
   }
   return draft;
 }
 
 export function getFilledBulkOnboardingFields(
-  worker: BulkOnboardingWorker
+  worker: BulkOnboardingWorker,
+  silicaOptional = false
 ): BulkOnboardingFieldKey[] {
   return ALL_WORKER_FIELD_KEYS.filter(
-    (key) => worker[key].trim() && !getInvalidBulkOnboardingFields(worker).includes(key)
+    (key) =>
+      worker[key].trim() &&
+      !getInvalidBulkOnboardingFields(worker, silicaOptional).includes(key)
   );
 }
 
@@ -304,12 +320,13 @@ export function isDateField(key: BulkOnboardingFieldKey): boolean {
 
 export function validateBulkOnboardingField(
   key: BulkOnboardingFieldKey,
-  value: string
+  value: string,
+  silicaOptional = false
 ): string | null {
   const trimmed = value.trim();
 
   if (!trimmed) {
-    if (OPTIONAL_BULK_ONBOARDING_FIELDS.includes(key)) return null;
+    if (optionalBulkOnboardingFields(silicaOptional).includes(key)) return null;
     if (key === "emergency_contact") return null;
     return `${BULK_ONBOARDING_FIELD_LABELS[key]} is required.`;
   }
@@ -356,7 +373,8 @@ export function validateBulkOnboardingField(
 }
 
 export function getInvalidBulkOnboardingFields(
-  worker: BulkOnboardingWorker
+  worker: BulkOnboardingWorker,
+  silicaOptional = false
 ): BulkOnboardingFieldKey[] {
   const keys: BulkOnboardingFieldKey[] = [
     ...BULK_ONBOARDING_CSV_HEADERS,
@@ -367,7 +385,7 @@ export function getInvalidBulkOnboardingFields(
     if (key === "emergency_contact" && worker.emergency_contact_name.trim()) {
       return false;
     }
-    return validateBulkOnboardingField(key, worker[key]) !== null;
+    return validateBulkOnboardingField(key, worker[key], silicaOptional) !== null;
   });
 }
 

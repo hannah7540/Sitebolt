@@ -54,6 +54,8 @@ import {
   missingOnboardingFields,
   scrollToOnboardingField,
 } from "@/lib/onboarding-required-fields";
+import { getActiveOrganisationId } from "@/lib/active-organisation";
+import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
 
 type OnboardingMode = "quick" | "full";
 
@@ -204,6 +206,13 @@ export default function WorkerOnboardingModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [subcontractorName, setSubcontractorName] = useState<string | null>(null);
+  const silicaOptional = isSilicaOptionalForWorker({
+    organisationId: getActiveOrganisationId(),
+    subcontractorId: form.subcontractor_id,
+    subcontractorName,
+    isSubcontractor: Boolean(form.subcontractor_id?.trim()),
+  });
 
   const set = (key: keyof WorkerOnboardingInput, value: string | null) => {
     setForm((prev) => ({
@@ -238,14 +247,21 @@ export default function WorkerOnboardingModal({
     { field: "emergency_contact_phone", value: form.emergency_contact_phone },
   ];
 
-  const ticketChecks = () => [
-    { field: "white_card_number", value: form.white_card_number },
-    { field: "white_card_issue_date", value: form.white_card_issue_date },
-    { field: "white_card_attachment", value: docs.white_card ?? docUrls.white_card },
-    { field: "silica_cert_number", value: form.silica_cert_number },
-    { field: "silica_cert_issue_date", value: form.silica_cert_issue_date },
-    { field: "silica_cert_attachment", value: docs.silica_cert ?? docUrls.silica_cert },
-  ];
+  const ticketChecks = () => {
+    const checks = [
+      { field: "white_card_number", value: form.white_card_number },
+      { field: "white_card_issue_date", value: form.white_card_issue_date },
+      { field: "white_card_attachment", value: docs.white_card ?? docUrls.white_card },
+    ];
+    if (!silicaOptional) {
+      checks.push(
+        { field: "silica_cert_number", value: form.silica_cert_number },
+        { field: "silica_cert_issue_date", value: form.silica_cert_issue_date },
+        { field: "silica_cert_attachment", value: docs.silica_cert ?? docUrls.silica_cert }
+      );
+    }
+    return checks;
+  };
 
   const financialChecks = () => [
     { field: "tfn", value: form.tfn },
@@ -713,7 +729,10 @@ export default function WorkerOnboardingModal({
               />
               <SubcontractorSelect
                 value={form.subcontractor_id}
-                onChange={(id) => set("subcontractor_id", id)}
+                onChange={(id, name) => {
+                  set("subcontractor_id", id);
+                  setSubcontractorName(name ?? null);
+                }}
                 disabled={submitting}
               />
               <TagMultiSelect
@@ -974,10 +993,16 @@ export default function WorkerOnboardingModal({
                 />
               </DocSection>
 
-              <DocSection title="Silica Certificate">
+              <DocSection
+                title={
+                  silicaOptional
+                    ? "Silica Certificate (optional)"
+                    : "Silica Certificate"
+                }
+              >
                 <Field
                   label="Certificate Number"
-                  required
+                  required={!silicaOptional}
                   fieldId="silica_cert_number"
                   error={fieldErrors.silica_cert_number}
                 >
@@ -989,7 +1014,7 @@ export default function WorkerOnboardingModal({
                 </Field>
                 <Field
                   label="Issue Date"
-                  required
+                  required={!silicaOptional}
                   fieldId="silica_cert_issue_date"
                   error={fieldErrors.silica_cert_issue_date}
                 >
@@ -1009,7 +1034,7 @@ export default function WorkerOnboardingModal({
                   onUploaded={(url) =>
                     setDocUrls((prev) => ({ ...prev, silica_cert: url }))
                   }
-                  required
+                  required={!silicaOptional}
                   fieldId="silica_cert_attachment"
                   error={fieldErrors.silica_cert_attachment}
                 />
@@ -1175,7 +1200,10 @@ export default function WorkerOnboardingModal({
               />
               <SubcontractorSelect
                 value={form.subcontractor_id}
-                onChange={(id) => set("subcontractor_id", id)}
+                onChange={(id, name) => {
+                  set("subcontractor_id", id);
+                  setSubcontractorName(name ?? null);
+                }}
                 disabled={submitting}
               />
               <TagMultiSelect

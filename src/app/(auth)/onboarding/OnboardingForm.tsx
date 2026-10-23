@@ -134,19 +134,28 @@ function step2Checks(form: OnboardingFormState) {
   ];
 }
 
-function step3Checks(form: OnboardingFormState) {
-  return [
+function step3Checks(form: OnboardingFormState, silicaOptional: boolean) {
+  const checks = [
     { field: "whiteCardNumber", value: form.whiteCardNumber },
     { field: "whiteCardState", value: form.whiteCardState },
-    { field: "silicaCertNumber", value: form.silicaCertNumber },
-    { field: "silicaCertIssueDate", value: form.silicaCertIssueDate },
   ];
+  if (!silicaOptional) {
+    checks.push(
+      { field: "silicaCertNumber", value: form.silicaCertNumber },
+      { field: "silicaCertIssueDate", value: form.silicaCertIssueDate }
+    );
+  }
+  return checks;
 }
 
-function checksForStep(step: StepKey, form: OnboardingFormState) {
+function checksForStep(
+  step: StepKey,
+  form: OnboardingFormState,
+  silicaOptional: boolean
+) {
   if (step === 1) return step1Checks(form);
   if (step === 2) return step2Checks(form);
-  return step3Checks(form);
+  return step3Checks(form, silicaOptional);
 }
 
 function vocValidationError(form: OnboardingFormState): string | null {
@@ -260,6 +269,7 @@ export default function OnboardingForm() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [workerId, setWorkerId] = useState<string | null>(null);
+  const [silicaOptional, setSilicaOptional] = useState(false);
   const [step, setStep] = useState<StepKey>(1);
   const [form, setForm] = useState<OnboardingFormState>(() => ({
     fullName: "",
@@ -369,6 +379,7 @@ export default function OnboardingForm() {
 
         if (!cancelled) {
           setWorkerId(worker.id);
+          setSilicaOptional(Boolean(worker.silicaOptional));
           setForm(populateFormFromWorker(worker));
           setLoading(false);
         }
@@ -388,7 +399,7 @@ export default function OnboardingForm() {
   }, [router]);
 
   const applyStepValidation = (targetStep: StepKey): boolean => {
-    const checks = checksForStep(targetStep, form);
+    const checks = checksForStep(targetStep, form, silicaOptional);
     const errors = missingOnboardingFields(checks);
     const first = firstMissingOnboardingField(checks);
     const vocError = targetStep === 3 ? vocValidationError(form) : null;
@@ -411,7 +422,7 @@ export default function OnboardingForm() {
 
   const firstInvalidStep = (): StepKey | null => {
     for (const target of [1, 2, 3] as const) {
-      if (firstMissingOnboardingField(checksForStep(target, form))) return target;
+      if (firstMissingOnboardingField(checksForStep(target, form, silicaOptional))) return target;
       if (target === 3 && vocValidationError(form)) return target;
     }
     return null;
@@ -889,11 +900,14 @@ export default function OnboardingForm() {
               <div className={sectionClass}>
                 <h4 className="text-sm font-semibold text-orange-600">
                   Silica Awareness / Course
+                  {silicaOptional ? (
+                    <span className="font-normal text-slate-500"> (optional)</span>
+                  ) : null}
                 </h4>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Certificate / Course Number"
-                    required
+                    required={!silicaOptional}
                     fieldId="silicaCertNumber"
                     error={fieldErrors.silicaCertNumber}
                   >
@@ -908,7 +922,7 @@ export default function OnboardingForm() {
                   </Field>
                   <Field
                     label="Issue / Completion Date"
-                    required
+                    required={!silicaOptional}
                     fieldId="silicaCertIssueDate"
                     error={fieldErrors.silicaCertIssueDate}
                   >

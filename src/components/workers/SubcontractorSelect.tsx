@@ -16,7 +16,10 @@ export default function SubcontractorSelect({
   disabled = false,
 }: {
   value: string | null | undefined;
-  onChange: (subcontractorId: string | null) => void;
+  onChange: (
+    subcontractorId: string | null,
+    subcontractorName?: string | null
+  ) => void;
   label?: string;
   disabled?: boolean;
 }) {
@@ -46,7 +49,12 @@ export default function SubcontractorSelect({
         disabled={disabled || loading}
         onChange={(event) => {
           const next = event.target.value.trim();
-          onChange(next === UNASSIGNED_VALUE ? null : next);
+          if (next === UNASSIGNED_VALUE) {
+            onChange(null, null);
+            return;
+          }
+          const selectedOption = options.find((option) => option.id === next);
+          onChange(next, selectedOption?.name ?? null);
         }}
       >
         <option value={UNASSIGNED_VALUE}>No subcontractor assigned</option>
