@@ -518,7 +518,7 @@ export default function AdminConsoleShell({
 
           <div
             className={cn(
-              "relative z-0 flex-1 overflow-y-auto",
+              "relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto",
               workerDashboardRoute ? "text-slate-800" : "p-6 text-slate-800 lg:p-8"
             )}
           >

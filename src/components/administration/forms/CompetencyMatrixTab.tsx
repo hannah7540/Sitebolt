@@ -189,11 +189,13 @@ export default function CompetencyMatrixTab({
   };
 
   return (
-    <div className="space-y-6">
-      <FormsAdminTabs active="competencies" />
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-6 overflow-hidden">
+      <div className="shrink-0">
+        <FormsAdminTabs active="competencies" />
+      </div>
 
-      <div className={cn(cardClass, "space-y-4")}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className={cn(cardClass, "flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden")}>
+        <div className="flex shrink-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
               Competency Matrix Register
@@ -280,7 +282,7 @@ export default function CompetencyMatrixTab({
             No workers match your filters.
           </div>
         ) : (
-          <div className="relative w-full max-h-[calc(100vh-250px)] overflow-auto rounded-xl border border-slate-200">
+          <div className="relative h-[calc(100vh-250px)] max-h-full min-h-0 w-full min-w-0 flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-max border-separate border-spacing-0 text-left text-xs">
               <thead className="sticky top-0 z-20 bg-slate-50 shadow-sm">
                 <tr>
