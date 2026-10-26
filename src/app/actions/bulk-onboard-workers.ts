@@ -36,6 +36,10 @@ import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
 import { companyInductionMatchesState } from "@/lib/worker-induction-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
+import {
+  firstWorkerValidationMessage,
+  workerOnboardingTicketSchema,
+} from "@/lib/validations/worker";
 
 export type BulkOnboardResult = {
   error: string | null;
@@ -805,6 +809,18 @@ export async function submitBulkOnboarding(
     if (invalid.length > 0) {
       return emptyBulkResult(
         `${workerDisplayName(worker)} still has incomplete fields.`
+      );
+    }
+    const tickets = workerOnboardingTicketSchema.safeParse({
+      whiteCardNumber: worker.white_card_number,
+      whiteCardIssueDate: worker.white_card_issue_date,
+      silicaCertNumber: worker.silica_cert_number,
+      silicaCertIssueDate: worker.silica_cert_issue_date,
+      organisationId: orgId,
+    });
+    if (!tickets.success) {
+      return emptyBulkResult(
+        `${workerDisplayName(worker)}: ${firstWorkerValidationMessage(tickets.error)}`
       );
     }
   }

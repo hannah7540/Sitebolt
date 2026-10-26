@@ -135,11 +135,17 @@ function step2Checks(form: OnboardingFormState) {
 }
 
 function step3Checks(form: OnboardingFormState, silicaOptional: boolean) {
-  if (silicaOptional) return [];
-  return [
-    { field: "silicaCertNumber", value: form.silicaCertNumber },
-    { field: "silicaCertIssueDate", value: form.silicaCertIssueDate },
+  const checks = [
+    { field: "whiteCardNumber", value: form.whiteCardNumber },
+    { field: "whiteCardState", value: form.whiteCardState },
   ];
+  if (!silicaOptional) {
+    checks.push(
+      { field: "silicaCertNumber", value: form.silicaCertNumber },
+      { field: "silicaCertIssueDate", value: form.silicaCertIssueDate }
+    );
+  }
+  return checks;
 }
 
 function checksForStep(
@@ -864,6 +870,34 @@ export default function OnboardingForm() {
 
           {step === 3 ? (
             <div className="space-y-4">
+              <div className={sectionClass}>
+                <h4 className="text-sm font-semibold text-orange-600">White Card</h4>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Card Number"
+                    required
+                    fieldId="whiteCardNumber"
+                    error={fieldErrors.whiteCardNumber}
+                  >
+                    <input
+                      type="text"
+                      className={inputClass}
+                      value={form.whiteCardNumber}
+                      onChange={(event) => setField("whiteCardNumber", event.target.value)}
+                    />
+                  </Field>
+                  <StateRegionSelector
+                    id="onboarding-white-card-state"
+                    value={form.whiteCardState}
+                    onChange={(value) => setField("whiteCardState", value)}
+                    required
+                    disabled={submitting}
+                    fieldId="whiteCardState"
+                    error={fieldErrors.whiteCardState}
+                  />
+                </div>
+              </div>
+
               <div className={sectionClass}>
                 <h4 className="text-sm font-semibold text-orange-600">
                   Silica Awareness / Course

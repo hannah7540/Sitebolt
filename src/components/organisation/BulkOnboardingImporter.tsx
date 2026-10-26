@@ -510,6 +510,51 @@ export default function BulkOnboardingImporter() {
           </div>
 
           <div className={sectionClass}>
+            <h3 className="text-sm font-semibold text-orange-600">White Card</h3>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1">
+                <span className={labelClass}>White card number *</span>
+                <input
+                  className={inputClass}
+                  required
+                  value={draft.white_card_number ?? currentWorker.white_card_number ?? ""}
+                  onChange={(event) => updateDraft("white_card_number", event.target.value)}
+                />
+                {fieldErrors.white_card_number ? (
+                  <p className="text-xs text-red-600">{fieldErrors.white_card_number}</p>
+                ) : null}
+              </label>
+              <label className="space-y-1">
+                <span className={labelClass}>White card issue date *</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  required
+                  value={draft.white_card_issue_date ?? currentWorker.white_card_issue_date ?? ""}
+                  onChange={(event) => updateDraft("white_card_issue_date", event.target.value)}
+                />
+                {fieldErrors.white_card_issue_date ? (
+                  <p className="text-xs text-red-600">{fieldErrors.white_card_issue_date}</p>
+                ) : null}
+              </label>
+            </div>
+            <div className="mt-4">
+              <BulkTicketCapture
+                key={`${currentWorker.rowIndex}-white-card`}
+                label="White Card Photo/Document"
+                url={currentWorker.white_card_doc_url}
+                uploadPath={`${uploadPrefix}/white-card/0-white_card`}
+                onUploaded={(url) =>
+                  patchCurrentWorker({
+                    white_card_doc_url: url,
+                    white_card_photo_url: "",
+                  })
+                }
+              />
+            </div>
+          </div>
+
+          <div className={sectionClass}>
             <h3 className="text-sm font-semibold text-orange-600">
               Silica Certificate
               {silicaOptional ? (

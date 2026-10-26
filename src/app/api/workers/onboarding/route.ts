@@ -29,6 +29,10 @@ import {
   isValidProfilePhotoUrl,
   PROFILE_PHOTO_API_REQUIRED_MESSAGE,
 } from "@/lib/worker-profile-photo-validation";
+import {
+  firstWorkerValidationMessage,
+  workerOnboardingComplianceSchema,
+} from "@/lib/validations/worker";
 import { normalizeSecondaryVocs } from "@/lib/voc-utils";
 
 function readString(value: unknown): string {
@@ -100,7 +104,13 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
 
 function validateOnboardingPayload(
   payload: WorkerOnboardingFormPayload,
-  silicaOptional: boolean
+  worker: {
+    organisation_id?: string | null;
+    organisation_name?: string | null;
+    subcontractor_id?: string | null;
+    subcontractor_name?: string | null;
+    is_subcontractor?: boolean | null;
+  }
 ): string | null {
   if (!payload.fullName) return "Full name is required.";
   if (!payload.email) return "Email address is required.";
@@ -122,13 +132,19 @@ function validateOnboardingPayload(
   if (!payload.superFund) return "Superannuation fund name is required.";
   if (!payload.superMemberNumber) return "Super member number is required.";
   if (!payload.tfn) return "Tax File Number is required.";
-  if (!silicaOptional) {
-    if (!payload.silicaCertNumber) {
-      return "Silica awareness certificate number is required.";
-    }
-    if (!payload.silicaCertIssueDate) {
-      return "Silica awareness issue date is required.";
-    }
+  const compliance = workerOnboardingComplianceSchema.safeParse({
+    whiteCardNumber: payload.whiteCardNumber,
+    whiteCardState: payload.whiteCardState,
+    silicaCertNumber: payload.silicaCertNumber,
+    silicaCertIssueDate: payload.silicaCertIssueDate,
+    organisationId: worker.organisation_id,
+    organisationName: worker.organisation_name,
+    subcontractorId: worker.subcontractor_id,
+    subcontractorName: worker.subcontractor_name,
+    isSubcontractor: worker.is_subcontractor,
+  });
+  if (!compliance.success) {
+    return firstWorkerValidationMessage(compliance.error);
   }
   if (!isValidProfilePhotoUrl(payload.photoUrl)) {
     return PROFILE_PHOTO_API_REQUIRED_MESSAGE;
@@ -254,10 +270,7 @@ export async function POST(req: Request) {
     return profileApiJson({ error: resolved.error }, { status: resolved.status });
   }
 
-  const validationError = validateOnboardingPayload(
-    payload,
-    Boolean(resolved.worker.silicaOptional)
-  );
+  const validationError = validateOnboardingPayload(payload, resolved.worker);
   if (validationError) {
     return profileApiJson({ error: validationError }, { status: 400 });
   }

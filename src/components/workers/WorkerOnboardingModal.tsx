@@ -248,7 +248,11 @@ export default function WorkerOnboardingModal({
   ];
 
   const ticketChecks = () => {
-    const checks: { field: string; value: string | File | null | undefined }[] = [];
+    const checks: { field: string; value: string | File | null | undefined }[] = [
+      { field: "white_card_number", value: form.white_card_number },
+      { field: "white_card_issue_date", value: form.white_card_issue_date },
+      { field: "white_card_attachment", value: docs.white_card ?? docUrls.white_card },
+    ];
     if (!silicaOptional) {
       checks.push(
         { field: "silica_cert_number", value: form.silica_cert_number },
@@ -949,6 +953,47 @@ export default function WorkerOnboardingModal({
           {/* Full — Step 2: Tickets & Compliance */}
           {mode === "full" && step === 1 && (
             <div className="space-y-4">
+              <DocSection title="White Card">
+                <Field
+                  label="Card Number"
+                  required
+                  fieldId="white_card_number"
+                  error={fieldErrors.white_card_number}
+                >
+                  <input
+                    className={inputClass}
+                    value={form.white_card_number ?? ""}
+                    onChange={(e) => set("white_card_number", e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Issue Date"
+                  required
+                  fieldId="white_card_issue_date"
+                  error={fieldErrors.white_card_issue_date}
+                >
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={form.white_card_issue_date ?? ""}
+                    onChange={(e) => set("white_card_issue_date", e.target.value)}
+                  />
+                </Field>
+                <DocumentCapture
+                  label="White Card Photo"
+                  file={docs.white_card}
+                  onFileChange={(f) => setDoc("white_card", f)}
+                  uploadedUrl={docUrls.white_card}
+                  uploadPath={`${uploadPrefix}/white-card`}
+                  onUploaded={(url) =>
+                    setDocUrls((prev) => ({ ...prev, white_card: url }))
+                  }
+                  required
+                  fieldId="white_card_attachment"
+                  error={fieldErrors.white_card_attachment}
+                />
+              </DocSection>
+
               <DocSection
                 title={
                   silicaOptional
