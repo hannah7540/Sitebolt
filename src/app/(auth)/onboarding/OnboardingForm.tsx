@@ -496,6 +496,7 @@ export default function OnboardingForm() {
                 issue_date: voc.issue_date,
                 expiry_date: voc.expiry_date,
                 document_url: voc.document_url,
+                secondary_vocs: voc.secondary_vocs ?? [],
               };
             }),
         }),

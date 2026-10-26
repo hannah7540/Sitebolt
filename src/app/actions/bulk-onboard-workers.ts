@@ -86,6 +86,7 @@ async function insertWorkerVocs(
     issue_date: nullIfBlankWorkerDate(voc.issue_date),
     expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
     document_url: voc.document_url,
+    secondary_vocs: voc.secondary_vocs ?? [],
   }));
 
   const licenceNumber = worker.drivers_licence_number.trim();
@@ -104,6 +105,7 @@ async function insertWorkerVocs(
       issue_date: nullIfBlankWorkerDate(worker.white_card_issue_date),
       expiry_date: null,
       document_url: worker.white_card_doc_url?.trim() || null,
+      secondary_vocs: [] as string[],
     },
     {
       worker_id: workerId,
@@ -114,6 +116,7 @@ async function insertWorkerVocs(
       issue_date: nullIfBlankWorkerDate(worker.silica_cert_issue_date),
       expiry_date: null,
       document_url: worker.silica_cert_doc_url?.trim() || null,
+      secondary_vocs: [] as string[],
     },
     ...(hasLicence
       ? [
@@ -126,6 +129,7 @@ async function insertWorkerVocs(
             issue_date: null,
             expiry_date: licenceExpiry,
             document_url: licenceDoc,
+            secondary_vocs: [] as string[],
           },
         ]
       : []),
@@ -136,6 +140,7 @@ async function insertWorkerVocs(
     rows,
     rows.map(({ name: _name, voc_type: _vocType, ...row }) => row),
     rows.map(({ name: _name, ...row }) => row),
+    rows.map(({ secondary_vocs: _secondary, name: _name, voc_type: _vocType, ...row }) => row),
   ];
 
   let lastError: string | null = null;

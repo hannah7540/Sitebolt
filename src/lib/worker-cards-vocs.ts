@@ -1,6 +1,6 @@
 import type { Worker, WorkerVoc } from "./supabase";
 import { splitWorkerFullName } from "./worker-utils";
-import { getVocStoredType } from "./voc-utils";
+import { getVocStoredType, normalizeSecondaryVocs } from "./voc-utils";
 
 export type WorkerCardCategory =
   | "white_card"
@@ -19,6 +19,7 @@ export interface WorkerCardVocEntry {
   document_url: string | null;
   /** Optional back-of-card / second image */
   document_url_back: string | null;
+  secondary_vocs: string[];
 }
 
 export const WORKER_CARD_CATEGORIES: WorkerCardCategory[] = [
@@ -80,6 +81,7 @@ export function createEmptyCardVocEntry(
     expiry_date: null,
     document_url: null,
     document_url_back: null,
+    secondary_vocs: [],
   };
 }
 
@@ -108,6 +110,7 @@ export function parseCardsVocs(raw: unknown): WorkerCardVocEntry[] {
           : null,
         document_url: optionalText(row.document_url),
         document_url_back: optionalText(row.document_url_back),
+        secondary_vocs: normalizeSecondaryVocs(row.secondary_vocs, optionalText(row.voc_type)),
       } satisfies WorkerCardVocEntry;
     })
     .filter((entry): entry is WorkerCardVocEntry => entry !== null);
@@ -131,6 +134,7 @@ export function serializeCardsVocs(entries: WorkerCardVocEntry[]): WorkerCardVoc
         : null,
       document_url: optionalText(entry.document_url),
       document_url_back: optionalText(entry.document_url_back),
+      secondary_vocs: normalizeSecondaryVocs(entry.secondary_vocs, vocType),
     };
   });
 }
@@ -161,6 +165,7 @@ export function hydrateCardsVocsFromWorker(
       expiry_date: null,
       document_url: worker.white_card_doc_url ?? worker.white_card_photo_url,
       document_url_back: null,
+      secondary_vocs: [],
     });
   }
 
@@ -181,6 +186,7 @@ export function hydrateCardsVocsFromWorker(
       expiry_date: worker.drivers_licence_expiry,
       document_url: worker.drivers_licence_photo_url,
       document_url_back: null,
+      secondary_vocs: [],
     });
   }
 
@@ -195,6 +201,7 @@ export function hydrateCardsVocsFromWorker(
       expiry_date: null,
       document_url: worker.silica_cert_doc_url ?? worker.silica_cert_photo_url,
       document_url_back: null,
+      secondary_vocs: [],
     });
   }
 
@@ -210,6 +217,7 @@ export function hydrateCardsVocsFromWorker(
       expiry_date: voc.expiry_date,
       document_url: voc.document_url,
       document_url_back: null,
+      secondary_vocs: normalizeSecondaryVocs(voc.secondary_vocs, vocType),
     });
   }
 

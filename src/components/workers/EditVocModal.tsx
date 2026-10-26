@@ -5,11 +5,14 @@ import { Loader2, X } from "lucide-react";
 import type { WorkerVoc } from "@/lib/supabase";
 import { updateWorkerVoc } from "@/lib/supabase";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
-import VocTypeSelect from "@/components/workers/VocTypeSelect";
+import VocTypeSelect, {
+  VocSecondarySelect,
+} from "@/components/workers/VocTypeSelect";
 import {
   VOC_OTHER_UNSPECIFIED_ERROR,
   getVocStoredType,
   isVocTypeComplete,
+  normalizeSecondaryVocs,
 } from "@/lib/voc-utils";
 import { nullIfBlankWorkerDate } from "@/lib/worker-utils";
 import DocumentCapture from "@/components/ui/DocumentCapture";
@@ -47,6 +50,9 @@ export default function EditVocModal({
   const [issueDate, setIssueDate] = useState(voc.issue_date ?? "");
   const [expiryDate, setExpiryDate] = useState(voc.expiry_date ?? "");
   const [documentUrl, setDocumentUrl] = useState(voc.document_url);
+  const [secondaryVocs, setSecondaryVocs] = useState(
+    normalizeSecondaryVocs(voc.secondary_vocs, initialType)
+  );
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +89,7 @@ export default function EditVocModal({
         nextDocumentUrl = uploaded;
       }
 
+      const nextSecondary = normalizeSecondaryVocs(secondaryVocs, trimmedType);
       const { error: updateError } = await updateWorkerVoc(voc.id, {
         title: trimmedType,
         voc_type: trimmedType,
@@ -90,6 +97,7 @@ export default function EditVocModal({
         issue_date: nullIfBlankWorkerDate(issueDate),
         expiry_date: nullIfBlankWorkerDate(expiryDate),
         document_url: nextDocumentUrl,
+        secondary_vocs: nextSecondary,
       });
 
       if (updateError) {
@@ -104,6 +112,7 @@ export default function EditVocModal({
         issue_date: nullIfBlankWorkerDate(issueDate),
         expiry_date: nullIfBlankWorkerDate(expiryDate),
         document_url: nextDocumentUrl,
+        secondary_vocs: nextSecondary,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save VOC.");
@@ -139,14 +148,27 @@ export default function EditVocModal({
 
         <div className="mt-4 space-y-3">
           <VocTypeSelect
+            label="Primary VOC"
             value={vocType}
             disabled={!canEdit}
-            onChange={setVocType}
+            onChange={(next) => {
+              setVocType(next);
+              setSecondaryVocs((current) =>
+                normalizeSecondaryVocs(current, next)
+              );
+            }}
             error={
               vocType && !isVocTypeComplete(vocType)
                 ? VOC_OTHER_UNSPECIFIED_ERROR
                 : null
             }
+          />
+
+          <VocSecondarySelect
+            primaryVoc={vocType}
+            value={secondaryVocs}
+            disabled={!canEdit}
+            onChange={setSecondaryVocs}
           />
 
           <label className="block space-y-1">

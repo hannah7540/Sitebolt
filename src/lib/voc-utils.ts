@@ -113,6 +113,30 @@ export function getVocDisplayTitle(input: {
   return formatVocDisplayLabel(getVocStoredType(input));
 }
 
+export function normalizeSecondaryVocs(
+  value: unknown,
+  primaryVoc?: string | null
+): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value.trim()
+      ? value.split(",")
+      : [];
+  const primary = String(primaryVoc ?? "").trim().toLowerCase();
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of raw) {
+    const text = String(item ?? "").trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (primary && key === primary) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
 export function vocDraftHasContent(voc: {
   voc_type?: string;
   title?: string;
@@ -121,6 +145,7 @@ export function vocDraftHasContent(voc: {
   expiry_date?: string;
   document_url?: string | null;
   file?: File | null;
+  secondary_vocs?: string[] | null;
 }): boolean {
   return Boolean(
     voc.voc_type?.trim() ||
@@ -129,7 +154,8 @@ export function vocDraftHasContent(voc: {
       voc.issue_date?.trim() ||
       voc.expiry_date?.trim() ||
       voc.document_url ||
-      voc.file
+      voc.file ||
+      (voc.secondary_vocs?.length ?? 0) > 0
   );
 }
 
@@ -166,6 +192,7 @@ export interface VocDraft {
   expiry_date: string;
   document_url: string | null;
   file: File | null;
+  secondary_vocs: string[];
 }
 
 export function createEmptyVoc(): VocDraft {
@@ -178,6 +205,7 @@ export function createEmptyVoc(): VocDraft {
     expiry_date: "",
     document_url: null,
     file: null,
+    secondary_vocs: [],
   };
 }
 
@@ -193,6 +221,7 @@ export function vocFromRecord(v: WorkerVoc): VocDraft {
     expiry_date: v.expiry_date ?? "",
     document_url: v.document_url,
     file: null,
+    secondary_vocs: normalizeSecondaryVocs(v.secondary_vocs, vocType),
   };
 }
 

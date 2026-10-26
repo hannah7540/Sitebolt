@@ -1,10 +1,14 @@
 "use client";
 
+import { useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import VocTypeSelect from "@/components/workers/VocTypeSelect";
+import VocTypeSelect, {
+  VocSecondarySelect,
+} from "@/components/workers/VocTypeSelect";
 import {
   createEmptyVoc,
   getVocDisplayTitle,
+  normalizeSecondaryVocs,
   type VocDraft,
 } from "@/lib/voc-utils";
 import { cn } from "@/lib/utils";
@@ -56,6 +60,14 @@ export default function VocListEditor({
     onChange(vocs.filter((v) => v.clientId !== clientId));
   };
 
+  useEffect(() => {
+    if (vocs.length === 0) {
+      onChange([createEmptyVoc()]);
+    }
+    // Seed once when the list is empty so the add form stays visible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vocs.length]);
+
   const addVoc = () => {
     onChange([...vocs, createEmptyVoc()]);
   };
@@ -83,9 +95,24 @@ export default function VocListEditor({
             </div>
 
             <VocTypeSelect
+              label="Primary VOC"
               value={voc.voc_type}
               onChange={(vocType) =>
-                updateVoc(voc.clientId, { voc_type: vocType, title: vocType })
+                updateVoc(voc.clientId, {
+                  voc_type: vocType,
+                  title: vocType,
+                  secondary_vocs: normalizeSecondaryVocs(voc.secondary_vocs, vocType),
+                })
+              }
+            />
+
+            <VocSecondarySelect
+              primaryVoc={voc.voc_type}
+              value={voc.secondary_vocs ?? []}
+              onChange={(secondary_vocs) =>
+                updateVoc(voc.clientId, {
+                  secondary_vocs: normalizeSecondaryVocs(secondary_vocs, voc.voc_type),
+                })
               }
             />
 

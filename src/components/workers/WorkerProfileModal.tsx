@@ -173,6 +173,7 @@ export default function WorkerProfileModal({
       const prepared = await Promise.all(
         toSave.map(async (voc, i) => ({
           title: voc.title.trim(),
+          voc_type: voc.voc_type || voc.title.trim(),
           issuing_org: voc.issuing_org || null,
           issue_date: nullIfBlankWorkerDate(voc.issue_date),
           expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
@@ -182,6 +183,7 @@ export default function WorkerProfileModal({
                 `${uploadPrefix}/${i}-${voc.title.replace(/[^a-z0-9]/gi, "_")}`
               )
             : null,
+          secondary_vocs: voc.secondary_vocs ?? [],
         }))
       );
 

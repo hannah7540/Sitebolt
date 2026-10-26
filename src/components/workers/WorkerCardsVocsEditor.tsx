@@ -10,8 +10,17 @@ import {
   type WorkerCardCategory,
   type WorkerCardVocEntry,
 } from "@/lib/worker-cards-vocs";
-import VocTypeSelect from "@/components/workers/VocTypeSelect";
-import { getVocDisplayTitle } from "@/lib/voc-utils";
+import VocTypeSelect, {
+  VocSecondarySelect,
+} from "@/components/workers/VocTypeSelect";
+import {
+  VOC_OTHER_UNSPECIFIED_ERROR,
+  formatVocDisplayLabel,
+  getVocDisplayTitle,
+  getVocStoredType,
+  isVocTypeComplete,
+  normalizeSecondaryVocs,
+} from "@/lib/voc-utils";
 import { getTicketStatus } from "@/lib/worker-utils";
 import { getTicketBadgeLabel } from "@/lib/worker-compliance";
 import DocumentCapture from "@/components/ui/DocumentCapture";
@@ -52,16 +61,36 @@ function EntryForm({
   return (
     <div className={cn(sectionClass, "space-y-3")}>
       {entry.category === "plant_voc" ? (
-        <VocTypeSelect
-          value={entry.voc_type ?? ""}
-          onChange={(vocType) =>
-            onChange({
-              ...entry,
-              voc_type: vocType || null,
-              ticket_name: vocType,
-            })
-          }
-        />
+        <>
+          <VocTypeSelect
+            label="Primary VOC"
+            value={entry.voc_type ?? ""}
+            onChange={(vocType) =>
+              onChange({
+                ...entry,
+                voc_type: vocType || null,
+                ticket_name: vocType,
+                secondary_vocs: normalizeSecondaryVocs(
+                  entry.secondary_vocs,
+                  vocType
+                ),
+              })
+            }
+          />
+          <VocSecondarySelect
+            primaryVoc={entry.voc_type ?? ""}
+            value={entry.secondary_vocs ?? []}
+            onChange={(secondary_vocs) =>
+              onChange({
+                ...entry,
+                secondary_vocs: normalizeSecondaryVocs(
+                  secondary_vocs,
+                  entry.voc_type
+                ),
+              })
+            }
+          />
+        </>
       ) : (
         <label className="block space-y-1">
           <span className={labelClass}>Ticket name</span>
@@ -145,6 +174,167 @@ function EntryForm({
   );
 }
 
+function PersistentAddForm({
+  category,
+  workerId,
+  onAdd,
+}: {
+  category: WorkerCardCategory;
+  workerId: string;
+  onAdd: (entry: WorkerCardVocEntry) => void;
+}) {
+  const [draft, setDraft] = useState(() => createEmptyCardVocEntry(category));
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setDraft(createEmptyCardVocEntry(category));
+    setPendingFile(null);
+    setError(null);
+  };
+
+  const handleAdd = () => {
+    if (category === "plant_voc") {
+      const stored = getVocStoredType({
+        voc_type: draft.voc_type,
+        title: draft.ticket_name,
+      });
+      if (!isVocTypeComplete(stored)) {
+        setError(
+          stored ? VOC_OTHER_UNSPECIFIED_ERROR : "Please select a primary VOC type."
+        );
+        return;
+      }
+    } else if (!draft.ticket_name.trim()) {
+      setError("Please enter a ticket name.");
+      return;
+    }
+
+    onAdd({
+      ...draft,
+      secondary_vocs: normalizeSecondaryVocs(draft.secondary_vocs, draft.voc_type),
+    });
+    resetForm();
+  };
+
+  return (
+    <div className={cn(sectionClass, "space-y-3 border-orange-200 bg-orange-50/40")}>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+        Add {WORKER_CARD_CATEGORY_LABELS[category]}
+      </h4>
+      {category === "plant_voc" ? (
+        <>
+          <VocTypeSelect
+            label="Primary VOC"
+            value={draft.voc_type ?? ""}
+            onChange={(vocType) =>
+              setDraft((current) => ({
+                ...current,
+                voc_type: vocType || null,
+                ticket_name: vocType,
+                secondary_vocs: normalizeSecondaryVocs(current.secondary_vocs, vocType),
+              }))
+            }
+          />
+          <VocSecondarySelect
+            primaryVoc={draft.voc_type ?? ""}
+            value={draft.secondary_vocs ?? []}
+            onChange={(secondary_vocs) =>
+              setDraft((current) => ({
+                ...current,
+                secondary_vocs: normalizeSecondaryVocs(secondary_vocs, current.voc_type),
+              }))
+            }
+          />
+        </>
+      ) : (
+        <label className="block space-y-1">
+          <span className={labelClass}>Ticket name</span>
+          <input
+            className={inputClass}
+            value={draft.ticket_name}
+            onChange={(e) =>
+              setDraft((current) => ({ ...current, ticket_name: e.target.value }))
+            }
+          />
+        </label>
+      )}
+      <label className="block space-y-1">
+        <span className={labelClass}>Ticket / licence number</span>
+        <input
+          className={inputClass}
+          value={draft.ticket_number ?? ""}
+          onChange={(e) =>
+            setDraft((current) => ({
+              ...current,
+              ticket_number: e.target.value || null,
+            }))
+          }
+        />
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block space-y-1">
+          <span className={labelClass}>Issue date</span>
+          <input
+            type="date"
+            className={inputClass}
+            value={draft.issue_date ?? ""}
+            onChange={(e) =>
+              setDraft((current) => ({
+                ...current,
+                issue_date: e.target.value || null,
+              }))
+            }
+          />
+        </label>
+        {category !== "white_card" ? (
+          <label className="block space-y-1">
+            <span className={labelClass}>Expiry date</span>
+            <input
+              type="date"
+              className={inputClass}
+              value={draft.expiry_date ?? ""}
+              onChange={(e) =>
+                setDraft((current) => ({
+                  ...current,
+                  expiry_date: e.target.value || null,
+                }))
+              }
+            />
+          </label>
+        ) : null}
+      </div>
+      <DocumentCapture
+        label="Document attachment"
+        file={pendingFile}
+        onFileChange={setPendingFile}
+        existingUrl={draft.document_url}
+        existingUrlBack={draft.document_url_back}
+        uploadedUrl={draft.document_url}
+        uploadedUrlBack={draft.document_url_back}
+        uploadPath={`workers/${workerId}/cards-vocs/${draft.id}/front`}
+        uploadPathBack={`workers/${workerId}/cards-vocs/${draft.id}/back`}
+        onUploaded={(url) => {
+          setDraft((current) => ({ ...current, document_url: url }));
+          setPendingFile(null);
+        }}
+        onUploadedBack={(url) =>
+          setDraft((current) => ({ ...current, document_url_back: url }))
+        }
+      />
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      <button
+        type="button"
+        onClick={handleAdd}
+        className="inline-flex items-center gap-1 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add entry
+      </button>
+    </div>
+  );
+}
+
 function EntrySummary({
   entry,
   onEdit,
@@ -195,6 +385,18 @@ function EntrySummary({
         </button>
         {entry.ticket_number ? (
           <p className="text-sm text-slate-500">No. {entry.ticket_number}</p>
+        ) : null}
+        {entry.category === "plant_voc" && entry.secondary_vocs?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {entry.secondary_vocs.map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+              >
+                {formatVocDisplayLabel(item)}
+              </span>
+            ))}
+          </div>
         ) : null}
         <p className="mt-1 text-xs text-slate-500">
           {requiresExpiry
@@ -298,11 +500,11 @@ export default function WorkerCardsVocsEditor({
     if (editingId === id) setEditingId(null);
   };
 
-  const addEntry = (category: WorkerCardCategory) => {
+  const addEntry = (entry: WorkerCardVocEntry) => {
     if (!canEdit) return;
-    const next = createEmptyCardVocEntry(category);
+    const next =
+      entry.category === "white_card" ? { ...entry, expiry_date: null } : entry;
     onChange([...entries, next]);
-    setEditingId(next.id);
   };
 
   return (
@@ -311,21 +513,9 @@ export default function WorkerCardsVocsEditor({
         const categoryEntries = entries.filter((entry) => entry.category === category);
         return (
           <section key={category} className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">
-                {WORKER_CARD_CATEGORY_LABELS[category]}
-              </h3>
-              {canEdit ? (
-                <button
-                  type="button"
-                  onClick={() => addEntry(category)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add entry
-                </button>
-              ) : null}
-            </div>
+            <h3 className="text-sm font-semibold text-slate-900">
+              {WORKER_CARD_CATEGORY_LABELS[category]}
+            </h3>
 
             {categoryEntries.length === 0 ? (
               <p className={`p-4 text-sm text-slate-500 ${cardClass}`}>
@@ -355,6 +545,14 @@ export default function WorkerCardsVocsEditor({
                 )}
               </div>
             )}
+
+            {canEdit ? (
+              <PersistentAddForm
+                category={category}
+                workerId={workerId}
+                onAdd={addEntry}
+              />
+            ) : null}
           </section>
         );
       })}

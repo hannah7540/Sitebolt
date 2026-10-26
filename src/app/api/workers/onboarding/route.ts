@@ -29,6 +29,7 @@ import {
   isValidProfilePhotoUrl,
   PROFILE_PHOTO_API_REQUIRED_MESSAGE,
 } from "@/lib/worker-profile-photo-validation";
+import { normalizeSecondaryVocs } from "@/lib/voc-utils";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -90,6 +91,7 @@ function parseOnboardingPayload(body: unknown): WorkerOnboardingFormPayload | nu
           issue_date: nullIfBlankDate(readString(voc.issue_date)),
           expiry_date: nullIfBlankDate(readString(voc.expiry_date)),
           document_url: nullIfBlank(readString(voc.document_url)),
+          secondary_vocs: normalizeSecondaryVocs(voc.secondary_vocs, vocType),
         };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null),
@@ -160,12 +162,17 @@ async function replaceWorkerVocs(
     issue_date: voc.issue_date ?? null,
     expiry_date: voc.expiry_date ?? null,
     document_url: voc.document_url ?? null,
+    secondary_vocs: normalizeSecondaryVocs(
+      voc.secondary_vocs,
+      voc.voc_type ?? voc.title
+    ),
   }));
 
   const attempts = [
     rows,
     rows.map(({ name: _name, voc_type: _vocType, ...row }) => row),
     rows.map(({ name: _name, ...row }) => row),
+    rows.map(({ secondary_vocs: _secondary, name: _name, voc_type: _vocType, ...row }) => row),
   ];
 
   for (const payload of attempts) {

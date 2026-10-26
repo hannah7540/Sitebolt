@@ -33,6 +33,7 @@ export interface WorkerOnboardingFormPayload {
     issue_date?: string | null;
     expiry_date?: string | null;
     document_url?: string | null;
+    secondary_vocs?: string[] | null;
   }>;
 }
 
@@ -81,5 +82,6 @@ export interface WorkerOnboardingRecord {
     issue_date?: string | null;
     expiry_date?: string | null;
     document_url?: string | null;
+    secondary_vocs?: string[] | null;
   }>;
 }

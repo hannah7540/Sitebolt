@@ -19,6 +19,7 @@ import {
   usesKilometres,
 } from "./prestart-templates";
 import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields, nullIfBlankWorkerDate, sanitizeWorkerWritePayload } from "./worker-utils";
+import { normalizeSecondaryVocs } from "./voc-utils";
 import {
   resolveProjectId,
   isProjectUuid,
@@ -778,6 +779,7 @@ export interface WorkerVoc {
   issue_date: string | null;
   expiry_date: string | null;
   document_url: string | null;
+  secondary_vocs?: string[] | null;
   created_at?: string;
 }
 
@@ -2303,6 +2305,7 @@ export async function insertWorkerVocs(
     issue_date?: string | null;
     expiry_date?: string | null;
     document_url?: string | null;
+    secondary_vocs?: string[] | null;
   }[]
 ): Promise<{ error: string | null }> {
   if (vocs.length === 0) return { error: null };
@@ -2320,6 +2323,7 @@ export async function insertWorkerVocs(
         issue_date: nullIfBlankWorkerDate(v.issue_date),
         expiry_date: nullIfBlankWorkerDate(v.expiry_date),
         document_url: v.document_url ?? null,
+        secondary_vocs: normalizeSecondaryVocs(v.secondary_vocs, vocType),
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -2330,6 +2334,7 @@ export async function insertWorkerVocs(
     rows,
     rows.map(({ name: _name, voc_type: _vocType, ...row }) => row),
     rows.map(({ name: _name, ...row }) => row),
+    rows.map(({ secondary_vocs: _secondary, name: _name, voc_type: _vocType, ...row }) => row),
   ];
 
   let lastError: string | null = null;
@@ -2359,6 +2364,7 @@ export async function updateWorkerVoc(
     issue_date?: string | null;
     expiry_date?: string | null;
     document_url?: string | null;
+    secondary_vocs?: string[] | null;
   }
 ): Promise<{ error: string | null }> {
   const vocType = String(updates.voc_type ?? updates.title ?? "").trim();
@@ -2367,6 +2373,7 @@ export async function updateWorkerVoc(
     issue_date: nullIfBlankWorkerDate(updates.issue_date),
     expiry_date: nullIfBlankWorkerDate(updates.expiry_date),
     document_url: updates.document_url ?? null,
+    secondary_vocs: normalizeSecondaryVocs(updates.secondary_vocs, vocType),
   };
 
   if (vocType) {
@@ -2383,6 +2390,11 @@ export async function updateWorkerVoc(
     })(),
     (() => {
       const { name: _name, ...rest } = basePayload;
+      return rest;
+    })(),
+    (() => {
+      const { secondary_vocs: _secondary, name: _name, voc_type: _vocType, ...rest } =
+        basePayload;
       return rest;
     })(),
   ];

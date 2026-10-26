@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
 import { formatWorkerBsb } from "@/lib/worker-utils";
+import { normalizeSecondaryVocs } from "@/lib/voc-utils";
 
 export const BULK_ONBOARDING_CSV_HEADERS = [
   "first_name",
@@ -51,6 +52,7 @@ export type BulkOnboardingVoc = {
   issue_date: string;
   expiry_date: string;
   document_url: string | null;
+  secondary_vocs: string[];
 };
 
 export type BulkOnboardingWorker = {
@@ -501,6 +503,10 @@ export function serializeBulkOnboardingVocs(
       issue_date: String(voc.issue_date || "").trim(),
       expiry_date: String(voc.expiry_date || "").trim(),
       document_url: voc.document_url?.trim() || null,
+      secondary_vocs: normalizeSecondaryVocs(
+        voc.secondary_vocs,
+        String(voc.voc_type || voc.title || "").trim()
+      ),
     }))
     .filter(
       (voc) =>

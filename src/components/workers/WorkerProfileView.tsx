@@ -18,11 +18,13 @@ import type { Worker, WorkerVoc } from "@/lib/supabase";
 import {
   fetchWorkerVocs,
   getWorkerAssignedProjectIds,
+  insertWorkerVocs,
   isWorkerDeleted,
   isWorkerRevoked,
   updateWorker,
   updateWorkerSecurityRole,
   updateWorkerStatusFromVocs,
+  updateWorkerVoc,
 } from "@/lib/supabase";
 import { requestWorkerRevokeAccess } from "@/lib/worker-revoke-client";
 import { requestWorkerSoftDelete } from "@/lib/worker-delete-client";
@@ -42,6 +44,7 @@ import {
   VOC_OTHER_UNSPECIFIED_ERROR,
   getVocStoredType,
   isVocTypeComplete,
+  normalizeSecondaryVocs,
 } from "@/lib/voc-utils";
 import {
   buildWorkerFullName,
@@ -1003,6 +1006,40 @@ function CardsVocsTab({
       const { error: updateError } = await updateWorker(worker.id, {
         cards_vocs: serialized,
       });
+
+      if (!updateError) {
+        const existingVocs = await fetchWorkerVocs(worker.id);
+        for (const entry of serialized) {
+          if (entry.category !== "plant_voc") continue;
+          const vocType = getVocStoredType({
+            voc_type: entry.voc_type,
+            title: entry.ticket_name,
+          });
+          if (!isVocTypeComplete(vocType)) continue;
+          const payload = {
+            title: vocType,
+            voc_type: vocType,
+            issue_date: entry.issue_date,
+            expiry_date: entry.expiry_date,
+            document_url: entry.document_url,
+            secondary_vocs: normalizeSecondaryVocs(entry.secondary_vocs, vocType),
+          };
+          const matched =
+            existingVocs.find((row) => row.id === entry.id) ??
+            existingVocs.find(
+              (row) =>
+                getVocStoredType(row) === vocType &&
+                (row.document_url ?? null) === (entry.document_url ?? null)
+            );
+          const vocError = matched
+            ? (await updateWorkerVoc(matched.id, payload)).error
+            : (await insertWorkerVocs(worker.id, [payload])).error;
+          if (vocError) {
+            setError(vocError);
+            return;
+          }
+        }
+      }
 
       if (updateError) {
         setError(updateError);

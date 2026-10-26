@@ -498,6 +498,7 @@ export default function WorkerOnboardingModal({
                       `${uploadPrefix}/vocs/${i}-${storedType.replace(/[^a-z0-9]/gi, "_")}`
                     )
                   : null),
+              secondary_vocs: voc.secondary_vocs ?? [],
             };
             })
           );

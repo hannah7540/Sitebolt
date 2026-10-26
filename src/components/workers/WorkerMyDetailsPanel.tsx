@@ -418,6 +418,7 @@ export default function WorkerMyDetailsPanel({
               issue_date: nullIfBlankWorkerDate(voc.issue_date),
               expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
               document_url: documentUrl,
+              secondary_vocs: voc.secondary_vocs ?? [],
             };
           })
         );

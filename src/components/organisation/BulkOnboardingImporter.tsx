@@ -81,6 +81,7 @@ function vocsToDrafts(vocs: BulkOnboardingVoc[]): VocDraft[] {
     expiry_date: voc.expiry_date,
     document_url: voc.document_url,
     file: null,
+    secondary_vocs: voc.secondary_vocs ?? [],
   }));
 }
 
@@ -93,6 +94,7 @@ function vocsFromDrafts(drafts: VocDraft[]): BulkOnboardingVoc[] {
     issue_date: draft.issue_date,
     expiry_date: draft.expiry_date,
     document_url: draft.document_url,
+    secondary_vocs: draft.secondary_vocs ?? [],
   }));
 }
 
