@@ -280,20 +280,20 @@ export default function CompetencyMatrixTab({
             No workers match your filters.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-max border-collapse text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="sticky left-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 shadow-[4px_0_8px_-4px_rgba(15,23,42,0.12)]">
+          <div className="relative w-full max-h-[calc(100vh-250px)] overflow-auto rounded-xl border border-slate-200">
+            <table className="min-w-max border-separate border-spacing-0 text-left text-xs">
+              <thead className="sticky top-0 z-20 bg-slate-50 shadow-sm">
+                <tr>
+                  <th className="sticky left-0 top-0 z-30 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 shadow-[4px_0_8px_-4px_rgba(15,23,42,0.12)]">
                     Worker
                   </th>
-                  <th className="min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <th className="sticky top-0 z-20 min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Role
                   </th>
                   {COMPETENCY_COLUMN_LABELS.map((column) => (
                     <th
                       key={column}
-                      className="min-w-[180px] border-b border-slate-200 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600"
+                      className="sticky top-0 z-20 min-w-[180px] border-b border-slate-200 bg-slate-50 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600"
                     >
                       {column}
                     </th>
