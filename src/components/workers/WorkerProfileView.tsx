@@ -84,7 +84,6 @@ import {
 import EntityFormsTab from "@/components/forms/EntityFormsTab";
 import { useOrganisationWorkspace } from "@/components/organisation/OrganisationWorkspaceProvider";
 import { isWorkerFieldEnabled } from "@/lib/organisation-feature-flags";
-import type { WorkerCardCategory } from "@/lib/worker-cards-vocs";
 
 type ProfileTab = "basic" | "cards" | "inductions" | "financial" | "forms";
 
@@ -181,13 +180,6 @@ export default function WorkerProfileView({
   const showEmergencyContact = isWorkerFieldEnabled(featureFlags, "emergency_contact", orgId);
   const showPayRates = isWorkerFieldEnabled(featureFlags, "pay_rates", orgId);
   const showAppPin = isWorkerFieldEnabled(featureFlags, "app_pin", orgId);
-  const showWhiteCard = isWorkerFieldEnabled(featureFlags, "white_card", orgId);
-  const showHighRisk = isWorkerFieldEnabled(featureFlags, "high_risk_licences", orgId);
-  const cardCategories: WorkerCardCategory[] = [
-    ...(showWhiteCard ? (["white_card"] as const) : []),
-    ...(showHighRisk ? (["hrwl", "plant_voc"] as const) : []),
-    "first_aid" as const,
-  ];
   const canViewPayroll = canAssignPayRules && !hideFinancialFields && showPayRates;
   const [currentWorker, setCurrentWorker] = useState(worker);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
@@ -418,9 +410,8 @@ export default function WorkerProfileView({
       ) : tab === "cards" ? (
         <CardsVocsTab
           worker={currentWorker}
-          entries={cardEntries.filter((entry) => cardCategories.includes(entry.category))}
+          entries={cardEntries}
           loading={loadingVocs}
-          allowedCategories={cardCategories}
           onEntriesChange={setCardEntries}
           onSaved={patchWorker}
         />
@@ -961,14 +952,12 @@ function CardsVocsTab({
   worker,
   entries,
   loading,
-  allowedCategories,
   onEntriesChange,
   onSaved,
 }: {
   worker: Worker;
   entries: WorkerCardVocEntry[];
   loading: boolean;
-  allowedCategories?: WorkerCardCategory[];
   onEntriesChange: (entries: WorkerCardVocEntry[]) => void;
   onSaved: (worker: Worker) => void;
 }) {
@@ -1081,14 +1070,13 @@ function CardsVocsTab({
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-500">
-        Manage white cards, HRWL, plant VOCs, and first aid certificates.
+        Manage cards and qualifications. Add every card through the VOC form.
       </p>
 
       <WorkerCardsVocsEditor
         workerId={worker.id}
         entries={entries}
         onChange={onEntriesChange}
-        allowedCategories={allowedCategories}
       />
 
       {error && (

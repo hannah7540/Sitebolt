@@ -122,10 +122,6 @@ function validateOnboardingPayload(
   if (!payload.superFund) return "Superannuation fund name is required.";
   if (!payload.superMemberNumber) return "Super member number is required.";
   if (!payload.tfn) return "Tax File Number is required.";
-  if (!payload.whiteCardNumber) return "White card number is required.";
-  if (!normalizeWorkerStateRegion(payload.whiteCardState)) {
-    return "White card state / region is required.";
-  }
   if (!silicaOptional) {
     if (!payload.silicaCertNumber) {
       return "Silica awareness certificate number is required.";

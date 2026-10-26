@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { ExternalLink, Pencil, Plus, Trash2, ZoomIn } from "lucide-react";
 import {
-  WORKER_CARD_CATEGORIES,
   WORKER_CARD_CATEGORY_LABELS,
   cardCategoryRequiresExpiry,
   createEmptyCardVocEntry,
@@ -34,7 +33,6 @@ interface WorkerCardsVocsEditorProps {
   onChange: (entries: WorkerCardVocEntry[]) => void;
   /** When false, viewing is allowed but editing/upload is disabled. */
   canEdit?: boolean;
-  allowedCategories?: WorkerCardCategory[];
 }
 
 function isPreviewableImage(url: string): boolean {
@@ -220,7 +218,7 @@ function PersistentAddForm({
   return (
     <div className={cn(sectionClass, "space-y-3 border-orange-200 bg-orange-50/40")}>
       <h4 className="text-xs font-semibold uppercase tracking-wide text-orange-700">
-        Add {WORKER_CARD_CATEGORY_LABELS[category]}
+        Add VOC
       </h4>
       {category === "plant_voc" ? (
         <>
@@ -379,6 +377,9 @@ function EntrySummary({
           onClick={onEdit}
           className="text-left"
         >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            {WORKER_CARD_CATEGORY_LABELS[entry.category]}
+          </p>
           <p className="font-semibold text-slate-900 hover:text-orange-700">
             {title}
           </p>
@@ -483,9 +484,11 @@ export default function WorkerCardsVocsEditor({
   entries,
   onChange,
   canEdit = true,
-  allowedCategories = WORKER_CARD_CATEGORIES,
 }: WorkerCardsVocsEditorProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const visibleEntries = entries.filter(
+    (entry) => (entry.category as string) !== "site_induction"
+  );
 
   const updateEntry = (updated: WorkerCardVocEntry) => {
     const next =
@@ -508,54 +511,45 @@ export default function WorkerCardsVocsEditor({
   };
 
   return (
-    <div className="space-y-8">
-      {allowedCategories.map((category) => {
-        const categoryEntries = entries.filter((entry) => entry.category === category);
-        return (
-          <section key={category} className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900">
-              {WORKER_CARD_CATEGORY_LABELS[category]}
-            </h3>
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-900">VOCs</h3>
 
-            {categoryEntries.length === 0 ? (
-              <p className={`p-4 text-sm text-slate-500 ${cardClass}`}>
-                No {WORKER_CARD_CATEGORY_LABELS[category].toLowerCase()} on file.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {categoryEntries.map((entry) =>
-                  editingId === entry.id && canEdit ? (
-                    <EntryForm
-                      key={entry.id}
-                      entry={entry}
-                      workerId={workerId}
-                      onChange={updateEntry}
-                      onDone={() => setEditingId(null)}
-                      onDelete={() => removeEntry(entry.id)}
-                    />
-                  ) : (
-                    <EntrySummary
-                      key={entry.id}
-                      entry={entry}
-                      canEdit={canEdit}
-                      onEdit={() => setEditingId(entry.id)}
-                      onDelete={() => removeEntry(entry.id)}
-                    />
-                  )
-                )}
-              </div>
-            )}
-
-            {canEdit ? (
-              <PersistentAddForm
-                category={category}
+      {visibleEntries.length === 0 ? (
+        <p className={`p-4 text-sm text-slate-500 ${cardClass}`}>
+          No cards or VOCs on file.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {visibleEntries.map((entry) =>
+            editingId === entry.id && canEdit ? (
+              <EntryForm
+                key={entry.id}
+                entry={entry}
                 workerId={workerId}
-                onAdd={addEntry}
+                onChange={updateEntry}
+                onDone={() => setEditingId(null)}
+                onDelete={() => removeEntry(entry.id)}
               />
-            ) : null}
-          </section>
-        );
-      })}
+            ) : (
+              <EntrySummary
+                key={entry.id}
+                entry={entry}
+                canEdit={canEdit}
+                onEdit={() => setEditingId(entry.id)}
+                onDelete={() => removeEntry(entry.id)}
+              />
+            )
+          )}
+        </div>
+      )}
+
+      {canEdit ? (
+        <PersistentAddForm
+          category="plant_voc"
+          workerId={workerId}
+          onAdd={addEntry}
+        />
+      ) : null}
     </div>
   );
 }

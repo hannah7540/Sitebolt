@@ -112,6 +112,8 @@ export function bulkUploadPrefix(worker: BulkOnboardingWorker): string {
 
 export const OPTIONAL_BULK_ONBOARDING_FIELDS: readonly BulkOnboardingFieldKey[] = [
   "address_line_2",
+  "white_card_number",
+  "white_card_issue_date",
   "drivers_licence_number",
   "drivers_licence_class",
   "drivers_licence_expiry",
