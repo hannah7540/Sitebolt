@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
+import { useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Camera,
@@ -47,6 +48,10 @@ import {
   normalizeSecondaryVocs,
 } from "@/lib/voc-utils";
 import {
+  firstWorkerValidationMessage,
+  workerVocFormSchema,
+} from "@/lib/validations/worker";
+import {
   buildWorkerFullName,
   formatWorkerBsb,
   maskWorkerAccountNumber,
@@ -58,7 +63,9 @@ import {
   resolveTravelPayrollCategory,
 } from "@/lib/worker-pay-rule-assignment";
 import WorkerAssignedProjectsPicker from "@/components/organisation/WorkerAssignedProjectsPicker";
-import WorkerCardsVocsEditor from "@/components/workers/WorkerCardsVocsEditor";
+import WorkerCardsVocsEditor, {
+  type WorkerCardsVocsEditorHandle,
+} from "@/components/workers/WorkerCardsVocsEditor";
 import StateRegionSelector from "@/components/workers/StateRegionSelector";
 import WorkerInductionsTab from "@/components/workers/WorkerInductionsTab";
 import WorkerPhotoEditModal from "@/components/workers/WorkerPhotoEditModal";
@@ -414,6 +421,8 @@ export default function WorkerProfileView({
           loading={loadingVocs}
           onEntriesChange={setCardEntries}
           onSaved={patchWorker}
+          onSuccess={showSuccess}
+          onError={showError}
         />
       ) : tab === "inductions" ? (
         <WorkerInductionsTab
@@ -948,28 +957,93 @@ function BasicInfoTab({
   );
 }
 
+function pendingVocHasContent(entry: WorkerCardVocEntry | null): boolean {
+  if (!entry) return false;
+  return Boolean(
+    entry.voc_type?.trim() ||
+      entry.ticket_name?.trim() ||
+      entry.ticket_number?.trim() ||
+      entry.issue_date ||
+      entry.expiry_date ||
+      entry.document_url ||
+      entry.document_url_back ||
+      (entry.secondary_vocs?.length ?? 0) > 0
+  );
+}
+
 function CardsVocsTab({
   worker,
   entries,
   loading,
   onEntriesChange,
   onSaved,
+  onSuccess,
+  onError,
 }: {
   worker: Worker;
   entries: WorkerCardVocEntry[];
   loading: boolean;
   onEntriesChange: (entries: WorkerCardVocEntry[]) => void;
   onSaved: (worker: Worker) => void;
+  onSuccess: (message: string) => void;
+  onError: (message: string) => void;
 }) {
+  const router = useRouter();
+  const editorRef = useRef<WorkerCardsVocsEditorHandle>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = {
+    success: onSuccess,
+    error: onError,
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
 
     try {
-      const incompletePlantVoc = entries.find((entry) => {
+      const workerId = worker.id?.trim();
+      if (!workerId) {
+        throw new Error("Worker is required.");
+      }
+
+      let nextEntries = entries;
+      const pending = editorRef.current?.readPendingDraft() ?? null;
+      if (pendingVocHasContent(pending) && pending) {
+        const parsed = workerVocFormSchema.safeParse({
+          worker_id: workerId,
+          voc_type: getVocStoredType({
+            voc_type: pending.voc_type,
+            title: pending.ticket_name,
+          }),
+          ticket_number: pending.ticket_number,
+          issue_date: pending.issue_date,
+          expiry_date: pending.expiry_date,
+          document_url: pending.document_url,
+          document_url_back: pending.document_url_back,
+          secondary_vocs: pending.secondary_vocs ?? undefined,
+        });
+        if (!parsed.success) {
+          throw new Error(firstWorkerValidationMessage(parsed.error));
+        }
+        if (!isVocTypeComplete(parsed.data.voc_type)) {
+          throw new Error(VOC_OTHER_UNSPECIFIED_ERROR);
+        }
+
+        const savedDraft: WorkerCardVocEntry = {
+          ...pending,
+          voc_type: parsed.data.voc_type,
+          ticket_name: parsed.data.voc_type,
+          secondary_vocs: parsed.data.secondary_vocs,
+        };
+        nextEntries = nextEntries.some((entry) => entry.id === savedDraft.id)
+          ? nextEntries.map((entry) =>
+              entry.id === savedDraft.id ? savedDraft : entry
+            )
+          : [...nextEntries, savedDraft];
+      }
+
+      const incompletePlantVoc = nextEntries.find((entry) => {
         if (entry.category !== "plant_voc") return false;
         return !isVocTypeComplete(
           getVocStoredType({
@@ -983,76 +1057,93 @@ function CardsVocsTab({
           voc_type: incompletePlantVoc.voc_type,
           title: incompletePlantVoc.ticket_name,
         });
-        setError(
+        throw new Error(
           stored
             ? VOC_OTHER_UNSPECIFIED_ERROR
             : "Please select a VOC type for each Plant Operations VOC entry."
         );
-        return;
       }
 
-      const serialized = serializeCardsVocs(entries);
-      const { error: updateError } = await updateWorker(worker.id, {
+      const serialized = serializeCardsVocs(nextEntries);
+      const { error: updateError } = await updateWorker(workerId, {
         cards_vocs: serialized,
       });
+      if (updateError) {
+        throw new Error(updateError);
+      }
 
-      if (!updateError) {
-        const existingVocs = await fetchWorkerVocs(worker.id);
-        for (const entry of serialized) {
-          if (entry.category !== "plant_voc") continue;
-          const vocType = getVocStoredType({
-            voc_type: entry.voc_type,
-            title: entry.ticket_name,
-          });
-          if (!isVocTypeComplete(vocType)) continue;
-          const payload = {
-            title: vocType,
-            voc_type: vocType,
-            issue_date: entry.issue_date,
-            expiry_date: entry.expiry_date,
-            document_url: entry.document_url,
-            secondary_vocs: normalizeSecondaryVocs(entry.secondary_vocs, vocType),
-          };
-          const matched =
-            existingVocs.find((row) => row.id === entry.id) ??
-            existingVocs.find(
-              (row) =>
-                getVocStoredType(row) === vocType &&
-                (row.document_url ?? null) === (entry.document_url ?? null)
-            );
-          const vocError = matched
-            ? (await updateWorkerVoc(matched.id, payload)).error
-            : (await insertWorkerVocs(worker.id, [payload])).error;
-          if (vocError) {
-            setError(vocError);
-            return;
-          }
+      const existingVocs = await fetchWorkerVocs(workerId);
+      for (const entry of serialized) {
+        if (entry.category !== "plant_voc") continue;
+        const vocType = getVocStoredType({
+          voc_type: entry.voc_type,
+          title: entry.ticket_name,
+        });
+        if (!isVocTypeComplete(vocType)) continue;
+        const parsedVoc = workerVocFormSchema.safeParse({
+          worker_id: workerId,
+          voc_type: vocType,
+          ticket_number: entry.ticket_number,
+          issue_date: entry.issue_date,
+          expiry_date: entry.expiry_date,
+          document_url: entry.document_url,
+          document_url_back: entry.document_url_back,
+          secondary_vocs: entry.secondary_vocs ?? undefined,
+        });
+        if (!parsedVoc.success) {
+          throw new Error(firstWorkerValidationMessage(parsedVoc.error));
+        }
+        const vocPayload = parsedVoc.data;
+        const payload = {
+          title: vocPayload.voc_type,
+          voc_type: vocPayload.voc_type,
+          issue_date: vocPayload.issue_date ?? null,
+          expiry_date: vocPayload.expiry_date ?? null,
+          document_url: vocPayload.document_url ?? null,
+          secondary_vocs: normalizeSecondaryVocs(
+            vocPayload.secondary_vocs,
+            vocPayload.voc_type
+          ),
+        };
+        const matched =
+          existingVocs.find((row) => row.id === entry.id) ??
+          existingVocs.find(
+            (row) =>
+              getVocStoredType(row) === vocType &&
+              (row.document_url ?? null) === (entry.document_url ?? null)
+          );
+        const vocError = matched
+          ? (await updateWorkerVoc(matched.id, payload)).error
+          : (await insertWorkerVocs(vocPayload.worker_id, [payload])).error;
+        if (vocError) {
+          throw new Error(vocError);
         }
       }
 
-      if (updateError) {
-        setError(updateError);
-        return;
-      }
-
       const { error: statusError } = await updateWorkerStatusFromVocs(
-        worker.id,
+        workerId,
         worker.drivers_licence_expiry,
         serialized
           .filter((entry) => entry.category !== "white_card")
           .map((entry) => entry.expiry_date)
       );
       if (statusError) {
-        setError(statusError);
-        return;
+        throw new Error(statusError);
       }
 
+      onEntriesChange(serialized);
+      editorRef.current?.resetPendingDraft();
       onSaved({
         ...worker,
         cards_vocs: serialized,
       });
+      toast.success("VOC saved.");
+      router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to save changes");
+      const message =
+        cause instanceof Error ? cause.message : "Failed to save changes";
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -1074,6 +1165,7 @@ function CardsVocsTab({
       </p>
 
       <WorkerCardsVocsEditor
+        ref={editorRef}
         workerId={worker.id}
         entries={entries}
         onChange={onEntriesChange}

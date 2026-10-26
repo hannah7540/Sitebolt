@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ExternalLink, Pencil, Plus, Trash2, ZoomIn } from "lucide-react";
 import {
   WORKER_CARD_CATEGORY_LABELS,
@@ -33,6 +33,11 @@ interface WorkerCardsVocsEditorProps {
   onChange: (entries: WorkerCardVocEntry[]) => void;
   /** When false, viewing is allowed but editing/upload is disabled. */
   canEdit?: boolean;
+}
+
+export interface WorkerCardsVocsEditorHandle {
+  readPendingDraft: () => WorkerCardVocEntry | null;
+  resetPendingDraft: () => void;
 }
 
 function isPreviewableImage(url: string): boolean {
@@ -176,14 +181,20 @@ function PersistentAddForm({
   category,
   workerId,
   onAdd,
+  onDraftChange,
 }: {
   category: WorkerCardCategory;
   workerId: string;
   onAdd: (entry: WorkerCardVocEntry) => void;
+  onDraftChange: (entry: WorkerCardVocEntry) => void;
 }) {
   const [draft, setDraft] = useState(() => createEmptyCardVocEntry(category));
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onDraftChange(draft);
+  }, [draft, onDraftChange]);
 
   const resetForm = () => {
     setDraft(createEmptyCardVocEntry(category));
@@ -479,13 +490,28 @@ function EntrySummary({
   );
 }
 
-export default function WorkerCardsVocsEditor({
-  workerId,
-  entries,
-  onChange,
-  canEdit = true,
-}: WorkerCardsVocsEditorProps) {
+const WorkerCardsVocsEditor = forwardRef<
+  WorkerCardsVocsEditorHandle,
+  WorkerCardsVocsEditorProps
+>(function WorkerCardsVocsEditor(
+  { workerId, entries, onChange, canEdit = true },
+  ref
+) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formVersion, setFormVersion] = useState(0);
+  const pendingDraftRef = useRef<WorkerCardVocEntry | null>(null);
+  const rememberDraft = (draft: WorkerCardVocEntry) => {
+    pendingDraftRef.current = draft;
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      readPendingDraft: () => pendingDraftRef.current,
+      resetPendingDraft: () => setFormVersion((version) => version + 1),
+    }),
+    []
+  );
   const visibleEntries = entries.filter(
     (entry) => (entry.category as string) !== "site_induction"
   );
@@ -545,11 +571,15 @@ export default function WorkerCardsVocsEditor({
 
       {canEdit ? (
         <PersistentAddForm
+          key={formVersion}
           category="plant_voc"
           workerId={workerId}
           onAdd={addEntry}
+          onDraftChange={rememberDraft}
         />
       ) : null}
     </div>
   );
-}
+});
+
+export default WorkerCardsVocsEditor;

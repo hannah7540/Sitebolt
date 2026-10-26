@@ -125,3 +125,15 @@ export function firstWorkerValidationMessage(
 ): string {
   return error.issues[0]?.message ?? "Invalid worker compliance details.";
 }
+
+/** Persistent worker-profile VOC form. */
+export const workerVocFormSchema = z.object({
+  worker_id: z.string().trim().min(1, "Worker is required."),
+  voc_type: z.string().trim().min(1, "Please select a primary VOC type."),
+  ticket_number: z.string().nullable().optional(),
+  issue_date: z.string().nullable().optional(),
+  expiry_date: z.string().nullable().optional(),
+  document_url: z.string().nullable().optional(),
+  document_url_back: z.string().nullable().optional(),
+  secondary_vocs: z.array(z.string()).optional().default([]),
+});
