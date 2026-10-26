@@ -144,7 +144,7 @@ export default function AdminItcSignoffTiers({
       </p>
       <div className="grid gap-4 lg:grid-cols-3">
         <SignoffBlock
-          title="Verified by Subcontractor (A Plus Plumbing)"
+          title="A Plus Plumbing"
           value={subcontractor}
           onChange={onSubcontractorChange}
           showCompany={false}

@@ -351,6 +351,8 @@ export const PROJECT_ITC_COLUMNS = [
   "material_and_size",
   "upstream_pit_number",
   "downstream_pit_number",
+  "upstream_structure",
+  "downstream_structure",
   "number_of_conduits",
   "min_horizontal_sep_mm",
   "min_vertical_sep_mm",

@@ -28,7 +28,12 @@ export interface ItpItcExportInput {
   date?: string | null;
   subtitle?: string | null;
   meta: Array<[string, string]>;
-  checklist: Array<{ item: string; result: string; notes: string }>;
+  checklist: Array<{
+    item: string;
+    result: string;
+    notes: string;
+    photoUrls?: string[];
+  }>;
   photoUrls: string[];
   planUrl?: string | null;
   pinX?: number | null;
@@ -95,6 +100,11 @@ function checklistResultLabel(result: string): string {
 
 function collectSlotPhotos(itc: AdminItcRecord): string[] {
   const urls: string[] = [];
+  for (const item of itc.checklist ?? []) {
+    for (const url of item.photos ?? []) {
+      if (url) urls.push(url);
+    }
+  }
   for (const photo of itc.photos ?? []) {
     if (photo.url) urls.push(photo.url);
   }
@@ -173,16 +183,48 @@ export async function generateItpItcExportPdf(input: ItpItcExportInput): Promise
     doc.setFontSize(11);
     doc.setTextColor(...ACCENT);
     doc.text("Inspection Checklist", PAGE_MARGIN, y);
-    autoTable(doc, {
-      startY: y + 3,
-      head: [["Item", "Result", "Notes"]],
-      body: input.checklist.map((row) => [row.item, checklistResultLabel(row.result), row.notes || "—"]),
-      styles: { fontSize: 8, cellPadding: 1.8, overflow: "linebreak" },
-      headStyles: { fillColor: ACCENT, textColor: 255, fontSize: 8 },
-      columnStyles: { 0: { cellWidth: 86 }, 1: { cellWidth: 22 }, 2: { cellWidth: 74 } },
-      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    });
-    y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 20;
+    y += 3;
+    for (let rowIndex = 0; rowIndex < input.checklist.length; rowIndex += 1) {
+      const row = input.checklist[rowIndex]!;
+      autoTable(doc, {
+        startY: y,
+        ...(rowIndex === 0
+          ? {
+              head: [["Item", "Result", "Notes"]],
+              headStyles: { fillColor: ACCENT, textColor: 255, fontSize: 8 },
+            }
+          : {}),
+        body: [[row.item, checklistResultLabel(row.result), row.notes || "—"]],
+        styles: { fontSize: 8, cellPadding: 1.8, overflow: "linebreak" },
+        columnStyles: { 0: { cellWidth: 86 }, 1: { cellWidth: 22 }, 2: { cellWidth: 74 } },
+        margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      });
+      y =
+        (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
+        y + 12;
+      const stepPhotos = (row.photoUrls ?? []).filter(Boolean).slice(0, 4);
+      if (stepPhotos.length) {
+        const cell = 34;
+        const gap = 3;
+        y = ensureSpace(doc, y + 2, cell + 4);
+        for (let index = 0; index < stepPhotos.length; index += 1) {
+          const image = await loadImage(stepPhotos[index]);
+          const x = PAGE_MARGIN + index * (cell + gap);
+          doc.setDrawColor(226, 232, 240);
+          doc.rect(x, y, cell, cell);
+          if (image) {
+            try {
+              doc.addImage(image.dataUrl, image.format, x + 1, y + 1, cell - 2, cell - 2);
+            } catch {
+              /* skip broken photo */
+            }
+          }
+        }
+        y += cell + 4;
+      } else {
+        y += 2;
+      }
+    }
   }
 
   if (input.planUrl) {
@@ -214,7 +256,10 @@ export async function generateItpItcExportPdf(input: ItpItcExportInput): Promise
     }
   }
 
-  if (input.photoUrls.length) {
+  const checklistHasInlinePhotos = input.checklist.some(
+    (row) => (row.photoUrls?.length ?? 0) > 0
+  );
+  if (input.photoUrls.length && !checklistHasInlinePhotos) {
     y = ensureSpace(doc, y + 6, 28);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -389,6 +434,7 @@ function adminChecklistRows(items: AdminChecklistItem[]) {
     item: item.text,
     result: item.result,
     notes: item.remarks,
+    photoUrls: item.photos ?? [],
   }));
 }
 
@@ -404,23 +450,34 @@ export async function generateAdminItcPdf(input: {
     projectName: input.projectName,
     status: input.itc.status === "completed" ? "Completed / Signed-off" : input.itc.status,
     date: input.itc.completed_at ?? input.itc.created_at,
-    subtitle: [input.itc.service, input.itc.area].filter(Boolean).join(" · "),
+    subtitle: [
+      input.itc.service,
+      input.itc.upstream_structure,
+      input.itc.downstream_structure,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     meta: [
       ["Service", input.itc.service ?? "—"],
       ["Run / Lines", input.itc.run_number ?? String(input.itc.lines_count ?? "—")],
+      ["Upstream Structure", input.itc.upstream_structure ?? "—"],
+      ["Downstream Structure", input.itc.downstream_structure ?? "—"],
       ["Pipe", [input.itc.pipe_size, input.itc.pipe_material].filter(Boolean).join(" ") || "—"],
       ["Drawing", input.itc.drawing_name ?? input.itc.drawing_ref ?? "—"],
       ["Completed by", input.itc.completed_by_name ?? "—"],
       ["Reviewed by", input.itc.reviewed_by_name ?? "—"],
     ],
     checklist: adminChecklistRows(input.itc.checklist ?? []),
-    photoUrls: collectSlotPhotos(input.itc),
+    photoUrls: [
+      ...adminChecklistRows(input.itc.checklist ?? []).flatMap((row) => row.photoUrls ?? []),
+      ...collectSlotPhotos(input.itc),
+    ],
     planUrl: input.planUrl ?? null,
     pinX: input.itc.pin_x,
     pinY: input.itc.pin_y,
     signatures: [
       {
-        role: "Subcontractor",
+        role: "A Plus Plumbing",
         name: input.itc.subcontractor_sign?.full_name ?? input.itc.completed_by_name ?? "—",
         date: input.itc.subcontractor_sign?.signed_at ?? input.itc.completed_at,
         url: input.itc.subcontractor_sign?.signature_url ?? input.itc.completed_by_signature,

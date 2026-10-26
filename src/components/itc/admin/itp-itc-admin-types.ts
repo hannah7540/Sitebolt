@@ -197,12 +197,29 @@ export const ADMIN_ITP_TEMPLATES: AdminItpTemplate[] = [
     trade: "Electrical / Comms",
     questions: [
       { key: "setout", text: "Pit and conduit setout matches electrical / comms drawings" },
-      { key: "trench", text: "Trench width, depth, and separation distances verified" },
-      { key: "bedding", text: "Sand bedding and overlay installed to spec" },
-      { key: "config", text: "Conduit configuration, spacers, and counts correct" },
-      { key: "pits", text: "Pits installed plumb with lids, seals, and drainage" },
-      { key: "tape", text: "Warning tape / marker installed at specified cover" },
+      {
+        key: "trench",
+        text: "Trench width, depth, and separation distances verified (Enter measurements: ______)",
+      },
+      {
+        key: "bedding",
+        text: "Sand bedding and overlay installed to spec (Enter measurements: ______)",
+      },
+      {
+        key: "config",
+        text: "Conduit configuration, spacers, and counts correct (Spacers required every 2m on straight lengths and at each joint of a bend when possible)",
+      },
+      {
+        key: "pits",
+        text: "Pits installed plumb with lids, seals, and drainage (Penetrations sealed, pit cleaned out, step irons installed if required)",
+      },
+      {
+        key: "tape",
+        text: "Warning tape / marker installed at specified cover (Generally 100mm)",
+      },
       { key: "mandrel", text: "Mandrel / draw-cord prove completed" },
+      { key: "sponged", text: "Lines have been sponged" },
+      { key: "ccv", text: "Conduits requiring CCV identified and prepped" },
       { key: "asbuilt", text: "As-built pits and conduits recorded" },
     ],
   },

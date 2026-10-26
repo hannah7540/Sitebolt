@@ -188,7 +188,7 @@ function buildSignOffBlocks(signoffs: ItcSignoff[], itc: ProjectItc): SignOffBlo
 
   return [
     {
-      role: "Subcontractor",
+      role: "A Plus Plumbing",
       name: subcontractor?.author_name ?? itc.assigned_name ?? "—",
       position: String(subcontractor?.field_data?.position ?? "Leading Hand"),
       signatureUrl: subcontractor?.signature_url ?? null,
@@ -287,8 +287,8 @@ export async function appendItcCertificateToPdf(
       displayValue(pdfOptions.packageName ?? itc.package_name ?? pdfOptions.projectName),
     ],
     [
-      "Subcontractor",
-      displayValue(pdfOptions.subcontractorName ?? itc.subcontractor_name ?? itc.assigned_name),
+      "A Plus Plumbing",
+      displayValue(pdfOptions.subcontractorName ?? itc.subcontractor_name ?? "A Plus Plumbing"),
       "Client",
       displayValue(pdfOptions.clientName ?? itc.client_name),
     ],
@@ -311,10 +311,16 @@ export async function appendItcCertificateToPdf(
       displayValue(itc.length_m ?? itc.length_of_run_m),
     ],
     [
-      "Upstream Pit",
-      displayValue(specs.upstream_pit_number),
-      "Downstream Pit",
-      displayValue(specs.downstream_pit_number),
+      "Upstream Structure",
+      displayValue(
+        (itc as { upstream_structure?: string | null }).upstream_structure ??
+          specs.upstream_pit_number
+      ),
+      "Downstream Structure",
+      displayValue(
+        (itc as { downstream_structure?: string | null }).downstream_structure ??
+          specs.downstream_pit_number
+      ),
     ],
     [
       "Conduits",

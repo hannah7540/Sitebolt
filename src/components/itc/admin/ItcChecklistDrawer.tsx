@@ -1,17 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileDown, Loader2, Trash2, X } from "lucide-react";
-import AdminItcPhotoSlotGrid from "@/components/itc/admin/AdminItcPhotoSlotGrid";
+import AdminItcChecklistStepPhotos from "@/components/itc/admin/AdminItcChecklistStepPhotos";
 import AdminItcPressureTestSection from "@/components/itc/admin/AdminItcPressureTestSection";
 import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
 import AdminItcSignoffTiers from "@/components/itc/admin/AdminItcSignoffTiers";
+import AdminItcStructureSelect from "@/components/itc/admin/AdminItcStructureSelect";
 import Toast from "@/components/ui/Toast";
 import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
   deriveAdminItcStatus,
   getAdminItp,
+  listAdminItcs,
   saveAdminItcRecord,
   uploadAdminWaeMarkup,
   type AdminChecklistItem,
@@ -77,10 +79,40 @@ export default function ItcChecklistDrawer({
   const [pipeMaterial, setPipeMaterial] = useState(itc.pipe_material ?? "");
   const [drawingRef, setDrawingRef] = useState(itc.drawing_name ?? itc.drawing_ref ?? "");
   const [area, setArea] = useState(itc.area ?? "");
-  const [checklist, setChecklist] = useState<AdminChecklistItem[]>(itc.checklist);
+  const [upstreamStructure, setUpstreamStructure] = useState(
+    itc.upstream_structure ?? ""
+  );
+  const [downstreamStructure, setDownstreamStructure] = useState(
+    itc.downstream_structure ?? ""
+  );
+  const [structureOptions, setStructureOptions] = useState<string[]>([]);
+  const [checklist, setChecklist] = useState<AdminChecklistItem[]>(
+    itc.checklist.map((item) => ({ ...item, photos: item.photos ?? [] }))
+  );
   const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(itc.spec_values);
-  const [photoSlots, setPhotoSlots] = useState(itc.photo_slots ?? emptyAdminPhotoSlots());
+  const [photoSlots] = useState(itc.photo_slots ?? emptyAdminPhotoSlots());
   const [waeUrl, setWaeUrl] = useState(itc.wae_url);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listAdminItcs(itc.project_id).then((rows) => {
+      if (cancelled) return;
+      const labels = new Set<string>();
+      for (const row of rows) {
+        if (row.upstream_structure?.trim()) labels.add(row.upstream_structure.trim());
+        if (row.downstream_structure?.trim()) labels.add(row.downstream_structure.trim());
+        if (row.area?.trim()) labels.add(row.area.trim());
+      }
+      setStructureOptions(
+        [...labels].sort((a, b) =>
+          a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+        )
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [itc.project_id]);
   const [subcontractorSign, setSubcontractorSign] = useState(
     itc.subcontractor_sign ??
       emptyAdminSignoff({
@@ -134,6 +166,8 @@ export default function ItcChecklistDrawer({
       drawing_ref: drawingRef.trim() || null,
       drawing_name: drawingRef.trim() || null,
       area: area.trim() || null,
+      upstream_structure: upstreamStructure.trim() || null,
+      downstream_structure: downstreamStructure.trim() || null,
       checklist,
       spec_values: specValues,
       photo_slots: photoSlots,
@@ -306,17 +340,25 @@ export default function ItcChecklistDrawer({
                 className={inputClass}
               />
             </label>
-            <label>
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                Line location / Area notes
-              </span>
-              <input
-                value={area}
-                onChange={(event) => setArea(event.target.value)}
-                className={inputClass}
-                placeholder="Area, pit, or location notes"
-              />
-            </label>
+            <AdminItcStructureSelect
+              id={`itc-upstream-${itc.id}`}
+              label="Upstream Structure"
+              value={upstreamStructure}
+              options={structureOptions}
+              placeholder="Select or type upstream structure"
+              onChange={(next) => {
+                setUpstreamStructure(next);
+                setArea(next);
+              }}
+            />
+            <AdminItcStructureSelect
+              id={`itc-downstream-${itc.id}`}
+              label="Downstream Structure"
+              value={downstreamStructure}
+              options={structureOptions}
+              placeholder="Select or type downstream structure"
+              onChange={setDownstreamStructure}
+            />
             <div className="sm:col-span-2">
               <AdminItcServiceSpecFields
                 service={service}
@@ -367,16 +409,23 @@ export default function ItcChecklistDrawer({
                   placeholder="Remarks / notes"
                   className={`${inputClass} mt-2`}
                 />
+                <AdminItcChecklistStepPhotos
+                  projectId={itc.project_id}
+                  itcId={itc.id}
+                  stepKey={item.key}
+                  stepLabel={item.text}
+                  photos={item.photos ?? []}
+                  onChange={(photos) =>
+                    setChecklist((current) =>
+                      current.map((row) =>
+                        row.key === item.key ? { ...row, photos } : row
+                      )
+                    )
+                  }
+                />
               </div>
             ))}
           </div>
-
-          <AdminItcPhotoSlotGrid
-            projectId={itc.project_id}
-            itcId={itc.id}
-            slots={photoSlots}
-            onChange={setPhotoSlots}
-          />
 
           {pressurised ? (
             <AdminItcPressureTestSection

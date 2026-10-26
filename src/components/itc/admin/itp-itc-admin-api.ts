@@ -45,7 +45,6 @@ import {
   mapAdminPhotoSlots,
   mapAdminPressureTest,
   mapAdminSignoff,
-  photoSlotsSatisfied,
 } from "@/components/itc/admin/itp-itc-admin-hybrid";
 import {
   adminItcNumberPrefix,
@@ -69,6 +68,8 @@ export interface AdminChecklistItem {
   text: string;
   result: ChecklistResult;
   remarks: string;
+  /** Photos attached to this checklist step (inline uploads). */
+  photos: string[];
 }
 
 export interface AdminItcPhoto {
@@ -106,6 +107,8 @@ export interface AdminItcRecord {
   service: string | null;
   lines_count: number | null;
   area: string | null;
+  upstream_structure: string | null;
+  downstream_structure: string | null;
   drawing_ref: string | null;
   drawing_name: string | null;
   pipe_size: string | null;
@@ -190,6 +193,17 @@ export function toDbItcStatus(status: AdminStatusBadge): string {
   return "not_started";
 }
 
+function mapChecklistPhotos(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      const row = asRecord(item);
+      return str(row, "url") ?? str(row, "photo_url") ?? "";
+    })
+    .filter(Boolean);
+}
+
 function mapChecklist(
   raw: unknown,
   fallbackQuestions: AdminChecklistQuestion[] = []
@@ -202,6 +216,7 @@ function mapChecklist(
         text: str(row, "text") ?? str(row, "description") ?? `Item ${index + 1}`,
         result: (str(row, "result") as ChecklistResult) ?? "",
         remarks: str(row, "remarks") ?? "",
+        photos: mapChecklistPhotos(row.photos ?? row.photo_urls),
       };
     });
   }
@@ -210,6 +225,7 @@ function mapChecklist(
     text: question.text,
     result: "",
     remarks: "",
+    photos: [],
   }));
 }
 
@@ -315,9 +331,8 @@ export function deriveAdminItcStatus(itc: Pick<
 >): AdminStatusBadge {
   const checklistDone =
     itc.checklist.length > 0 && itc.checklist.every((item) => Boolean(item.result));
-  const photosDone = photoSlotsSatisfied(itc.photo_slots);
   const signed = Boolean(itc.subcontractor_sign.signature_url);
-  return checklistDone && photosDone && signed ? "completed" : "in_progress";
+  return checklistDone && signed ? "completed" : "in_progress";
 }
 
 export function mapItpRow(row: Record<string, unknown>): AdminItpRecord {
@@ -402,6 +417,16 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
       num(form, "lines_count") ??
       (parseLinesCount(str(form, "run_number") ?? str(hydrated, "start_location")) || null),
     area: str(hydrated, "building") ?? str(form, "area"),
+    upstream_structure:
+      str(hydrated, "upstream_structure") ??
+      str(form, "upstream_structure") ??
+      str(hydrated, "upstream_pit_number") ??
+      str(form, "upstream_pit_number"),
+    downstream_structure:
+      str(hydrated, "downstream_structure") ??
+      str(form, "downstream_structure") ??
+      str(hydrated, "downstream_pit_number") ??
+      str(form, "downstream_pit_number"),
     drawing_ref: str(hydrated, "drawing_rev") ?? str(form, "drawing_ref") ?? str(hydrated, "drawing_name"),
     drawing_name: str(hydrated, "drawing_name") ?? str(form, "drawing_name") ?? str(form, "drawing_ref"),
     pipe_size: str(hydrated, "pipe_size") ?? pipeSize,
@@ -450,6 +475,7 @@ async function filterItpItcRowsForActiveOrg<T extends { project_id?: string | nu
   rows: T[]
 ): Promise<T[]> {
   const orgId = resolveActiveOrganisationId();
+  if (!orgId) return [];
   const projects = await fetchAllProjectsAdmin();
   const allowedProjects = new Set(projects.map((project) => project.id));
   return rows.filter((row) => {
@@ -810,8 +836,9 @@ export async function createAdminItcFromPin(input: {
   const checklist: AdminChecklistItem[] = (template?.questions ?? []).map((question) => ({
     key: question.key,
     text: question.text,
-    result: "",
+    result: "" as ChecklistResult,
     remarks: "",
+    photos: [],
   }));
 
   const photoSlots = emptyAdminPhotoSlots();
@@ -1098,6 +1125,8 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     service_run_coordinates: itc.service_run_coordinates,
     area: itc.area,
     line_location: itc.area,
+    upstream_structure: itc.upstream_structure,
+    downstream_structure: itc.downstream_structure,
     checklist: itc.checklist,
     checklist_answers: itc.checklist,
     photos: itc.photos,
@@ -1129,13 +1158,29 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
 
 export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: string | null }> {
   const status = deriveAdminItcStatus(itc);
-  const photos = photosFromSlots(itc.photo_slots, itc.photos);
+  const checklistPhotos = itc.checklist.flatMap((item) =>
+    (item.photos ?? []).map((url) => ({
+      url,
+      captured_at: null,
+      gps_lat: null,
+      gps_lng: null,
+      label: item.key,
+    }))
+  );
+  const photos =
+    checklistPhotos.length > 0
+      ? checklistPhotos
+      : photosFromSlots(itc.photo_slots, itc.photos);
   const answered = itc.checklist.filter((item) => item.result).length;
   const payload: Record<string, unknown> = {
     start_location: itc.run_number,
     end_location: itc.run_number,
     building: itc.area,
     line_location: itc.area,
+    upstream_structure: itc.upstream_structure,
+    downstream_structure: itc.downstream_structure,
+    upstream_pit_number: itc.upstream_structure,
+    downstream_pit_number: itc.downstream_structure,
     drawing_rev: itc.drawing_name ?? itc.drawing_ref,
     drawing_name: itc.drawing_name ?? itc.drawing_ref,
     service: itc.service,
