@@ -137,6 +137,29 @@ export function normalizeSecondaryVocs(
   return result;
 }
 
+/** Primary VOC plus every secondary title, de-duplicated, for one-row-per-VOC inserts. */
+export function expandVocTitles(
+  primaryVoc: string | null | undefined,
+  secondaryVocs: unknown
+): string[] {
+  const primary = String(primaryVoc ?? "").trim();
+  const titles = [
+    ...(primary ? [primary] : []),
+    ...normalizeSecondaryVocs(secondaryVocs, primary),
+  ];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const title of titles) {
+    const text = title.trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
 export function vocDraftHasContent(voc: {
   voc_type?: string;
   title?: string;

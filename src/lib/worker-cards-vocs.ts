@@ -1,6 +1,10 @@
 import type { Worker, WorkerVoc } from "./supabase";
 import { splitWorkerFullName } from "./worker-utils";
-import { getVocStoredType, normalizeSecondaryVocs } from "./voc-utils";
+import {
+  expandVocTitles,
+  getVocStoredType,
+  normalizeSecondaryVocs,
+} from "./voc-utils";
 
 export type WorkerCardCategory =
   | "white_card"
@@ -88,7 +92,7 @@ export function createEmptyCardVocEntry(
 export function parseCardsVocs(raw: unknown): WorkerCardVocEntry[] {
   if (!Array.isArray(raw)) return [];
 
-  return raw
+  const parsed = raw
     .map((item) => {
       if (!item || typeof item !== "object") return null;
       const row = item as Record<string, unknown>;
@@ -114,10 +118,38 @@ export function parseCardsVocs(raw: unknown): WorkerCardVocEntry[] {
       } satisfies WorkerCardVocEntry;
     })
     .filter((entry): entry is WorkerCardVocEntry => entry !== null);
+
+  return expandWorkerCardVocEntries(parsed);
+}
+
+/** Turn one multi-select card into one profile card per VOC title. */
+export function expandWorkerCardVocEntries(
+  entries: WorkerCardVocEntry[]
+): WorkerCardVocEntry[] {
+  return entries.flatMap((entry) => {
+    if (entry.category !== "plant_voc") {
+      return [entry];
+    }
+    const primary = getVocStoredType({
+      voc_type: entry.voc_type,
+      title: entry.ticket_name,
+    });
+    const titles = expandVocTitles(primary, entry.secondary_vocs);
+    if (titles.length <= 1) {
+      return [{ ...entry, secondary_vocs: [] }];
+    }
+    return titles.map((title, index) => ({
+      ...entry,
+      id: index === 0 ? entry.id : `${entry.id}::${title.trim().toLowerCase()}`,
+      voc_type: title,
+      ticket_name: title,
+      secondary_vocs: [],
+    }));
+  });
 }
 
 export function serializeCardsVocs(entries: WorkerCardVocEntry[]): WorkerCardVocEntry[] {
-  return entries
+  return expandWorkerCardVocEntries(entries)
     .filter((entry) => (entry.category as string) !== "site_induction")
     .map((entry) => {
     const vocType = optionalText(entry.voc_type);

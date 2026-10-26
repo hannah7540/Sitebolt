@@ -33,7 +33,7 @@ import {
   firstWorkerValidationMessage,
   workerOnboardingComplianceSchema,
 } from "@/lib/validations/worker";
-import { normalizeSecondaryVocs } from "@/lib/voc-utils";
+import { expandVocTitles, normalizeSecondaryVocs } from "@/lib/voc-utils";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -165,20 +165,20 @@ async function replaceWorkerVocs(
   if (deleteError) return deleteError.message;
   if (vocs.length === 0) return null;
 
-  const rows = vocs.map((voc) => ({
-    worker_id: workerId,
-    title: voc.title,
-    voc_type: voc.voc_type ?? voc.title,
-    name: voc.voc_type ?? voc.title,
-    issuing_org: voc.issuing_org ?? null,
-    issue_date: voc.issue_date ?? null,
-    expiry_date: voc.expiry_date ?? null,
-    document_url: voc.document_url ?? null,
-    secondary_vocs: normalizeSecondaryVocs(
-      voc.secondary_vocs,
-      voc.voc_type ?? voc.title
-    ),
-  }));
+  const rows = vocs.flatMap((voc) => {
+    const primary = voc.voc_type ?? voc.title;
+    return expandVocTitles(primary, voc.secondary_vocs).map((title) => ({
+      worker_id: workerId,
+      title,
+      voc_type: title,
+      name: title,
+      issuing_org: voc.issuing_org ?? null,
+      issue_date: voc.issue_date ?? null,
+      expiry_date: voc.expiry_date ?? null,
+      document_url: voc.document_url ?? null,
+      secondary_vocs: [] as string[],
+    }));
+  });
 
   const attempts = [
     rows,

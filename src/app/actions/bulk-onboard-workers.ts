@@ -35,6 +35,7 @@ import { assignDefaultPayRuleToWorkerAdmin } from "@/lib/worker-pay-rule-assignm
 import { syncPublicHolidaysForWorker } from "@/lib/public-holiday-sync";
 import { companyInductionMatchesState } from "@/lib/worker-induction-auto-assign";
 import { normalizeWorkerStateRegion } from "@/lib/worker-state-region";
+import { expandVocTitles } from "@/lib/voc-utils";
 import { isSilicaOptionalForWorker } from "@/lib/silica-onboarding";
 import {
   firstWorkerValidationMessage,
@@ -81,17 +82,20 @@ async function insertWorkerVocs(
   workerId: string,
   worker: BulkOnboardingWorker
 ): Promise<string | null> {
-  const extraVocs = serializeBulkOnboardingVocs(worker.vocs).map((voc) => ({
-    worker_id: workerId,
-    title: voc.title || voc.voc_type || "VOC",
-    voc_type: voc.voc_type || voc.title || "VOC",
-    name: voc.title || voc.voc_type || "VOC",
-    issuing_org: voc.issuing_org || null,
-    issue_date: nullIfBlankWorkerDate(voc.issue_date),
-    expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
-    document_url: voc.document_url,
-    secondary_vocs: voc.secondary_vocs ?? [],
-  }));
+  const extraVocs = serializeBulkOnboardingVocs(worker.vocs).flatMap((voc) => {
+    const primary = voc.voc_type || voc.title || "VOC";
+    return expandVocTitles(primary, voc.secondary_vocs).map((title) => ({
+      worker_id: workerId,
+      title,
+      voc_type: title,
+      name: title,
+      issuing_org: voc.issuing_org || null,
+      issue_date: nullIfBlankWorkerDate(voc.issue_date),
+      expiry_date: nullIfBlankWorkerDate(voc.expiry_date),
+      document_url: voc.document_url,
+      secondary_vocs: [] as string[],
+    }));
+  });
 
   const licenceNumber = worker.drivers_licence_number.trim();
   const licenceClass = worker.drivers_licence_class.trim();

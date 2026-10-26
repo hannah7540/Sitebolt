@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { WorkerVoc } from "@/lib/supabase";
-import { updateWorkerVoc } from "@/lib/supabase";
+import { fetchWorkerVocs, insertWorkerVocs, updateWorkerVoc } from "@/lib/supabase";
 import { uploadWorkerDocumentSafe } from "@/lib/worker-doc-upload";
 import VocTypeSelect, {
   VocSecondarySelect,
@@ -90,14 +90,47 @@ export default function EditVocModal({
       }
 
       const nextSecondary = normalizeSecondaryVocs(secondaryVocs, trimmedType);
+      const sharedIssueDate = nullIfBlankWorkerDate(issueDate);
+      const sharedExpiryDate = nullIfBlankWorkerDate(expiryDate);
+      const existingVocs = await fetchWorkerVocs(workerId);
+      const missingTitles = nextSecondary.filter((title) => {
+        const key = title.trim().toLowerCase();
+        return !existingVocs.some((row) => {
+          if (row.id === voc.id) return false;
+          return (
+            getVocStoredType(row).trim().toLowerCase() === key &&
+            (row.document_url ?? null) === (nextDocumentUrl ?? null) &&
+            (row.issue_date ?? null) === (sharedIssueDate ?? null) &&
+            (row.expiry_date ?? null) === (sharedExpiryDate ?? null)
+          );
+        });
+      });
+      if (missingTitles.length > 0) {
+        const { error: insertError } = await insertWorkerVocs(
+          workerId,
+          missingTitles.map((title) => ({
+            title,
+            voc_type: title,
+            issuing_org: issuingOrg.trim() || null,
+            issue_date: sharedIssueDate,
+            expiry_date: sharedExpiryDate,
+            document_url: nextDocumentUrl,
+            secondary_vocs: [],
+          }))
+        );
+        if (insertError) {
+          throw new Error(insertError);
+        }
+      }
+
       const { error: updateError } = await updateWorkerVoc(voc.id, {
         title: trimmedType,
         voc_type: trimmedType,
         issuing_org: issuingOrg.trim() || null,
-        issue_date: nullIfBlankWorkerDate(issueDate),
-        expiry_date: nullIfBlankWorkerDate(expiryDate),
+        issue_date: sharedIssueDate,
+        expiry_date: sharedExpiryDate,
         document_url: nextDocumentUrl,
-        secondary_vocs: nextSecondary,
+        secondary_vocs: [],
       });
 
       if (updateError) {
@@ -109,10 +142,10 @@ export default function EditVocModal({
         title: trimmedType,
         voc_type: trimmedType,
         issuing_org: issuingOrg.trim() || null,
-        issue_date: nullIfBlankWorkerDate(issueDate),
-        expiry_date: nullIfBlankWorkerDate(expiryDate),
+        issue_date: sharedIssueDate,
+        expiry_date: sharedExpiryDate,
         document_url: nextDocumentUrl,
-        secondary_vocs: nextSecondary,
+        secondary_vocs: [],
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save VOC.");

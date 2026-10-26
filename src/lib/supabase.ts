@@ -19,7 +19,7 @@ import {
   usesKilometres,
 } from "./prestart-templates";
 import { computeWorkerStatusFromExpiries, getWorkerDisplayName, buildWorkerNameFields, nullIfBlankWorkerDate, sanitizeWorkerWritePayload } from "./worker-utils";
-import { normalizeSecondaryVocs } from "./voc-utils";
+import { expandVocTitles } from "./voc-utils";
 import {
   resolveProjectId,
   isProjectUuid,
@@ -2310,23 +2310,20 @@ export async function insertWorkerVocs(
 ): Promise<{ error: string | null }> {
   if (vocs.length === 0) return { error: null };
 
-  const rows = vocs
-    .map((v) => {
-      const vocType = String(v.voc_type ?? v.title ?? "").trim();
-      if (!vocType) return null;
-      return {
-        worker_id: workerId,
-        title: vocType,
-        voc_type: vocType,
-        name: vocType,
-        issuing_org: v.issuing_org ?? null,
-        issue_date: nullIfBlankWorkerDate(v.issue_date),
-        expiry_date: nullIfBlankWorkerDate(v.expiry_date),
-        document_url: v.document_url ?? null,
-        secondary_vocs: normalizeSecondaryVocs(v.secondary_vocs, vocType),
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+  const rows = vocs.flatMap((v) => {
+    const primary = String(v.voc_type ?? v.title ?? "").trim();
+    return expandVocTitles(primary, v.secondary_vocs).map((vocType) => ({
+      worker_id: workerId,
+      title: vocType,
+      voc_type: vocType,
+      name: vocType,
+      issuing_org: v.issuing_org ?? null,
+      issue_date: nullIfBlankWorkerDate(v.issue_date),
+      expiry_date: nullIfBlankWorkerDate(v.expiry_date),
+      document_url: v.document_url ?? null,
+      secondary_vocs: [] as string[],
+    }));
+  });
 
   if (rows.length === 0) return { error: null };
 
@@ -2373,7 +2370,7 @@ export async function updateWorkerVoc(
     issue_date: nullIfBlankWorkerDate(updates.issue_date),
     expiry_date: nullIfBlankWorkerDate(updates.expiry_date),
     document_url: updates.document_url ?? null,
-    secondary_vocs: normalizeSecondaryVocs(updates.secondary_vocs, vocType),
+    secondary_vocs: [] as string[],
   };
 
   if (vocType) {

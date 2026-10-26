@@ -45,7 +45,6 @@ import {
   VOC_OTHER_UNSPECIFIED_ERROR,
   getVocStoredType,
   isVocTypeComplete,
-  normalizeSecondaryVocs,
 } from "@/lib/voc-utils";
 import {
   firstWorkerValidationMessage,
@@ -1073,6 +1072,14 @@ function CardsVocsTab({
       }
 
       const existingVocs = await fetchWorkerVocs(workerId);
+      const vocRowsToInsert: {
+        title: string;
+        voc_type: string;
+        issue_date: string | null;
+        expiry_date: string | null;
+        document_url: string | null;
+        secondary_vocs: string[];
+      }[] = [];
       for (const entry of serialized) {
         if (entry.category !== "plant_voc") continue;
         const vocType = getVocStoredType({
@@ -1088,7 +1095,7 @@ function CardsVocsTab({
           expiry_date: entry.expiry_date,
           document_url: entry.document_url,
           document_url_back: entry.document_url_back,
-          secondary_vocs: entry.secondary_vocs ?? undefined,
+          secondary_vocs: [],
         });
         if (!parsedVoc.success) {
           throw new Error(firstWorkerValidationMessage(parsedVoc.error));
@@ -1100,10 +1107,7 @@ function CardsVocsTab({
           issue_date: vocPayload.issue_date ?? null,
           expiry_date: vocPayload.expiry_date ?? null,
           document_url: vocPayload.document_url ?? null,
-          secondary_vocs: normalizeSecondaryVocs(
-            vocPayload.secondary_vocs,
-            vocPayload.voc_type
-          ),
+          secondary_vocs: [] as string[],
         };
         const matched =
           existingVocs.find((row) => row.id === entry.id) ??
@@ -1112,9 +1116,17 @@ function CardsVocsTab({
               getVocStoredType(row) === vocType &&
               (row.document_url ?? null) === (entry.document_url ?? null)
           );
-        const vocError = matched
-          ? (await updateWorkerVoc(matched.id, payload)).error
-          : (await insertWorkerVocs(vocPayload.worker_id, [payload])).error;
+        if (matched) {
+          const { error: vocError } = await updateWorkerVoc(matched.id, payload);
+          if (vocError) {
+            throw new Error(vocError);
+          }
+          continue;
+        }
+        vocRowsToInsert.push(payload);
+      }
+      if (vocRowsToInsert.length > 0) {
+        const { error: vocError } = await insertWorkerVocs(workerId, vocRowsToInsert);
         if (vocError) {
           throw new Error(vocError);
         }
