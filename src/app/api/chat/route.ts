@@ -2,8 +2,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { openai } from "@ai-sdk/openai";
 import {
   convertToModelMessages,
@@ -11,33 +9,8 @@ import {
   streamText,
   type UIMessage,
 } from "ai";
-import { getProjectHeadcount } from "@/lib/ai/tools";
-
-const BASE_SYSTEM_PROMPT =
-  "You are Site-Bolt AI, a helpful construction management assistant for A Plus Plumbing. Be concise and professional. Use getProjectHeadcount when asked how many workers are logged on a project for a given date. Review uploaded PDFs, images, and contracts and summarize them clearly.";
-
-function loadTrainingMatrix(): string {
-  const candidates = [
-    path.join(process.cwd(), "src/lib/ai/knowledge/system-guide.md"),
-    path.join(process.cwd(), "lib/ai/knowledge/system-guide.md"),
-  ];
-
-  for (const filePath of candidates) {
-    try {
-      return readFileSync(filePath, "utf8").trim();
-    } catch {
-      // Try the next known location so a missing bundle path does not crash the route.
-    }
-  }
-
-  console.error("[Site-Bolt AI] System training guide was not found.");
-  return "";
-}
-
-const TRAINING_MATRIX = loadTrainingMatrix();
-const SYSTEM_PROMPT = [TRAINING_MATRIX, BASE_SYSTEM_PROMPT]
-  .filter(Boolean)
-  .join("\n\n");
+import { buildSiteBoltAiSystemPrompt } from "@/lib/ai/system-prompt";
+import { get_project_worker_stats, getProjectHeadcount } from "@/lib/ai/tools";
 
 function messagesHaveFiles(messages: UIMessage[]): boolean {
   return messages.some((message) =>
@@ -61,9 +34,10 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: resolveChatModel(hasFiles),
-    system: SYSTEM_PROMPT,
+    system: buildSiteBoltAiSystemPrompt(),
     messages: await convertToModelMessages(messages),
     tools: {
+      get_project_worker_stats,
       getProjectHeadcount,
     },
     stopWhen: stepCountIs(5),

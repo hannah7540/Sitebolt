@@ -1,10 +1,9 @@
 "use server";
 
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
-import { getProjectHeadcount } from "@/lib/ai/tools";
+import { buildSiteBoltAiSystemPrompt } from "@/lib/ai/system-prompt";
+import { get_project_worker_stats, getProjectHeadcount } from "@/lib/ai/tools";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type AiConversationRow = {
@@ -21,28 +20,6 @@ export type AiMessageRow = {
   content: string;
   created_at: string;
 };
-
-const BASE_SYSTEM_PROMPT =
-  "You are Site-Bolt AI, a helpful construction management assistant for A Plus Plumbing. Be concise and professional. Use getProjectHeadcount when asked how many workers are logged on a project for a given date. Review uploaded PDFs, images, and contracts and summarize them clearly.";
-
-function loadTrainingMatrix(): string {
-  const candidates = [
-    path.join(process.cwd(), "src/lib/ai/knowledge/system-guide.md"),
-    path.join(process.cwd(), "lib/ai/knowledge/system-guide.md"),
-  ];
-  for (const filePath of candidates) {
-    try {
-      return readFileSync(filePath, "utf8").trim();
-    } catch {
-      /* try next */
-    }
-  }
-  return "";
-}
-
-const SYSTEM_PROMPT = [loadTrainingMatrix(), BASE_SYSTEM_PROMPT]
-  .filter(Boolean)
-  .join("\n\n");
 
 function resolveChatModel() {
   if (process.env.OPENAI_API_KEY) {
@@ -263,9 +240,10 @@ export async function sendAiChatMessage(input: {
   try {
     const result = await generateText({
       model: resolveChatModel(),
-      system: SYSTEM_PROMPT,
+      system: buildSiteBoltAiSystemPrompt(),
       messages: modelMessages,
       tools: {
+        get_project_worker_stats,
         getProjectHeadcount,
       },
       stopWhen: stepCountIs(5),
