@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SiteBoltAIProvider } from "@/components/ai/SiteBoltAIContext";
+import SiteBoltAIModal from "@/components/ai/SiteBoltAIModal";
 import SiteBoltChatWidget from "@/components/ai/SiteBoltChatWidget";
 import AppShell from "@/components/layout/AppShell";
 import NativeAppBootstrap from "@/components/layout/NativeAppBootstrap";
@@ -66,9 +68,12 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: UI_THEME_BOOTSTRAP_SCRIPT }} />
         <ThemeProvider>
-          <NativeAppBootstrap />
-          <AppShell>{children}</AppShell>
-          <SiteBoltChatWidget />
+          <SiteBoltAIProvider>
+            <NativeAppBootstrap />
+            <AppShell>{children}</AppShell>
+            <SiteBoltChatWidget />
+            <SiteBoltAIModal />
+          </SiteBoltAIProvider>
         </ThemeProvider>
       </body>
     </html>

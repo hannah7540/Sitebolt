@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   Scale,
   UserPlus,
+  Bot,
   LogOut,
   KeyRound,
   Mail,
@@ -26,6 +27,7 @@ import {
   MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
+import { useSiteBoltAI } from "@/components/ai/SiteBoltAIContext";
 import {
   filterActiveProjects,
   type DbProject,
@@ -782,6 +784,7 @@ function SidebarFrame({
   children: ReactNode;
 }) {
   const iconOnly = useSidebarIconOnly();
+  const { openModal: openSiteBoltAI } = useSiteBoltAI();
 
   return (
     <aside
@@ -863,6 +866,20 @@ function SidebarFrame({
       {children}
 
       <div className={cn("mt-auto border-t border-slate-200", iconOnly ? "p-2" : "p-4")}>
+        <button
+          type="button"
+          onClick={openSiteBoltAI}
+          title="Site-Bolt AI"
+          className={cn(
+            "mb-3 flex w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-white shadow-sm transition hover:brightness-105",
+            iconOnly ? "h-10 w-10 px-0" : "px-3 py-2.5"
+          )}
+          style={{ backgroundColor: "#F48120" }}
+          aria-label="Open Site-Bolt AI"
+        >
+          <Bot className="h-4 w-4 shrink-0" />
+          <span className={cn("truncate", iconOnly && "sr-only")}>Site-Bolt AI</span>
+        </button>
         <div className={cn("mb-3 flex items-center gap-2", iconOnly && "flex-col")}>
           <ThemePicker />
           <div
