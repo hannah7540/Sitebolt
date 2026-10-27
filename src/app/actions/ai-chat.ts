@@ -3,7 +3,13 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
 import { buildSiteBoltAiSystemPrompt } from "@/lib/ai/system-prompt";
-import { get_project_worker_stats, getProjectHeadcount } from "@/lib/ai/tools";
+import {
+  get_compliance_status,
+  get_project_worker_stats,
+  getProjectHeadcount,
+  search_equipment,
+  search_workers,
+} from "@/lib/ai/tools";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type AiConversationRow = {
@@ -245,6 +251,9 @@ export async function sendAiChatMessage(input: {
       tools: {
         get_project_worker_stats,
         getProjectHeadcount,
+        search_workers,
+        search_equipment,
+        get_compliance_status,
       },
       stopWhen: stepCountIs(5),
     });
