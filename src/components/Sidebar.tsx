@@ -27,7 +27,6 @@ import {
   MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
-import { useSiteBoltAI } from "@/components/ai/SiteBoltAIContext";
 import {
   filterActiveProjects,
   type DbProject,
@@ -784,7 +783,9 @@ function SidebarFrame({
   children: ReactNode;
 }) {
   const iconOnly = useSidebarIconOnly();
-  const { openModal: openSiteBoltAI } = useSiteBoltAI();
+  const pathname = usePathname();
+  const aiActive =
+    pathname === "/admin/ai" || (pathname?.startsWith("/admin/ai/") ?? false);
 
   return (
     <aside
@@ -866,20 +867,23 @@ function SidebarFrame({
       {children}
 
       <div className={cn("mt-auto border-t border-slate-200", iconOnly ? "p-2" : "p-4")}>
-        <button
-          type="button"
-          onClick={openSiteBoltAI}
+        <Link
+          href="/admin/ai"
           title="Site-Bolt AI"
           className={cn(
-            "mb-3 flex w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-white shadow-sm transition hover:brightness-105",
-            iconOnly ? "h-10 w-10 px-0" : "px-3 py-2.5"
+            "mb-3 flex w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold shadow-sm transition",
+            iconOnly ? "h-10 w-10 px-0" : "px-3 py-2.5",
+            aiActive
+              ? "bg-orange-600 text-white ring-2 ring-orange-300"
+              : "text-white hover:brightness-105"
           )}
-          style={{ backgroundColor: "#F48120" }}
+          style={aiActive ? undefined : { backgroundColor: "#F48120" }}
           aria-label="Open Site-Bolt AI"
+          aria-current={aiActive ? "page" : undefined}
         >
           <Bot className="h-4 w-4 shrink-0" />
           <span className={cn("truncate", iconOnly && "sr-only")}>Site-Bolt AI</span>
-        </button>
+        </Link>
         <div className={cn("mb-3 flex items-center gap-2", iconOnly && "flex-col")}>
           <ThemePicker />
           <div
