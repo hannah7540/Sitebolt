@@ -19,9 +19,18 @@ import { resolveActiveOrganisationIdFromCookies } from "@/lib/tenant-scope-serve
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Explicit non-financial worker columns for AI tools. Never select pay/payroll fields. */
+/**
+ * Explicit non-financial worker columns for AI tools.
+ * Matches real `workers` schema (see migrations + WORKER_SELECT_COLUMNS).
+ * Never select pay/payroll/bank/TFN fields. Do not select non-existent columns
+ * like `tags` (stored in worker_tags) or `is_deleted` (use deleted_at).
+ */
 const AI_WORKER_SAFE_COLUMNS =
-  "id, first_name, last_name, full_name, email, phone, status, trade, worker_type, worker_category, employment_type, state, tags, assigned_project_id, assigned_project_ids, assigned_project_name, project_id, project_name, white_card_number, drivers_licence_expiry, is_deleted, deleted_at, is_revoked, is_archived, organisation_id";
+  "id, first_name, last_name, full_name, email, phone, status, trade, worker_type, worker_category, employment_type, state, assigned_project_id, assigned_project_ids, assigned_project_name, project_id, project_name, white_card_number, drivers_licence_expiry, deleted_at, is_revoked, is_archived, organisation_id";
+
+/** Real `projects` title column is `project_name` (not `name`). */
+const AI_PROJECT_SAFE_COLUMNS =
+  "id, project_name, slug, location, project_code, assigned_workers, organisation_id, is_active, is_archived, status";
 
 const AI_PLANT_SAFE_COLUMNS =
   "id, unit_number, plant_number, name, category, make, model, status, assigned_project_id, assigned_project_name, project_id, project_name, assigned_worker_id, assigned_worker_name, current_hours, current_kms, registration_expiry_date, next_service_hours, next_service_kms, archived_at, organisation_id";
@@ -160,26 +169,40 @@ function workerDisplayName(row: Record<string, unknown>): string {
   return [first, last].filter(Boolean).join(" ") || "Worker";
 }
 
+function projectRowMatchesNeedle(
+  row: Record<string, unknown>,
+  needleLower: string
+): boolean {
+  return [
+    row.project_name,
+    row.slug,
+    row.location,
+    row.project_code,
+  ].some((value) => matchesProjectName(String(value ?? ""), needleLower));
+}
+
 async function findMatchingProjects(
   supabase: SupabaseClient,
   projectName: string,
   orgId: string
-): Promise<MatchedProject[]> {
+): Promise<{ projects: MatchedProject[]; error: string | null }> {
   const needle = sanitizeSearch(projectName);
-  if (!needle) return [];
+  if (!needle) return { projects: [], error: null };
+  const needleLower = needle.toLowerCase();
   const pattern = `%${needle}%`;
   const byId = new Map<string, MatchedProject>();
 
-  const mergeRows = (rows: Array<Record<string, unknown>>) => {
+  const mergeRows = (rows: Array<Record<string, unknown>>, requireNameMatch: boolean) => {
     for (const row of filterRowsByOrganisation(rows, orgId)) {
+      if (requireNameMatch && !projectRowMatchesNeedle(row, needleLower)) continue;
       const id = String(row.id ?? "").trim();
       if (!id) continue;
       const name =
-        String(
-          row.project_name ?? row.name ?? row.slug ?? row.location ?? ""
-        ).trim() || id;
+        String(row.project_name ?? row.slug ?? row.location ?? "").trim() || id;
       const assigned = Array.isArray(row.assigned_workers)
-        ? row.assigned_workers.map((value) => String(value ?? "").trim()).filter(Boolean)
+        ? row.assigned_workers
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean)
         : [];
       const existing = byId.get(id);
       byId.set(id, {
@@ -192,93 +215,122 @@ async function findMatchingProjects(
     }
   };
 
-  const columns =
-    "id, project_name, name, slug, location, project_code, assigned_workers, organisation_id";
-  const runOr = async (scoped: boolean) => {
-    let query = supabase.from("projects").select(columns);
+  // Prefer a full org-scoped projects read + in-memory fuzzy match (same columns as UI).
+  // Avoid selecting non-existent `name` and avoid fragile PostgREST `.or()` with spaces.
+  const projectSelectVariants = [
+    AI_PROJECT_SAFE_COLUMNS,
+    "id, project_name, slug, location, project_code, organisation_id, is_active, is_archived, status",
+    "id, project_name, slug, location, organisation_id, is_active, is_archived, status",
+    "id, project_name, slug, organisation_id",
+    "id, project_name, slug",
+  ] as const;
+
+  const runProjects = async (select: string, scoped: boolean) => {
+    let query = supabase.from("projects").select(select);
     if (scoped) query = withOrganisationScope(query, orgId);
-    return query.or(
-      [
-        `project_name.ilike.${pattern}`,
-        `name.ilike.${pattern}`,
-        `slug.ilike.${pattern}`,
-        `location.ilike.${pattern}`,
-        `project_code.ilike.${pattern}`,
-      ].join(",")
-    );
+    return query;
   };
 
-  let result = await runOr(true);
-  if (result.error && isOrganisationColumnMissing(result.error.message)) {
-    if (isDemoOrganisationScopeBlocked(result.error.message, orgId)) {
-      return [];
+  let projectsResult: {
+    data: unknown[] | null;
+    error: { message: string } | null;
+  } = { data: null, error: null };
+
+  for (const select of projectSelectVariants) {
+    let page = await runProjects(select, true);
+    if (page.error && isOrganisationColumnMissing(page.error.message)) {
+      if (isDemoOrganisationScopeBlocked(page.error.message, orgId)) {
+        return {
+          projects: [],
+          error: "Unable to read projects for this organisation.",
+        };
+      }
+      page = await runProjects(select, false);
     }
-    result = await runOr(false);
+    if (!page.error) {
+      projectsResult = page;
+      break;
+    }
+    projectsResult = page;
+    if (!/column|schema cache|could not find/i.test(page.error.message)) {
+      break;
+    }
   }
 
-  // Some PostgREST setups reject multi-column `.or` — fall back to per-column ilike.
-  if (result.error) {
-    for (const column of [
-      "project_name",
-      "name",
-      "slug",
-      "location",
-      "project_code",
-    ] as const) {
-      let query = supabase.from("projects").select(columns).ilike(column, pattern);
-      query = withOrganisationScope(query, orgId);
-      let page = await query;
-      if (page.error && isOrganisationColumnMissing(page.error.message)) {
-        page = await supabase.from("projects").select(columns).ilike(column, pattern);
-      }
-      if (!page.error && page.data) {
-        mergeRows(page.data as Array<Record<string, unknown>>);
-      }
+  if (projectsResult.error || !projectsResult.data) {
+    // Fallback: project_name ilike only (true title column).
+    let ilikeQuery = supabase
+      .from("projects")
+      .select("id, project_name, slug, location, project_code, organisation_id")
+      .ilike("project_name", pattern);
+    ilikeQuery = withOrganisationScope(ilikeQuery, orgId);
+    let ilikeResult = await ilikeQuery;
+    if (
+      ilikeResult.error &&
+      isOrganisationColumnMissing(ilikeResult.error.message)
+    ) {
+      ilikeResult = await supabase
+        .from("projects")
+        .select("id, project_name, slug, location, project_code, organisation_id")
+        .ilike("project_name", pattern);
     }
-  } else if (result.data) {
-    mergeRows(result.data as Array<Record<string, unknown>>);
+    if (ilikeResult.error) {
+      return { projects: [], error: ilikeResult.error.message };
+    }
+    mergeRows((ilikeResult.data ?? []) as Array<Record<string, unknown>>, false);
+  } else {
+    mergeRows(
+      (projectsResult.data ?? []) as Array<Record<string, unknown>>,
+      true
+    );
   }
 
-  // Also discover projects via junction project_name labels (same UI assignment source).
+  // Junction labels: UI assignment source stores denormalized project_name too.
   const junctionName = await supabase
     .from("project_worker_assignments")
     .select("project_id, project_name")
     .ilike("project_name", pattern)
-    .limit(500);
+    .limit(2000);
 
   if (!junctionName.error && junctionName.data) {
-    const extraIds = [
-      ...new Set(
-        junctionName.data
-          .map((row) => String((row as { project_id?: string }).project_id ?? "").trim())
-          .filter(Boolean)
-      ),
-    ];
-    if (extraIds.length) {
+    for (const row of junctionName.data as Array<Record<string, unknown>>) {
+      const id = String(row.project_id ?? "").trim();
+      if (!id || byId.has(id)) continue;
+      byId.set(id, {
+        id,
+        name: String(row.project_name ?? id).trim() || id,
+        assigned_workers: [],
+      });
+    }
+
+    const missingIds = [...byId.keys()].filter((id) => {
+      const current = byId.get(id);
+      return current && current.name === id;
+    });
+    if (missingIds.length) {
       let projectsById = await supabase
         .from("projects")
-        .select(columns)
-        .in("id", extraIds);
-      if (projectsById.error && isOrganisationColumnMissing(projectsById.error.message)) {
-        projectsById = await supabase.from("projects").select(columns).in("id", extraIds);
+        .select(AI_PROJECT_SAFE_COLUMNS)
+        .in("id", missingIds);
+      if (
+        projectsById.error &&
+        isOrganisationColumnMissing(projectsById.error.message)
+      ) {
+        projectsById = await supabase
+          .from("projects")
+          .select(AI_PROJECT_SAFE_COLUMNS)
+          .in("id", missingIds);
       }
       if (!projectsById.error && projectsById.data) {
-        mergeRows(projectsById.data as Array<Record<string, unknown>>);
-      } else {
-        for (const row of junctionName.data as Array<Record<string, unknown>>) {
-          const id = String(row.project_id ?? "").trim();
-          if (!id || byId.has(id)) continue;
-          byId.set(id, {
-            id,
-            name: String(row.project_name ?? id).trim() || id,
-            assigned_workers: [],
-          });
-        }
+        mergeRows(
+          projectsById.data as Array<Record<string, unknown>>,
+          false
+        );
       }
     }
   }
 
-  return [...byId.values()];
+  return { projects: [...byId.values()], error: null };
 }
 
 async function queryTimesheetHeadcount(
@@ -385,26 +437,52 @@ async function collectAssignedWorkerIds(
   projects: MatchedProject[],
   projectNameNeedle: string,
   orgId: string
-): Promise<{ workerIds: Set<string>; error: string | null }> {
+): Promise<{
+  workerIds: Set<string>;
+  error: string | null;
+  sources: Record<string, number>;
+}> {
   const workerIds = new Set<string>();
   const projectIds = projects.map((project) => project.id);
+  const projectIdSet = new Set(projectIds);
+  const sources = {
+    assigned_workers: 0,
+    project_worker_assignments: 0,
+    workers_assigned_project_ids: 0,
+    workers_name_match: 0,
+  };
 
   for (const project of projects) {
     for (const workerId of project.assigned_workers) {
-      if (workerId) workerIds.add(workerId);
+      if (workerId && !workerIds.has(workerId)) {
+        workerIds.add(workerId);
+        sources.assigned_workers += 1;
+      }
     }
   }
 
+  // Gold path used by WorkerDirectoryPanel / ProjectDashboard:
+  // active rows in project_worker_assignments for matched project ids / names.
   const fromJunction = await loadActiveAssignmentWorkerIds(
     supabase,
     projectIds,
     projectNameNeedle
   );
-  for (const workerId of fromJunction) workerIds.add(workerId);
+  for (const workerId of fromJunction) {
+    if (!workerIds.has(workerId)) {
+      workerIds.add(workerId);
+      sources.project_worker_assignments += 1;
+    } else {
+      sources.project_worker_assignments += 1;
+    }
+  }
 
-  // Mirror UI: scan workers with safe columns and match assigned project ids / names in memory.
+  // Mirror filterWorkersForProject: workers.assigned_project_ids / assigned_project_id / project_id.
   const runWorkers = async (scoped: boolean) => {
-    let query = supabase.from("workers").select(AI_WORKER_SAFE_COLUMNS).limit(5000);
+    let query = supabase
+      .from("workers")
+      .select(AI_WORKER_SAFE_COLUMNS)
+      .limit(5000);
     if (scoped) query = withOrganisationScope(query, orgId);
     return query;
   };
@@ -415,32 +493,82 @@ async function collectAssignedWorkerIds(
       return {
         workerIds,
         error: "Unable to read workers for this organisation.",
+        sources,
       };
     }
     workers = await runWorkers(false);
   }
 
   if (workers.error) {
-    return { workerIds, error: workers.error.message };
+    return { workerIds, error: workers.error.message, sources };
   }
 
-  const projectIdSet = new Set(projectIds);
   for (const row of filterRowsByOrganisation(
     (workers.data ?? []) as Array<Record<string, unknown>>,
     orgId
   )) {
     if (!isCountableWorker(row)) continue;
+    const workerId = String(row.id ?? "").trim();
+    if (!workerId) continue;
+
     const assignedIds = workerAssignedProjectIds(row);
     const matchesId = assignedIds.some((id) => projectIdSet.has(id));
     const matchesName =
-      matchesProjectName(String(row.assigned_project_name ?? ""), projectNameNeedle) ||
+      matchesProjectName(
+        String(row.assigned_project_name ?? ""),
+        projectNameNeedle
+      ) ||
       matchesProjectName(String(row.project_name ?? ""), projectNameNeedle);
-    if (!matchesId && !matchesName) continue;
-    const workerId = String(row.id ?? "").trim();
-    if (workerId) workerIds.add(workerId);
+
+    if (matchesId) {
+      if (!workerIds.has(workerId)) {
+        workerIds.add(workerId);
+        sources.workers_assigned_project_ids += 1;
+      }
+      continue;
+    }
+    if (matchesName) {
+      if (!workerIds.has(workerId)) {
+        workerIds.add(workerId);
+        sources.workers_name_match += 1;
+      }
+    }
   }
 
-  return { workerIds, error: null };
+  // Direct contains queries for each matched UUID (same path as assignment verifier).
+  for (const projectId of projectIds) {
+    let containsQuery = supabase
+      .from("workers")
+      .select("id, organisation_id, deleted_at, is_revoked, is_archived, status")
+      .contains("assigned_project_ids", [projectId])
+      .limit(5000);
+    containsQuery = withOrganisationScope(containsQuery, orgId);
+    let containsResult = await containsQuery;
+    if (
+      containsResult.error &&
+      isOrganisationColumnMissing(containsResult.error.message)
+    ) {
+      containsResult = await supabase
+        .from("workers")
+        .select("id, organisation_id, deleted_at, is_revoked, is_archived, status")
+        .contains("assigned_project_ids", [projectId])
+        .limit(5000);
+    }
+    if (containsResult.error) continue;
+    for (const row of filterRowsByOrganisation(
+      (containsResult.data ?? []) as Array<Record<string, unknown>>,
+      orgId
+    )) {
+      if (!isCountableWorker(row)) continue;
+      const workerId = String(row.id ?? "").trim();
+      if (workerId && !workerIds.has(workerId)) {
+        workerIds.add(workerId);
+        sources.workers_assigned_project_ids += 1;
+      }
+    }
+  }
+
+  return { workerIds, error: null, sources };
 }
 
 export const getProjectHeadcount = tool({
@@ -477,11 +605,15 @@ export const getProjectHeadcount = tool({
       return { headcount: 0, error: "A project name is required." };
     }
 
-    const projects = await findMatchingProjects(
+    const projectMatch = await findMatchingProjects(
       resolved.client,
       projectName,
       orgId
     );
+    if (projectMatch.error) {
+      return { headcount: 0, error: projectMatch.error };
+    }
+    const projects = projectMatch.projects;
     const projectIds = new Set(projects.map((project) => project.id));
 
     let result = await queryTimesheetHeadcount(
@@ -519,7 +651,7 @@ export const getProjectHeadcount = tool({
       return { headcount: 0, error: result.error };
     }
 
-    const matched = result.rows.filter((row) =>
+    const matchedRows = result.rows.filter((row) =>
       rowMatchesProject(row, needle, projectIds)
     );
 
@@ -527,7 +659,7 @@ export const getProjectHeadcount = tool({
       projectName: projectName.trim(),
       date: workDate,
       matchedProjects: projects.map((project) => project.name),
-      headcount: uniqueWorkerCount(matched),
+      headcount: uniqueWorkerCount(matchedRows),
       error: null,
     };
   },
@@ -535,7 +667,7 @@ export const getProjectHeadcount = tool({
 
 export const get_project_worker_stats = tool({
   description:
-    "Searches the database for the number of workers assigned to a specific project or site. Uses case-insensitive partial matching on project name/location and the same assignment sources as the Site-Bolt UI (project_worker_assignments + worker assigned project fields).",
+    "Searches the database for the number of workers assigned to a specific project or site. Matches projects.project_name (case-insensitive partial) and counts via project_worker_assignments plus workers.assigned_project_ids — the same sources as the Site-Bolt worker list project filter.",
   inputSchema: z.object({
     projectName: z
       .string()
@@ -545,15 +677,22 @@ export const get_project_worker_stats = tool({
   execute: async ({ projectName }) => {
     const orgId = await resolveActiveOrganisationIdFromCookies();
     if (!orgId) {
+      const error = "No active organisation selected.";
+      console.log("AI Tool Query:", { projectName, count: 0, error });
       return {
         workerCount: 0,
         matchedProjects: [] as string[],
-        error: "No active organisation selected.",
+        error,
       };
     }
 
     const resolved = await resolveAiSupabaseClient();
     if (resolved.error) {
+      console.log("AI Tool Query:", {
+        projectName,
+        count: 0,
+        error: resolved.error,
+      });
       return {
         workerCount: 0,
         matchedProjects: [] as string[],
@@ -563,19 +702,35 @@ export const get_project_worker_stats = tool({
 
     const needle = sanitizeSearch(projectName).toLowerCase();
     if (!needle) {
+      const error = "A project name is required.";
+      console.log("AI Tool Query:", { projectName, count: 0, error });
       return {
         workerCount: 0,
         matchedProjects: [] as string[],
-        error: "A project name is required.",
+        error,
       };
     }
 
-    const projects = await findMatchingProjects(
+    const matched = await findMatchingProjects(
       resolved.client,
       projectName,
       orgId
     );
+    if (matched.error) {
+      console.log("AI Tool Query:", {
+        projectName,
+        count: 0,
+        error: matched.error,
+      });
+      return {
+        workerCount: 0,
+        matchedProjects: [] as string[],
+        projectName: projectName.trim(),
+        error: matched.error,
+      };
+    }
 
+    const projects = matched.projects;
     const assignment = await collectAssignedWorkerIds(
       resolved.client,
       projects,
@@ -583,28 +738,38 @@ export const get_project_worker_stats = tool({
       orgId
     );
 
-    if (assignment.error) {
+    const count = assignment.workerIds.size;
+    const error =
+      assignment.error ??
+      (projects.length === 0 && count === 0
+        ? `No project matched "${projectName.trim()}".`
+        : null);
+
+    console.log("AI Tool Query:", {
+      projectName,
+      count,
+      error,
+      matchedProjects: projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+      })),
+      sources: assignment.sources,
+      orgId,
+    });
+
+    if (error) {
       return {
         workerCount: 0,
         matchedProjects: projects.map((project) => project.name),
         projectName: projectName.trim(),
-        error: assignment.error,
-      };
-    }
-
-    if (projects.length === 0 && assignment.workerIds.size === 0) {
-      return {
-        workerCount: 0,
-        matchedProjects: [] as string[],
-        projectName: projectName.trim(),
-        error: `No project matched "${projectName.trim()}".`,
+        error,
       };
     }
 
     return {
       projectName: projectName.trim(),
       matchedProjects: projects.map((project) => project.name),
-      workerCount: assignment.workerIds.size,
+      workerCount: count,
       error: null,
     };
   },
@@ -652,12 +817,43 @@ export const search_workers = tool({
     }
     if (error) return { workers: [], error: error.message };
 
+    // Tags live in tags + worker_tags (not a column on workers).
+    const tagsByWorker = new Map<string, string[]>();
+    const { data: tagRows } = await resolved.client
+      .from("tags")
+      .select("id, name, organisation_id");
+    const tagNameById = new Map<string, string>();
+    for (const tag of filterRowsByOrganisation(
+      (tagRows ?? []) as Array<Record<string, unknown>>,
+      orgId
+    )) {
+      const id = String(tag.id ?? "").trim();
+      const name = String(tag.name ?? "").trim();
+      if (id && name) tagNameById.set(id, name);
+    }
+    if (tagNameById.size) {
+      const { data: assignments } = await resolved.client
+        .from("worker_tags")
+        .select("worker_id, tag_id")
+        .limit(5000);
+      for (const row of (assignments ?? []) as Array<Record<string, unknown>>) {
+        const workerId = String(row.worker_id ?? "").trim();
+        const tagName = tagNameById.get(String(row.tag_id ?? "").trim());
+        if (!workerId || !tagName) continue;
+        const list = tagsByWorker.get(workerId) ?? [];
+        list.push(tagName);
+        tagsByWorker.set(workerId, list);
+      }
+    }
+
     const matched = filterRowsByOrganisation(
       (data ?? []) as Array<Record<string, unknown>>,
       orgId
     )
       .filter((row) => isCountableWorker(row))
       .filter((row) => {
+        const workerId = String(row.id ?? "");
+        const tags = tagsByWorker.get(workerId) ?? [];
         const haystack = [
           workerDisplayName(row),
           row.email,
@@ -666,35 +862,34 @@ export const search_workers = tool({
           row.worker_category,
           row.assigned_project_name,
           row.project_name,
-          Array.isArray(row.tags) ? row.tags.join(" ") : row.tags,
+          tags.join(" "),
         ]
           .map((value) => String(value ?? "").toLowerCase())
           .join(" ");
         return haystack.includes(needle);
       })
       .slice(0, max)
-      .map((row) => ({
-        id: String(row.id ?? ""),
-        name: workerDisplayName(row),
-        email: String(row.email ?? "") || null,
-        phone: String(row.phone ?? "") || null,
-        status: String(row.status ?? "") || null,
-        trade: String(row.trade ?? "") || null,
-        tags: Array.isArray(row.tags)
-          ? row.tags.map((tag) => String(tag))
-          : row.tags
-            ? [String(row.tags)]
-            : [],
-        assignedProjects: [
-          ...new Set(
-            [
-              ...workerAssignedProjectIds(row),
-              String(row.assigned_project_name ?? "").trim(),
-              String(row.project_name ?? "").trim(),
-            ].filter(Boolean)
-          ),
-        ],
-      }));
+      .map((row) => {
+        const workerId = String(row.id ?? "");
+        return {
+          id: workerId,
+          name: workerDisplayName(row),
+          email: String(row.email ?? "") || null,
+          phone: String(row.phone ?? "") || null,
+          status: String(row.status ?? "") || null,
+          trade: String(row.trade ?? "") || null,
+          tags: tagsByWorker.get(workerId) ?? [],
+          assignedProjects: [
+            ...new Set(
+              [
+                ...workerAssignedProjectIds(row),
+                String(row.assigned_project_name ?? "").trim(),
+                String(row.project_name ?? "").trim(),
+              ].filter(Boolean)
+            ),
+          ],
+        };
+      });
 
     return { workers: matched, error: null };
   },
