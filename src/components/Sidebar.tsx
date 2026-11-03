@@ -660,53 +660,87 @@ export default function Sidebar({
   );
   const complianceAlertCount = useComplianceAlertCount();
 
-  const organisationItems: SubItem[] = useMemo(
-    () => {
-      const items: SubItem[] = [
-        { label: "Profile Dashboard", href: "/organisation/dashboard" },
-        { label: "Company Information", href: "/organisation/company" },
-      ];
-      if (isFeatureModuleEnabled(featureFlags, "insurance", orgId)) {
-        items.push({ label: "Insurances", href: "/organisation/insurances" });
-      }
-      items.push(
-        { label: "Documents", href: "/organisation/documents" },
-        { label: "Forms", href: "/organisation/forms" },
-        { label: "Projects", href: "/organisation/projects" },
-        { label: "Workers", href: "/organisation/workers" },
-        { label: "Bulk Onboarding", href: "/organisation/onboarding/bulk" },
-        { label: "Tags", href: "/organisation/tags" },
-        { label: "Supplier Accounts", href: "/organisation/suppliers" },
-        { label: "Inductions", href: "/admin/forms/inductions" }
-      );
-      if (isFeatureModuleEnabled(featureFlags, "swms", orgId)) {
-        items.push({ label: "SWMS", href: "/admin/swms" });
-      }
-      if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
-        items.push({ label: "Plant", href: "/organisation/plant" });
-        items.push({ label: "Fleet", href: "/organisation/fleet" });
-      }
-      if (isFeatureModuleEnabled(featureFlags, "insurance", orgId)) {
-        items.push({
-          label: "Alerts",
-          href: "/organisation/alerts",
-          badge: complianceAlertCount,
-        });
-      }
-      if (isFeatureModuleEnabled(featureFlags, "plant", orgId)) {
-        items.push({ label: "Assets", href: "/organisation/assets" });
-      }
-      if (showSecurity) {
-        items.push({ label: "Security Settings", href: "/organisation/security" });
-      }
-      return items.filter((item) => {
-        const view = ORGANISATION_NAV_ITEMS.find((nav) => nav.href === item.href)?.view;
-        if (!view) return showOrganisation;
-        return canAccessOrganisationView(effectiveRole, view);
+  const organisationItems: (SubItem | NestedGroup)[] = useMemo(() => {
+    const canAccessHref = (href: string | undefined): boolean => {
+      if (!href) return showOrganisation;
+      const view = ORGANISATION_NAV_ITEMS.find((nav) => nav.href === href)?.view;
+      if (!view) return showOrganisation;
+      return canAccessOrganisationView(effectiveRole, view);
+    };
+
+    const filterItems = (items: SubItem[]): SubItem[] =>
+      items.filter((item) => canAccessHref(item.href));
+
+    const companyInfoItems = filterItems([
+      { label: "Profile Dashboard", href: "/organisation/dashboard" },
+      { label: "Company Information", href: "/organisation/company" },
+      ...(isFeatureModuleEnabled(featureFlags, "insurance", orgId)
+        ? [{ label: "Insurances", href: "/organisation/insurances" }]
+        : []),
+      { label: "Projects", href: "/organisation/projects" },
+    ]);
+
+    const workersPlantAssetsItems = filterItems([
+      { label: "Workers", href: "/organisation/workers" },
+      { label: "Bulk Onboarding", href: "/organisation/onboarding/bulk" },
+      ...(isFeatureModuleEnabled(featureFlags, "plant", orgId)
+        ? [
+            { label: "Plant", href: "/organisation/plant" },
+            { label: "Fleet", href: "/organisation/fleet" },
+            { label: "Assets", href: "/organisation/assets" },
+          ]
+        : []),
+    ]);
+
+    const formsDocumentsItems = filterItems([
+      { label: "Forms", href: "/organisation/forms" },
+      { label: "Documents", href: "/organisation/documents" },
+      { label: "Inductions", href: "/admin/forms/inductions" },
+      { label: "Tags", href: "/organisation/tags" },
+      ...(isFeatureModuleEnabled(featureFlags, "swms", orgId)
+        ? [{ label: "SWMS", href: "/admin/swms" }]
+        : []),
+    ]);
+
+    const standaloneItems = filterItems([
+      { label: "Supplier Accounts", href: "/organisation/suppliers" },
+      ...(isFeatureModuleEnabled(featureFlags, "insurance", orgId)
+        ? [
+            {
+              label: "Alerts",
+              href: "/organisation/alerts",
+              badge: complianceAlertCount,
+            },
+          ]
+        : []),
+      ...(showSecurity
+        ? [{ label: "Security Settings", href: "/organisation/security" }]
+        : []),
+    ]);
+
+    const grouped: (SubItem | NestedGroup)[] = [];
+    if (companyInfoItems.length > 0) {
+      grouped.push({ label: "Company Info", items: companyInfoItems });
+    }
+    if (workersPlantAssetsItems.length > 0) {
+      grouped.push({
+        label: "Workers/Plant/Assets",
+        items: workersPlantAssetsItems,
       });
-    },
-    [complianceAlertCount, effectiveRole, featureFlags, orgId, showOrganisation, showSecurity]
-  );
+    }
+    if (formsDocumentsItems.length > 0) {
+      grouped.push({ label: "Forms & Documents", items: formsDocumentsItems });
+    }
+    grouped.push(...standaloneItems);
+    return grouped;
+  }, [
+    complianceAlertCount,
+    effectiveRole,
+    featureFlags,
+    orgId,
+    showOrganisation,
+    showSecurity,
+  ]);
 
   return (
     <SidebarCollapseProvider>
@@ -1448,12 +1482,67 @@ function AdministrationSection({
   );
 }
 
+function OrganisationNestedGroup({
+  group,
+  pathname,
+}: {
+  group: NestedGroup;
+  pathname: string | null;
+}) {
+  const childHrefs = group.items
+    .filter((item): item is SubItem => !isNestedGroup(item))
+    .map((item) => item.href ?? "")
+    .filter(Boolean);
+  const groupActive = childHrefs.some((href) =>
+    isOrganisationNavActive(pathname, href)
+  );
+  const [groupOpen, toggleGroupOpen] = usePersistedSidebarSection(
+    `organisation-${group.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    groupActive
+  );
+  const iconOnly = useSidebarIconOnly();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={toggleGroupOpen}
+        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+      >
+        <span>{group.label}</span>
+        {groupOpen ? (
+          <ChevronDown className="h-4 w-4 text-slate-400" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+        )}
+      </button>
+      {groupOpen || iconOnly ? (
+        <div className="space-y-1 pb-1">
+          {group.items.map((item) => {
+            if (isNestedGroup(item)) return null;
+            return (
+              <RouteNavLink
+                key={item.label}
+                label={item.label}
+                href={item.href ?? "/organisation/dashboard"}
+                depth={1}
+                badge={item.badge}
+                active={isOrganisationNavActive(pathname, item.href ?? "")}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function OrganisationSection({
   items,
   activeView,
   pathname,
 }: {
-  items: SubItem[];
+  items: (SubItem | NestedGroup)[];
   activeView: ActiveView;
   pathname: string | null;
 }) {
@@ -1490,15 +1579,23 @@ function OrganisationSection({
     >
       {(open || iconOnly) && (
         <div className="relative z-30 space-y-1 px-2">
-          {items.map((item) => (
-            <RouteNavLink
-              key={item.label}
-              label={item.label}
-              href={item.href ?? "/organisation/dashboard"}
-              badge={item.badge}
-              active={isOrganisationNavActive(pathname, item.href ?? "")}
-            />
-          ))}
+          {items.map((item) =>
+            isNestedGroup(item) ? (
+              <OrganisationNestedGroup
+                key={item.label}
+                group={item}
+                pathname={pathname}
+              />
+            ) : (
+              <RouteNavLink
+                key={item.label}
+                label={item.label}
+                href={item.href ?? "/organisation/dashboard"}
+                badge={item.badge}
+                active={isOrganisationNavActive(pathname, item.href ?? "")}
+              />
+            )
+          )}
         </div>
       )}
     </SidebarSectionShell>
