@@ -16,6 +16,7 @@ import {
   getProjectHeadcount,
   search_equipment,
   search_workers,
+  web_search,
 } from "@/lib/ai/tools";
 
 function messagesHaveFiles(messages: UIMessage[]): boolean {
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
       search_workers,
       search_equipment,
       get_compliance_status,
+      web_search,
     },
     stopWhen: stepCountIs(5),
   });

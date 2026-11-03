@@ -1111,3 +1111,95 @@ export const get_compliance_status = tool({
     };
   },
 });
+
+type TavilySearchResult = {
+  title?: string;
+  url?: string;
+  content?: string;
+  snippet?: string;
+};
+
+export const web_search = tool({
+  description:
+    "Searches the live internet for up-to-date information, news, supplier websites, or anything outside of the internal Site-Bolt database.",
+  inputSchema: z.object({
+    query: z
+      .string()
+      .min(1)
+      .describe("Search query for the live web, for example a supplier name or current standard."),
+  }),
+  execute: async ({ query }) => {
+    const apiKey = process.env.TAVILY_API_KEY?.trim();
+    if (!apiKey) {
+      return {
+        results: [] as Array<{ title: string; url: string; snippet: string }>,
+        error:
+          "Web search is not configured. Add TAVILY_API_KEY to the server environment.",
+      };
+    }
+
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return {
+        results: [] as Array<{ title: string; url: string; snippet: string }>,
+        error: "A search query is required.",
+      };
+    }
+
+    try {
+      const response = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query: trimmedQuery,
+          search_depth: "basic",
+          include_answer: false,
+          include_images: false,
+          max_results: 5,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.error("[Site-Bolt AI] web_search failed:", response.status, body);
+        return {
+          results: [] as Array<{ title: string; url: string; snippet: string }>,
+          error: `Web search failed (${response.status}).`,
+        };
+      }
+
+      const payload = (await response.json()) as {
+        results?: TavilySearchResult[];
+      };
+      const results = (payload.results ?? [])
+        .slice(0, 5)
+        .map((row) => ({
+          title: String(row.title ?? "").trim() || "Untitled result",
+          url: String(row.url ?? "").trim(),
+          snippet: String(row.content ?? row.snippet ?? "")
+            .trim()
+            .slice(0, 500),
+        }))
+        .filter((row) => row.url);
+
+      return {
+        query: trimmedQuery,
+        results,
+        error: null,
+      };
+    } catch (cause) {
+      console.error("[Site-Bolt AI] web_search exception:", cause);
+      return {
+        results: [] as Array<{ title: string; url: string; snippet: string }>,
+        error:
+          cause instanceof Error
+            ? cause.message
+            : "Web search could not complete.",
+      };
+    }
+  },
+});
