@@ -89,7 +89,9 @@ export default function CompetencyMatrixTab({
   const loadMatrix = useCallback(async () => {
     setLoading(true);
     try {
-      const vocs = await fetchAllWorkerVocs();
+      const vocs = await fetchAllWorkerVocs({
+        workerIds: workers.map((worker) => worker.id),
+      });
       setMatrixRows(buildCompetencyMatrix(workers, vocs));
     } catch (cause) {
       showError(

@@ -546,6 +546,7 @@ function finalizeWorkerRows(
 async function queryWorkerRows(options?: {
   id?: string;
   limit?: number;
+  offset?: number;
   includeDeleted?: boolean;
   onlyDeleted?: boolean;
   skipOrganisationScope?: boolean;
@@ -632,7 +633,14 @@ async function queryWorkerRows(options?: {
             nullsFirst: false,
           });
         }
-        if (options?.limit) {
+        if (
+          typeof options?.offset === "number" &&
+          options.offset >= 0 &&
+          typeof options?.limit === "number" &&
+          options.limit > 0
+        ) {
+          query = query.range(options.offset, options.offset + options.limit - 1);
+        } else if (options?.limit) {
           query = query.limit(options.limit);
         }
         if (
@@ -1708,9 +1716,15 @@ export interface PlantPrestart {
 
 export async function fetchWorkers(options?: {
   excludeEmails?: readonly string[];
+  limit?: number;
+  offset?: number;
 }): Promise<Worker[]> {
   if (!isSupabaseConfigured()) return [];
-  const rows = await fetchWorkerRows({ excludeEmails: options?.excludeEmails });
+  const rows = await queryWorkerRows({
+    excludeEmails: options?.excludeEmails,
+    limit: options?.limit,
+    offset: options?.offset,
+  });
   return rows
     .filter((worker) => !isWorkerDeleted(worker))
     .filter(
@@ -1718,6 +1732,29 @@ export async function fetchWorkers(options?: {
         !options?.excludeEmails?.length ||
         !isExcludedAccountEmail(worker.email, options.excludeEmails)
     );
+}
+
+/** Paginated worker directory fetch — avoids loading the entire roster for list UIs. */
+export async function fetchWorkersPage(options?: {
+  page?: number;
+  pageSize?: number;
+  excludeEmails?: readonly string[];
+}): Promise<{ workers: Worker[]; page: number; pageSize: number; hasMore: boolean }> {
+  const page = Math.max(1, options?.page ?? 1);
+  const pageSize = Math.min(200, Math.max(1, options?.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+  const workers = await fetchWorkers({
+    excludeEmails: options?.excludeEmails,
+    limit: pageSize + 1,
+    offset,
+  });
+  const hasMore = workers.length > pageSize;
+  return {
+    workers: hasMore ? workers.slice(0, pageSize) : workers,
+    page,
+    pageSize,
+    hasMore,
+  };
 }
 
 /** All workers for Security Settings / reports — surfaces fetch errors. */
@@ -1739,64 +1776,8 @@ export async function fetchAllWorkers(options?: {
   const onlyDeleted = options?.onlyDeleted === true;
   const includeDeleted = onlyDeleted || options?.includeDeleted === true;
 
-  const orgId = resolveActiveOrganisationId();
-  let skipOrganisationScope = false;
-
   try {
-    for (const orderColumn of WORKER_ORDER_COLUMNS) {
-      let query = supabase.from("workers").select("*");
-      if (!skipOrganisationScope) {
-        query = withOrganisationScope(query, orgId);
-      }
-      if (onlyDeleted) {
-        query = query.or("deleted_at.not.is.null,status.eq.deleted");
-      } else if (!includeDeleted) {
-        query = query.is("deleted_at", null).neq("status", "deleted");
-      }
-      if (orderColumn) {
-        query = query.order(orderColumn, { ascending: true, nullsFirst: false });
-      }
-
-      const { data, error } = await query;
-
-      if (!error) {
-        const workers = filterRowsByOrganisation(
-          (data ?? []) as unknown as RawWorkerRow[],
-          orgId
-        )
-          .map(normalizeWorkerRow)
-          .filter((worker) =>
-            onlyDeleted
-              ? isWorkerDeleted(worker)
-              : includeDeleted || !isWorkerDeleted(worker)
-          );
-        return { workers, error: null };
-      }
-
-      if (isDemoOrganisationScopeBlocked(error.message, orgId)) {
-        return { workers: [], error: null };
-      }
-
-      if (isOrganisationColumnMissing(error.message) && !skipOrganisationScope) {
-        skipOrganisationScope = true;
-        continue;
-      }
-
-      const missingDeletedAt =
-        isMissingWorkerColumnError(error.message) &&
-        error.message.toLowerCase().includes("deleted_at");
-      if (missingDeletedAt) {
-        break;
-      }
-
-      if (!isMissingWorkerColumnError(error.message)) {
-        if (handleSupabaseNetworkFetchError(error, "fetch all workers")) {
-          return { workers: [], error: null };
-        }
-        return { workers: [], error: formatWorkerFetchError(error.message) };
-      }
-    }
-
+    // Prefer explicit column variants over select('*') to avoid pulling payroll/bank blobs.
     const workers = await queryWorkerRows({ includeDeleted, onlyDeleted });
     return {
       workers: workers.filter((worker) =>
@@ -2267,26 +2248,50 @@ export async function fetchWorkerVocs(workerId: string): Promise<WorkerVoc[]> {
   }
 }
 
-export async function fetchAllWorkerVocs(): Promise<WorkerVoc[]> {
+const WORKER_VOC_SAFE_COLUMNS =
+  "id, worker_id, title, voc_type, issuing_org, issue_date, expiry_date, document_url, secondary_vocs, created_at";
+
+const WORKER_VOC_ID_CHUNK = 100;
+
+/**
+ * Fetch VOCs for workers. Pass `workerIds` when the roster is already loaded to
+ * avoid a second full workers table round-trip.
+ */
+export async function fetchAllWorkerVocs(options?: {
+  workerIds?: readonly string[];
+}): Promise<WorkerVoc[]> {
   try {
-    const workers = await fetchWorkers();
-    const workerIds = workers.map((worker) => worker.id);
+    const workerIds = [
+      ...new Set(
+        (options?.workerIds?.length
+          ? options.workerIds
+          : (await fetchWorkers()).map((worker) => worker.id)
+        )
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
     if (workerIds.length === 0) return [];
 
-    const { data, error } = await supabase
-      .from("worker_vocs")
-      .select("*")
-      .in("worker_id", workerIds)
-      .order("expiry_date");
+    const rows: WorkerVoc[] = [];
+    for (let index = 0; index < workerIds.length; index += WORKER_VOC_ID_CHUNK) {
+      const chunk = workerIds.slice(index, index + WORKER_VOC_ID_CHUNK);
+      const { data, error } = await supabase
+        .from("worker_vocs")
+        .select(WORKER_VOC_SAFE_COLUMNS)
+        .in("worker_id", chunk)
+        .order("expiry_date");
 
-    if (error) {
-      if (handleSupabaseNetworkFetchError(error, "fetch all worker VOCs")) {
-        return [];
+      if (error) {
+        if (handleSupabaseNetworkFetchError(error, "fetch all worker VOCs")) {
+          return rows;
+        }
+        console.error("Failed to fetch worker VOCs:", error.message);
+        return rows;
       }
-      console.error("Failed to fetch worker VOCs:", error.message);
-      return [];
+      rows.push(...((data ?? []) as WorkerVoc[]));
     }
-    return (data ?? []) as WorkerVoc[];
+    return rows;
   } catch (error) {
     if (handleSupabaseNetworkFetchError(error, "fetch all worker VOCs")) {
       return [];

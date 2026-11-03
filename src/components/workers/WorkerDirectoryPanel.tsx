@@ -77,6 +77,8 @@ import { inputClass, labelClass } from "@/lib/ui-classes";
 type WorkerTabFilter = "Current" | "Revoked" | "Deleted" | "All";
 type WorkerProfileTab = "basic" | "cards" | "inductions" | "financial";
 
+const WORKER_LIST_PAGE_SIZE = 50;
+
 interface WorkerDirectoryPanelProps {
   workers: Worker[];
   workerVocs: WorkerVoc[];
@@ -232,6 +234,7 @@ export default function WorkerDirectoryPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [projectFilterId, setProjectFilterId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(WORKER_LIST_PAGE_SIZE);
   const [allTags, setAllTags] = useState<WorkerTag[]>([]);
   const [tagsByWorker, setTagsByWorker] = useState<Map<string, WorkerTag[]>>(
     () => new Map()
@@ -392,6 +395,16 @@ export default function WorkerDirectoryPanel({
       );
     });
   }, [tabFilteredWorkers, searchQuery, stateFilter, projectFilterId, workerProjectMap]);
+
+  useEffect(() => {
+    setVisibleCount(WORKER_LIST_PAGE_SIZE);
+  }, [searchQuery, stateFilter, projectFilterId, workerTab]);
+
+  const visibleWorkers = useMemo(
+    () => filteredWorkers.slice(0, visibleCount),
+    [filteredWorkers, visibleCount]
+  );
+  const hasMoreWorkers = filteredWorkers.length > visibleCount;
 
   const clearListFilters = () => {
     setSearchQuery("");
@@ -707,7 +720,7 @@ export default function WorkerDirectoryPanel({
             </tr>
           </thead>
           <tbody>
-            {filteredWorkers.map((w) => {
+            {visibleWorkers.map((w) => {
               const vocs = vocsByWorker[w.id] ?? [];
               const warning = getExpiryWarningText(w, vocs);
               const nonCompliant = isNonCompliant(w, vocs);
@@ -854,6 +867,19 @@ export default function WorkerDirectoryPanel({
             ) : null}
           </tbody>
         </table>
+        {hasMoreWorkers ? (
+          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-center">
+            <button
+              type="button"
+              onClick={() =>
+                setVisibleCount((current) => current + WORKER_LIST_PAGE_SIZE)
+              }
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-orange-300 hover:text-orange-600"
+            >
+              Show more workers ({visibleWorkers.length} of {filteredWorkers.length})
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {showModal && (

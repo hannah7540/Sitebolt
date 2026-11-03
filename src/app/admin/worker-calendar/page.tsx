@@ -14,13 +14,18 @@ function AdminWorkerCalendarContent() {
 
   const loadVocs = useCallback(async () => {
     setVocsLoading(true);
-    setWorkerVocs(await fetchAllWorkerVocs());
+    setWorkerVocs(
+      await fetchAllWorkerVocs({
+        workerIds: workers.map((worker) => worker.id),
+      })
+    );
     setVocsLoading(false);
-  }, []);
+  }, [workers]);
 
   useEffect(() => {
+    if (loading) return;
     void loadVocs();
-  }, [loadVocs]);
+  }, [loadVocs, loading]);
 
   return (
     <AdminWorkerCalendarPanel

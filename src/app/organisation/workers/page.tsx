@@ -18,7 +18,9 @@ export default function OrganisationWorkersPage() {
   const loadVocs = useCallback(async () => {
     setVocsLoading(true);
     try {
-      const rows = await fetchAllWorkerVocs();
+      const rows = await fetchAllWorkerVocs({
+        workerIds: workers.map((worker) => worker.id),
+      });
       setWorkerVocs(rows ?? []);
     } catch (error) {
       console.error("Failed to load worker VOCs:", error);
@@ -26,11 +28,12 @@ export default function OrganisationWorkersPage() {
     } finally {
       setVocsLoading(false);
     }
-  }, []);
+  }, [workers]);
 
   useEffect(() => {
+    if (loading) return;
     void loadVocs();
-  }, [loadVocs]);
+  }, [loadVocs, loading]);
 
   return (
     <WorkerDirectoryPanel

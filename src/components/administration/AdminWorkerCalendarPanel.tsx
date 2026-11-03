@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import FullWorkerCalendarView from "@/components/administration/FullWorkerCalendarView";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import CompanyCalendarHolidaysPanel from "@/components/administration/CompanyCalendarHolidaysPanel";
 import ProjectMultiSelect from "@/components/administration/ProjectMultiSelect";
+import { CalendarSkeleton } from "@/components/ui/RouteLoadingFallback";
 import type { Worker, WorkerVoc } from "@/lib/supabase";
 import { fetchProjects, getCachedProjects, type DbProject } from "@/lib/project-resolver";
 import { primeWorkerCalendarEventsSchema } from "@/lib/worker-calendar-events";
 import { cn } from "@/lib/utils";
+
+const FullWorkerCalendarView = lazy(
+  () => import("@/components/administration/FullWorkerCalendarView")
+);
 
 type LeaveManagementTab = "calendar" | "holidays";
 
@@ -87,14 +91,16 @@ export default function AdminWorkerCalendarPanel({
             onChange={setSelectedProjectIds}
           />
 
-          <FullWorkerCalendarView
-            workers={workers}
-            workerVocs={workerVocs}
-            loading={loading}
-            onRefresh={handleCalendarSaved}
-            filterProjectIds={effectiveFilter}
-            refreshToken={refreshToken}
-          />
+          <Suspense fallback={<CalendarSkeleton label="Loading full worker calendar…" />}>
+            <FullWorkerCalendarView
+              workers={workers}
+              workerVocs={workerVocs}
+              loading={loading}
+              onRefresh={handleCalendarSaved}
+              filterProjectIds={effectiveFilter}
+              refreshToken={refreshToken}
+            />
+          </Suspense>
         </>
       )}
     </div>

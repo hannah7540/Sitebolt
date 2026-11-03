@@ -1,8 +1,13 @@
 "use client";
 
+import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
 import { useAdminConsole } from "@/contexts/AdminConsoleContext";
-import CompetencyMatrixTab from "@/components/administration/forms/CompetencyMatrixTab";
+import { TableSkeleton } from "@/components/ui/RouteLoadingFallback";
+
+const CompetencyMatrixTab = lazy(
+  () => import("@/components/administration/forms/CompetencyMatrixTab")
+);
 
 export default function CompetenciesPage() {
   const { workers, projects, sessionReady, loading, accessDenied } = useAdminConsole();
@@ -24,5 +29,9 @@ export default function CompetenciesPage() {
     );
   }
 
-  return <CompetencyMatrixTab workers={workers} projects={projects} />;
+  return (
+    <Suspense fallback={<TableSkeleton label="Loading competency matrix…" rows={10} />}>
+      <CompetencyMatrixTab workers={workers} projects={projects} />
+    </Suspense>
+  );
 }
