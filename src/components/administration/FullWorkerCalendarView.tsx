@@ -280,6 +280,7 @@ export default function FullWorkerCalendarView({
         title="Full Worker Calendar"
         subtitle="Worker allocations, RDO blocks, and leave across selected projects"
         adminCalendarMode
+        enableDirectLeave
         hideTitle
         scrollMaxHeightClass={
           expanded ? "max-h-[calc(92vh-16rem)]" : undefined

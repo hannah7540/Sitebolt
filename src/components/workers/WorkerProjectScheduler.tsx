@@ -48,7 +48,10 @@ import {
   mergeLeaveRequestsIntoCalendarEvents,
   resolveWorkerName,
 } from "@/lib/leave-requests";
-import { subscribeLeaveRequestsUpdated } from "@/lib/leave-events";
+import {
+  broadcastLeaveRequestsUpdated,
+  subscribeLeaveRequestsUpdated,
+} from "@/lib/leave-events";
 import {
   companyCalendarDaysToWorkerEvents,
   fetchCompanyCalendarDays,
@@ -56,6 +59,9 @@ import {
   type CompanyCalendarDay,
 } from "@/lib/company-calendar-days";
 import LeaveRequestReviewModal from "@/components/dashboard/LeaveRequestReviewModal";
+import DirectLeaveModal, {
+  type DirectLeaveModalTarget,
+} from "@/components/administration/DirectLeaveModal";
 import type { LeaveRequest } from "@/lib/supabase";
 import {
   HOLIDAY_APPROVED_STYLE,
@@ -89,6 +95,8 @@ interface WorkerProjectSchedulerProps {
   title?: string;
   subtitle?: string;
   adminCalendarMode?: boolean;
+  /** Enable click-to-add pre-approved leave on date tiles. */
+  enableDirectLeave?: boolean;
   /** Junction table + default assignment map (Full Worker Calendar). */
   workerProjectMap?: WorkerProjectMap;
   /** Dated project_worker_assignments rows keyed by worker (open-ended end_date included). */
@@ -206,6 +214,7 @@ export default function WorkerProjectScheduler({
   title = "Worker Project Scheduler",
   subtitle = "Site allocations · project assignments · compliance overview",
   adminCalendarMode = false,
+  enableDirectLeave = false,
   workerProjectMap,
   datedWorkerAssignments: datedWorkerAssignmentsProp,
   calendarEvents: calendarEventsProp,
@@ -316,6 +325,9 @@ export default function WorkerProjectScheduler({
   );
   const [leaveReviewWorkerName, setLeaveReviewWorkerName] = useState("Worker");
   const [deletingEvent, setDeletingEvent] = useState(false);
+  const [directLeaveTarget, setDirectLeaveTarget] =
+    useState<DirectLeaveModalTarget | null>(null);
+  const allowDirectLeave = enableDirectLeave || adminCalendarMode;
 
   const rangeStartIso = formatDateOnly(rangeStart);
   const rangeEndIso = formatDateOnly(rangeEnd);
@@ -918,6 +930,18 @@ export default function WorkerProjectScheduler({
             onSelectWorker={setSelectedWorkerId}
             vocsByWorker={vocsByWorker}
             renderDayCell={renderDayCell}
+            onDayCellClick={
+              allowDirectLeave
+                ? (worker, day) => {
+                    setSelectedEvent(null);
+                    setSelectedLeaveRequest(null);
+                    setDirectLeaveTarget({
+                      worker,
+                      date: formatDateOnly(day.iso),
+                    });
+                  }
+                : undefined
+            }
             onRangeExtendPast={handleRangeExtendPast}
             onRangeExtendFuture={handleRangeExtendFuture}
             scrollAdjustRef={scrollAdjustRef}
@@ -1013,6 +1037,23 @@ export default function WorkerProjectScheduler({
           </div>
         </aside>
       </div>
+
+      {directLeaveTarget ? (
+        <DirectLeaveModal
+          target={directLeaveTarget}
+          onClose={() => setDirectLeaveTarget(null)}
+          onSaved={async () => {
+            broadcastLeaveRequestsUpdated();
+            await loadSchedules();
+            if (onReloadCalendar) {
+              await onReloadCalendar();
+            } else if (onRefreshCalendar) {
+              await onRefreshCalendar();
+            }
+            onRefresh();
+          }}
+        />
+      ) : null}
 
       {selectedLeaveRequest ? (
         <LeaveRequestReviewModal

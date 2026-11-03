@@ -470,6 +470,7 @@ function HomeConsole() {
               }
               title={`${dashboardProject?.name ?? "Project"} Worker Calendar`}
               subtitle="Project assignments, RDO blocks, and leave for this site"
+              enableDirectLeave
             />
           )}
 

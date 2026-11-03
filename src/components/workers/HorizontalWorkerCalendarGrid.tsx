@@ -42,6 +42,8 @@ export interface HorizontalWorkerCalendarGridProps {
     day: CalendarDay,
     weekDays: CalendarDay[]
   ) => ReactNode;
+  /** When set, the whole date tile is clickable (e.g. direct admin leave). */
+  onDayCellClick?: (worker: Worker, day: CalendarDay) => void;
   onRangeExtendPast?: () => void;
   onRangeExtendFuture?: () => void;
   scrollAdjustRef?: React.MutableRefObject<number>;
@@ -82,6 +84,7 @@ export default function HorizontalWorkerCalendarGrid({
   onSelectWorker,
   vocsByWorker,
   renderDayCell,
+  onDayCellClick,
   onRangeExtendPast,
   onRangeExtendFuture,
   scrollAdjustRef,
@@ -309,20 +312,45 @@ export default function HorizontalWorkerCalendarGrid({
               {calendarDays.map((day, index) => {
                 const weekDays = getWeekDaysContaining(day.iso);
                 const isWeekStart = index % 7 === 0;
+                const clickable = Boolean(onDayCellClick);
 
                 return (
                   <div
                     key={`${worker.id}-${day.iso}`}
+                    role={clickable ? "button" : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    onClick={
+                      clickable
+                        ? () => onDayCellClick?.(worker, day)
+                        : undefined
+                    }
+                    onKeyDown={
+                      clickable
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onDayCellClick?.(worker, day);
+                            }
+                          }
+                        : undefined
+                    }
                     className={cn(
                       "shrink-0 border-r border-slate-200 p-1 last:border-r-0",
                       isWeekStart && "border-l-2 border-l-orange-100",
                       day.isToday &&
-                        "bg-orange-500/5 ring-1 ring-inset ring-orange-300/40"
+                        "bg-orange-500/5 ring-1 ring-inset ring-orange-300/40",
+                      clickable &&
+                        "cursor-pointer transition-colors hover:bg-orange-50/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-orange-400"
                     )}
                     style={{
                       width: CALENDAR_DAY_COLUMN_WIDTH,
                       minHeight: 52,
                     }}
+                    title={
+                      clickable
+                        ? "Click to add pre-approved leave"
+                        : undefined
+                    }
                   >
                     {renderDayCell(worker, day, weekDays)}
                   </div>
