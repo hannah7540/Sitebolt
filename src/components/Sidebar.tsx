@@ -1293,9 +1293,16 @@ function AdministrationSection({
   if (isFeatureModuleEnabled(featureFlags, "itp_itc", organisationId)) {
     items.push({ label: "ITP / ITC", view: "admin-itc" });
   }
-  items.push(
-    { label: "1-Click Document Pack", view: "admin-document-pack" },
-    { label: "Reporting", view: "admin-reporting" }
+  const isReportingRoute =
+    pathname === "/admin/reporting" ||
+    pathname?.startsWith("/admin/reporting/") ||
+    pathname === "/admin/document-pack" ||
+    pathname?.startsWith("/admin/document-pack/") ||
+    activeView === "admin-reporting" ||
+    activeView === "admin-document-pack";
+  const [reportingOpen, toggleReportingOpen] = usePersistedSidebarSection(
+    "administration-reporting",
+    isReportingRoute
   );
   const iconOnly = useSidebarIconOnly();
 
@@ -1397,6 +1404,44 @@ function AdministrationSection({
               onClick={item.view ? () => onNavigate(item.view!) : undefined}
             />
           ))}
+          <div>
+            <button
+              type="button"
+              onClick={toggleReportingOpen}
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-orange-50 hover:text-orange-600"
+            >
+              <span>Reporting</span>
+              {reportingOpen ? (
+                <ChevronDown className="h-4 w-4 text-slate-400" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-slate-400" />
+              )}
+            </button>
+            {reportingOpen || iconOnly ? (
+              <div className="space-y-1 pb-1">
+                <NavLink
+                  label="General Reporting"
+                  depth={1}
+                  active={
+                    activeView === "admin-reporting" ||
+                    pathname === "/admin/reporting" ||
+                    (pathname?.startsWith("/admin/reporting/") ?? false)
+                  }
+                  onClick={() => onNavigate("admin-reporting")}
+                />
+                <NavLink
+                  label="1-Click Document Pack"
+                  depth={1}
+                  active={
+                    activeView === "admin-document-pack" ||
+                    pathname === "/admin/document-pack" ||
+                    (pathname?.startsWith("/admin/document-pack/") ?? false)
+                  }
+                  onClick={() => onNavigate("admin-document-pack")}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
     </SidebarSectionShell>
