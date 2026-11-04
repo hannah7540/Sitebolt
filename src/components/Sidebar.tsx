@@ -38,7 +38,10 @@ import {
   isProjectNavHrefActive,
   resolveProjectNavHref,
 } from "@/lib/project-nav-routes";
-import { DEFAULT_ADMIN_PROFILE_NAME, workerProfileDashboardPath } from "@/lib/user-session";
+import {
+  PROFILE_LOADING_PLACEHOLDER,
+  workerProfileDashboardPath,
+} from "@/lib/user-session";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
@@ -854,7 +857,7 @@ function SidebarFrame({
         <div className={cn("flex items-center", iconOnly ? "justify-center" : "gap-3")}>
           <WorkerProfileAvatar
             photoUrl={profilePhotoUrl}
-            displayName={profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
+            displayName={profileLoading ? PROFILE_LOADING_PLACEHOLDER : profileName}
             size={iconOnly ? "sm" : "md"}
             enableLightbox={false}
             ringClassName={cn(
@@ -869,7 +872,7 @@ function SidebarFrame({
                 profileActive ? "text-white" : "text-slate-900"
               )}
             >
-              {profileLoading ? DEFAULT_ADMIN_PROFILE_NAME : profileName}
+              {profileLoading ? PROFILE_LOADING_PLACEHOLDER : profileName}
             </p>
             <span
               className={cn(

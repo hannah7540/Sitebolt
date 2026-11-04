@@ -217,6 +217,7 @@ export default function AdminConsoleShell({
 
   const adminProfileName = useMemo(() => {
     if (sessionWorker) return getWorkerDisplayName(sessionWorker);
+    // Never fall back to a hard-coded owner name — that bleeds across sessions.
     return DEFAULT_ADMIN_PROFILE_NAME;
   }, [sessionWorker]);
 

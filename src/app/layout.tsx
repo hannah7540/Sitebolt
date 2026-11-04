@@ -7,6 +7,10 @@ import ThemeProvider from "@/components/theme/ThemeProvider";
 import { UI_THEME_BOOTSTRAP_SCRIPT } from "@/lib/ui-theme";
 import "./globals.css";
 
+/** Prevent cross-user auth/profile bleed from static page/layout caching. */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

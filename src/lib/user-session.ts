@@ -4,9 +4,18 @@ import {
   normalizeSecurityRole,
 } from "./security-roles";
 
-/** Placeholder admin display name until auth profile resolves. */
-export const DEFAULT_ADMIN_PROFILE_NAME = MASTER_ADMIN_FULL_NAME;
+/**
+ * Neutral placeholder while the signed-in profile resolves.
+ * Never use MASTER_ADMIN_FULL_NAME here — that causes cross-user name bleed
+ * in the sidebar for every non-owner session.
+ */
+export const PROFILE_LOADING_PLACEHOLDER = "Loading…";
+
+/** Fallback label when a signed-in admin has no linked worker display name. */
+export const DEFAULT_ADMIN_PROFILE_NAME = "Admin";
 export const DEFAULT_ADMIN_EMAIL = MASTER_ADMIN_EMAIL;
+/** Retained for seed/owner tooling — not for anonymous UI placeholders. */
+export const MASTER_ADMIN_DISPLAY_NAME = MASTER_ADMIN_FULL_NAME;
 
 /** Project dashboard — used for project-scoped console redirects. */
 export const PROJECT_DASHBOARD_HOME_PATH = "/";
