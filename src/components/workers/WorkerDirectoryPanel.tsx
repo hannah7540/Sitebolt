@@ -371,11 +371,18 @@ export default function WorkerDirectoryPanel({
       const firstName = (item.first_name || "").toLowerCase();
       const lastName = (item.last_name || "").toLowerCase();
       const fullName = (item.full_name || "").toLowerCase();
+      const workerName = (item.worker_name || "").toLowerCase();
       const email = (item.email || "").toLowerCase();
       const phone = (item.phone || "").toLowerCase();
       const tradeRole = (
         item.trade ||
         (item as Worker & { trade_role?: string | null }).trade_role ||
+        ""
+      ).toLowerCase();
+      const role = (
+        item.worker_type ||
+        item.employment_type ||
+        item.worker_category ||
         ""
       ).toLowerCase();
       const workerNumber = (
@@ -388,9 +395,11 @@ export default function WorkerDirectoryPanel({
         firstName.includes(q) ||
         lastName.includes(q) ||
         fullName.includes(q) ||
+        workerName.includes(q) ||
         email.includes(q) ||
         phone.includes(q) ||
         tradeRole.includes(q) ||
+        role.includes(q) ||
         workerNumber.includes(q)
       );
     });
@@ -656,9 +665,9 @@ export default function WorkerDirectoryPanel({
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search workers by Name, Email, Phone, Role/Trade, or Worker #..."
+            placeholder="Search workers..."
             className={cn(inputClass, "w-full py-2.5 pl-10", searchQuery ? "pr-10" : "pr-4")}
-            aria-label="Search workers"
+            aria-label="Search workers by name or role"
           />
           {searchQuery ? (
             <button
@@ -838,7 +847,7 @@ export default function WorkerDirectoryPanel({
                 <td colSpan={10} className="p-8 text-center text-slate-500">
                   <p>
                     {searchQuery.trim()
-                      ? `No workers match "${searchQuery.trim()}" with the selected filters.`
+                      ? "No workers found matching your search"
                       : "No workers match the selected state or project filters."}
                   </p>
                   <button
