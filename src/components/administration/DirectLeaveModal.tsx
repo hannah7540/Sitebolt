@@ -4,7 +4,10 @@ import { useMemo, useState, useTransition } from "react";
 import { Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createDirectApprovedLeave } from "@/app/actions/direct-calendar-leave";
-import { LEAVE_TYPE_FORM_OPTIONS } from "@/lib/leave-requests";
+import {
+  DIRECT_LEAVE_TYPE_OPTIONS,
+  type LeaveRequestDbLeaveType,
+} from "@/lib/leave-requests";
 import { WA_LEAVE_DAY_HOURS } from "@/lib/payroll/rules/wa";
 import {
   inputClass,
@@ -43,7 +46,7 @@ export default function DirectLeaveModal({
   onSaved,
 }: DirectLeaveModalProps) {
   const router = useRouter();
-  const [leaveType, setLeaveType] = useState<string>("Annual Leave");
+  const [leaveType, setLeaveType] = useState<LeaveRequestDbLeaveType>("Leave");
   const [hours, setHours] = useState<string>(String(WA_LEAVE_DAY_HOURS));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -116,12 +119,14 @@ export default function DirectLeaveModal({
             <select
               className={inputClass}
               value={leaveType}
-              onChange={(event) => setLeaveType(event.target.value)}
+              onChange={(event) =>
+                setLeaveType(event.target.value as LeaveRequestDbLeaveType)
+              }
               disabled={pending}
             >
-              {LEAVE_TYPE_FORM_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+              {DIRECT_LEAVE_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

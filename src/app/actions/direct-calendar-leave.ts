@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { parseMissingColumnFromError } from "@/lib/form-payload-utils";
 import {
-  LEAVE_TYPE_FORM_OPTIONS,
-  sanitizeLeaveType,
+  LEAVE_REQUEST_DB_LEAVE_TYPES,
+  leaveRequestDbLeaveTypeLabel,
+  toLeaveRequestDbLeaveType,
+  type LeaveRequestDbLeaveType,
 } from "@/lib/leave-requests";
 import { resolveLeaveCalendarPresentation } from "@/lib/leave-type-calendar";
 import { capWaLeaveHours } from "@/lib/payroll/rules/wa";
@@ -29,6 +32,26 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const directLeaveInputSchema = z.object({
+  workerId: z.string().uuid("A valid worker is required."),
+  date: z
+    .string()
+    .regex(DATE_RE, "A valid date is required.")
+    .or(z.string().min(1)),
+  leaveType: z.preprocess(
+    (value) => toLeaveRequestDbLeaveType(String(value ?? "")),
+    z.enum(LEAVE_REQUEST_DB_LEAVE_TYPES, {
+      message:
+        "Leave type must be one of: Sick, Leave, Leave without pay, RDO, Flexi RDO.",
+    })
+  ),
+  hours: z
+    .number({ message: "Hours must be between 0 and 7.6." })
+    .min(0, "Hours must be between 0 and 7.6.")
+    .max(7.6, "Leave hours cannot exceed 7.6 per day."),
+  notes: z.string().nullable().optional(),
+});
 
 /** Worker assignment fields that must never be written to leave/timesheet rows. */
 const ASSIGNED_PROJECT_PAYLOAD_KEYS = new Set([
@@ -260,16 +283,25 @@ export async function createDirectApprovedLeave(
     };
   }
 
-  const workerId = String(input.workerId ?? "").trim();
-  if (!isUuid(workerId)) {
+  const parsed = directLeaveInputSchema.safeParse({
+    workerId: String(input.workerId ?? "").trim(),
+    date: String(input.date ?? "").trim(),
+    leaveType: input.leaveType,
+    hours: Number(input.hours),
+    notes: input.notes ?? null,
+  });
+
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
     return {
-      error: "A valid worker is required.",
+      error: firstIssue?.message ?? "Invalid leave submission.",
       leaveRequestId: null,
       timesheetCreated: false,
     };
   }
 
-  const date = formatDateOnly(input.date);
+  const workerId = parsed.data.workerId;
+  const date = formatDateOnly(parsed.data.date);
   if (!date || !DATE_RE.test(date)) {
     return {
       error: "A valid date is required.",
@@ -278,37 +310,9 @@ export async function createDirectApprovedLeave(
     };
   }
 
-  const rawLeaveType = String(input.leaveType ?? "").trim();
-  if (
-    rawLeaveType &&
-    !LEAVE_TYPE_FORM_OPTIONS.some(
-      (option) => option.toLowerCase() === rawLeaveType.toLowerCase()
-    )
-  ) {
-    return {
-      error: "Select a valid leave type.",
-      leaveRequestId: null,
-      timesheetCreated: false,
-    };
-  }
-  const leaveType = sanitizeLeaveType(rawLeaveType || "Annual Leave");
-
-  const rawHours = Number(input.hours);
-  if (!Number.isFinite(rawHours) || rawHours < 0) {
-    return {
-      error: "Hours must be between 0 and 7.6.",
-      leaveRequestId: null,
-      timesheetCreated: false,
-    };
-  }
-  if (rawHours > 7.6) {
-    return {
-      error: "Leave hours cannot exceed 7.6 per day.",
-      leaveRequestId: null,
-      timesheetCreated: false,
-    };
-  }
-  const hours = capWaLeaveHours(rawHours);
+  const leaveType = parsed.data.leaveType as LeaveRequestDbLeaveType;
+  const leaveTypeLabel = leaveRequestDbLeaveTypeLabel(leaveType);
+  const hours = capWaLeaveHours(parsed.data.hours);
 
   const client = resolved.client;
   let workerQuery = client
@@ -361,7 +365,7 @@ export async function createDirectApprovedLeave(
     }
   );
   const reason =
-    String(input.notes ?? "").trim() ||
+    String(parsed.data.notes ?? "").trim() ||
     "Direct admin calendar leave (pre-approved)";
   const now = new Date().toISOString();
 
@@ -425,7 +429,7 @@ export async function createDirectApprovedLeave(
   const startTime = hours > 0 ? LEAVE_TIMESHEET_START : "00:00";
   const finishTime =
     hours > 0 ? addHoursToTime(LEAVE_TIMESHEET_START, hours) : "00:00";
-  const dayNotes = `${leaveType} - Auto-generated from admin calendar direct leave`;
+  const dayNotes = `${leaveTypeLabel} - Auto-generated from admin calendar direct leave`;
 
   const timesheetBase = stripAssignedProjectFields(
     stampOrganisationId(
@@ -445,7 +449,7 @@ export async function createDirectApprovedLeave(
             id: "leave-direct",
             start_time: startTime,
             end_time: finishTime,
-            label: leaveType,
+            label: leaveTypeLabel,
             category: "leave",
             duration_mode: "full",
             hours,
@@ -465,6 +469,8 @@ export async function createDirectApprovedLeave(
           approved_by_admin: true,
           direct_calendar_leave: true,
           worker_name: workerName,
+          leave_type: leaveType,
+          leave_type_label: leaveTypeLabel,
         },
         updated_at: now,
       }),

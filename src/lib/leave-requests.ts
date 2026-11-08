@@ -93,6 +93,34 @@ export const ALLOWED_LEAVE_TYPES = [
   "Sick",
 ] as const;
 
+/**
+ * Intersection of every leave_request(s)_leave_type_check generation
+ * (010 original + 053/082 expanded). These exact strings are safe to insert
+ * even when an older orphan constraint still rejects "Annual Leave" / "Sick Leave".
+ */
+export const LEAVE_REQUEST_DB_LEAVE_TYPES = [
+  "Sick",
+  "Leave",
+  "Leave without pay",
+  "RDO",
+  "Flexi RDO",
+] as const;
+
+export type LeaveRequestDbLeaveType =
+  (typeof LEAVE_REQUEST_DB_LEAVE_TYPES)[number];
+
+/** Direct calendar leave dropdown: DB value + friendly label. */
+export const DIRECT_LEAVE_TYPE_OPTIONS = [
+  { value: "Leave", label: "Annual Leave" },
+  { value: "Sick", label: "Sick Leave" },
+  { value: "Leave without pay", label: "Leave without pay" },
+  { value: "RDO", label: "RDO" },
+  { value: "Flexi RDO", label: "Flexi RDO" },
+] as const satisfies ReadonlyArray<{
+  value: LeaveRequestDbLeaveType;
+  label: string;
+}>;
+
 /** Dropdown options for leave request forms and filters. */
 export const LEAVE_TYPE_FORM_OPTIONS = [
   "Annual Leave",
@@ -138,6 +166,55 @@ export function sanitizeLeaveType(leaveType?: string | null): SanitizedLeaveType
   if (raw === "personal/carers leave") return "Personal Leave";
 
   return "Annual Leave";
+}
+
+/**
+ * Map any UI / sanitized leave label to a value accepted by the live
+ * leave_request_leave_type_check / leave_requests_leave_type_check constraints.
+ */
+export function toLeaveRequestDbLeaveType(
+  leaveType?: string | null
+): LeaveRequestDbLeaveType {
+  const raw = String(leaveType ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+  if (
+    raw === "sick" ||
+    raw.includes("sick") ||
+    raw.includes("personal") ||
+    raw.includes("carer")
+  ) {
+    return "Sick";
+  }
+  if (raw.includes("without pay") || raw.includes("unpaid")) {
+    return "Leave without pay";
+  }
+  if (raw.includes("flexi") && raw.includes("rdo")) {
+    return "Flexi RDO";
+  }
+  if (raw === "rdo" || raw.includes("rdo")) {
+    return "RDO";
+  }
+  if (
+    LEAVE_REQUEST_DB_LEAVE_TYPES.includes(
+      String(leaveType ?? "").trim() as LeaveRequestDbLeaveType
+    )
+  ) {
+    return String(leaveType).trim() as LeaveRequestDbLeaveType;
+  }
+  // Annual Leave / Public Holiday / Leave / unknown → original "Leave"
+  return "Leave";
+}
+
+export function leaveRequestDbLeaveTypeLabel(
+  leaveType: LeaveRequestDbLeaveType
+): string {
+  return (
+    DIRECT_LEAVE_TYPE_OPTIONS.find((option) => option.value === leaveType)
+      ?.label ?? leaveType
+  );
 }
 
 function buildDayCountFields(daysCount: number) {
