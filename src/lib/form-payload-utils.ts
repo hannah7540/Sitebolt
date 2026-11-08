@@ -97,6 +97,14 @@ export function parseMissingColumnFromError(message: string): string | null {
     return toSchemaColumnName(parts[parts.length - 1] ?? full);
   }
 
+  // Humanized / spaced identifiers: "column assigned project does not exist"
+  const postgresSpacedMatch = message.match(
+    /column\s+([A-Za-z][A-Za-z0-9_ ]*?)\s+does not exist/i
+  );
+  if (postgresSpacedMatch?.[1]) {
+    return toSchemaColumnName(postgresSpacedMatch[1]);
+  }
+
   return null;
 }
 
