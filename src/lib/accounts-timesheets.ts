@@ -266,6 +266,27 @@ export function resolveTimesheetStateForFilter(
   return parseStateFromProjectLocation(project?.location ?? null);
 }
 
+/** Keep only rows matching the active UI state filter (WA / NSW / ACT). */
+export function filterAccountsTimesheetsByState<
+  T extends Pick<AccountsTimesheetRow, "worker_state" | "project_id">,
+>(
+  rows: T[],
+  selectedState: AccountsTimesheetStateFilter | null | undefined,
+  projects: DbProject[] | Map<string, DbProject> = []
+): T[] {
+  const normalizedState = normalizeWorkerStateRegion(selectedState);
+  if (!normalizedState) return rows;
+
+  const projectById =
+    projects instanceof Map
+      ? projects
+      : new Map(projects.map((project) => [project.id, project]));
+
+  return rows.filter(
+    (row) => resolveTimesheetStateForFilter(row, projectById) === normalizedState
+  );
+}
+
 export function resolveTimesheetOvertimeHours(row: WorkerTimesheet): number {
   if (row.overtime_hours != null && row.overtime_hours > 0) {
     return Number(row.overtime_hours);
@@ -946,12 +967,23 @@ export async function downloadPayrollTimesheetCsv(
     filename?: string;
     projects?: DbProject[];
     lookups?: PayrollCsvProjectLookups;
+    /** Active UI state filter (WA / NSW / ACT). Null/undefined = All States. */
+    state?: AccountsTimesheetStateFilter | null;
   } = {}
 ): Promise<{ error: string | null }> {
   try {
-    const sourceRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    const sourceRows = filterAccountsTimesheetsByState(
+      Array.isArray(rows) ? rows.filter(Boolean) : [],
+      options.state,
+      options.projects ?? []
+    );
     if (sourceRows.length === 0) {
-      return { error: "No timesheets available to export." };
+      const stateLabel = normalizeWorkerStateRegion(options.state);
+      return {
+        error: stateLabel
+          ? `No timesheets available to export for ${stateLabel}.`
+          : "No timesheets available to export.",
+      };
     }
 
     const enrichedRows = await enrichTimesheetRowsWithLeaveTypes(sourceRows);

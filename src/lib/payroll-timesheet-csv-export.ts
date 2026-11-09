@@ -423,8 +423,15 @@ function payrollExportDateStamp(rows: PayrollExportTimesheetRow[]): string {
   return start === end ? start : `${start}_to_${end}`;
 }
 
-export function buildPayrollExportFilename(rows: PayrollExportTimesheetRow[]): string {
-  return `timesheets_export_${payrollExportDateStamp(rows)}.zip`;
+export function buildPayrollExportFilename(
+  rows: PayrollExportTimesheetRow[],
+  state?: string | null
+): string {
+  const statePart = normalizeWorkerStateRegion(state);
+  const prefix = statePart
+    ? `timesheets_export_${statePart}_`
+    : "timesheets_export_";
+  return `${prefix}${payrollExportDateStamp(rows)}.zip`;
 }
 
 export function buildPayrollMyobTxtFilename(rows: PayrollExportTimesheetRow[]): string {

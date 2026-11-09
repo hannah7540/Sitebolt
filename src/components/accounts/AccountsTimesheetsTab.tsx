@@ -29,9 +29,9 @@ import {
   formatTimesheetDatePeriod,
   formatTimesheetLineBreakdownAmount,
   isLeavePreviewTimesheetRow,
+  filterAccountsTimesheetsByState,
   mergeAdvanceLeaveRequestsIntoTimesheets,
   resolveTimesheetLineBreakdown,
-  resolveTimesheetStateForFilter,
   type AccountsTimesheetLineBreakdown,
   type AccountsTimesheetRow,
   type AccountsTimesheetStateFilter,
@@ -299,14 +299,7 @@ export default function AccountsTimesheetsTab({
       isDateInPayWeek(row.work_date, selectedWeek.startIso, selectedWeek.endIso)
     );
 
-    if (selectedState) {
-      list = list.filter((row) => {
-        const state = resolveTimesheetStateForFilter(row, projectById);
-        return state === selectedState;
-      });
-    }
-
-    return list;
+    return filterAccountsTimesheetsByState(list, selectedState, projectById);
   }, [rows, leaveRequests, selectedWeek, selectedState, projectById]);
 
   const tableRows = useMemo<TimesheetTableRow[]>(
@@ -490,14 +483,25 @@ export default function AccountsTimesheetsTab({
 
   const handleExport = async () => {
     try {
-      if (sortedRows.length === 0) {
-        showError("No timesheets available to export for this pay week.");
+      const exportRows = filterAccountsTimesheetsByState(
+        sortedRows,
+        selectedState,
+        projectById
+      );
+
+      if (exportRows.length === 0) {
+        showError(
+          selectedState
+            ? `No timesheets available to export for ${selectedState} this pay week.`
+            : "No timesheets available to export for this pay week."
+        );
         return;
       }
 
-      const result = await downloadPayrollTimesheetCsv(sortedRows, payRules, {
-        filename: buildPayrollExportFilename(sortedRows),
+      const result = await downloadPayrollTimesheetCsv(exportRows, payRules, {
+        filename: buildPayrollExportFilename(exportRows, selectedState),
         projects,
+        state: selectedState,
       });
 
       if (result.error) {
@@ -506,7 +510,9 @@ export default function AccountsTimesheetsTab({
         return;
       }
 
-      const successMessage = `Exported ${sortedRows.length} timesheet row(s).`;
+      const successMessage = selectedState
+        ? `Exported ${exportRows.length} timesheet row(s) for ${selectedState}.`
+        : `Exported ${exportRows.length} timesheet row(s).`;
       setMessage(successMessage);
       showSuccess(successMessage);
     } catch (cause) {
