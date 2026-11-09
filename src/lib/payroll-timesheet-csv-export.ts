@@ -39,7 +39,7 @@ import {
   isWaTimesheetJurisdiction,
   isWaWeekendOrHoliday,
   mapWaLeaveTypeToPayrollCategory,
-  WA_ANNUAL_LEAVE_LOADING_UNITS,
+  WA_LEAVE_DAY_HOURS,
   WA_MYOB_CATEGORIES,
 } from "@/lib/payroll/rules/wa";
 
@@ -833,17 +833,29 @@ function pushLeaveExportLine(
   options?: { isWa?: boolean }
 ): void {
   const isWa = options?.isWa === true;
-  const leaveUnits = isWa ? capWaLeaveHours(units) : units;
-  pushLine(lines, row, lookups, payrollCategory, leaveUnits);
+
+  // Annual Leave always exports two fixed 7.6h lines — ignore saved day hours.
   if (isAnnualLeavePayrollCategory(payrollCategory)) {
+    const annualHours = WA_LEAVE_DAY_HOURS;
+    pushLine(
+      lines,
+      row,
+      lookups,
+      PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY,
+      annualHours
+    );
     pushLine(
       lines,
       row,
       lookups,
       PAYROLL_ANNUAL_LEAVE_LOADING_CATEGORY,
-      isWa ? WA_ANNUAL_LEAVE_LOADING_UNITS : leaveUnits
+      annualHours
     );
+    return;
   }
+
+  const leaveUnits = isWa ? capWaLeaveHours(units) : units;
+  pushLine(lines, row, lookups, payrollCategory, leaveUnits);
 }
 
 function resolveWaLeavePayrollCategory(
