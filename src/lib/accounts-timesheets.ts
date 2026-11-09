@@ -90,6 +90,8 @@ export interface AccountsTimesheetRow extends WorkerTimesheet {
   worker_tags?: string[] | null;
   is_leave_preview?: boolean;
   leave_preview_request_status?: LeaveRequestStatus;
+  /** From leave_requests.leave_type via leave_request_id — never a timesheets column. */
+  leave_request_leave_type?: string | null;
 }
 
 const LEAVE_PREVIEW_ID_PREFIX = "leave-preview-";
@@ -152,6 +154,7 @@ function buildLeavePreviewTimesheetRow(
     status: "pending",
     is_draft: false,
     leave_request_id: request.id,
+    leave_request_leave_type: leaveType,
     worker_name: workerName,
     worker_first_name: workerMeta?.worker_first_name ?? null,
     worker_last_name: workerMeta?.worker_last_name ?? null,
@@ -416,17 +419,63 @@ export function filterAccountsTimesheets(
   }
 }
 
+function extractLeaveTypeFromJoinedTimesheetRow(
+  row: Record<string, unknown>
+): string | null {
+  const nested = row.leave_requests;
+  if (Array.isArray(nested) && nested[0] && typeof nested[0] === "object") {
+    const leaveType = (nested[0] as Record<string, unknown>).leave_type;
+    return leaveType != null ? String(leaveType).trim() || null : null;
+  }
+  if (nested && typeof nested === "object") {
+    const leaveType = (nested as Record<string, unknown>).leave_type;
+    return leaveType != null ? String(leaveType).trim() || null : null;
+  }
+  return null;
+}
+
+function mapAccountsTimesheetBaseRow(
+  row: Record<string, unknown>
+): AccountsTimesheetRow {
+  const mapped = mapTimesheetRow(row);
+  return {
+    ...mapped,
+    worker_name: "Unknown worker",
+    leave_request_leave_type: extractLeaveTypeFromJoinedTimesheetRow(row),
+  };
+}
+
 export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]> {
   if (!isSupabaseConfigured()) return [];
 
   const orgId = resolveActiveOrganisationId();
 
   try {
-    let query = supabase.from("worker_timesheets").select("*");
+    // Prefer relational leave_type from leave_requests — never select leave_type
+    // as a column on worker_timesheets (schema mismatch / silent PostgREST errors).
+    const selectWithLeaveJoin =
+      "*, leave_requests!leave_request_id(leave_type)";
+    let query = supabase.from("worker_timesheets").select(selectWithLeaveJoin);
     query = withOrganisationScope(query, orgId);
     let { data: timesheetData, error: timesheetError } = await query
       .order("work_date", { ascending: false })
       .order("created_at", { ascending: false });
+
+    if (
+      timesheetError &&
+      (/leave_type|leave_requests|relationship|foreign key/i.test(
+        timesheetError.message
+      ) ||
+        /could not find|schema cache|does not exist/i.test(timesheetError.message))
+    ) {
+      let fallback = supabase.from("worker_timesheets").select("*");
+      fallback = withOrganisationScope(fallback, orgId);
+      const retry = await fallback
+        .order("work_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      timesheetData = retry.data;
+      timesheetError = retry.error;
+    }
 
     if (timesheetError && isDemoOrganisationScopeBlocked(timesheetError.message, orgId)) {
       return [];
@@ -452,9 +501,45 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
       return [];
     }
 
-    const timesheets = filterRowsByOrganisation(timesheetData ?? [], orgId).map((row) =>
-      mapTimesheetRow(row as Record<string, unknown>)
+    let timesheets = filterRowsByOrganisation(timesheetData ?? [], orgId).map((row) =>
+      mapAccountsTimesheetBaseRow(row as Record<string, unknown>)
     );
+
+    // Batch-enrich any leave rows still missing leave_request_leave_type.
+    const missingLeaveIds = [
+      ...new Set(
+        timesheets
+          .filter(
+            (row) =>
+              row.leave_request_id &&
+              !String(row.leave_request_leave_type ?? "").trim()
+          )
+          .map((row) => String(row.leave_request_id))
+      ),
+    ];
+    if (missingLeaveIds.length > 0) {
+      const { data: leaveRows, error: leaveError } = await supabase
+        .from("leave_requests")
+        .select("id, leave_type")
+        .in("id", missingLeaveIds);
+      if (!leaveError && leaveRows?.length) {
+        const leaveTypeById = new Map(
+          leaveRows.map((leave) => [
+            String((leave as { id?: string }).id ?? ""),
+            String((leave as { leave_type?: string | null }).leave_type ?? "").trim() ||
+              null,
+          ])
+        );
+        timesheets = timesheets.map((row) => {
+          if (!row.leave_request_id || row.leave_request_leave_type) return row;
+          return {
+            ...row,
+            leave_request_leave_type:
+              leaveTypeById.get(row.leave_request_id) ?? null,
+          };
+        });
+      }
+    }
     if (timesheets.length === 0) return [];
 
     const workerIds = [...new Set(timesheets.map((row) => row.worker_id))];
@@ -511,7 +596,7 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
 
     return timesheets.map((row) => ({
       ...row,
-      worker_name: workerNameById.get(row.worker_id) ?? "Unknown worker",
+      worker_name: workerNameById.get(row.worker_id) ?? row.worker_name ?? "Unknown worker",
       worker_first_name: workerFirstNameById.get(row.worker_id) ?? null,
       worker_last_name: workerLastNameById.get(row.worker_id) ?? null,
       worker_trade: row.worker_trade ?? workerTradeById.get(row.worker_id) ?? null,
@@ -522,6 +607,7 @@ export async function fetchAccountsTimesheets(): Promise<AccountsTimesheetRow[]>
       worker_state: workerStateById.get(row.worker_id) ?? null,
       worker_is_leading_hand: workerLeadingHandById.get(row.worker_id) ?? false,
       worker_tags: workerTagsById.get(row.worker_id) ?? null,
+      leave_request_leave_type: row.leave_request_leave_type ?? null,
       myob_export_status: (row.myob_export_status ?? "not_exported") as MyobExportStatus,
       overtime_hours: resolveTimesheetOvertimeHours(row),
     }));
@@ -796,6 +882,63 @@ export async function buildPayrollTimesheetExportCsvAsync(
 
 export { buildPayrollExportFilename } from "./payroll-timesheet-csv-export";
 
+async function enrichTimesheetRowsWithLeaveTypes(
+  rows: AccountsTimesheetRow[]
+): Promise<AccountsTimesheetRow[]> {
+  const missingIds = [
+    ...new Set(
+      rows
+        .filter(
+          (row) =>
+            row.leave_request_id &&
+            !String(row.leave_request_leave_type ?? "").trim()
+        )
+        .map((row) => String(row.leave_request_id))
+    ),
+  ];
+  if (missingIds.length === 0 || !isSupabaseConfigured()) return rows;
+
+  const { data, error } = await supabase
+    .from("leave_requests")
+    .select("id, leave_type")
+    .in("id", missingIds);
+
+  if (error) {
+    throw new Error(
+      `Failed to load leave types for export: ${error.message}`
+    );
+  }
+
+  const leaveTypeById = new Map(
+    (data ?? []).map((leave) => [
+      String((leave as { id?: string }).id ?? ""),
+      String((leave as { leave_type?: string | null }).leave_type ?? "").trim() ||
+        null,
+    ])
+  );
+
+  return rows.map((row) => {
+    if (!row.leave_request_id || row.leave_request_leave_type) return row;
+    return {
+      ...row,
+      leave_request_leave_type: leaveTypeById.get(row.leave_request_id) ?? null,
+    };
+  });
+}
+
+function triggerBrowserBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
 export async function downloadPayrollTimesheetCsv(
   rows: AccountsTimesheetRow[],
   payRules: PayRateRule[] = [],
@@ -804,34 +947,55 @@ export async function downloadPayrollTimesheetCsv(
     projects?: DbProject[];
     lookups?: PayrollCsvProjectLookups;
   } = {}
-): Promise<void> {
-  const lookups =
-    options.lookups ??
-    (options.projects?.length
-      ? resolvePayrollCsvProjectLookups(options.projects)
-      : await fetchPayrollCsvExportProjectLookups());
-  const exportLines = rows.flatMap((row) => {
-    const payRule = resolveTimesheetPayRule(row, payRules);
-    return buildPayrollExportLinesForTimesheet(row, payRule, lookups);
-  });
-  const csv = buildPayrollTimesheetExportCsvFromLines(exportLines);
-  const txt = buildPayrollTimesheetExportMyobTxtFromLines(exportLines);
-  const zipName = options.filename ?? buildPayrollExportFilename(rows);
-  const txtName = buildPayrollMyobTxtFilename(rows);
-  const csvName = buildPayrollReviewCsvFilename(rows);
+): Promise<{ error: string | null }> {
+  try {
+    if (rows.length === 0) {
+      return { error: "No timesheets available to export." };
+    }
 
-  const JSZip = (await import("jszip")).default;
-  const zip = new JSZip();
-  zip.file(txtName, txt);
-  zip.file(csvName, csv);
+    const enrichedRows = await enrichTimesheetRowsWithLeaveTypes(rows);
+    const lookups =
+      options.lookups ??
+      (options.projects?.length
+        ? resolvePayrollCsvProjectLookups(options.projects)
+        : await fetchPayrollCsvExportProjectLookups());
+    const exportLines = enrichedRows.flatMap((row) => {
+      const payRule = resolveTimesheetPayRule(row, payRules);
+      return buildPayrollExportLinesForTimesheet(row, payRule, lookups);
+    });
 
-  const blob = await zip.generateAsync({ type: "blob" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = zipName.endsWith(".zip") ? zipName : `${zipName.replace(/\.csv$/i, "")}.zip`;
-  link.click();
-  URL.revokeObjectURL(url);
+    if (exportLines.length === 0) {
+      return {
+        error:
+          "Export produced no payroll lines. Check pay rules and timesheet hours.",
+      };
+    }
+
+    const csv = buildPayrollTimesheetExportCsvFromLines(exportLines);
+    const txt = buildPayrollTimesheetExportMyobTxtFromLines(exportLines);
+    const zipName = options.filename ?? buildPayrollExportFilename(enrichedRows);
+    const txtName = buildPayrollMyobTxtFilename(enrichedRows);
+    const csvName = buildPayrollReviewCsvFilename(enrichedRows);
+
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    zip.file(txtName, txt);
+    zip.file(csvName, csv);
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const filename = zipName.endsWith(".zip")
+      ? zipName
+      : `${zipName.replace(/\.csv$/i, "")}.zip`;
+    triggerBrowserBlobDownload(blob, filename);
+    return { error: null };
+  } catch (cause) {
+    const message =
+      cause instanceof Error
+        ? cause.message
+        : "Failed to export timesheets.";
+    console.error("[downloadPayrollTimesheetCsv]", cause);
+    return { error: message };
+  }
 }
 
 export function downloadMyobTimesheetCsv(

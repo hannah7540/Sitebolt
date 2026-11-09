@@ -489,10 +489,34 @@ export default function AccountsTimesheetsTab({
   };
 
   const handleExport = async () => {
-    await downloadPayrollTimesheetCsv(sortedRows, payRules, {
-      filename: buildPayrollExportFilename(sortedRows),
-    });
-    setMessage(`Exported ${sortedRows.length} timesheet row(s).`);
+    try {
+      if (sortedRows.length === 0) {
+        showError("No timesheets available to export for this pay week.");
+        return;
+      }
+
+      const result = await downloadPayrollTimesheetCsv(sortedRows, payRules, {
+        filename: buildPayrollExportFilename(sortedRows),
+        projects,
+      });
+
+      if (result.error) {
+        showError(result.error);
+        setMessage(null);
+        return;
+      }
+
+      const successMessage = `Exported ${sortedRows.length} timesheet row(s).`;
+      setMessage(successMessage);
+      showSuccess(successMessage);
+    } catch (cause) {
+      const message =
+        cause instanceof Error
+          ? cause.message
+          : "Failed to export timesheets.";
+      showError(message);
+      setMessage(null);
+    }
   };
 
   return (

@@ -78,9 +78,18 @@ function buildLeaveDaySpec(
 }
 
 export function extractLeaveTypeFromTimesheet(
-  timesheet: WorkerTimesheet
+  timesheet: WorkerTimesheet & {
+    leave_request_leave_type?: string | null;
+  }
 ): string | null {
   if (!isLeaveTimesheet(timesheet)) return null;
+
+  // Prefer leave_requests.leave_type joined/enriched via leave_request_id.
+  // Never read a leave_type column from worker_timesheets (it does not exist).
+  const joinedLeaveType = String(timesheet.leave_request_leave_type ?? "").trim();
+  if (joinedLeaveType) {
+    return normalizeLeaveTypeLabel(joinedLeaveType);
+  }
 
   const notes = String(timesheet.notes ?? "").trim();
   if (notes) {

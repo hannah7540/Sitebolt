@@ -67,6 +67,8 @@ export type PayrollExportTimesheetRow = WorkerTimesheet & {
   worker_tags?: string[] | null;
   worker_trade?: string | null;
   pay_rate_id?: string | null;
+  /** From leave_requests via leave_request_id — not a worker_timesheets column. */
+  leave_request_leave_type?: string | null;
   /** Legacy or denormalised job number when present on the timesheet row. */
   project_code?: string | null;
   job?: string | null;
