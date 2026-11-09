@@ -25,11 +25,36 @@ export function fromSupplierAccounts(client: {
   return (client as { from: (relation: any) => any }).from(SUPPLIER_ACCOUNTS_TABLE);
 }
 
-export const SUPPLIER_ACCOUNT_STATES = ["WA", "NZ", "ACT", "NSW"] as const;
+export const SUPPLIER_ACCOUNT_STATES = [
+  "ACT",
+  "NSW",
+  "NZ",
+  "WA",
+  "Company Wide",
+] as const;
 
 export type SupplierAccountState = (typeof SUPPLIER_ACCOUNT_STATES)[number];
 
 export type SupplierAccountStateFilter = "all" | SupplierAccountState;
+
+/** Preserve "Company Wide"; uppercase ACT/NSW/NZ/WA codes. */
+export function normalizeSupplierAccountState(
+  value: string | null | undefined
+): SupplierAccountState | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const exact = (SUPPLIER_ACCOUNT_STATES as readonly string[]).find(
+    (state) => state === trimmed
+  );
+  if (exact) return exact;
+
+  const upper = trimmed.toUpperCase();
+  const match = SUPPLIER_ACCOUNT_STATES.find(
+    (state) => state.toUpperCase() === upper
+  );
+  return match ?? null;
+}
 
 export interface SupplierAccount {
   id: string;
@@ -93,8 +118,7 @@ function parseCreditLimit(value: unknown): number | null | "invalid" {
 export function isSupplierAccountState(
   value: string | null | undefined
 ): value is SupplierAccountState {
-  if (!value) return false;
-  return (SUPPLIER_ACCOUNT_STATES as readonly string[]).includes(value);
+  return normalizeSupplierAccountState(value) != null;
 }
 
 export function filterSupplierAccountsByState(
@@ -109,8 +133,8 @@ export function mapSupplierAccount(row: unknown): SupplierAccount | null {
   const record = asRecord(row);
   if (!record?.id) return null;
   const name = String(record.name ?? "").trim();
-  const state = String(record.state ?? "").trim().toUpperCase();
-  if (!name || !isSupplierAccountState(state)) return null;
+  const state = normalizeSupplierAccountState(String(record.state ?? ""));
+  if (!name || !state) return null;
   const creditLimit = parseCreditLimit(record.credit_limit);
   return {
     id: String(record.id),
@@ -133,8 +157,8 @@ export function validateSupplierAccountInput(
     return { error: "Name is required." };
   }
 
-  const state = input.state.trim().toUpperCase();
-  if (!isSupplierAccountState(state)) {
+  const state = normalizeSupplierAccountState(input.state);
+  if (!state) {
     return { error: "State is required." };
   }
 
