@@ -4,10 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createDirectApprovedLeave } from "@/app/actions/direct-calendar-leave";
-import {
-  DIRECT_LEAVE_TYPE_OPTIONS,
-  type LeaveRequestDbLeaveType,
-} from "@/lib/leave-requests";
+import type { LeaveRequestDbLeaveType } from "@/lib/leave-requests";
 import { WA_LEAVE_DAY_HOURS } from "@/lib/payroll/rules/wa";
 import {
   inputClass,
@@ -16,7 +13,7 @@ import {
   modalOverlayClass,
 } from "@/lib/ui-classes";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
-import type { Worker } from "@/lib/supabase";
+import type { LeaveType, Worker } from "@/lib/supabase";
 
 export type DirectLeaveModalTarget = {
   worker: Worker;
@@ -28,6 +25,24 @@ interface DirectLeaveModalProps {
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }
+
+/**
+ * Exact leave_requests.leave_type CHECK / LeaveType literals.
+ * value must match the database string byte-for-byte (title case).
+ */
+const DIRECT_LEAVE_OPTIONS: ReadonlyArray<{
+  value: LeaveRequestDbLeaveType & LeaveType;
+  label: string;
+}> = [
+  { value: "Annual Leave", label: "Annual Leave" },
+  { value: "Sick Leave", label: "Sick Leave" },
+  { value: "Personal Leave", label: "Personal Leave" },
+  { value: "Carers Leave", label: "Carers Leave" },
+  { value: "Leave without pay", label: "Leave without pay" },
+  { value: "RDO", label: "RDO" },
+  { value: "Flexi RDO", label: "Flexi RDO" },
+  { value: "Public Holiday", label: "Public Holiday" },
+];
 
 function formatDisplayDate(iso: string): string {
   const parsed = new Date(`${iso}T12:00:00`);
@@ -46,7 +61,8 @@ export default function DirectLeaveModal({
   onSaved,
 }: DirectLeaveModalProps) {
   const router = useRouter();
-  const [leaveType, setLeaveType] = useState<LeaveRequestDbLeaveType>("Leave");
+  const [leaveType, setLeaveType] =
+    useState<LeaveRequestDbLeaveType>("Annual Leave");
   const [hours, setHours] = useState<string>(String(WA_LEAVE_DAY_HOURS));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +89,7 @@ export default function DirectLeaveModal({
       const result = await createDirectApprovedLeave({
         workerId: target.worker.id,
         date: target.date,
+        // Pass the exact LeaveType literal — do not reformat.
         leaveType,
         hours: parsedHours,
         notes: notes.trim() || null,
@@ -124,7 +141,7 @@ export default function DirectLeaveModal({
               }
               disabled={pending}
             >
-              {DIRECT_LEAVE_TYPE_OPTIONS.map((option) => (
+              {DIRECT_LEAVE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

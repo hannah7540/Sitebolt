@@ -33,6 +33,7 @@ const UUID_RE =
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Exact leave_requests.leave_type CHECK / LeaveType literals — no case changes. */
 const directLeaveInputSchema = z.object({
   workerId: z.string().uuid("A valid worker is required."),
   date: z
@@ -43,7 +44,7 @@ const directLeaveInputSchema = z.object({
     (value) => toLeaveRequestDbLeaveType(String(value ?? "")),
     z.enum(LEAVE_REQUEST_DB_LEAVE_TYPES, {
       message:
-        "Leave type must be one of: Sick, Leave, Leave without pay, RDO, Flexi RDO.",
+        "Leave type must be one of: Annual Leave, Sick Leave, Personal Leave, Carers Leave, Leave without pay, RDO, Flexi RDO, Public Holiday.",
     })
   ),
   hours: z

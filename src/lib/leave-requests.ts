@@ -79,7 +79,11 @@ export function resolveWorkerName(
   );
 }
 
-/** Postgres-safe leave_type values allowed by leave_requests_leave_type_check. */
+/**
+ * Exact leave_requests.leave_type literals from LeaveType (src/lib/supabase.ts)
+ * and leave_requests_leave_type_check. Live rows use these title-case strings
+ * (e.g. "Annual Leave") — do not downcase or shorten them.
+ */
 export const ALLOWED_LEAVE_TYPES = [
   "Sick Leave",
   "Personal Leave",
@@ -91,31 +95,37 @@ export const ALLOWED_LEAVE_TYPES = [
   "Flexi RDO",
   "Public Holiday",
   "Sick",
-] as const;
+] as const satisfies ReadonlyArray<LeaveType>;
 
 /**
- * Intersection of every leave_request(s)_leave_type_check generation
- * (010 original + 053/082 expanded). These exact strings are safe to insert
- * even when an older orphan constraint still rejects "Annual Leave" / "Sick Leave".
+ * Strict insert set for direct calendar leave — matches LeaveType / live CHECK
+ * values proven in production (existing row: "Annual Leave"). Omits legacy
+ * short aliases "Sick" / "Leave" that some live constraints reject.
  */
 export const LEAVE_REQUEST_DB_LEAVE_TYPES = [
-  "Sick",
-  "Leave",
+  "Annual Leave",
+  "Sick Leave",
+  "Personal Leave",
+  "Carers Leave",
   "Leave without pay",
   "RDO",
   "Flexi RDO",
-] as const;
+  "Public Holiday",
+] as const satisfies ReadonlyArray<LeaveType>;
 
 export type LeaveRequestDbLeaveType =
   (typeof LEAVE_REQUEST_DB_LEAVE_TYPES)[number];
 
-/** Direct calendar leave dropdown: DB value + friendly label. */
+/** Direct calendar leave dropdown: value === exact DB leave_type literal. */
 export const DIRECT_LEAVE_TYPE_OPTIONS = [
-  { value: "Leave", label: "Annual Leave" },
-  { value: "Sick", label: "Sick Leave" },
+  { value: "Annual Leave", label: "Annual Leave" },
+  { value: "Sick Leave", label: "Sick Leave" },
+  { value: "Personal Leave", label: "Personal Leave" },
+  { value: "Carers Leave", label: "Carers Leave" },
   { value: "Leave without pay", label: "Leave without pay" },
   { value: "RDO", label: "RDO" },
   { value: "Flexi RDO", label: "Flexi RDO" },
+  { value: "Public Holiday", label: "Public Holiday" },
 ] as const satisfies ReadonlyArray<{
   value: LeaveRequestDbLeaveType;
   label: string;
@@ -131,7 +141,7 @@ export const LEAVE_TYPE_FORM_OPTIONS = [
   "Flexi RDO",
   "Leave without pay",
   "Public Holiday",
-] as const;
+] as const satisfies ReadonlyArray<LeaveRequestDbLeaveType>;
 
 export type SanitizedLeaveType = (typeof ALLOWED_LEAVE_TYPES)[number];
 
@@ -169,43 +179,30 @@ export function sanitizeLeaveType(leaveType?: string | null): SanitizedLeaveType
 }
 
 /**
- * Map any UI / sanitized leave label to a value accepted by the live
- * leave_request_leave_type_check / leave_requests_leave_type_check constraints.
+ * Coerce any UI label to an exact leave_requests.leave_type CHECK value.
+ * Prefer title-case literals ("Sick Leave", not "Sick" / "sick").
  */
 export function toLeaveRequestDbLeaveType(
   leaveType?: string | null
 ): LeaveRequestDbLeaveType {
-  const raw = String(leaveType ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  const trimmed = String(leaveType ?? "").trim();
+  if (
+    (LEAVE_REQUEST_DB_LEAVE_TYPES as readonly string[]).includes(trimmed)
+  ) {
+    return trimmed as LeaveRequestDbLeaveType;
+  }
 
+  const sanitized = sanitizeLeaveType(trimmed);
   if (
-    raw === "sick" ||
-    raw.includes("sick") ||
-    raw.includes("personal") ||
-    raw.includes("carer")
+    (LEAVE_REQUEST_DB_LEAVE_TYPES as readonly string[]).includes(sanitized)
   ) {
-    return "Sick";
+    return sanitized as LeaveRequestDbLeaveType;
   }
-  if (raw.includes("without pay") || raw.includes("unpaid")) {
-    return "Leave without pay";
-  }
-  if (raw.includes("flexi") && raw.includes("rdo")) {
-    return "Flexi RDO";
-  }
-  if (raw === "rdo" || raw.includes("rdo")) {
-    return "RDO";
-  }
-  if (
-    LEAVE_REQUEST_DB_LEAVE_TYPES.includes(
-      String(leaveType ?? "").trim() as LeaveRequestDbLeaveType
-    )
-  ) {
-    return String(leaveType).trim() as LeaveRequestDbLeaveType;
-  }
-  // Annual Leave / Public Holiday / Leave / unknown → original "Leave"
-  return "Leave";
+
+  // Legacy short aliases → title-case CHECK values
+  if (sanitized === "Sick") return "Sick Leave";
+  if (sanitized === "Leave") return "Annual Leave";
+  return "Annual Leave";
 }
 
 export function leaveRequestDbLeaveTypeLabel(
