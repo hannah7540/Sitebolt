@@ -107,8 +107,14 @@ export function inferCategoryFromLabel(label: string): TimesheetLineCategory {
 }
 
 export function resolveLineCategory(slot: TimesheetActivitySlot): TimesheetLineCategory {
-  if (slot.category) return slot.category;
-  return inferCategoryFromLabel(slot.label);
+  const category = slot.category;
+  // Honour known leave/work categories only. Invalid values like "leave"
+  // (from direct calendar inserts) must fall back to label inference so
+  // "Sick Leave" is not treated as a generic/annual leave bucket.
+  if (category && category in CATEGORY_LABELS) {
+    return category;
+  }
+  return inferCategoryFromLabel(slot.label ?? "");
 }
 
 export function resolveLineDurationMode(

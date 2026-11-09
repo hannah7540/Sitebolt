@@ -81,6 +81,7 @@ export function isLeaveTimesheet(timesheet: WorkerTimesheet): boolean {
     "leave without pay",
     "public holiday",
     "sick leave",
+    "sick",
     "carers leave",
   ];
 
@@ -113,6 +114,58 @@ function resolveNetWorkHours(timesheet: WorkerTimesheet): number {
   const breaks = timesheet.breaks ?? [];
   const totals = calculateDailyTotalsFromSlots(activities, breaks);
   return Math.max(0, Math.round((totals.workHours - totals.breakHours) * 100) / 100);
+}
+
+/**
+ * Resolve the correct leave line category/label from timesheet notes /
+ * leave_request join — never assume Annual Leave for every leave day.
+ */
+function resolveLeavePayLineFromTimesheet(timesheet: WorkerTimesheet): {
+  category: TimesheetLineCategory;
+  label: string;
+} {
+  const joined = String(
+    (timesheet as { leave_request_leave_type?: string | null })
+      .leave_request_leave_type ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const notesPrefix = String(timesheet.notes ?? "")
+    .split(" - ")[0]
+    ?.trim()
+    .toLowerCase() ?? "";
+  const activityLabel = String(
+    (timesheet.activities ?? []).find((slot) => String(slot.label ?? "").trim())
+      ?.label ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const raw = joined || notesPrefix || activityLabel;
+
+  if (raw.includes("sick") || raw === "sick") {
+    return { category: "sick_leave", label: "Sick Leave" };
+  }
+  if (raw.includes("carer")) {
+    return { category: "carers_leave", label: "Carers Leave" };
+  }
+  if (raw.includes("personal")) {
+    return { category: "personal_leave", label: "Personal Leave" };
+  }
+  if (raw.includes("public")) {
+    return { category: "public_holiday", label: "Public Holiday" };
+  }
+  if (raw.includes("without pay") || raw.includes("unpaid") || raw === "lwop") {
+    return { category: "leave_without_pay", label: "Leave without pay" };
+  }
+  if (raw.includes("rdo")) {
+    return { category: "rdo", label: "RDO" };
+  }
+  if (raw.includes("annual") || raw === "leave" || raw === "annual leave") {
+    return { category: "annual_leave", label: "Annual Leave" };
+  }
+
+  // Unknown leave: prefer personal over annual so Sick-like rows never load Annual Leave Loading.
+  return { category: "personal_leave", label: "Personal Leave" };
 }
 
 function resolveLeaveHours(timesheet: WorkerTimesheet): number {
@@ -256,9 +309,10 @@ export function calculateTimesheetPay(
       });
     }
   } else if (isLeaveDay && leaveHours > 0) {
+    const leaveLine = resolveLeavePayLineFromTimesheet(timesheet);
     lineItems.push({
-      category: "annual_leave",
-      label: "Leave",
+      category: leaveLine.category,
+      label: leaveLine.label,
       hours: leaveHours,
       rate: payRule.base_hourly_rate,
       amount: roundMoney(leaveHours * payRule.base_hourly_rate),

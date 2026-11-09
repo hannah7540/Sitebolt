@@ -486,13 +486,22 @@ export function resolvePayrollCategoryNames(
 export function mapLeaveTypeToPayrollCategory(
   leaveType?: string | null
 ): string {
+  const raw = safeTrim(leaveType).toLowerCase();
+  // Honour exact DB short values before label normalisation.
+  if (raw === "sick" || raw.includes("sick")) {
+    return "Personal Leave Pay";
+  }
+
   const normalized = normalizeLeaveTypeLabel(safeTrim(leaveType));
 
   switch (normalized) {
     case "Personal Leave":
     case "Sick Leave":
+    case "Sick":
+    case "Carers Leave":
       return "Personal Leave Pay";
     case "Annual Leave":
+    case "Leave":
       return PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
     case "Public Holiday":
       return "Public Holiday Pay";
@@ -501,10 +510,15 @@ export function mapLeaveTypeToPayrollCategory(
       return "RDO Taken";
     case "Leave without pay":
       return "Leave Without Pay";
-    case "Carers Leave":
-      return "Personal Leave Pay";
     default:
-      return PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
+      // Do not treat unknown leave as Annual (avoids false Annual Leave Loading).
+      if (raw.includes("personal") || raw.includes("carer")) {
+        return "Personal Leave Pay";
+      }
+      if (raw.includes("annual")) {
+        return PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
+      }
+      return "Personal Leave Pay";
   }
 }
 
@@ -688,25 +702,45 @@ export function sortPayrollExportLines(
   });
 }
 
+function resolveTimesheetLeaveTypeForExport(
+  row: PayrollExportTimesheetRow
+): string | null {
+  const joined = safeTrim(row.leave_request_leave_type);
+  if (joined) return joined;
+
+  const leaveDisplay = resolveLeaveTimesheetDisplay(row);
+  if (leaveDisplay?.leaveType) return leaveDisplay.leaveType;
+
+  return null;
+}
+
 function resolveLeavePayrollCategory(
   row: PayrollExportTimesheetRow,
   category: TimesheetLineCategory,
   label: string | null | undefined
 ): string {
+  // Prefer the real leave_requests / notes leave type over a stale line category
+  // (calculateTimesheetPay previously hardcoded leave days as annual_leave).
+  const leaveType = resolveTimesheetLeaveTypeForExport(row);
+  if (leaveType) {
+    return mapLeaveTypeToPayrollCategory(leaveType);
+  }
+
+  if (category === "sick_leave" || category === "personal_leave" || category === "carers_leave") {
+    return "Personal Leave Pay";
+  }
+  if (category === "annual_leave") {
+    return PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
+  }
   if (category !== "work") {
     return (
       LEAVE_LINE_TO_PAYROLL_CATEGORY[category] ??
       safeTrim(label) ??
-      "Base Hourly"
+      "Personal Leave Pay"
     );
   }
 
-  const leaveDisplay = resolveLeaveTimesheetDisplay(row);
-  if (leaveDisplay?.leaveType) {
-    return mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType);
-  }
-
-  return safeTrim(label) || "Base Hourly";
+  return mapLeaveTypeToPayrollCategory(safeTrim(label)) || "Personal Leave Pay";
 }
 
 function pushLine(
@@ -761,6 +795,19 @@ function resolveWaLeavePayrollCategory(
   category: TimesheetLineCategory,
   label: string
 ): string {
+  // Always translate from the actual leave type first so Sick never becomes
+  // Annual Leave Pay / Annual Leave Loading under WA rules.
+  const leaveType = resolveTimesheetLeaveTypeForExport(row);
+  if (leaveType) {
+    return mapWaLeaveTypeToPayrollCategory(leaveType);
+  }
+  if (
+    category === "sick_leave" ||
+    category === "personal_leave" ||
+    category === "carers_leave"
+  ) {
+    return WA_MYOB_CATEGORIES.personalLeavePay;
+  }
   const mapped = resolveLeavePayrollCategory(row, category, label);
   return mapWaLeaveTypeToPayrollCategory(mapped);
 }
@@ -801,12 +848,15 @@ function buildLeaveExportLines(
     );
   }
 
-  const leaveDisplay = resolveLeaveTimesheetDisplay(row);
-  if (lines.length === 0 && leaveDisplay) {
+  const leaveType =
+    resolveTimesheetLeaveTypeForExport(row) ||
+    resolveLeaveTimesheetDisplay(row)?.leaveType ||
+    null;
+  if (lines.length === 0 && leaveType) {
     const totals = resolveTimesheetDisplayTotals(row);
     const leaveCategory = isWa
-      ? mapWaLeaveTypeToPayrollCategory(leaveDisplay.leaveType)
-      : mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType);
+      ? mapWaLeaveTypeToPayrollCategory(leaveType)
+      : mapLeaveTypeToPayrollCategory(leaveType);
     pushLeaveExportLine(
       lines,
       row,

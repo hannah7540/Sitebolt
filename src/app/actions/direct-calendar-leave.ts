@@ -458,7 +458,22 @@ export async function createDirectApprovedLeave(
             start_time: startTime,
             end_time: finishTime,
             label: leaveTypeLabel,
-            category: "leave",
+            category:
+              leaveType === "Sick" || leaveTypeLabel.toLowerCase().includes("sick")
+                ? "sick_leave"
+                : leaveType === "RDO" || leaveTypeLabel.toUpperCase() === "RDO"
+                  ? "rdo"
+                  : leaveType === "Flexi RDO"
+                    ? "rdo"
+                    : leaveType === "Leave without pay"
+                      ? "leave_without_pay"
+                      : leaveType === "Public Holiday"
+                        ? "public_holiday"
+                        : leaveTypeLabel.toLowerCase().includes("personal")
+                          ? "personal_leave"
+                          : leaveTypeLabel.toLowerCase().includes("carer")
+                            ? "carers_leave"
+                            : "annual_leave",
             duration_mode: "full",
             hours,
           },

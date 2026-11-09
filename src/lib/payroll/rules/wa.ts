@@ -124,22 +124,58 @@ export function capWaLeaveHours(hours: number): number {
   return roundWaUnits(Math.min(safe, WA_LEAVE_DAY_HOURS));
 }
 
-export function mapWaLeaveTypeToPayrollCategory(leaveType: string): string {
-  const normalized = leaveType.trim().toLowerCase();
-  if (normalized.includes("personal") || normalized.includes("sick") || normalized.includes("carer")) {
+/**
+ * Map a leave_type / payroll label to the exact WA MYOB export category.
+ * Sick / personal / carers → "Personal Leave Pay" (never Annual Leave / Loading).
+ * Annual is matched only for clear annual leave values — not as a catch-all.
+ */
+export function mapWaLeaveTypeToPayrollCategory(
+  leaveType?: string | null
+): string {
+  const normalized = String(leaveType ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+  // Sick / personal / carers must map EXACTLY to Personal Leave Pay.
+  if (
+    normalized === "sick" ||
+    normalized === "sick leave" ||
+    normalized === "personal" ||
+    normalized === "personal leave" ||
+    normalized === "personal leave pay" ||
+    normalized.includes("sick") ||
+    normalized.includes("personal") ||
+    normalized.includes("carer")
+  ) {
     return WA_MYOB_CATEGORIES.personalLeavePay;
   }
-  if (normalized.includes("annual")) {
-    return WA_MYOB_CATEGORIES.annualLeavePay;
-  }
+
   if (normalized.includes("public")) {
     return WA_MYOB_CATEGORIES.publicHoliday;
   }
-  if (normalized.includes("without pay") || normalized.includes("unpaid") || normalized === "lwop") {
+  if (
+    normalized.includes("without pay") ||
+    normalized.includes("unpaid") ||
+    normalized === "lwop"
+  ) {
     return WA_MYOB_CATEGORIES.leaveWithoutPay;
   }
   if (normalized.includes("rdo")) {
     return WA_MYOB_CATEGORIES.rdoTaken;
   }
-  return WA_MYOB_CATEGORIES.annualLeavePay;
+
+  // Strict annual isolation — only clear annual values (not unknown / sick).
+  if (
+    normalized === "annual" ||
+    normalized === "annual leave" ||
+    normalized === "annual leave pay" ||
+    normalized === "leave" ||
+    (normalized.includes("annual") && !normalized.includes("loading"))
+  ) {
+    return WA_MYOB_CATEGORIES.annualLeavePay;
+  }
+
+  // Unknown leave labels: do not invent Annual Leave Pay / Loading.
+  return WA_MYOB_CATEGORIES.personalLeavePay;
 }
