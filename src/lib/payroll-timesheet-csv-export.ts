@@ -17,7 +17,11 @@ import {
   resolveTimesheetLineItems,
   type TimesheetLineCategory,
 } from "./timesheet-line-items";
-import { resolveTimesheetDisplayTotals } from "./timesheet-utils";
+import {
+  calculateSlotMinutes,
+  minutesToHours,
+  resolveTimesheetDisplayTotals,
+} from "./timesheet-utils";
 import {
   isMealAllowanceEligible,
   MEAL_ALLOWANCE_HOURS_THRESHOLD,
@@ -29,7 +33,7 @@ import { resolveTravelPayrollCategory } from "./worker-pay-rule-assignment";
 import { splitWorkerFullName } from "./worker-utils";
 import { normalizeWorkerStateRegion } from "./worker-state-region";
 import {
-  calculateWaWorkHours,
+  calculateWaSplitBaseHourly,
   capWaLeaveHours,
   isLeadingHandWorker,
   isWaTimesheetJurisdiction,
@@ -577,7 +581,59 @@ function resolveWorkedShiftHours(
   }
 
   const totals = resolveTimesheetDisplayTotals(row);
-  return Math.max(0, roundUnits(totals.workHours - totals.breakHours));
+  // workHours is already net of break.
+  return Math.max(0, roundUnits(totals.workHours));
+}
+
+/** Hours worked from shift start until the first break starts (0 when no break). */
+function resolvePreBreakWorkHours(row: PayrollExportTimesheetRow): number {
+  const breaks = row.breaks ?? [];
+  const firstBreak = breaks.find(
+    (slot) => safeTrim(slot.startTime) && safeTrim(slot.endTime)
+  );
+  if (!firstBreak) return 0;
+
+  const activities = row.activities ?? [];
+  const startTime =
+    safeTrim(activities[0]?.startTime) || safeTrim(row.start_time);
+  const breakStart = safeTrim(firstBreak.startTime);
+  if (!startTime || !breakStart) return 0;
+
+  return roundUnits(minutesToHours(calculateSlotMinutes(startTime, breakStart)));
+}
+
+function pushWaWorkExportLines(
+  lines: PayrollCsvExportLine[],
+  row: PayrollExportTimesheetRow,
+  lookups: PayrollCsvProjectLookups,
+  shiftHours: number
+): void {
+  const weekendOrHoliday = isWaWeekendOrHoliday(row.work_date);
+  const preBreakHours = resolvePreBreakWorkHours(row);
+  const split = calculateWaSplitBaseHourly({
+    netWorkHours: shiftHours,
+    preBreakWorkHours: preBreakHours,
+    weekendOrHoliday,
+  });
+
+  // Same "Base Hourly" label for pre-break and post-break ordinary hours.
+  // With no break, preBreak=0 and postBreak holds the full ≤7.6 bucket.
+  if (split.basePreBreak > 0) {
+    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.basePreBreak);
+  }
+  if (split.basePostBreak > 0) {
+    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.basePostBreak);
+  }
+
+  if (split.rdoAccrual > 0) {
+    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
+  }
+  if (split.overtime15 > 0) {
+    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
+  }
+  if (isLeadingHandWorker(row) && shiftHours > 0) {
+    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.leadingHand, 1);
+  }
 }
 
 /** AAC is paid on every hour worked (base + overtime). */
@@ -891,22 +947,7 @@ function buildWorkAndAllowanceExportLines(
   }
 
   if (isWa) {
-    const split = calculateWaWorkHours(
-      shiftHours,
-      isWaWeekendOrHoliday(row.work_date)
-    );
-    if (split.baseHourly > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.baseHourly);
-    }
-    if (split.rdoAccrual > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
-    }
-    if (split.overtime15 > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
-    }
-    if (isLeadingHandWorker(row) && shiftHours > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.leadingHand, 1);
-    }
+    pushWaWorkExportLines(lines, row, lookups, shiftHours);
     return lines;
   }
 
@@ -951,27 +992,12 @@ function buildFallbackWorkExportLines(
   const isNsw = isNswPayrollExportContext(null, row.worker_state);
   const isWa = isWaPayrollExportContext(null, row.worker_state);
   const totals = resolveTimesheetDisplayTotals(row);
-  const shiftHours = Math.max(0, roundUnits(totals.workHours - totals.breakHours));
+  const shiftHours = Math.max(0, roundUnits(totals.workHours));
 
   if (shiftHours <= 0) return lines;
 
   if (isWa) {
-    const split = calculateWaWorkHours(
-      shiftHours,
-      isWaWeekendOrHoliday(row.work_date)
-    );
-    if (split.baseHourly > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.baseHourly);
-    }
-    if (split.rdoAccrual > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
-    }
-    if (split.overtime15 > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
-    }
-    if (isLeadingHandWorker(row) && shiftHours > 0) {
-      pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.leadingHand, 1);
-    }
+    pushWaWorkExportLines(lines, row, lookups, shiftHours);
     return lines;
   }
 

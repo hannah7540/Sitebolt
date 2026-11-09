@@ -827,13 +827,12 @@ export default function WorkerTimesheetModal({
             <div>
               <p className="text-xs text-slate-500">Work Total</p>
               <p className="text-lg font-bold text-slate-900">
-                {formatTimesheetHoursLabel(
-                  Math.max(0, totals.workHours - totals.breakHours)
-                )}
+                {formatTimesheetHoursLabel(totals.workHours)}
               </p>
               {totals.breakHours > 0 ? (
                 <p className="text-[11px] text-slate-500">
-                  {formatTimesheetHoursLabel(totals.workHours)} before breaks
+                  {formatTimesheetHoursLabel(totals.dailyTotalHours)} elapsed
+                  including break
                 </p>
               ) : null}
             </div>

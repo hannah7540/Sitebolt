@@ -147,12 +147,20 @@ export default function AccountsAddTimesheets() {
     const base = calculateDailyTotalsFromSlots(activities, []);
     if (isLeaveEntry || breakMinutes <= 0) return base;
     const breakHours = Math.round((breakMinutes / 60) * 100) / 100;
+    const grossWorkHours = base.grossWorkHours;
+    const workHours = Math.max(
+      0,
+      Math.round((grossWorkHours - breakHours) * 100) / 100
+    );
     return {
       ...base,
       breakHours,
+      workHours,
+      grossWorkHours,
+      // Daily total = elapsed including break.
       dailyTotalHours: Math.max(
         0,
-        Math.round((base.workHours - breakHours + base.leaveHours) * 100) / 100
+        Math.round((grossWorkHours + base.leaveHours) * 100) / 100
       ),
     };
   }, [activities, breakMinutes, isLeaveEntry]);

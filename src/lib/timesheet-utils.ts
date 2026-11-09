@@ -102,37 +102,91 @@ export function validateLineItemTimeRange(
   return null;
 }
 
+/**
+ * Coerce break fields that may be checkbox noise ("on"), booleans, minutes, or hours.
+ * Returns decimal hours (e.g. 30 minutes → 0.5).
+ */
+export function parseTimesheetBreakHours(
+  breakHoursValue: unknown,
+  breakMinutesValue?: unknown
+): number {
+  const fromMinutes = (raw: unknown): number | null => {
+    if (raw == null || raw === "") return null;
+    if (typeof raw === "boolean") return null;
+    const text = String(raw).trim().toLowerCase();
+    if (!text || text === "on" || text === "off" || text === "true" || text === "false") {
+      return null;
+    }
+    const mins = Number(text);
+    if (!Number.isFinite(mins) || mins < 0) return null;
+    return minutesToHours(mins);
+  };
+
+  if (typeof breakHoursValue === "boolean") {
+    return fromMinutes(breakMinutesValue) ?? 0;
+  }
+
+  if (breakHoursValue != null && breakHoursValue !== "") {
+    const text = String(breakHoursValue).trim().toLowerCase();
+    if (text && text !== "on" && text !== "off" && text !== "true" && text !== "false") {
+      const asNumber = Number(text);
+      if (Number.isFinite(asNumber) && asNumber >= 0) {
+        // Values like 30 are almost certainly minutes when > 16.
+        if (asNumber > 16) return minutesToHours(asNumber);
+        return Math.round(asNumber * 100) / 100;
+      }
+    }
+  }
+
+  return fromMinutes(breakMinutesValue) ?? 0;
+}
+
 export function calculateDailyTotalsFromSlots(
   activities: TimesheetActivitySlot[],
   breaks: TimesheetBreakSlot[]
 ): {
+  /** Net worked hours after break (Work Total). */
   workHours: number;
+  /** Break duration in decimal hours (Break Total). */
   breakHours: number;
+  /** Gross elapsed span including break + leave (Daily Total). */
   dailyTotalHours: number;
   leaveHours: number;
+  /** Gross work-line span before subtracting break. */
+  grossWorkHours: number;
 } {
-  const workHours = sumWorkLineHours(activities);
+  const grossWorkHours = sumWorkLineHours(activities);
   const leaveHours = sumLeaveLineHours(activities);
   const breakMinutes = breaks.reduce(
     (sum, row) => sum + calculateSlotMinutes(row.startTime, row.endTime),
     0
   );
   const breakHours = minutesToHours(breakMinutes);
+  const workHours = Math.max(
+    0,
+    Math.round((grossWorkHours - breakHours) * 100) / 100
+  );
+  // Daily total = full elapsed day (work span including break) + leave.
   const dailyTotalHours = Math.max(
     0,
-    Math.round((workHours - breakHours + leaveHours) * 100) / 100
+    Math.round((grossWorkHours + leaveHours) * 100) / 100
   );
 
-  return { workHours, breakHours, dailyTotalHours, leaveHours };
+  return { workHours, breakHours, dailyTotalHours, leaveHours, grossWorkHours };
 }
 
 export interface ResolvedTimesheetDisplayTotals {
   startTime: string;
   endTime: string;
+  /** Net worked hours after break (Work Total column). */
   workHours: number;
+  /** Break duration in decimal hours (Break Total column). */
   breakHours: number;
+  /** Gross elapsed including break (Daily Total column). */
   dailyTotalHours: number;
   leaveHours: number;
+  /** Gross work-line span before subtracting break. */
+  grossWorkHours: number;
 }
 
 /** Derive start/end and hour totals from activity/break slots or legacy fields. */
@@ -155,30 +209,46 @@ export function resolveTimesheetDisplayTotals(
 
   if (activities.length > 0 || breaks.length > 0) {
     const totals = calculateDailyTotalsFromSlots(activities, breaks);
+    // Prefer explicit break_minutes / break_hours when break slots failed to parse
+    // (e.g. legacy rows) but still keep slot-derived value when present.
+    const breakHours =
+      totals.breakHours > 0
+        ? totals.breakHours
+        : parseTimesheetBreakHours(row.break_hours, row.break_minutes);
+    const grossWorkHours = totals.grossWorkHours;
+    const workHours = Math.max(
+      0,
+      Math.round((grossWorkHours - breakHours) * 100) / 100
+    );
+    const dailyTotalHours = Math.max(
+      0,
+      Math.round((grossWorkHours + totals.leaveHours) * 100) / 100
+    );
     return {
       startTime: activities[0]?.startTime ?? row.start_time,
       endTime: activities[activities.length - 1]?.endTime ?? row.finish_time,
-      workHours: totals.workHours,
-      breakHours: totals.breakHours,
-      dailyTotalHours: totals.dailyTotalHours,
+      workHours,
+      breakHours,
+      dailyTotalHours,
       leaveHours: totals.leaveHours,
+      grossWorkHours,
     };
   }
 
   const workMinutes = calculateSlotMinutes(row.start_time, row.finish_time);
-  const breakMinutes = Number(row.break_minutes ?? 0) || 0;
-  const breakHours =
-    row.break_hours != null
-      ? Number(row.break_hours)
-      : minutesToHours(breakMinutes);
-  const workHours =
-    row.work_hours != null ? Number(row.work_hours) : minutesToHours(workMinutes);
-  const dailyTotalHours =
-    row.daily_total_hours != null
-      ? Number(row.daily_total_hours)
-      : row.total_hours != null
-        ? Number(row.total_hours)
-        : calculateTimesheetHours(row.start_time, row.finish_time, breakMinutes);
+  const breakHours = parseTimesheetBreakHours(row.break_hours, row.break_minutes);
+  const grossWorkHours =
+    row.work_hours != null && Number.isFinite(Number(row.work_hours))
+      ? Math.max(0, Number(row.work_hours) + breakHours)
+      : minutesToHours(workMinutes);
+  const workHours = Math.max(
+    0,
+    Math.round((grossWorkHours - breakHours) * 100) / 100
+  );
+  const dailyTotalHours = Math.max(
+    0,
+    Math.round(grossWorkHours * 100) / 100
+  );
 
   return {
     startTime: row.start_time,
@@ -187,12 +257,15 @@ export function resolveTimesheetDisplayTotals(
     breakHours,
     dailyTotalHours,
     leaveHours: 0,
+    grossWorkHours,
   };
 }
 
 export function formatTimesheetHoursLabel(hours: number): string {
-  if (Number.isInteger(hours)) return `${hours}hrs`;
-  return `${hours.toFixed(1)}hrs`;
+  const safe = Number(hours);
+  if (!Number.isFinite(safe)) return "0hrs";
+  if (Number.isInteger(safe)) return `${safe}hrs`;
+  return `${safe.toFixed(1)}hrs`;
 }
 
 export function localIsoDate(date: Date = new Date()): string {
@@ -295,8 +368,10 @@ export function calculateTimesheetHours(
 }
 
 export function formatTimesheetHours(hours: number): string {
-  if (Number.isInteger(hours)) return `${hours}h`;
-  return `${hours.toFixed(1)}h`;
+  const safe = Number(hours);
+  if (!Number.isFinite(safe)) return "0h";
+  if (Number.isInteger(safe)) return `${safe}h`;
+  return `${safe.toFixed(1)}h`;
 }
 
 export function formatTimeDisplay(time: string): string {

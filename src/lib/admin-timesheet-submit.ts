@@ -153,12 +153,19 @@ function resolveTotals(input: AdminTimesheetSubmitInput): ReturnType<typeof calc
   const overrideMinutes = Number(input.breakMinutes ?? 0);
   if (breaks.length === 0 && overrideMinutes > 0) {
     const breakHours = Math.round((overrideMinutes / 60) * 100) / 100;
+    const grossWorkHours = baseTotals.grossWorkHours;
+    const workHours = Math.max(
+      0,
+      Math.round((grossWorkHours - breakHours) * 100) / 100
+    );
     return {
       ...baseTotals,
       breakHours,
+      workHours,
+      grossWorkHours,
       dailyTotalHours: Math.max(
         0,
-        Math.round((baseTotals.workHours - breakHours + baseTotals.leaveHours) * 100) / 100
+        Math.round((grossWorkHours + baseTotals.leaveHours) * 100) / 100
       ),
     };
   }

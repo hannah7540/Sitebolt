@@ -113,7 +113,8 @@ function resolveNetWorkHours(timesheet: WorkerTimesheet): number {
   const activities = timesheet.activities ?? [];
   const breaks = timesheet.breaks ?? [];
   const totals = calculateDailyTotalsFromSlots(activities, breaks);
-  return Math.max(0, Math.round((totals.workHours - totals.breakHours) * 100) / 100);
+  // workHours is already net of break.
+  return Math.max(0, totals.workHours);
 }
 
 /**

@@ -189,11 +189,15 @@ export function buildTestTimesheetInsertPayload(options: {
 export function validateTimesheetHourCalculations(row: WorkerTimesheet): string[] {
   const totals = resolveTimesheetDisplayTotals(row);
   const errors: string[] = [];
-  const expectedDaily = Math.max(0, totals.workHours - totals.breakHours);
+  // Daily total is gross elapsed (work net + break); workHours is already net of break.
+  const expectedDaily = Math.max(
+    0,
+    Math.round((totals.workHours + totals.breakHours) * 100) / 100
+  );
 
   if (Math.abs(totals.dailyTotalHours - expectedDaily) > 0.02) {
     errors.push(
-      `Daily total ${totals.dailyTotalHours} does not match work ${totals.workHours} minus break ${totals.breakHours}.`
+      `Daily total ${totals.dailyTotalHours} does not match work ${totals.workHours} plus break ${totals.breakHours}.`
     );
   }
 

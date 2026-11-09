@@ -26,7 +26,8 @@ export function resolveNetWorkedHoursForMealAllowance(
   >
 ): number {
   const totals = resolveTimesheetDisplayTotals(timesheet);
-  return Math.max(0, roundHours(totals.workHours - totals.breakHours));
+  // workHours is already net of break.
+  return Math.max(0, roundHours(totals.workHours));
 }
 
 export function resolveMealAllowanceThreshold(

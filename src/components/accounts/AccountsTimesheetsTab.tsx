@@ -851,7 +851,11 @@ export default function AccountsTimesheetsTab({
                         )}
                       </td>
                       <td className="px-3 py-3 text-slate-700">
-                        {formatTimesheetHours(breakHours)}
+                        {formatTimesheetHours(
+                          Number.isFinite(Number(breakHours))
+                            ? Number(breakHours)
+                            : 0
+                        )}
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-900">
                         {formatTimesheetHours(dailyTotalHours)}

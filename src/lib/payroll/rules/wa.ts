@@ -86,6 +86,15 @@ export type WaWorkHourSplit = {
   overtime15: number;
 };
 
+export type WaSplitBaseHourly = {
+  /** First Base Hourly line: ordinary hours before the break (≤ 7.6). */
+  basePreBreak: number;
+  /** Second Base Hourly line: remaining ordinary hours after the break. */
+  basePostBreak: number;
+  rdoAccrual: number;
+  overtime15: number;
+};
+
 /**
  * Net worked hours after break: first 7.6 → Base Hourly, next 0.4 → RDO Accrual,
  * anything after 8.0 → Overtime 1.5. Weekend/PH: all hours Overtime 1.5.
@@ -117,6 +126,47 @@ export function calculateWaWorkHours(
   );
 
   return { baseHourly, rdoAccrual, overtime15 };
+}
+
+/**
+ * Split the WA Base Hourly bucket (max 7.6) into pre-break and post-break lines.
+ * Overtime / RDO remain based on total net worked hours.
+ */
+export function calculateWaSplitBaseHourly(input: {
+  netWorkHours: number;
+  preBreakWorkHours: number;
+  weekendOrHoliday: boolean;
+}): WaSplitBaseHourly {
+  const split = calculateWaWorkHours(
+    input.netWorkHours,
+    input.weekendOrHoliday
+  );
+
+  if (split.baseHourly <= 0) {
+    return {
+      basePreBreak: 0,
+      basePostBreak: 0,
+      rdoAccrual: split.rdoAccrual,
+      overtime15: split.overtime15,
+    };
+  }
+
+  const preBreakRaw = Number.isFinite(input.preBreakWorkHours)
+    ? Math.max(0, input.preBreakWorkHours)
+    : 0;
+  const basePreBreak = roundWaUnits(
+    Math.min(preBreakRaw, split.baseHourly)
+  );
+  const basePostBreak = roundWaUnits(
+    Math.max(0, split.baseHourly - basePreBreak)
+  );
+
+  return {
+    basePreBreak,
+    basePostBreak,
+    rdoAccrual: split.rdoAccrual,
+    overtime15: split.overtime15,
+  };
 }
 
 export function capWaLeaveHours(hours: number): number {

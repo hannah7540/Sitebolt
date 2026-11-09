@@ -336,7 +336,10 @@ export const FORM_SUBMISSION_TEST_DEFINITIONS: FormSubmissionTestDefinition[] = 
       const workHours = Number(record.work_hours ?? 0);
       const breakHours = Number(record.break_hours ?? 0);
       const dailyTotal = Number(record.daily_total_hours ?? record.total_hours ?? 0);
-      const expectedDaily = Math.max(0, Math.round((workHours - breakHours) * 100) / 100);
+      const expectedDaily = Math.max(
+        0,
+        Math.round((workHours + breakHours) * 100) / 100
+      );
 
       if (Math.abs(dailyTotal - expectedDaily) > 0.02) {
         return {
