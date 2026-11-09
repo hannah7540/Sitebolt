@@ -44,9 +44,7 @@ export function normalizeSupplierAccountState(
   const trimmed = value?.trim();
   if (!trimmed) return null;
 
-  const exact = (SUPPLIER_ACCOUNT_STATES as readonly string[]).find(
-    (state) => state === trimmed
-  );
+  const exact = SUPPLIER_ACCOUNT_STATES.find((state) => state === trimmed);
   if (exact) return exact;
 
   const upper = trimmed.toUpperCase();
