@@ -949,11 +949,12 @@ export async function downloadPayrollTimesheetCsv(
   } = {}
 ): Promise<{ error: string | null }> {
   try {
-    if (rows.length === 0) {
+    const sourceRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (sourceRows.length === 0) {
       return { error: "No timesheets available to export." };
     }
 
-    const enrichedRows = await enrichTimesheetRowsWithLeaveTypes(rows);
+    const enrichedRows = await enrichTimesheetRowsWithLeaveTypes(sourceRows);
     const lookups =
       options.lookups ??
       (options.projects?.length
@@ -1041,11 +1042,15 @@ function findPayRuleByName(
   payRules: PayRateRule[],
   name: string | null | undefined
 ): PayRateRule | null {
-  const trimmed = name?.trim().toLowerCase();
+  const trimmed = name?.trim()?.toLowerCase();
   if (!trimmed) return null;
   return (
-    payRules.find((rule) => rule.rule_name.trim().toLowerCase() === trimmed) ??
-    payRules.find((rule) => rule.rule_name.trim().toLowerCase().includes(trimmed)) ??
+    payRules.find(
+      (rule) => (rule.rule_name?.trim() || "").toLowerCase() === trimmed
+    ) ??
+    payRules.find((rule) =>
+      (rule.rule_name?.trim() || "").toLowerCase().includes(trimmed)
+    ) ??
     null
   );
 }
@@ -1058,17 +1063,18 @@ export function resolveTimesheetPayRule(
   row: Pick<AccountsTimesheetRow, "pay_rate_id" | "worker_state">,
   payRules: PayRateRule[]
 ): PayRateRule | null {
-  const byId = findPayRuleById(payRules, row.pay_rate_id);
+  const rules = Array.isArray(payRules) ? payRules : [];
+  const byId = findPayRuleById(rules, row.pay_rate_id);
   if (byId) return byId;
 
   const templateName = resolvePayRuleTemplateNameForWorker(row.worker_state);
-  const byTemplateName = findPayRuleByName(payRules, templateName);
+  const byTemplateName = findPayRuleByName(rules, templateName);
   if (byTemplateName) return byTemplateName;
 
   const state = normalizeWorkerStateRegion(row.worker_state);
   if (state) {
-    const byState = payRules.find((rule) =>
-      rule.rule_name.trim().toUpperCase().startsWith(state)
+    const byState = rules.find((rule) =>
+      (rule.rule_name?.trim() || "").toUpperCase().startsWith(state)
     );
     if (byState) return byState;
   }

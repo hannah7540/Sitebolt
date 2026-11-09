@@ -34,11 +34,14 @@ export function buildWorkerNameFields(
   };
 }
 
-export function splitWorkerFullName(fullName: string): {
+export function splitWorkerFullName(fullName?: string | null): {
   firstName: string;
   lastName: string;
 } {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  const parts = String(fullName ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
   if (parts.length === 0) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: "" };
   return {

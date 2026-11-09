@@ -306,8 +306,14 @@ const NSW_MYOB_CATEGORY_ALIASES: Record<string, string> = {
   "safety on site": NSW_MYOB_PAYROLL_CATEGORIES.safety,
 };
 
-function normalizePayrollCategoryKey(category: string): string {
-  return category.trim().toLowerCase().replace(/\s+/g, " ");
+/** Safe string coerce + trim for export fields that may be null/undefined. */
+function safeTrim(value: unknown): string {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function normalizePayrollCategoryKey(category: string | null | undefined): string {
+  return safeTrim(category).toLowerCase().replace(/\s+/g, " ");
 }
 
 export function isNswPayrollExportContext(
@@ -336,14 +342,19 @@ export function isWaPayrollExportContext(
 }
 
 /** NSW-only MYOB label translation. Other states keep their existing export strings. */
-export function mapNswMyobPayrollCategory(category: string): string {
-  const trimmed = category.trim();
-  if (!trimmed) return trimmed;
+export function mapNswMyobPayrollCategory(
+  category: string | null | undefined
+): string {
+  const trimmed = safeTrim(category);
+  if (!trimmed) return "";
   return NSW_MYOB_CATEGORY_ALIASES[normalizePayrollCategoryKey(trimmed)] ?? trimmed;
 }
 
-function finalizeExportPayrollCategory(category: string, isNsw: boolean): string {
-  const trimmed = category.trim();
+function finalizeExportPayrollCategory(
+  category: string | null | undefined,
+  isNsw: boolean
+): string {
+  const trimmed = safeTrim(category);
   return isNsw ? mapNswMyobPayrollCategory(trimmed) : trimmed;
 }
 
@@ -359,8 +370,10 @@ const LEAVE_LINE_TO_PAYROLL_CATEGORY: Record<TimesheetLineCategory, string> = {
   public_holiday: "Public Holiday Pay",
 };
 
-export function isAnnualLeavePayrollCategory(category: string): boolean {
-  return category === PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
+export function isAnnualLeavePayrollCategory(
+  category: string | null | undefined
+): boolean {
+  return safeTrim(category) === PAYROLL_ANNUAL_LEAVE_PAY_CATEGORY;
 }
 
 function roundUnits(value: number): number {
@@ -371,13 +384,17 @@ function roundAacUnits(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function isAacPayrollCategory(category: string): boolean {
-  return category.trim() === NSW_MYOB_PAYROLL_CATEGORIES.aac;
+function isAacPayrollCategory(category: string | null | undefined): boolean {
+  return safeTrim(category) === NSW_MYOB_PAYROLL_CATEGORIES.aac;
 }
 
-export function formatPayrollExportDate(isoDate: string): string {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  if (!year || !month || !day) return isoDate;
+export function formatPayrollExportDate(
+  isoDate: string | null | undefined
+): string {
+  const raw = safeTrim(isoDate);
+  if (!raw) return "";
+  const [year, month, day] = raw.split("-").map(Number);
+  if (!year || !month || !day) return raw;
   return `${day}/${String(month).padStart(2, "0")}/${year}`;
 }
 
@@ -466,8 +483,10 @@ export function resolvePayrollCategoryNames(
   };
 }
 
-export function mapLeaveTypeToPayrollCategory(leaveType: string): string {
-  const normalized = normalizeLeaveTypeLabel(leaveType);
+export function mapLeaveTypeToPayrollCategory(
+  leaveType?: string | null
+): string {
+  const normalized = normalizeLeaveTypeLabel(safeTrim(leaveType));
 
   switch (normalized) {
     case "Personal Leave":
@@ -493,15 +512,15 @@ function resolveEmployeeNames(row: PayrollExportTimesheetRow): {
   firstName: string;
   lastName: string;
 } {
-  const firstName = row.worker_first_name?.trim();
-  const lastName = row.worker_last_name?.trim();
+  const firstName = safeTrim(row.worker_first_name);
+  const lastName = safeTrim(row.worker_last_name);
   if (firstName || lastName) {
     return {
-      firstName: firstName ?? "",
-      lastName: lastName ?? "",
+      firstName,
+      lastName,
     };
   }
-  return splitWorkerFullName(row.worker_name ?? "");
+  return splitWorkerFullName(safeTrim(row.worker_name));
 }
 
 /**
@@ -515,17 +534,17 @@ function resolveJobFields(
   const matchedProj = resolveMatchedPayrollCsvProject(row, lookups);
 
   const jobName =
-    matchedProj?.name?.trim() ||
+    safeTrim(matchedProj?.name) ||
     extractProjectNameOnly(row.project_name) ||
-    row.project?.trim() ||
-    row.job?.trim() ||
+    safeTrim(row.project) ||
+    safeTrim(row.job) ||
     "";
 
   const jobNumber =
-    matchedProj?.code?.trim() ||
-    matchedProj?.projectNumber?.trim() ||
-    row.project_code?.trim() ||
-    row.job_number?.trim() ||
+    safeTrim(matchedProj?.code) ||
+    safeTrim(matchedProj?.projectNumber) ||
+    safeTrim(row.project_code) ||
+    safeTrim(row.job_number) ||
     "";
 
   return {
@@ -634,8 +653,10 @@ function payrollCategorySortIndex(category: string): number {
   return PAYROLL_CATEGORY_SORT_ORDER[category] ?? 999;
 }
 
-function parsePayrollExportDateSortKey(date: string): number {
-  const [day, month, year] = date.split("/").map(Number);
+function parsePayrollExportDateSortKey(date?: string | null): number {
+  const raw = safeTrim(date);
+  if (!raw) return 0;
+  const [day, month, year] = raw.split("/").map(Number);
   if (!day || !month || !year) return 0;
   return new Date(year, month - 1, day).getTime();
 }
@@ -644,20 +665,25 @@ function parsePayrollExportDateSortKey(date: string): number {
 export function sortPayrollExportLines(
   lines: PayrollCsvExportLine[]
 ): PayrollCsvExportLine[] {
-  return [...lines].sort((a, b) => {
-    const lastNameCompare = a.employeeLastName.localeCompare(b.employeeLastName);
+  return [...(Array.isArray(lines) ? lines : [])].sort((a, b) => {
+    const lastNameCompare = safeTrim(a?.employeeLastName).localeCompare(
+      safeTrim(b?.employeeLastName)
+    );
     if (lastNameCompare !== 0) return lastNameCompare;
 
-    const firstNameCompare = a.employeeFirstName.localeCompare(b.employeeFirstName);
+    const firstNameCompare = safeTrim(a?.employeeFirstName).localeCompare(
+      safeTrim(b?.employeeFirstName)
+    );
     if (firstNameCompare !== 0) return firstNameCompare;
 
     const dateCompare =
-      parsePayrollExportDateSortKey(a.date) - parsePayrollExportDateSortKey(b.date);
+      parsePayrollExportDateSortKey(safeTrim(a?.date)) -
+      parsePayrollExportDateSortKey(safeTrim(b?.date));
     if (dateCompare !== 0) return dateCompare;
 
     return (
-      payrollCategorySortIndex(a.payrollCategory) -
-      payrollCategorySortIndex(b.payrollCategory)
+      payrollCategorySortIndex(safeTrim(a?.payrollCategory)) -
+      payrollCategorySortIndex(safeTrim(b?.payrollCategory))
     );
   });
 }
@@ -665,10 +691,14 @@ export function sortPayrollExportLines(
 function resolveLeavePayrollCategory(
   row: PayrollExportTimesheetRow,
   category: TimesheetLineCategory,
-  label: string
+  label: string | null | undefined
 ): string {
   if (category !== "work") {
-    return LEAVE_LINE_TO_PAYROLL_CATEGORY[category] ?? label;
+    return (
+      LEAVE_LINE_TO_PAYROLL_CATEGORY[category] ??
+      safeTrim(label) ??
+      "Base Hourly"
+    );
   }
 
   const leaveDisplay = resolveLeaveTimesheetDisplay(row);
@@ -676,14 +706,14 @@ function resolveLeavePayrollCategory(
     return mapLeaveTypeToPayrollCategory(leaveDisplay.leaveType);
   }
 
-  return label;
+  return safeTrim(label) || "Base Hourly";
 }
 
 function pushLine(
   lines: PayrollCsvExportLine[],
   row: PayrollExportTimesheetRow,
   lookups: PayrollCsvProjectLookups,
-  payrollCategory: string,
+  payrollCategory: string | null | undefined,
   units: number,
   isNsw = false
 ): void {
@@ -692,14 +722,14 @@ function pushLine(
   const { firstName, lastName } = resolveEmployeeNames(row);
   const { jobName, job } = resolveJobFields(row, lookups);
 
-  const category = finalizeExportPayrollCategory(payrollCategory, isNsw);
+  const category = finalizeExportPayrollCategory(payrollCategory, isNsw) || "Base Hourly";
   lines.push({
-    employeeFirstName: firstName,
-    employeeLastName: lastName,
+    employeeFirstName: firstName || "",
+    employeeLastName: lastName || "",
     payrollCategory: category,
     date: formatPayrollExportDate(row.work_date),
-    jobName,
-    job,
+    jobName: jobName || "",
+    job: job || "",
     units: isAacPayrollCategory(category) ? roundAacUnits(units) : roundUnits(units),
   });
 }
@@ -926,10 +956,12 @@ function buildFallbackWorkExportLines(
 
 /** Build itemized Payroll V2 rows for a single timesheet. */
 export function buildPayrollExportLinesForTimesheet(
-  row: PayrollExportTimesheetRow,
+  row: PayrollExportTimesheetRow | null | undefined,
   payRule: PayRateRule | null,
   projectsOrLookups: DbProject[] | PayrollCsvProjectLookups = []
 ): PayrollCsvExportLine[] {
+  if (!row) return [];
+
   const lookups = resolvePayrollCsvProjectLookups(projectsOrLookups);
   const breakdown = payRule
     ? calculateTimesheetPay(row, payRule, {
@@ -996,12 +1028,12 @@ export function escapePayrollTxtValue(value: string | number | null | undefined)
 
 export function payrollExportLineToMyobCells(line: PayrollCsvExportLine): string[] {
   return [
-    line.employeeLastName.trim(),
-    line.employeeFirstName.trim(),
-    line.payrollCategory.trim(),
-    (line.job || line.jobName).trim(),
-    line.date.trim(),
-    formatPayrollExportUnitsValue(line.units, line.payrollCategory),
+    safeTrim(line?.employeeLastName),
+    safeTrim(line?.employeeFirstName),
+    safeTrim(line?.payrollCategory),
+    safeTrim(line?.job) || safeTrim(line?.jobName),
+    safeTrim(line?.date),
+    formatPayrollExportUnitsValue(line?.units, line?.payrollCategory),
   ];
 }
 
