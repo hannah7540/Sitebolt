@@ -731,11 +731,16 @@ function parsePayrollExportDateSortKey(date?: string | null): number {
   return new Date(year, month - 1, day).getTime();
 }
 
-/** Group and order export rows: worker → date → category sequence. */
+/** Group and order export rows: date → worker → category sequence. */
 export function sortPayrollExportLines(
   lines: PayrollCsvExportLine[]
 ): PayrollCsvExportLine[] {
   return [...(Array.isArray(lines) ? lines : [])].sort((a, b) => {
+    const dateCompare =
+      parsePayrollExportDateSortKey(safeTrim(a?.date)) -
+      parsePayrollExportDateSortKey(safeTrim(b?.date));
+    if (dateCompare !== 0) return dateCompare;
+
     const lastNameCompare = safeTrim(a?.employeeLastName).localeCompare(
       safeTrim(b?.employeeLastName)
     );
@@ -745,11 +750,6 @@ export function sortPayrollExportLines(
       safeTrim(b?.employeeFirstName)
     );
     if (firstNameCompare !== 0) return firstNameCompare;
-
-    const dateCompare =
-      parsePayrollExportDateSortKey(safeTrim(a?.date)) -
-      parsePayrollExportDateSortKey(safeTrim(b?.date));
-    if (dateCompare !== 0) return dateCompare;
 
     return (
       payrollCategorySortIndex(safeTrim(a?.payrollCategory)) -
