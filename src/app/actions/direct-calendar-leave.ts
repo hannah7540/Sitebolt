@@ -92,6 +92,45 @@ function isUuid(value: string): boolean {
   return UUID_RE.test(value.trim());
 }
 
+/** Map DB leave_type literals to timesheet activity categories (type-safe). */
+function resolveDirectLeaveActivityCategory(
+  leaveType: LeaveRequestDbLeaveType
+):
+  | "sick_leave"
+  | "personal_leave"
+  | "carers_leave"
+  | "annual_leave"
+  | "leave_without_pay"
+  | "rdo"
+  | "public_holiday" {
+  switch (leaveType) {
+    case "Sick Leave":
+      return "sick_leave";
+    case "Personal Leave":
+      return "personal_leave";
+    case "Carers Leave":
+      return "carers_leave";
+    case "RDO":
+    case "Flexi RDO":
+      return "rdo";
+    case "Leave without pay":
+      return "leave_without_pay";
+    case "Public Holiday":
+      return "public_holiday";
+    case "Annual Leave":
+      return "annual_leave";
+    default: {
+      // Accept legacy short aliases if they appear at runtime.
+      const raw = String(leaveType as string).trim().toLowerCase();
+      if (raw === "sick" || raw.includes("sick")) return "sick_leave";
+      if (raw === "unpaid" || raw.includes("without pay")) return "leave_without_pay";
+      if (raw === "annual" || raw.includes("annual")) return "annual_leave";
+      if (raw === "rdo" || raw.includes("rdo")) return "rdo";
+      return "annual_leave";
+    }
+  }
+}
+
 function normalizePayloadKey(key: string): string {
   return key.trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -458,22 +497,7 @@ export async function createDirectApprovedLeave(
             start_time: startTime,
             end_time: finishTime,
             label: leaveTypeLabel,
-            category:
-              leaveType === "Sick" || leaveTypeLabel.toLowerCase().includes("sick")
-                ? "sick_leave"
-                : leaveType === "RDO" || leaveTypeLabel.toUpperCase() === "RDO"
-                  ? "rdo"
-                  : leaveType === "Flexi RDO"
-                    ? "rdo"
-                    : leaveType === "Leave without pay"
-                      ? "leave_without_pay"
-                      : leaveType === "Public Holiday"
-                        ? "public_holiday"
-                        : leaveTypeLabel.toLowerCase().includes("personal")
-                          ? "personal_leave"
-                          : leaveTypeLabel.toLowerCase().includes("carer")
-                            ? "carers_leave"
-                            : "annual_leave",
+            category: resolveDirectLeaveActivityCategory(leaveType),
             duration_mode: "full",
             hours,
           },
