@@ -33,15 +33,16 @@ const UUID_RE =
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Exact leave_requests.leave_type CHECK / LeaveType literals — no case changes. */
+/** Exact leave_requests.leave_type CHECK / LeaveType literals — trim whitespace first. */
 const directLeaveInputSchema = z.object({
   workerId: z.string().uuid("A valid worker is required."),
   date: z
     .string()
+    .trim()
     .regex(DATE_RE, "A valid date is required.")
-    .or(z.string().min(1)),
+    .or(z.string().trim().min(1)),
   leaveType: z.preprocess(
-    (value) => toLeaveRequestDbLeaveType(String(value ?? "")),
+    (value) => toLeaveRequestDbLeaveType(String(value ?? "").trim()),
     z.enum(LEAVE_REQUEST_DB_LEAVE_TYPES, {
       message:
         "Leave type must be one of: Annual Leave, Sick Leave, Personal Leave, Carers Leave, Leave without pay, RDO, Flexi RDO, Public Holiday.",
@@ -51,7 +52,11 @@ const directLeaveInputSchema = z.object({
     .number({ message: "Hours must be between 0 and 7.6." })
     .min(0, "Hours must be between 0 and 7.6.")
     .max(7.6, "Leave hours cannot exceed 7.6 per day."),
-  notes: z.string().nullable().optional(),
+  notes: z.preprocess(
+    (value) =>
+      value == null ? null : String(value).trim() || null,
+    z.string().nullable().optional()
+  ),
 });
 
 /** Worker assignment fields that must never be written to leave/timesheet rows. */
@@ -287,9 +292,10 @@ export async function createDirectApprovedLeave(
   const parsed = directLeaveInputSchema.safeParse({
     workerId: String(input.workerId ?? "").trim(),
     date: String(input.date ?? "").trim(),
-    leaveType: input.leaveType,
+    leaveType: String(input.leaveType ?? "").trim(),
     hours: Number(input.hours),
-    notes: input.notes ?? null,
+    notes:
+      input.notes == null ? null : String(input.notes).trim() || null,
   });
 
   if (!parsed.success) {
@@ -311,8 +317,9 @@ export async function createDirectApprovedLeave(
     };
   }
 
-  const leaveType = parsed.data.leaveType as LeaveRequestDbLeaveType;
-  const leaveTypeLabel = leaveRequestDbLeaveTypeLabel(leaveType);
+  // Strip any trailing/leading whitespace before CHECK constraint insert.
+  const leaveType = String(parsed.data.leaveType).trim() as LeaveRequestDbLeaveType;
+  const leaveTypeLabel = leaveRequestDbLeaveTypeLabel(leaveType).trim();
   const hours = capWaLeaveHours(parsed.data.hours);
 
   const client = resolved.client;
@@ -375,7 +382,7 @@ export async function createDirectApprovedLeave(
       stripNullish({
         worker_id: workerId,
         worker_name: workerName,
-        leave_type: leaveType,
+        leave_type: leaveType.trim(),
         start_date: date,
         first_date: date,
         end_date: date,
@@ -409,7 +416,7 @@ export async function createDirectApprovedLeave(
     stripNullish({
       worker_id: workerId,
       worker_name: workerName,
-      leave_type: leaveType,
+      leave_type: leaveType.trim(),
       start_date: date,
       end_date: date,
       status: "approved",
