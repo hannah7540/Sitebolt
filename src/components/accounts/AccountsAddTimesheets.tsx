@@ -35,7 +35,6 @@ import {
 } from "@/lib/timesheet-line-items";
 import { resolvePayRuleTemplateNameForWorker } from "@/lib/worker-pay-rule-assignment";
 import {
-  isActTimesheetJurisdiction,
   mandatoryTimesheetBreakMessage,
   requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
@@ -207,9 +206,17 @@ export default function AccountsAddTimesheets() {
     workerState: selectedWorker?.state,
     payRuleName: payRuleLabel === "—" ? null : payRuleLabel,
   };
-  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
-  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
   const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
+
+  const entryRequiresBreak = (entry: DualTimesheetEntry): boolean => {
+    if (isLeaveLineCategory(entry.category)) return false;
+    return requiresMandatoryTimesheetBreak({
+      ...breakJurisdiction,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+      activities: [entryToActivity(entry)],
+    });
+  };
 
   const lineItemErrors = useMemo(
     () =>
@@ -365,8 +372,12 @@ export default function AccountsAddTimesheets() {
         payRuleName: payRuleLabel === "—" ? null : payRuleLabel,
         submit: true,
         breaks: [],
-        breakMinutes: isLeaveLineCategory(entry.category) ? 0 : entry.breakMinutes,
+        breakMinutes: isLeaveLineCategory(entry.category)
+          ? 0
+          : Math.max(0, Number(entry.breakMinutes) || 0),
         activities: [activity],
+        startTime: entry.startTime,
+        endTime: entry.endTime,
       });
       if (actBreakError) {
         showError(`Entry ${index + 1}: ${actBreakError}`);
@@ -759,14 +770,14 @@ export default function AccountsAddTimesheets() {
                             className={labelClass}
                             htmlFor={`entry-break-${entry.id}`}
                           >
-                            Break (minutes){requiresBreak ? " *" : ""}
+                            Break (minutes)
+                            {entryRequiresBreak(entry) ? " *" : ""}
                           </label>
                           <input
                             id={`entry-break-${entry.id}`}
                             type="number"
-                            min={requiresBreak ? 1 : 0}
+                            min={0}
                             step={1}
-                            required={requiresBreak}
                             value={entry.breakMinutes}
                             onChange={(event) =>
                               updateEntry(entry.id, {
@@ -778,15 +789,13 @@ export default function AccountsAddTimesheets() {
                             }
                             className={inputClass}
                           />
-                          {requiresBreak ? (
+                          {entryRequiresBreak(entry) ? (
                             <p className="mt-1 text-xs font-semibold text-amber-800">
-                              {isActWorker
-                                ? "A break must be recorded for ACT timesheets."
-                                : breakRequiredMessage}
+                              {breakRequiredMessage}
                             </p>
                           ) : (
                             <p className="mt-1 text-xs text-slate-500">
-                              Optional for this worker.
+                              Optional for shifts of 4.5 hours or less.
                             </p>
                           )}
                         </div>

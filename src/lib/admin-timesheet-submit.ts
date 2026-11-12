@@ -267,10 +267,12 @@ async function buildValidatedPayload(
     payRuleName,
     submit: true,
     breaks: input.breaks ?? [],
-    breakMinutes: Math.round(totals.breakHours * 60),
-    breakHours: totals.breakHours,
+    breakMinutes: Math.round(totals.breakHours * 60) || 0,
+    breakHours: totals.breakHours || 0,
     notes: input.notes,
     activities: syncedActivities,
+    startTime: syncedActivities[0]?.startTime,
+    endTime: syncedActivities[syncedActivities.length - 1]?.endTime,
   });
   if (actBreakError) {
     return { error: actBreakError, payload: null };

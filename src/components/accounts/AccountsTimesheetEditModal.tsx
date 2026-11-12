@@ -28,7 +28,6 @@ import {
   resolveTimesheetDisplayTotals,
 } from "@/lib/timesheet-utils";
 import {
-  isActTimesheetJurisdiction,
   mandatoryTimesheetBreakMessage,
   requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
@@ -68,12 +67,16 @@ export default function AccountsTimesheetEditModal({
     workerState: timesheet.worker_state,
     payRuleName: assignedPayRuleName,
   };
-  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
-  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
   const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
 
   const [startTime, setStartTime] = useState(totals.startTime?.slice(0, 5) || "06:30");
   const [finishTime, setFinishTime] = useState(totals.endTime?.slice(0, 5) || "14:30");
+  const requiresBreak = requiresMandatoryTimesheetBreak({
+    ...breakJurisdiction,
+    startTime,
+    endTime: finishTime,
+    activities: timesheet.activities,
+  });
   const [breakMinutes, setBreakMinutes] = useState(
     Math.round((totals.breakHours || 0) * 60)
   );
@@ -182,9 +185,11 @@ export default function AccountsTimesheetEditModal({
         breakStartTime && breakEndTime
           ? [{ id: "break-edit", startTime: breakStartTime, endTime: breakEndTime }]
           : [],
-      breakMinutes: resolvedBreakMinutes,
+      breakMinutes: Math.max(0, Number(resolvedBreakMinutes) || 0),
       notes,
       activities: draftTimesheet.activities,
+      startTime,
+      endTime: finishTime,
     });
     if (actBreakError) {
       onError(actBreakError);
@@ -349,7 +354,6 @@ export default function AccountsTimesheetEditModal({
                 type="time"
                 className={inputClass}
                 value={breakStartTime}
-                required={requiresBreak && canEdit}
                 disabled={fieldDisabled}
                 onChange={(event) => {
                   setBreakStartTime(event.target.value.slice(0, 5));
@@ -365,7 +369,6 @@ export default function AccountsTimesheetEditModal({
                 type="time"
                 className={inputClass}
                 value={breakEndTime}
-                required={requiresBreak && canEdit}
                 disabled={fieldDisabled}
                 onChange={(event) => {
                   setBreakEndTime(event.target.value.slice(0, 5));
@@ -381,9 +384,8 @@ export default function AccountsTimesheetEditModal({
             </span>
             <input
               type="number"
-              min={requiresBreak ? 1 : 0}
+              min={0}
               step={1}
-              required={requiresBreak && canEdit}
               className={inputClass}
               value={resolvedBreakMinutes}
               disabled={fieldDisabled}
@@ -396,12 +398,12 @@ export default function AccountsTimesheetEditModal({
             />
             {requiresBreak ? (
               <p className="text-xs font-semibold text-amber-800">
-                {isActWorker
-                  ? "A break must be recorded for ACT timesheets."
-                  : breakRequiredMessage}
+                {breakRequiredMessage}
               </p>
             ) : (
-              <p className="text-xs text-slate-500">Optional for NSW and NZ.</p>
+              <p className="text-xs text-slate-500">
+                Optional for shifts of 4.5 hours or less.
+              </p>
             )}
           </label>
 

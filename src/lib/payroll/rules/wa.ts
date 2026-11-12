@@ -23,7 +23,7 @@ export const WA_LEAVE_DAY_HOURS = 7.6;
 export const WA_ANNUAL_LEAVE_LOADING_UNITS = 17.5;
 
 export const WA_BREAK_REQUIRED_MESSAGE =
-  "A break must be recorded for WA timesheets.";
+  "Break is required for shifts over 4.5 hours";
 
 export function isWaWorkerState(state: string | null | undefined): boolean {
   return normalizeWorkerStateRegion(state) === "WA";

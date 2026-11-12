@@ -1,22 +1,34 @@
 import { normalizeLeaveTypeLabel } from "./leave-type-calendar";
 import {
+  calculateSlotMinutes,
+  minutesToHours,
   validateBreakSlot,
   type TimesheetActivitySlot,
   type TimesheetBreakSlot,
 } from "./timesheet-utils";
-import { hasWorkLineItems } from "./timesheet-line-items";
+import {
+  hasWorkLineItems,
+  isLeaveLineCategory,
+  resolveLineCategory,
+} from "./timesheet-line-items";
 import {
   normalizeWorkerStateRegion,
   type WorkerStateRegion,
 } from "./worker-state-region";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  isWaTimesheetJurisdiction,
-  WA_BREAK_REQUIRED_MESSAGE,
-} from "@/lib/payroll/rules/wa";
+import { isWaTimesheetJurisdiction } from "@/lib/payroll/rules/wa";
 
-export const ACT_BREAK_REQUIRED_MESSAGE =
-  "A break must be recorded for ACT timesheets.";
+/** Break is only mandatory when elapsed shift duration exceeds this threshold. */
+export const TIMESHEET_BREAK_REQUIRED_AFTER_HOURS = 4.5;
+
+export const TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE =
+  "Break is required for shifts over 4.5 hours";
+
+/** @deprecated Prefer TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE */
+export const ACT_BREAK_REQUIRED_MESSAGE = TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE;
+
+/** @deprecated Prefer TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE */
+export const WA_BREAK_REQUIRED_MESSAGE_ALIAS = TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE;
 
 const WORK_ACTIVITY_LABEL = "WORKING ON SITE";
 
@@ -63,23 +75,95 @@ export function isActTimesheetJurisdiction(input: {
   return isActWorkerState(input.workerState) || isActPayRuleName(input.payRuleName);
 }
 
-export function requiresMandatoryTimesheetBreak(input: {
+export function isBreakRuleJurisdiction(input: {
   workerState?: string | null;
   payRuleName?: string | null;
 }): boolean {
   return (
-    isActTimesheetJurisdiction(input) ||
-    isWaTimesheetJurisdiction(input)
+    isActTimesheetJurisdiction(input) || isWaTimesheetJurisdiction(input)
   );
 }
 
-export function mandatoryTimesheetBreakMessage(input: {
+/**
+ * Elapsed shift hours from work activities (End − Start), or explicit
+ * start/end / shiftHours overrides. Returns null when duration is unknown.
+ */
+export function resolveTimesheetShiftHours(input: {
+  activities?: Array<
+    Partial<TimesheetActivitySlot> & { label?: string; category?: string | null }
+  >;
+  startTime?: string | null;
+  endTime?: string | null;
+  shiftHours?: number | null;
+}): number | null {
+  if (input.shiftHours != null && Number.isFinite(Number(input.shiftHours))) {
+    return Math.max(0, Number(input.shiftHours));
+  }
+
+  const activities = input.activities ?? [];
+  let totalMinutes = 0;
+  let hasTimedWork = false;
+
+  for (const activity of activities) {
+    const category = resolveLineCategory({
+      id: String(activity.id ?? "activity"),
+      startTime: String(activity.startTime ?? ""),
+      endTime: String(activity.endTime ?? ""),
+      label: String(activity.label ?? ""),
+      category: activity.category as TimesheetActivitySlot["category"],
+    });
+    if (isLeaveLineCategory(category)) continue;
+
+    const start = activity.startTime?.trim() || "";
+    const end = activity.endTime?.trim() || "";
+    if (!start || !end) continue;
+
+    hasTimedWork = true;
+    totalMinutes += calculateSlotMinutes(start, end);
+  }
+
+  if (hasTimedWork) {
+    return minutesToHours(totalMinutes);
+  }
+
+  const start = input.startTime?.trim() || "";
+  const end = input.endTime?.trim() || "";
+  if (start && end) {
+    return minutesToHours(calculateSlotMinutes(start, end));
+  }
+
+  return null;
+}
+
+/**
+ * Jurisdiction supports mandatory breaks AND this shift is over 4.5 hours
+ * (or duration is unknown — fail closed for long/default work days).
+ */
+export function requiresMandatoryTimesheetBreak(input: {
+  workerState?: string | null;
+  payRuleName?: string | null;
+  activities?: Array<
+    Partial<TimesheetActivitySlot> & { label?: string; category?: string | null }
+  >;
+  startTime?: string | null;
+  endTime?: string | null;
+  shiftHours?: number | null;
+}): boolean {
+  if (!isBreakRuleJurisdiction(input)) return false;
+
+  const shiftHours = resolveTimesheetShiftHours(input);
+  if (shiftHours != null && shiftHours <= TIMESHEET_BREAK_REQUIRED_AFTER_HOURS) {
+    return false;
+  }
+
+  return true;
+}
+
+export function mandatoryTimesheetBreakMessage(_input?: {
   workerState?: string | null;
   payRuleName?: string | null;
 }): string {
-  return isWaTimesheetJurisdiction(input)
-    ? WA_BREAK_REQUIRED_MESSAGE
-    : ACT_BREAK_REQUIRED_MESSAGE;
+  return TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE;
 }
 
 export function hasRecordedTimesheetBreak(
@@ -141,22 +225,19 @@ export interface ActBreakValidationInput {
   breakHours?: number | null;
   leaveRequestId?: string | null;
   notes?: string | null;
-  activities?: Array<Pick<TimesheetActivitySlot, "label"> | { label?: string }>;
+  activities?: Array<
+    Partial<TimesheetActivitySlot> & { label?: string; category?: string | null }
+  >;
+  startTime?: string | null;
+  endTime?: string | null;
+  shiftHours?: number | null;
 }
 
 export function validateActBreakRequirement(
   input: ActBreakValidationInput
 ): string | null {
   if (!input.submit) return null;
-  const isAct = isActTimesheetJurisdiction({
-    workerState: input.workerState,
-    payRuleName: input.payRuleName,
-  });
-  const isWa = isWaTimesheetJurisdiction({
-    workerState: input.workerState,
-    payRuleName: input.payRuleName,
-  });
-  if (!isAct && !isWa) {
+  if (!isBreakRuleJurisdiction(input)) {
     return null;
   }
   if (
@@ -173,6 +254,11 @@ export function validateActBreakRequirement(
     return null;
   }
 
+  const shiftHours = resolveTimesheetShiftHours(input);
+  if (shiftHours != null && shiftHours <= TIMESHEET_BREAK_REQUIRED_AFTER_HOURS) {
+    return null;
+  }
+
   if (
     hasRecordedTimesheetBreak(
       input.breaks ?? [],
@@ -183,7 +269,7 @@ export function validateActBreakRequirement(
     return null;
   }
 
-  return isWa ? WA_BREAK_REQUIRED_MESSAGE : ACT_BREAK_REQUIRED_MESSAGE;
+  return TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE;
 }
 
 export function validateActBreakForTimesheetPayload(
@@ -199,12 +285,20 @@ export function validateActBreakForTimesheetPayload(
     payRuleName,
     submit: true,
     breaks,
-    breakMinutes: Number(payload.break_minutes ?? 0),
-    breakHours: Number(payload.break_hours ?? 0),
+    breakMinutes: Number(payload.break_minutes ?? 0) || 0,
+    breakHours: Number(payload.break_hours ?? 0) || 0,
     leaveRequestId:
       payload.leave_request_id != null ? String(payload.leave_request_id) : null,
     notes: payload.notes != null ? String(payload.notes) : null,
     activities,
+    startTime:
+      payload.start_time != null ? String(payload.start_time) : null,
+    endTime:
+      payload.finish_time != null
+        ? String(payload.finish_time)
+        : payload.end_time != null
+          ? String(payload.end_time)
+          : null,
   });
 }
 
@@ -232,17 +326,29 @@ function normalizeBreaksFromPayload(
 
 function normalizeActivitiesFromPayload(
   payload: Record<string, unknown>
-): Array<{ label?: string }> {
+): Array<Partial<TimesheetActivitySlot> & { label?: string }> {
   const raw = payload.activities ?? payload.entries;
   if (!Array.isArray(raw)) return [];
 
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      return { label: String(row.label ?? "") };
-    })
-    .filter((item): item is { label: string } => item !== null);
+  const parsed: Array<Partial<TimesheetActivitySlot> & { label?: string }> = [];
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const categoryRaw =
+      row.category != null ? String(row.category).trim() : "";
+    parsed.push({
+      id: String(row.id ?? "activity"),
+      label: String(row.label ?? ""),
+      startTime: String(row.start_time ?? row.startTime ?? "").trim() || undefined,
+      endTime: String(row.end_time ?? row.endTime ?? "").trim() || undefined,
+      ...(categoryRaw
+        ? { category: categoryRaw as NonNullable<TimesheetActivitySlot["category"]> }
+        : {}),
+    });
+  }
+
+  return parsed;
 }
 
 export function resolveWorkerStateForBreakValidation(

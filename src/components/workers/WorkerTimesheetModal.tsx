@@ -46,7 +46,6 @@ import {
   type TimesheetLineCategory,
 } from "@/lib/timesheet-line-items";
 import {
-  isActTimesheetJurisdiction,
   mandatoryTimesheetBreakMessage,
   requiresMandatoryTimesheetBreak,
   validateActBreakRequirement,
@@ -239,8 +238,10 @@ export default function WorkerTimesheetModal({
     workerState: worker.state,
     payRuleName: assignedPayRuleName,
   };
-  const isActWorker = isActTimesheetJurisdiction(breakJurisdiction);
-  const requiresBreak = requiresMandatoryTimesheetBreak(breakJurisdiction);
+  const requiresBreak = requiresMandatoryTimesheetBreak({
+    ...breakJurisdiction,
+    activities,
+  });
   const breakRequiredMessage = mandatoryTimesheetBreakMessage(breakJurisdiction);
   const showBreakSection = hasWorkLineItems(activities);
 
@@ -741,12 +742,12 @@ export default function WorkerTimesheetModal({
 
             {requiresBreak ? (
               <p className="text-xs font-semibold text-amber-800">
-                {isActWorker
-                  ? "Break start and finish times are required for ACT timesheets."
-                  : breakRequiredMessage}
+                {breakRequiredMessage}
               </p>
             ) : (
-              <p className="text-xs text-slate-500">Breaks are optional.</p>
+              <p className="text-xs text-slate-500">
+                Optional for shifts of 4.5 hours or less.
+              </p>
             )}
 
             {breakSectionError ? (
@@ -792,7 +793,6 @@ export default function WorkerTimesheetModal({
                       <input
                         type="time"
                         value={row.startTime}
-                        required={requiresBreak}
                         onChange={(event) =>
                           updateBreak(row.id, "startTime", event.target.value)
                         }
@@ -806,7 +806,6 @@ export default function WorkerTimesheetModal({
                       <input
                         type="time"
                         value={row.endTime}
-                        required={requiresBreak}
                         onChange={(event) =>
                           updateBreak(row.id, "endTime", event.target.value)
                         }

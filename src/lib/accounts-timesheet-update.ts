@@ -265,6 +265,8 @@ export async function updateAccountsTimesheet(
     breakHours,
     notes: input.notes,
     activities,
+    startTime,
+    endTime: finishTime,
   });
   if (actBreakError) {
     return { error: actBreakError, data: null };

@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, type Page } from "@playwright/test";
 import {
   ACT_BREAK_REQUIRED_MESSAGE,
+  TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE,
   validateActBreakForTimesheetPayload,
   validateActBreakRequirement,
 } from "@/lib/timesheet-act-break-validation";
@@ -9,24 +10,40 @@ import { buildLeaveTimesheetInsertPayload } from "@/lib/form-test-timesheet-help
 import { getSupabaseEnv } from "./env";
 import { gotoWorkerDashboard } from "./auth";
 
-export function assertActBreakValidationRules(): void {
-  const workActivities = [{ label: "WORKING ON SITE" }];
+const longShiftActivities = [
+  {
+    label: "WORKING ON SITE",
+    category: "work" as const,
+    startTime: "06:30",
+    endTime: "14:30",
+  },
+];
 
+const shortShiftActivities = [
+  {
+    label: "WORKING ON SITE",
+    category: "work" as const,
+    startTime: "06:30",
+    endTime: "10:00",
+  },
+];
+
+export function assertActBreakValidationRules(): void {
   expect(
     validateActBreakRequirement({
       workerState: "ACT",
       submit: true,
       breaks: [],
-      activities: workActivities,
+      activities: longShiftActivities,
     })
-  ).toBe(ACT_BREAK_REQUIRED_MESSAGE);
+  ).toBe(TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE);
 
   expect(
     validateActBreakRequirement({
       workerState: "ACT",
       submit: true,
       breaks: [{ id: "b1", startTime: "09:30", endTime: "10:00" }],
-      activities: workActivities,
+      activities: longShiftActivities,
     })
   ).toBeNull();
 
@@ -36,16 +53,34 @@ export function assertActBreakValidationRules(): void {
       payRuleName: "ACT Site Worker",
       submit: true,
       breaks: [],
-      activities: workActivities,
+      activities: longShiftActivities,
     })
-  ).toBe(ACT_BREAK_REQUIRED_MESSAGE);
+  ).toBe(TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE);
 
   expect(
     validateActBreakRequirement({
       workerState: "WA",
       submit: true,
       breaks: [],
-      activities: workActivities,
+      activities: longShiftActivities,
+    })
+  ).toBe(TIMESHEET_BREAK_OVER_THRESHOLD_MESSAGE);
+
+  expect(
+    validateActBreakRequirement({
+      workerState: "WA",
+      submit: true,
+      breaks: [],
+      activities: shortShiftActivities,
+    })
+  ).toBeNull();
+
+  expect(
+    validateActBreakRequirement({
+      workerState: "ACT",
+      submit: true,
+      breaks: [],
+      activities: shortShiftActivities,
     })
   ).toBeNull();
 
@@ -67,9 +102,7 @@ export function assertActBreakValidationRules(): void {
     leaveType: "Sick Leave",
   });
 
-  expect(
-    validateActBreakForTimesheetPayload("ACT", leavePayload)
-  ).toBeNull();
+  expect(validateActBreakForTimesheetPayload("ACT", leavePayload)).toBeNull();
 }
 
 function createSupabaseClient(): SupabaseClient | null {
@@ -125,7 +158,9 @@ async function selectFirstNonEmptyOption(page: Page, selector: string): Promise<
 
 export async function openWorkerTimesheetModal(page: Page): Promise<void> {
   await page.getByRole("button", { name: /submit timesheet/i }).click();
-  await expect(page.getByRole("heading", { name: /add new timesheet|timesheet/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /add new timesheet|timesheet/i })
+  ).toBeVisible();
 }
 
 export async function submitActTimesheetWithoutBreak(page: Page): Promise<void> {
@@ -151,7 +186,9 @@ export async function runActBreakUiValidationTest(
     await openWorkerTimesheetModal(page);
     await submitActTimesheetWithoutBreak(page);
 
-    await expect(page.getByText(ACT_BREAK_REQUIRED_MESSAGE)).toBeVisible();
+    await expect(
+      page.getByText(ACT_BREAK_REQUIRED_MESSAGE)
+    ).toBeVisible();
   } finally {
     await setWorkerState(workerId, previousState);
   }
