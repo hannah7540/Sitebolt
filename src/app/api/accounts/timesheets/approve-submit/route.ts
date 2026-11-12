@@ -7,17 +7,21 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import {
-  submitApprovedTimesheetAdmin,
+  sanitizeTimesheetActivityCategory,
+  submitApprovedTimesheetsAdmin,
   type AdminTimesheetSubmitInput,
 } from "@/lib/admin-timesheet-submit";
 import { resolveAccountsTimesheetCallerContext } from "@/lib/accounts-api-auth";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { isProjectUuid } from "@/lib/project-resolver";
 import {
+  createDefaultLineItem,
+  isLeaveLineCategory,
   migrateActivityToLineItem,
-  type TimesheetLineCategory,
+  syncLineItemFields,
 } from "@/lib/timesheet-line-items";
 import type { TimesheetActivitySlot, TimesheetBreakSlot } from "@/lib/timesheet-utils";
+import type { TimesheetProject } from "@/lib/timesheet-options";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -33,6 +37,19 @@ function readNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseTimesheetProject(raw: unknown): TimesheetProject | null {
+  if (!raw || typeof raw !== "object") return null;
+  const project = raw as Record<string, unknown>;
+  const projectId = readUuid(project.id);
+  if (!projectId) return null;
+  return {
+    id: projectId,
+    client: readString(project.client),
+    project: readString(project.project),
+    address: readString(project.address),
+  };
+}
+
 function parseActivities(raw: unknown): TimesheetActivitySlot[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
 
@@ -43,13 +60,15 @@ function parseActivities(raw: unknown): TimesheetActivitySlot[] {
       const startTime = readString(row.startTime ?? row.start_time) || "06:30";
       const endTime = readString(row.endTime ?? row.end_time) || "14:30";
       const label = readString(row.label) || "WORKING ON SITE";
-      const category = readString(row.category) as TimesheetLineCategory | "";
+      const category = sanitizeTimesheetActivityCategory(
+        readString(row.category ?? row.leaveType ?? row.leave_type) || label
+      );
       return migrateActivityToLineItem({
         id: readString(row.id) || `activity-${startTime}`,
         startTime,
         endTime,
         label,
-        category: category || "work",
+        category,
       });
     })
     .filter((item): item is TimesheetActivitySlot => item !== null);
@@ -72,6 +91,79 @@ function parseBreaks(raw: unknown): TimesheetBreakSlot[] {
       } satisfies TimesheetBreakSlot;
     })
     .filter((item): item is TimesheetBreakSlot => item !== null);
+}
+
+function buildActivityFromEntry(entry: Record<string, unknown>): TimesheetActivitySlot {
+  const category = sanitizeTimesheetActivityCategory(
+    readString(entry.category ?? entry.leaveType ?? entry.leave_type) || "work"
+  );
+  const isLeave = isLeaveLineCategory(category);
+  const startTime =
+    readString(entry.startTime ?? entry.start_time) || (isLeave ? "06:30" : "06:30");
+  const endTime =
+    readString(entry.endTime ?? entry.end_time) || (isLeave ? "14:30" : "14:30");
+
+  return syncLineItemFields({
+    ...createDefaultLineItem(category),
+    id: readString(entry.id) || `entry-${startTime}`,
+    startTime,
+    endTime,
+    category,
+    durationMode: isLeave ? "full_day" : "partial",
+  });
+}
+
+function parseEntryInputs(
+  raw: Record<string, unknown>,
+  shared: Omit<
+    AdminTimesheetSubmitInput,
+    "projectId" | "timesheetProject" | "activities" | "breaks" | "breakMinutes"
+  >
+): AdminTimesheetSubmitInput[] {
+  const entriesRaw = raw.entries;
+  if (Array.isArray(entriesRaw) && entriesRaw.length > 0) {
+    const parsed: AdminTimesheetSubmitInput[] = [];
+    for (const item of entriesRaw) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as Record<string, unknown>;
+      const timesheetProject = parseTimesheetProject(entry.timesheetProject);
+      const projectId = readUuid(entry.projectId) ?? timesheetProject?.id ?? null;
+      if (!projectId) continue;
+
+      const activitiesFromArray = parseActivities(entry.activities);
+      const activities =
+        activitiesFromArray.length > 0
+          ? activitiesFromArray
+          : [buildActivityFromEntry(entry)];
+
+      parsed.push({
+        ...shared,
+        projectId,
+        timesheetProject: timesheetProject ?? undefined,
+        activities,
+        breaks: parseBreaks(entry.breaks),
+        breakMinutes: readNumber(entry.breakMinutes, 0),
+        notes: readString(entry.notes) || shared.notes || null,
+      });
+      if (parsed.length >= 2) break;
+    }
+    return parsed;
+  }
+
+  const activities = parseActivities(raw.activities);
+  if (activities.length === 0) return [];
+
+  const timesheetProject = parseTimesheetProject(raw.timesheetProject);
+  return [
+    {
+      ...shared,
+      projectId: readUuid(raw.projectId) ?? timesheetProject?.id ?? null,
+      timesheetProject: timesheetProject ?? undefined,
+      activities,
+      breaks: parseBreaks(raw.breaks),
+      breakMinutes: readNumber(raw.breakMinutes, 0),
+    },
+  ];
 }
 
 export async function POST(req: Request) {
@@ -120,21 +212,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const activities = parseActivities(raw.activities);
-  if (activities.length === 0) {
-    return NextResponse.json({ error: "At least one activity is required." }, { status: 400 });
-  }
-
-  const input: AdminTimesheetSubmitInput = {
+  const shared = {
     workerId,
     workerName: requestedWorkerName || null,
     workDate: readString(raw.workDate),
-    projectId: readUuid(raw.projectId),
     timesheetTaskName: readString(raw.timesheetTaskName) || null,
-    workerTrade: readString(raw.workerTrade) || readString(raw.timesheetTaskName) || null,
-    activities,
-    breaks: parseBreaks(raw.breaks),
-    breakMinutes: readNumber(raw.breakMinutes, 0),
+    workerTrade:
+      readString(raw.workerTrade) || readString(raw.timesheetTaskName) || null,
     notes: readString(raw.notes) || null,
     workerState: readString(raw.workerState) || null,
     approvedBy: user.id,
@@ -144,21 +228,15 @@ export async function POST(req: Request) {
     submittedByAdmin: true,
   };
 
-  if (raw.timesheetProject && typeof raw.timesheetProject === "object") {
-    const project = raw.timesheetProject as Record<string, unknown>;
-    const projectId = readUuid(project.id) ?? input.projectId;
-    if (projectId) {
-      input.timesheetProject = {
-        id: projectId,
-        client: readString(project.client),
-        project: readString(project.project),
-        address: readString(project.address),
-      };
-      input.projectId = projectId;
-    }
+  const inputs = parseEntryInputs(raw, shared);
+  if (inputs.length === 0) {
+    return NextResponse.json(
+      { error: "At least one timesheet entry is required." },
+      { status: 400 }
+    );
   }
 
-  const result = await submitApprovedTimesheetAdmin(admin, input);
+  const result = await submitApprovedTimesheetsAdmin(admin, inputs);
 
   if (result.error) {
     return NextResponse.json({ error: result.error }, { status: 400 });
@@ -176,7 +254,9 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     success: true,
-    timesheet: result.data,
+    timesheets: result.data,
+    timesheet: result.data[0] ?? null,
+    entryCount: result.data.length,
     workerName: resolvedWorkerName,
   });
 }

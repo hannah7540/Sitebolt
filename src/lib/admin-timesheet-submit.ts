@@ -15,7 +15,12 @@ import {
   formatTimesheetProjectDisplayName,
   type TimesheetProject,
 } from "./timesheet-options";
-import { syncLineItemFields } from "./timesheet-line-items";
+import {
+  inferCategoryFromLabel,
+  syncLineItemFields,
+  TIMESHEET_LINE_CATEGORY_OPTIONS,
+  type TimesheetLineCategory,
+} from "./timesheet-line-items";
 import { mapTimesheetRow, type SaveWorkerTimesheetInput } from "./timesheet-entries";
 import { resolveTimesheetOvertimeHours } from "./accounts-timesheets";
 import type { WorkerTimesheet } from "./supabase";
@@ -41,6 +46,57 @@ export interface AdminTimesheetSubmitInput {
   submittedByAdmin?: boolean;
 }
 
+const ALLOWED_LINE_CATEGORIES = new Set<string>(
+  TIMESHEET_LINE_CATEGORY_OPTIONS.map((option) => option.value)
+);
+
+/** Map UI / short leave labels onto allowed timesheet activity categories. */
+export function sanitizeTimesheetActivityCategory(
+  value?: string | null
+): TimesheetLineCategory {
+  const trimmed = value?.trim() || "";
+  if (!trimmed) return "work";
+  if (ALLOWED_LINE_CATEGORIES.has(trimmed)) {
+    return trimmed as TimesheetLineCategory;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower === "annual" || lower === "annual leave") return "annual_leave";
+  if (lower === "sick" || lower === "sick leave") return "sick_leave";
+  if (lower === "rdo" || lower === "flexi rdo") return "rdo";
+  if (
+    lower === "unpaid" ||
+    lower === "leave without pay" ||
+    lower === "lwop"
+  ) {
+    return "leave_without_pay";
+  }
+  if (lower === "personal" || lower === "personal leave") return "personal_leave";
+  if (lower === "carers" || lower === "carers leave") return "carers_leave";
+  if (lower === "public holiday" || lower === "ph") return "public_holiday";
+  if (lower === "wfh" || lower === "work from home") return "wfh";
+  if (lower === "work" || lower === "working on site") return "work";
+
+  return inferCategoryFromLabel(trimmed);
+}
+
+function sanitizeActivities(
+  activities: TimesheetActivitySlot[]
+): TimesheetActivitySlot[] {
+  return activities.map((row) =>
+    syncLineItemFields({
+      ...row,
+      id: row.id?.trim() || `activity-${row.startTime ?? "06:30"}`,
+      startTime: row.startTime?.trim() || "06:30",
+      endTime: row.endTime?.trim() || "14:30",
+      label: row.label?.trim() || "WORKING ON SITE",
+      category: sanitizeTimesheetActivityCategory(
+        row.category ?? row.label ?? null
+      ),
+    })
+  );
+}
+
 function asUuid(value: string | null | undefined): string | null {
   const trimmed = value?.trim() || "";
   return isProjectUuid(trimmed) ? trimmed : null;
@@ -62,7 +118,7 @@ function buildApprovedAdminPayload(
   approvedBy: string
 ): Record<string, unknown> {
   const now = new Date().toISOString();
-  const syncedActivities = input.activities.map(syncLineItemFields);
+  const syncedActivities = sanitizeActivities(input.activities);
   const firstActivity = syncedActivities[0];
   const lastActivity = syncedActivities[syncedActivities.length - 1];
   const breakMinutes = Math.round(totals.breakHours * 60);
@@ -79,33 +135,34 @@ function buildApprovedAdminPayload(
 
   return sanitizeWritePayload(
     stripUndefined({
-      worker_id: input.workerId,
-      work_date: nullIfBlankDate(input.workDate) ?? input.workDate,
+      worker_id: input.workerId?.trim() || input.workerId,
+      work_date: nullIfBlankDate(input.workDate?.trim()) ?? input.workDate?.trim(),
       project_id: asUuid(projectId),
-      project_name: projectName,
-      worker_trade: input.workerTrade?.trim() || input.timesheetTaskName?.trim() || null,
-      start_time: firstActivity?.startTime ?? "06:30",
-      finish_time: lastActivity?.endTime ?? "14:30",
+      project_name: projectName?.trim() || projectName,
+      worker_trade:
+        input.workerTrade?.trim() || input.timesheetTaskName?.trim() || null,
+      start_time: firstActivity?.startTime?.trim() || "06:30",
+      finish_time: lastActivity?.endTime?.trim() || "14:30",
       break_minutes: breakMinutes,
       total_hours: totals.dailyTotalHours,
       work_hours: totals.workHours,
       break_hours: totals.breakHours,
       daily_total_hours: totals.dailyTotalHours,
       activities: syncedActivities.map((row) => ({
-        id: row.id,
-        start_time: row.startTime,
-        end_time: row.endTime,
-        label: row.label,
-        category: row.category,
-        duration_mode: row.durationMode,
+        id: row.id?.trim() || `activity-${row.startTime}`,
+        start_time: row.startTime?.trim() || "06:30",
+        end_time: row.endTime?.trim() || "14:30",
+        label: row.label?.trim() || null,
+        category: sanitizeTimesheetActivityCategory(row.category),
+        duration_mode: row.durationMode ?? null,
         hours: row.hours,
       })),
       breaks: (input.breaks ?? []).map((row) => ({
-        id: row.id,
-        start_time: row.startTime,
-        end_time: row.endTime,
+        id: row.id?.trim() || `break-${row.startTime}`,
+        start_time: row.startTime?.trim() || null,
+        end_time: row.endTime?.trim() || null,
       })),
-      notes: nullIfBlank(input.notes),
+      notes: nullIfBlank(input.notes?.trim() ?? input.notes),
       signature_url: null,
       is_draft: false,
       status: "approved",
@@ -146,7 +203,7 @@ function buildLegacyPayload(full: Record<string, unknown>): Record<string, unkno
 }
 
 function resolveTotals(input: AdminTimesheetSubmitInput): ReturnType<typeof calculateDailyTotalsFromSlots> {
-  const syncedActivities = input.activities.map(syncLineItemFields);
+  const syncedActivities = sanitizeActivities(input.activities);
   const breaks = input.breaks ?? [];
   const baseTotals = calculateDailyTotalsFromSlots(syncedActivities, breaks);
 
@@ -173,33 +230,31 @@ function resolveTotals(input: AdminTimesheetSubmitInput): ReturnType<typeof calc
   return baseTotals;
 }
 
-/** Insert an approved worker_timesheets row using the Supabase admin client (bypasses RLS). */
-export async function submitApprovedTimesheetAdmin(
+async function buildValidatedPayload(
   admin: SupabaseClient,
   input: AdminTimesheetSubmitInput
-): Promise<{ error: string | null; data: WorkerTimesheet | null }> {
+): Promise<{ error: string | null; payload: Record<string, unknown> | null }> {
   if (!asUuid(input.workerId)) {
-    return { error: "Worker is required.", data: null };
+    return { error: "Worker is required.", payload: null };
   }
 
   if (!input.projectId && !input.timesheetProject) {
-    return { error: "Please select a project.", data: null };
+    return { error: "Please select a project.", payload: null };
   }
 
-  const workDateError = validateTimesheetWorkDate(input.workDate);
+  const workDateError = validateTimesheetWorkDate(input.workDate?.trim() || "");
   if (workDateError) {
-    return { error: workDateError, data: null };
+    return { error: workDateError, payload: null };
   }
 
-  if (input.activities.length === 0) {
-    return { error: "Add at least one daily entry.", data: null };
+  const syncedActivities = sanitizeActivities(input.activities);
+  if (syncedActivities.length === 0) {
+    return { error: "Add at least one daily entry.", payload: null };
   }
 
-  const syncedActivities = input.activities.map(syncLineItemFields);
-  const totals = resolveTotals(input);
-
+  const totals = resolveTotals({ ...input, activities: syncedActivities });
   if (totals.dailyTotalHours <= 0) {
-    return { error: "Daily total must be greater than 0 hours.", data: null };
+    return { error: "Daily total must be greater than 0 hours.", payload: null };
   }
 
   const { workerState, payRuleName } = await resolveTimesheetBreakContext(
@@ -218,7 +273,7 @@ export async function submitApprovedTimesheetAdmin(
     activities: syncedActivities,
   });
   if (actBreakError) {
-    return { error: actBreakError, data: null };
+    return { error: actBreakError, payload: null };
   }
 
   let projectId = asUuid(input.projectId);
@@ -230,42 +285,85 @@ export async function submitApprovedTimesheetAdmin(
   }
 
   if (!projectId) {
-    return { error: "Please select a project.", data: null };
+    return { error: "Please select a project.", payload: null };
   }
 
   const actorUuid =
     asUuid(input.createdBy) ?? asUuid(input.submittedBy) ?? asUuid(input.approvedBy);
   if (!actorUuid) {
-    return { error: "Approver identity is required.", data: null };
+    return { error: "Approver identity is required.", payload: null };
   }
 
-  const fullPayload = buildApprovedAdminPayload(
-    { ...input, activities: syncedActivities },
-    projectId,
-    projectName,
-    totals,
-    actorUuid
-  );
+  return {
+    error: null,
+    payload: buildApprovedAdminPayload(
+      { ...input, activities: syncedActivities },
+      projectId,
+      projectName,
+      totals,
+      actorUuid
+    ),
+  };
+}
 
-  const attempts: Record<string, unknown>[] = [fullPayload, buildLegacyPayload(fullPayload)];
+/**
+ * Insert one or more approved worker_timesheets rows in a single Supabase insert.
+ * Used for dual-entry Accounts submissions (work + leave on the same day).
+ */
+export async function submitApprovedTimesheetsAdmin(
+  admin: SupabaseClient,
+  inputs: AdminTimesheetSubmitInput[]
+): Promise<{ error: string | null; data: WorkerTimesheet[] }> {
+  const source = Array.isArray(inputs) ? inputs.filter(Boolean) : [];
+  if (source.length === 0) {
+    return { error: "Add at least one daily entry.", data: [] };
+  }
+
+  const payloads: Record<string, unknown>[] = [];
+  for (const input of source) {
+    const validated = await buildValidatedPayload(admin, input);
+    if (validated.error || !validated.payload) {
+      return { error: validated.error ?? "Failed to build timesheet payload.", data: [] };
+    }
+    payloads.push(validated.payload);
+  }
+
+  const attempts: Record<string, unknown>[][] = [
+    payloads,
+    payloads.map(buildLegacyPayload),
+  ];
   let lastError: string | null = null;
 
-  for (const payload of attempts) {
+  for (const attempt of attempts) {
     const { data, error } = await admin
       .from("worker_timesheets")
-      .insert([payload])
-      .select("*")
-      .single();
+      .insert(attempt)
+      .select("*");
 
     if (!error && data) {
-      return { error: null, data: mapTimesheetRow(data as Record<string, unknown>) };
+      return {
+        error: null,
+        data: (data as Record<string, unknown>[]).map(mapTimesheetRow),
+      };
     }
 
     lastError = error?.message ?? lastError;
     if (!isSupabaseSchemaOrConstraintError(toSupabaseRequestError(error))) break;
   }
 
-  return { error: lastError ?? "Failed to submit timesheet.", data: null };
+  return { error: lastError ?? "Failed to submit timesheet.", data: [] };
+}
+
+/** Insert an approved worker_timesheets row using the Supabase admin client (bypasses RLS). */
+export async function submitApprovedTimesheetAdmin(
+  admin: SupabaseClient,
+  input: AdminTimesheetSubmitInput
+): Promise<{ error: string | null; data: WorkerTimesheet | null }> {
+  const result = await submitApprovedTimesheetsAdmin(admin, [input]);
+  return {
+    error: result.error,
+    data: result.data[0] ?? null,
+  };
 }
 
 export type { SaveWorkerTimesheetInput };
