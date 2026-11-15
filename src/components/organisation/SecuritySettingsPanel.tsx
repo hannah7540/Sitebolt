@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Shield } from "lucide-react";
 import type { Worker } from "@/lib/supabase";
 import {
@@ -24,8 +24,9 @@ import {
   type SecurityRole,
   type AccountsAccessRole,
 } from "@/lib/security-roles";
+import { getWorkerDisplayName } from "@/lib/worker-utils";
 import { cn } from "@/lib/utils";
-import { cardClass, inputClass } from "@/lib/ui-classes";
+import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface SecuritySettingsPanelProps {
   onUpdated: () => void;
@@ -38,11 +39,32 @@ export default function SecuritySettingsPanel({
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
   const [savingAccountsId, setSavingAccountsId] = useState<string | null>(null);
   const [savingProjectsId, setSavingProjectsId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [messageIsError, setMessageIsError] = useState(false);
+
+  const filteredWorkers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return workers;
+
+    return workers.filter((worker) => {
+      const displayName = getWorkerDisplayName(worker).toLowerCase();
+      const fullName = String(worker.full_name ?? "").trim().toLowerCase();
+      const firstLast = `${worker.first_name ?? ""} ${worker.last_name ?? ""}`
+        .trim()
+        .toLowerCase();
+      const email = String(worker.email ?? "").trim().toLowerCase();
+      return (
+        displayName.includes(query) ||
+        fullName.includes(query) ||
+        firstLast.includes(query) ||
+        email.includes(query)
+      );
+    });
+  }, [workers, searchQuery]);
 
   const loadWorkers = useCallback(async () => {
     setLoading(true);
@@ -239,91 +261,116 @@ export default function SecuritySettingsPanel({
           No workers found in the directory.
         </p>
       ) : (
-        <div className={`overflow-x-auto ${cardClass}`}>
-          <table className="min-w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Worker</th>
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Access role</th>
-                <th className="px-4 py-3">Accounts access</th>
-                <th className="min-w-[14rem] px-4 py-3">Assigned projects</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workers.map((worker) => {
-                const assignedIds = getWorkerAssignedProjectIds(worker);
-                return (
-                  <tr
-                    key={worker.id}
-                    className="border-b border-slate-100 last:border-0"
-                  >
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      {worker.full_name}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{worker.email}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <select
-                          className={inputClass}
-                          value={normalizeSecurityRole(worker.security_role)}
-                          onChange={(e) =>
-                            handleRoleChange(
-                              worker.id,
-                              normalizeSecurityRole(e.target.value)
-                            )
-                          }
-                          disabled={savingRoleId === worker.id}
-                        >
-                          {SECURITY_ROLES.map((role) => (
-                            <option key={role} value={role}>
-                              {SECURITY_ROLE_LABELS[role]}
-                            </option>
-                          ))}
-                        </select>
-                        {savingRoleId === worker.id && (
-                          <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <select
-                          className={inputClass}
-                          value={normalizeAccountsAccessRole(worker.accounts_access_role)}
-                          onChange={(e) =>
-                            handleAccountsAccessChange(
-                              worker.id,
-                              normalizeAccountsAccessRole(e.target.value)
-                            )
-                          }
-                          disabled={savingAccountsId === worker.id}
-                        >
-                          {ACCOUNTS_ACCESS_ROLES.map((role) => (
-                            <option key={role} value={role}>
-                              {ACCOUNTS_ACCESS_ROLE_LABELS[role]}
-                            </option>
-                          ))}
-                        </select>
-                        {savingAccountsId === worker.id && (
-                          <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <WorkerAssignedProjectsPicker
-                        projects={projects}
-                        selectedIds={assignedIds}
-                        onChange={(ids) => handleProjectsChange(worker.id, ids)}
-                        disabled={savingProjectsId === worker.id}
-                        saving={savingProjectsId === worker.id}
-                      />
-                    </td>
+        <div className="space-y-3">
+          <div className="max-w-md">
+            <label htmlFor="security-worker-search" className={labelClass}>
+              Search workers
+            </label>
+            <input
+              id="security-worker-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search workers…"
+              className={cn(inputClass, "mt-1")}
+              autoComplete="off"
+            />
+          </div>
+
+          {filteredWorkers.length === 0 ? (
+            <p className={`p-6 text-sm text-slate-500 ${cardClass}`}>
+              No workers match “{searchQuery.trim()}”.
+            </p>
+          ) : (
+            <div className={`overflow-x-auto ${cardClass}`}>
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Worker</th>
+                    <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3">Access role</th>
+                    <th className="px-4 py-3">Accounts access</th>
+                    <th className="min-w-[14rem] px-4 py-3">Assigned projects</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {filteredWorkers.map((worker) => {
+                    const assignedIds = getWorkerAssignedProjectIds(worker);
+                    return (
+                      <tr
+                        key={worker.id}
+                        className="border-b border-slate-100 last:border-0"
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {worker.full_name}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{worker.email}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <select
+                              className={inputClass}
+                              value={normalizeSecurityRole(worker.security_role)}
+                              onChange={(e) =>
+                                handleRoleChange(
+                                  worker.id,
+                                  normalizeSecurityRole(e.target.value)
+                                )
+                              }
+                              disabled={savingRoleId === worker.id}
+                            >
+                              {SECURITY_ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                  {SECURITY_ROLE_LABELS[role]}
+                                </option>
+                              ))}
+                            </select>
+                            {savingRoleId === worker.id && (
+                              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <select
+                              className={inputClass}
+                              value={normalizeAccountsAccessRole(
+                                worker.accounts_access_role
+                              )}
+                              onChange={(e) =>
+                                handleAccountsAccessChange(
+                                  worker.id,
+                                  normalizeAccountsAccessRole(e.target.value)
+                                )
+                              }
+                              disabled={savingAccountsId === worker.id}
+                            >
+                              {ACCOUNTS_ACCESS_ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                  {ACCOUNTS_ACCESS_ROLE_LABELS[role]}
+                                </option>
+                              ))}
+                            </select>
+                            {savingAccountsId === worker.id && (
+                              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <WorkerAssignedProjectsPicker
+                            projects={projects}
+                            selectedIds={assignedIds}
+                            onChange={(ids) => handleProjectsChange(worker.id, ids)}
+                            disabled={savingProjectsId === worker.id}
+                            saving={savingProjectsId === worker.id}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
