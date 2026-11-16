@@ -625,6 +625,7 @@ function pushWaWorkExportLines(
 
   // Same "Base Hourly" label for pre-break and post-break ordinary hours.
   // With no break, preBreak=0 and postBreak holds the full ≤7.6 bucket.
+  // RDO Accrual (0.4 between 7.6 and 8.0) is intentionally not exported.
   if (split.basePreBreak > 0) {
     pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.basePreBreak);
   }
@@ -632,9 +633,6 @@ function pushWaWorkExportLines(
     pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.baseHourly, split.basePostBreak);
   }
 
-  if (split.rdoAccrual > 0) {
-    pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.rdoAccrual, split.rdoAccrual);
-  }
   if (split.overtime15 > 0) {
     pushLine(lines, row, lookups, WA_MYOB_CATEGORIES.overtime, split.overtime15);
   }

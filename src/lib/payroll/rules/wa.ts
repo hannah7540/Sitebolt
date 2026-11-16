@@ -96,8 +96,9 @@ export type WaSplitBaseHourly = {
 };
 
 /**
- * Net worked hours after break: first 7.6 → Base Hourly, next 0.4 → RDO Accrual,
- * anything after 8.0 → Overtime 1.5. Weekend/PH: all hours Overtime 1.5.
+ * Net worked hours after break: first 7.6 → Base Hourly, next 0.4 is discarded
+ * (not exported as RDO Accrual), anything after 8.0 → Overtime 1.5.
+ * Weekend/PH: all hours Overtime 1.5.
  */
 export function calculateWaWorkHours(
   totalHours: number,
