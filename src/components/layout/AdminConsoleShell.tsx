@@ -26,8 +26,8 @@ import { redirectToLogin } from "@/lib/auth-guard";
 import { isExemptFromAuthRedirect, shouldSkipAuthRedirect } from "@/lib/public-auth-paths";
 import {
   DEFAULT_ADMIN_PROFILE_NAME,
+  MASTER_PROJECT_DASHBOARD_PATH,
   setAdminWorkerId,
-  workerProfileDashboardPath,
 } from "@/lib/user-session";
 import { getWorkerDisplayName } from "@/lib/worker-utils";
 import {
@@ -84,8 +84,8 @@ function isWorkerDashboardPath(pathname: string | null): boolean {
   );
 }
 
-function isWorkerDashboardRoot(pathname: string | null): boolean {
-  return pathname === "/worker-dashboard" || pathname === "/worker-dashboard/";
+function isAdminProfilePath(pathname: string | null): boolean {
+  return pathname === "/admin/profile" || pathname === "/admin/profile/";
 }
 
 export default function AdminConsoleShell({
@@ -356,7 +356,9 @@ export default function AdminConsoleShell({
 
   const routeContext = useMemo(() => parseProjectRoute(pathname), [pathname]);
   const sidebarActiveView = useMemo(() => {
-    if (isWorkerDashboardPath(pathname)) return "my-profile";
+    if (isWorkerDashboardPath(pathname) || isAdminProfilePath(pathname)) {
+      return "my-profile";
+    }
     const organisationView = resolveOrganisationActiveView(pathname);
     if (organisationView) return organisationView;
     return (
@@ -389,8 +391,8 @@ export default function AdminConsoleShell({
 
   const handleOpenProfile = () => {
     setSidebarOpen(false);
-    if (isWorkerDashboardRoot(pathname)) return;
-    router.push(workerProfileDashboardPath(adminWorkerId, { fromAdmin: true }));
+    if (isAdminProfilePath(pathname)) return;
+    router.push("/admin/profile");
   };
 
   const contextValue = useMemo<AdminConsoleContextValue>(
@@ -441,7 +443,7 @@ export default function AdminConsoleShell({
           <p className="mt-3 text-sm text-slate-600">{accessDenied}</p>
           <button
             type="button"
-            onClick={() => router.push("/")}
+            onClick={() => router.push(MASTER_PROJECT_DASHBOARD_PATH)}
             className="mt-4 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
           >
             Return to dashboard
@@ -452,6 +454,7 @@ export default function AdminConsoleShell({
   }
 
   const workerDashboardRoute = isWorkerDashboardPath(pathname);
+  const adminProfileRoute = isAdminProfilePath(pathname);
 
   if (workerDashboardRoute && !canAccessAdminConsole(sessionRole)) {
     return <>{children}</>;
@@ -510,7 +513,7 @@ export default function AdminConsoleShell({
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            {workerDashboardRoute ? (
+            {workerDashboardRoute || adminProfileRoute ? (
               <span className="text-sm font-semibold text-slate-900">My Profile</span>
             ) : (
               <CompanyLogo size="sm" showFallback className="flex-1" />
@@ -520,7 +523,9 @@ export default function AdminConsoleShell({
           <div
             className={cn(
               "relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto",
-              workerDashboardRoute ? "text-slate-800" : "p-6 text-slate-800 lg:p-8"
+              workerDashboardRoute
+                ? "text-slate-800"
+                : "p-6 text-slate-800 lg:p-8"
             )}
           >
             {children}

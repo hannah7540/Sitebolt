@@ -19,6 +19,7 @@ const DEDICATED_CONSOLE_HREF: Partial<Record<ActiveView, string>> = {
   "admin-swms": "/admin/swms",
   "admin-document-pack": "/admin/document-pack",
   "admin-reporting": "/admin/reporting",
+  "my-profile": "/admin/profile",
   subcontractors: "/dashboard/subcontractors",
 };
 
@@ -33,6 +34,7 @@ const DEDICATED_CONSOLE_PATHS: ReadonlyArray<{
   { view: "admin-swms", path: "/admin/swms" },
   { view: "admin-document-pack", path: "/admin/document-pack" },
   { view: "admin-reporting", path: "/admin/reporting" },
+  { view: "my-profile", path: "/admin/profile" },
   { view: "subcontractors", path: "/dashboard/subcontractors", prefix: true },
   { view: "admin-master-dashboard", path: "/admin/dashboard" },
 ];
@@ -55,7 +57,6 @@ const CONSOLE_QUERY_VIEWS: readonly ActiveView[] = [
   ...ORGANISATION_VIEWS,
   ...ADMINISTRATION_VIEWS,
   "subcontractors",
-  "my-profile",
 ];
 
 const ALL_CONSOLE_VIEWS = new Set<ActiveView>([

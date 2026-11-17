@@ -82,7 +82,7 @@ function WorkerDashboardContent() {
           !queryWorkerId &&
           !standaloneShell
         ) {
-          router.replace("/");
+          router.replace("/admin/dashboard");
           return;
         }
 

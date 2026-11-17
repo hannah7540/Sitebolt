@@ -38,10 +38,7 @@ import {
   isProjectNavHrefActive,
   resolveProjectNavHref,
 } from "@/lib/project-nav-routes";
-import {
-  PROFILE_LOADING_PLACEHOLDER,
-  workerProfileDashboardPath,
-} from "@/lib/user-session";
+import { PROFILE_LOADING_PLACEHOLDER } from "@/lib/user-session";
 import { signOutAndRedirect } from "@/lib/auth-guard";
 import { useAuthProfileDisplay } from "@/hooks/useAuthProfileDisplay";
 import {
@@ -589,7 +586,7 @@ export default function Sidebar({
   permissionsLoading: _permissionsLoading = false,
   onNavigate,
   profileName: profileNameOverride,
-  profileWorkerId,
+  profileWorkerId: _profileWorkerId,
   onOpenProfile,
 }: SidebarProps) {
   const router = useRouter();
@@ -607,9 +604,7 @@ export default function Sidebar({
       return;
     }
 
-    router.push(
-      workerProfileDashboardPath(profileWorkerId, { fromAdmin: pathname !== "/" })
-    );
+    router.push("/admin/profile");
   };
   const consoleRoute = useMemo(
     () => parseConsoleRoute(pathname, searchParams),
@@ -620,6 +615,8 @@ export default function Sidebar({
   const effectiveActiveView = consoleRoute?.view ?? activeView;
   const profileActive =
     effectiveActiveView === "my-profile" ||
+    pathname === "/admin/profile" ||
+    pathname.startsWith("/admin/profile/") ||
     pathname.startsWith("/worker-dashboard");
   const workspace = useOrganisationWorkspace();
   const isSuperAdmin = workspace?.isSuperAdmin === true;
