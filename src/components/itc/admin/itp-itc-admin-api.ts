@@ -374,7 +374,9 @@ function mapSpecValues(
     form.min_bedding_mm != null ||
     form.min_overlay_mm != null ||
     form.min_side_clearance_mm != null ||
-    form.trench_width_mm != null;
+    form.trench_width_mm != null ||
+    form.min_horizontal_sep_mm != null ||
+    form.min_cover_mm != null;
   if (!hasForm && num(hydrated, "min_bedding_mm") == null) return null;
   const values: AdminItcSpecValues = {
     ...emptyAdminItcSpecValues(),
@@ -389,6 +391,15 @@ function mapSpecValues(
     joint_gap_min_mm: num(form, "joint_gap_min_mm"),
     joint_gap_max_mm: num(form, "joint_gap_max_mm"),
     joint_gap_range: str(form, "joint_gap_range"),
+    min_horizontal_sep_mm:
+      num(form, "min_horizontal_sep_mm") ?? num(hydrated, "min_horizontal_sep_mm"),
+    min_vertical_sep_mm:
+      num(form, "min_vertical_sep_mm") ?? num(hydrated, "min_vertical_sep_mm"),
+    min_cover_mm: num(form, "min_cover_mm") ?? num(hydrated, "min_cover_mm"),
+    bedding_and_overlay_material:
+      str(form, "bedding_and_overlay_material") ??
+      str(hydrated, "bedding_and_overlay_material"),
+    cover_material: str(form, "cover_material") ?? str(hydrated, "cover_material"),
   };
   return values;
 }

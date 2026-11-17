@@ -24,9 +24,11 @@ export interface AdminItpTemplate {
 
 export const ADMIN_PIPE_SIZES = [
   "50mm",
+  "65mm",
   "80mm",
   "100mm",
   "150mm",
+  "200mm",
   "225mm",
   "300mm",
   "375mm",
@@ -35,18 +37,26 @@ export const ADMIN_PIPE_SIZES = [
 
 export const ADMIN_PIPE_MATERIALS = [
   "PVC",
+  "DWV PVC",
   "PE",
   "PE100",
+  "MDPE",
+  "HDPE",
   "DICL",
-  "Blackmax",
+  "BlackMax",
   "RCP",
   "StormPRO",
-  "HDPE",
   "HV",
   "Copper",
   "DWV",
   "Conduit",
 ] as const;
+
+/** Bedding / overlay material choices for ITC header specs. */
+export const ADMIN_BEDDING_MATERIALS = ["Sand", "10mm Aggregate"] as const;
+
+/** Cover material choices for ITC header specs. */
+export const ADMIN_COVER_MATERIALS = ["Sand", "10mm Aggregate"] as const;
 
 export const ADMIN_ITC_ZONE_MODES = ["Letters", "Numbers"] as const;
 export type AdminItcZoneMode = (typeof ADMIN_ITC_ZONE_MODES)[number];
@@ -82,16 +92,20 @@ export function sortPipeSizeLabels(values: string[]): string[] {
 }
 
 export const ADMIN_PIPE_SERVICES = [
-  { label: "225mm Blackmax", size: "225mm", material: "Blackmax" },
+  { label: "225mm BlackMax", size: "225mm", material: "BlackMax" },
   { label: "150mm HV", size: "150mm", material: "HV" },
+  { label: "200mm HV", size: "200mm", material: "HV" },
   { label: "100mm PVC", size: "100mm", material: "PVC" },
+  { label: "100mm DWV PVC", size: "100mm", material: "DWV PVC" },
   { label: "DN150 PE100", size: "150mm", material: "PE100" },
   { label: "50mm PVC", size: "50mm", material: "PVC" },
+  { label: "65mm LV", size: "65mm", material: "Conduit" },
   { label: "80mm PVC", size: "80mm", material: "PVC" },
   { label: "150mm PVC", size: "150mm", material: "PVC" },
   { label: "225mm PVC", size: "225mm", material: "PVC" },
   { label: "300mm PVC", size: "300mm", material: "PVC" },
   { label: "100mm PE", size: "100mm", material: "PE" },
+  { label: "100mm MDPE", size: "100mm", material: "MDPE" },
   { label: "150mm DICL", size: "150mm", material: "DICL" },
   { label: "100mm HDPE", size: "100mm", material: "HDPE" },
   { label: "375mm RCP", size: "375mm", material: "RCP" },
@@ -123,6 +137,11 @@ export interface AdminItcSpecValues {
   joint_gap_min_mm: number | null;
   joint_gap_max_mm: number | null;
   joint_gap_range: string | null;
+  min_horizontal_sep_mm: number | null;
+  min_vertical_sep_mm: number | null;
+  min_cover_mm: number | null;
+  bedding_and_overlay_material: string | null;
+  cover_material: string | null;
 }
 
 export interface AdminItcPhotoSlot {

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ADMIN_BEDDING_MATERIALS,
+  ADMIN_COVER_MATERIALS,
   ADMIN_ITC_SERVICES,
   ADMIN_PIPE_MATERIALS,
   ADMIN_PIPE_SIZES,
@@ -44,7 +46,7 @@ export default function AdminItcServiceSpecFields({
   const [customService, setCustomService] = useState(
     service && !ADMIN_ITC_SERVICES.includes(service as (typeof ADMIN_ITC_SERVICES)[number])
   );
-  const lookupKey = `${pipeSize}|${pipeMaterial}|${templateKey ?? ""}`;
+  const lookupKey = `${service}|${pipeSize}|${pipeMaterial}|${templateKey ?? ""}`;
   const lastLookupKey = useRef("");
   const serviceOptions = useMemo(() => {
     const extra =
@@ -63,17 +65,7 @@ export default function AdminItcServiceSpecFields({
   }, [pipeMaterial]);
 
   useEffect(() => {
-    if (!pipeSize && !pipeMaterial) return;
-    const lockedToSelection =
-      specValues?.pipe_size === pipeSize &&
-      specValues?.pipe_material === pipeMaterial &&
-      (specValues.min_bedding_mm != null ||
-        specValues.min_side_clearance_mm != null ||
-        specValues.joint_gap_range != null);
-    if (lockedToSelection) {
-      lastLookupKey.current = lookupKey;
-      return;
-    }
+    if (!pipeSize && !pipeMaterial && !service) return;
     if (lastLookupKey.current === lookupKey) return;
     lastLookupKey.current = lookupKey;
     let cancelled = false;
@@ -82,6 +74,7 @@ export default function AdminItcServiceSpecFields({
       pipeSize,
       pipeMaterial,
       templateKey,
+      service,
     }).then((next) => {
       if (cancelled) return;
       setLookingUp(false);
@@ -91,7 +84,32 @@ export default function AdminItcServiceSpecFields({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lookupKey, pipeSize, pipeMaterial, templateKey]);
+  }, [lookupKey, pipeSize, pipeMaterial, templateKey, service]);
+
+  const patchSpec = (partial: Partial<AdminItcSpecValues>) => {
+    onSpecValuesChange({
+      ...(specValues ?? {
+        source_table: null,
+        pipe_size: pipeSize || null,
+        pipe_material: pipeMaterial || null,
+        min_bedding_mm: null,
+        min_overlay_mm: null,
+        min_side_clearance_mm: null,
+        trench_width_mm: null,
+        joint_gap_min_mm: null,
+        joint_gap_max_mm: null,
+        joint_gap_range: null,
+        min_horizontal_sep_mm: null,
+        min_vertical_sep_mm: null,
+        min_cover_mm: null,
+        bedding_and_overlay_material: null,
+        cover_material: null,
+      }),
+      pipe_size: pipeSize || null,
+      pipe_material: pipeMaterial || null,
+      ...partial,
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -170,6 +188,44 @@ export default function AdminItcServiceSpecFields({
           </select>
         </label>
       </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label>
+          <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+            Bedding / overlay material
+          </span>
+          <select
+            value={specValues?.bedding_and_overlay_material ?? ""}
+            onChange={(event) =>
+              patchSpec({ bedding_and_overlay_material: event.target.value || null })
+            }
+            className={inputClass}
+          >
+            <option value="">Select bedding</option>
+            {ADMIN_BEDDING_MATERIALS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+            Cover material
+          </span>
+          <select
+            value={specValues?.cover_material ?? ""}
+            onChange={(event) => patchSpec({ cover_material: event.target.value || null })}
+            className={inputClass}
+          >
+            <option value="">Select cover</option>
+            {ADMIN_COVER_MATERIALS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -185,9 +241,33 @@ export default function AdminItcServiceSpecFields({
         </div>
         <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
+            <dt className="text-[11px] font-semibold uppercase text-slate-500">
+              Min horizontal separation
+            </dt>
+            <dd className="font-semibold text-slate-900">
+              {specDisplay(specValues?.min_horizontal_sep_mm)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-semibold uppercase text-slate-500">
+              Min vertical separation
+            </dt>
+            <dd className="font-semibold text-slate-900">
+              {specDisplay(specValues?.min_vertical_sep_mm)}
+            </dd>
+          </div>
+          <div>
             <dt className="text-[11px] font-semibold uppercase text-slate-500">Min bedding</dt>
             <dd className="font-semibold text-slate-900">
               {specDisplay(specValues?.min_bedding_mm)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-semibold uppercase text-slate-500">
+              Min side clearance
+            </dt>
+            <dd className="font-semibold text-slate-900">
+              {specDisplay(specValues?.min_side_clearance_mm)}
             </dd>
           </div>
           <div>
@@ -197,11 +277,9 @@ export default function AdminItcServiceSpecFields({
             </dd>
           </div>
           <div>
-            <dt className="text-[11px] font-semibold uppercase text-slate-500">
-              Min side clearance
-            </dt>
+            <dt className="text-[11px] font-semibold uppercase text-slate-500">Min cover</dt>
             <dd className="font-semibold text-slate-900">
-              {specDisplay(specValues?.min_side_clearance_mm)}
+              {specDisplay(specValues?.min_cover_mm)}
             </dd>
           </div>
           <div>

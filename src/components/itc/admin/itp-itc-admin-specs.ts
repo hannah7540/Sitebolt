@@ -5,6 +5,7 @@ import {
   ELECTRICAL_CONDUIT_SPEC_TABLE,
   inferElectricalServiceTypeFromMaterial,
   lookupElectricalConduitSpec,
+  lookupHardcodedHvLvConduitSpec,
   normalizeElectricalServiceType,
 } from "@/lib/itc-electrical-conduit-specs";
 import { resolveSpecAutoFill } from "@/lib/itc-master-spec-service";
@@ -87,12 +88,62 @@ const LOCAL_SPEC_ROWS: LocalSpecRow[] = [
   },
   {
     sizeMm: 150,
-    materials: ["hv", "hdpe"],
+    materials: ["hv", "hdpe", "conduit"],
+    source: "electrical_conduit_specs",
+    min_bedding_mm: 105,
+    min_overlay_mm: 150,
+    min_side_clearance_mm: 70,
+    trench_width_mm: 290,
+    joint_gap_range: "N/A (conduit)",
+  },
+  {
+    sizeMm: 200,
+    materials: ["hv", "hdpe", "conduit"],
+    source: "electrical_conduit_specs",
+    min_bedding_mm: 105,
+    min_overlay_mm: 150,
+    min_side_clearance_mm: 70,
+    trench_width_mm: 340,
+    joint_gap_range: "N/A (conduit)",
+  },
+  {
+    sizeMm: 50,
+    materials: ["lv", "conduit", "hdpe"],
     source: "electrical_conduit_specs",
     min_bedding_mm: 100,
     min_overlay_mm: 100,
-    min_side_clearance_mm: 175,
-    trench_width_mm: 500,
+    min_side_clearance_mm: 50,
+    trench_width_mm: 150,
+    joint_gap_range: "N/A (conduit)",
+  },
+  {
+    sizeMm: 65,
+    materials: ["lv", "conduit", "hdpe"],
+    source: "electrical_conduit_specs",
+    min_bedding_mm: 100,
+    min_overlay_mm: 100,
+    min_side_clearance_mm: 50,
+    trench_width_mm: 165,
+    joint_gap_range: "N/A (conduit)",
+  },
+  {
+    sizeMm: 80,
+    materials: ["lv", "conduit", "hdpe"],
+    source: "electrical_conduit_specs",
+    min_bedding_mm: 100,
+    min_overlay_mm: 150,
+    min_side_clearance_mm: 50,
+    trench_width_mm: 180,
+    joint_gap_range: "N/A (conduit)",
+  },
+  {
+    sizeMm: 100,
+    materials: ["lv", "conduit"],
+    source: "electrical_conduit_specs",
+    min_bedding_mm: 100,
+    min_overlay_mm: 150,
+    min_side_clearance_mm: 50,
+    trench_width_mm: 200,
     joint_gap_range: "N/A (conduit)",
   },
   {
@@ -178,12 +229,41 @@ function finishSpec(values: AdminItcSpecValues): AdminItcSpecValues {
   return {
     ...values,
     trench_width_mm: trench,
+    min_horizontal_sep_mm: values.min_horizontal_sep_mm ?? null,
+    min_vertical_sep_mm: values.min_vertical_sep_mm ?? null,
+    min_cover_mm: values.min_cover_mm ?? null,
+    bedding_and_overlay_material: values.bedding_and_overlay_material ?? null,
+    cover_material: values.cover_material ?? null,
     joint_gap_range: formatJointGapRange(
       values.joint_gap_min_mm,
       values.joint_gap_max_mm,
       values.joint_gap_range
     ),
   };
+}
+
+function specFromElectricalAutoFill(
+  electrical: NonNullable<ReturnType<typeof lookupHardcodedHvLvConduitSpec>>,
+  size: string,
+  material: string
+): AdminItcSpecValues {
+  return finishSpec({
+    source_table: "hardcoded_hv_lv_site_specs",
+    pipe_size: size || null,
+    pipe_material: material || null,
+    min_bedding_mm: electrical.min_bedding_mm,
+    min_overlay_mm: electrical.min_overlay_mm,
+    min_side_clearance_mm: electrical.min_side_mm,
+    trench_width_mm: null,
+    joint_gap_min_mm: null,
+    joint_gap_max_mm: null,
+    joint_gap_range: "N/A (conduit)",
+    min_horizontal_sep_mm: electrical.min_horizontal_sep_mm,
+    min_vertical_sep_mm: electrical.min_vertical_sep_mm,
+    min_cover_mm: electrical.min_cover_mm,
+    bedding_and_overlay_material: electrical.bedding_and_overlay_material,
+    cover_material: electrical.cover_material,
+  });
 }
 
 function rowMatchesSelection(
@@ -235,6 +315,15 @@ function specFromRow(
     joint_gap_min_mm: gapMin,
     joint_gap_max_mm: gapMax,
     joint_gap_range: text(row, "joint_gap_range", "joint_gap"),
+    min_horizontal_sep_mm: num(row, "min_horizontal_sep_mm", "horizontal_sep_mm"),
+    min_vertical_sep_mm: num(row, "min_vertical_sep_mm", "vertical_sep_mm"),
+    min_cover_mm: num(row, "min_cover_mm", "cover_mm"),
+    bedding_and_overlay_material: text(
+      row,
+      "bedding_and_overlay_material",
+      "bedding_material"
+    ),
+    cover_material: text(row, "cover_material"),
   });
 }
 
@@ -273,6 +362,11 @@ function specFromLocal(size: string, material: string): AdminItcSpecValues | nul
     joint_gap_min_mm: row.joint_gap_min_mm ?? null,
     joint_gap_max_mm: row.joint_gap_max_mm ?? null,
     joint_gap_range: row.joint_gap_range ?? null,
+    min_horizontal_sep_mm: null,
+    min_vertical_sep_mm: null,
+    min_cover_mm: null,
+    bedding_and_overlay_material: null,
+    cover_material: null,
   });
 }
 
@@ -315,13 +409,25 @@ export async function lookupAdminItcSpecs(input: {
   pipeSize: string;
   pipeMaterial: string;
   templateKey?: string | null;
+  service?: string | null;
 }): Promise<AdminItcSpecValues | null> {
   const size = input.pipeSize.trim();
   const material = input.pipeMaterial.trim();
-  if (!size && !material) return null;
+  const service = (input.service ?? "").trim();
+  if (!size && !material && !service) return null;
   const sizeMm = parsePipeDiameterMm(size);
   const serviceLabel = [size, material].filter(Boolean).join(" ");
   const discipline = disciplineForTemplate(input.templateKey);
+
+  // Prefer hardcoded HV/LV site rules so conduit selection always shows fixed minimums.
+  const hardcoded = lookupHardcodedHvLvConduitSpec({
+    service: service || material,
+    pipeSize: size,
+    pipeMaterial: material,
+  });
+  if (hardcoded) {
+    return specFromElectricalAutoFill(hardcoded, size, material || service);
+  }
 
   for (const table of SPEC_TABLES) {
     const fromTable = await queryNamedSpecTable(table, size, material, sizeMm);
@@ -329,41 +435,36 @@ export async function lookupAdminItcSpecs(input: {
   }
 
   const electricalType =
+    normalizeElectricalServiceType(service) ??
     normalizeElectricalServiceType(material) ??
     inferElectricalServiceTypeFromMaterial(serviceLabel) ??
     (material.toLowerCase() === "hv" ? "HV" : null);
   if (electricalType) {
-    const electrical = lookupElectricalConduitSpec(electricalType, serviceLabel);
+    const electrical = lookupElectricalConduitSpec(
+      electricalType,
+      serviceLabel || `${size} ${material}`.trim()
+    );
     if (electrical) {
-      return finishSpec({
-        source_table: "electrical_conduit_specs",
-        pipe_size: size,
-        pipe_material: material,
-        min_bedding_mm: electrical.min_bedding_mm,
-        min_overlay_mm: electrical.min_overlay_mm,
-        min_side_clearance_mm: electrical.min_side_mm,
-        trench_width_mm: null,
-        joint_gap_min_mm: null,
-        joint_gap_max_mm: null,
-        joint_gap_range: "N/A (conduit)",
-      });
+      return specFromElectricalAutoFill(electrical, size, material);
     }
     const byDiameter = ELECTRICAL_CONDUIT_SPEC_TABLE.find(
       (row) => row.category === electricalType && sizeMm != null && row.diameter_mm === sizeMm
     );
     if (byDiameter) {
-      return finishSpec({
-        source_table: "electrical_conduit_specs",
-        pipe_size: size,
-        pipe_material: material,
-        min_bedding_mm: byDiameter.min_bedding_mm,
-        min_overlay_mm: byDiameter.min_overlay_mm,
-        min_side_clearance_mm: byDiameter.min_side_mm,
-        trench_width_mm: null,
-        joint_gap_min_mm: null,
-        joint_gap_max_mm: null,
-        joint_gap_range: "N/A (conduit)",
-      });
+      return specFromElectricalAutoFill(
+        {
+          min_horizontal_sep_mm: byDiameter.min_horizontal_sep_mm,
+          min_vertical_sep_mm: byDiameter.min_vertical_sep_mm,
+          min_bedding_mm: byDiameter.min_bedding_mm,
+          min_side_mm: byDiameter.min_side_mm,
+          min_overlay_mm: byDiameter.min_overlay_mm,
+          min_cover_mm: byDiameter.min_cover_mm,
+          bedding_and_overlay_material: byDiameter.bedding_and_overlay_material,
+          cover_material: byDiameter.cover_material,
+        },
+        size,
+        material
+      );
     }
   }
 
@@ -380,6 +481,11 @@ export async function lookupAdminItcSpecs(input: {
       joint_gap_min_mm: null,
       joint_gap_max_mm: null,
       joint_gap_range: null,
+      min_horizontal_sep_mm: auto.min_horizontal_sep_mm ?? null,
+      min_vertical_sep_mm: auto.min_vertical_sep_mm ?? null,
+      min_cover_mm: auto.min_cover_mm ?? null,
+      bedding_and_overlay_material: auto.bedding_and_overlay_material ?? null,
+      cover_material: auto.cover_material ?? null,
     });
   }
 
@@ -390,7 +496,8 @@ export async function lookupAdminItcSpecs(input: {
       return (
         (sizeMm != null && label.includes(String(sizeMm))) &&
         (label.includes(material.toLowerCase()) ||
-          String(row.service_type).toLowerCase().includes(material.toLowerCase()))
+          String(row.service_type).toLowerCase().includes(material.toLowerCase()) ||
+          String(row.service_type).toLowerCase() === service.toLowerCase())
       );
     }) ?? null;
   if (matchedRule) {
@@ -405,6 +512,11 @@ export async function lookupAdminItcSpecs(input: {
       joint_gap_min_mm: null,
       joint_gap_max_mm: null,
       joint_gap_range: null,
+      min_horizontal_sep_mm: matchedRule.min_horizontal_sep_mm ?? null,
+      min_vertical_sep_mm: matchedRule.min_vertical_sep_mm ?? null,
+      min_cover_mm: matchedRule.min_cover_mm ?? null,
+      bedding_and_overlay_material: matchedRule.bedding_and_overlay_material ?? null,
+      cover_material: matchedRule.cover_material ?? null,
     });
   }
 
@@ -423,5 +535,10 @@ export function emptyAdminItcSpecValues(): AdminItcSpecValues {
     joint_gap_min_mm: null,
     joint_gap_max_mm: null,
     joint_gap_range: null,
+    min_horizontal_sep_mm: null,
+    min_vertical_sep_mm: null,
+    min_cover_mm: null,
+    bedding_and_overlay_material: null,
+    cover_material: null,
   };
 }
