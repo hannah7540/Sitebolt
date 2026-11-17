@@ -20,6 +20,13 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
+function siteOrigin(): string {
+  return String(process.env.NEXT_PUBLIC_SITE_URL || "https://www.site-bolt.com.au").replace(
+    /\/$/,
+    ""
+  );
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -81,21 +88,56 @@ function buildRecoveryEmail(resetUrl: string): { html: string; text: string } {
   return { html, text };
 }
 
+function tokenFromActionLink(actionLink: unknown): string {
+  if (typeof actionLink !== "string" || !actionLink.trim()) return "";
+  try {
+    const url = new URL(actionLink);
+    const fromQuery =
+      url.searchParams.get("token_hash") ||
+      url.searchParams.get("token") ||
+      url.searchParams.get("hashed_token");
+    if (fromQuery?.trim()) return fromQuery.trim();
+
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const fromHash =
+        params.get("token_hash") || params.get("token") || params.get("hashed_token");
+      if (fromHash?.trim()) return fromHash.trim();
+    }
+  } catch {
+    // ignore malformed links
+  }
+  return "";
+}
+
 function readHashedToken(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const record = payload as {
-    properties?: { hashed_token?: unknown };
+    properties?: {
+      hashed_token?: unknown;
+      email_otp?: unknown;
+      action_link?: unknown;
+    };
     hashed_token?: unknown;
+    action_link?: unknown;
   };
-  const fromProperties = record.properties?.hashed_token;
-  const fromRoot = record.hashed_token;
-  if (typeof fromProperties === "string" && fromProperties.trim()) {
-    return fromProperties.trim();
+
+  const candidates = [
+    record.properties?.hashed_token,
+    record.hashed_token,
+    record.properties?.email_otp,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
   }
-  if (typeof fromRoot === "string" && fromRoot.trim()) {
-    return fromRoot.trim();
-  }
-  return "";
+
+  return (
+    tokenFromActionLink(record.properties?.action_link) ||
+    tokenFromActionLink(record.action_link)
+  );
 }
 
 export async function POST(req: Request) {
@@ -121,25 +163,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Resend API key missing on server" }, { status: 500 });
     }
 
+    const origin = siteOrigin();
     const supabaseAdmin = createSupabaseAdminClient();
     const { data, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",
       email,
+      options: {
+        redirectTo: `${origin}/reset-password`,
+      },
     });
 
     const token_hash = readHashedToken(data);
     if (linkError || !token_hash) {
+      // Do not use HTTP 404 — browsers surface that as "Not Found" for the route itself.
       console.warn("[forgot-password] No recovery link for:", email, linkError?.message);
       return NextResponse.json(
         { error: "No account found matching this email address" },
-        { status: 404 }
+        { status: 400 }
       );
     }
 
-    const resetUrl = `${String(process.env.NEXT_PUBLIC_SITE_URL || "https://www.site-bolt.com.au").replace(/\/$/, "")}/reset-password?token_hash=${token_hash}`;
+    const resetUrl = `${origin}/reset-password?token_hash=${encodeURIComponent(token_hash)}&type=recovery`;
     const { html, text } = buildRecoveryEmail(resetUrl);
 
-    console.log(`[forgot-password] Attempting Resend dispatch to ${email} from ${DEFAULT_SYSTEM_FROM_EMAIL}`);
+    console.log(
+      `[forgot-password] Attempting Resend dispatch to ${email} from ${DEFAULT_SYSTEM_FROM_EMAIL}`
+    );
 
     const resendResult = await resend.emails.send({
       from: DEFAULT_SYSTEM_FROM_EMAIL,

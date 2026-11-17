@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HardHat, Loader2 } from "lucide-react";
+import { requestPasswordResetEmail } from "@/lib/auth-password-reset";
 import { cardClass, inputClass, labelClass } from "@/lib/ui-classes";
 
 interface ForgotPasswordFormProps {
@@ -32,17 +33,11 @@ export default function ForgotPasswordForm({
     setSubmitting(true);
 
     try {
-      const response = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmedEmail }),
-      });
-
-      if (!response.ok && response.status >= 500) {
-        setError("Failed to send reset email.");
+      const result = await requestPasswordResetEmail(trimmedEmail);
+      if (result.error) {
+        setError(result.error);
         return;
       }
-
       setSent(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to send reset email.");

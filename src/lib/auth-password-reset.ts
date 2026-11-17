@@ -1,4 +1,4 @@
-/** Request a password reset email via the Resend-backed API route. */
+/** Request a password reset email via the Resend-backed forgot-password API route. */
 export async function requestPasswordResetEmail(
   email: string
 ): Promise<{ error: string | null }> {
@@ -8,7 +8,7 @@ export async function requestPasswordResetEmail(
   }
 
   try {
-    const response = await fetch("/api/auth/reset-password", {
+    const response = await fetch("/api/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: trimmed }),
@@ -30,6 +30,12 @@ export async function requestPasswordResetEmail(
         ) {
           return { error: (apiError as { message: string }).message };
         }
+      }
+      if (response.status === 404) {
+        return {
+          error:
+            "Password reset endpoint was not found. Please try again or contact support.",
+        };
       }
       return { error: "Failed to send reset email." };
     }
