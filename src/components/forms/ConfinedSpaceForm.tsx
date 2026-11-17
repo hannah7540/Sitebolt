@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Plus, Trash2, X } from "lucide-react";
 import FormBrandingHeader from "@/components/ui/FormBrandingHeader";
-import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import SignaturePad from "@/components/forms/SignaturePad";
 import {
   packHighFidelityAnswers,
   type HighFidelityFormKey,
@@ -114,7 +114,12 @@ export default function ConfinedSpaceForm({
     { ...newRegisterRow(), name: workerName, role: "Entrant" },
   ]);
   const [notes, setNotes] = useState("");
-  const [signature, setSignature] = useState("");
+  const [siteManagerSignature, setSiteManagerSignature] = useState<string | null>(
+    null
+  );
+  const [competentPersonSignature, setCompetentPersonSignature] = useState<
+    string | null
+  >(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -136,15 +141,19 @@ export default function ConfinedSpaceForm({
       setLocalError("Describe the confined space before submitting.");
       return;
     }
-    if (!signature.trim()) {
-      setLocalError("Permit authoriser signature is required.");
+    if (!siteManagerSignature?.trim()) {
+      setLocalError("Site Manager signature is required.");
+      return;
+    }
+    if (!competentPersonSignature?.trim()) {
+      setLocalError("Competent Person signature is required.");
       return;
     }
 
     setSubmitting(true);
     try {
       const uploaded = await uploadSignatureDataUrl(
-        signature,
+        siteManagerSignature,
         `custom-forms/confined-space/${Date.now()}`
       );
       if (uploaded.error && !uploaded.url) {
@@ -152,6 +161,10 @@ export default function ConfinedSpaceForm({
       }
 
       const selectedIsolations = ISOLATION_ITEMS.filter((item) => isolations[item]);
+      const signatures = {
+        siteManager: siteManagerSignature,
+        competentPerson: competentPersonSignature,
+      };
       const payload = {
         formKey: "confined_space_entry" as HighFidelityFormKey,
         permitDate,
@@ -163,39 +176,58 @@ export default function ConfinedSpaceForm({
         signOnRegister: registerRows,
         notes: notes.trim(),
         authorisedBy: workerName,
+        signatures,
+      };
+
+      const answers = packHighFidelityAnswers({
+        summaryLines: [
+          { id: "permit_date", label: "Permit Date", value: permitDate },
+          {
+            id: "space_description",
+            label: "Confined Space",
+            value: spaceDescription,
+          },
+          { id: "location", label: "Location", value: location },
+          { id: "purpose", label: "Purpose of Entry", value: purpose },
+          {
+            id: "isolations",
+            label: "Isolations Complete",
+            value: selectedIsolations.join(", "),
+          },
+          {
+            id: "atmosphere_count",
+            label: "Atmospheric Tests Logged",
+            value: String(atmosphereRows.filter((row) => row.time || row.oxygen).length),
+          },
+          {
+            id: "personnel_count",
+            label: "Personnel on Register",
+            value: String(registerRows.filter((row) => row.name.trim()).length),
+          },
+          { id: "authorised_by", label: "Authorised By", value: workerName },
+          {
+            id: "signoff_complete",
+            label: "Authorisation Sign-off",
+            value: "Site Manager + Competent Person signed",
+          },
+        ],
+        payload,
+      });
+
+      answers.signature_site_manager = {
+        label: "Site Manager Signature",
+        type: "signature",
+        value: { url: siteManagerSignature },
+      };
+      answers.signature_competent_person = {
+        label: "Competent Person Signature",
+        type: "signature",
+        value: { url: competentPersonSignature },
       };
 
       await onSubmit({
-        answers: packHighFidelityAnswers({
-          summaryLines: [
-            { id: "permit_date", label: "Permit Date", value: permitDate },
-            {
-              id: "space_description",
-              label: "Confined Space",
-              value: spaceDescription,
-            },
-            { id: "location", label: "Location", value: location },
-            { id: "purpose", label: "Purpose of Entry", value: purpose },
-            {
-              id: "isolations",
-              label: "Isolations Complete",
-              value: selectedIsolations.join(", "),
-            },
-            {
-              id: "atmosphere_count",
-              label: "Atmospheric Tests Logged",
-              value: String(atmosphereRows.filter((row) => row.time || row.oxygen).length),
-            },
-            {
-              id: "personnel_count",
-              label: "Personnel on Register",
-              value: String(registerRows.filter((row) => row.name.trim()).length),
-            },
-            { id: "authorised_by", label: "Authorised By", value: workerName },
-          ],
-          payload,
-        }),
-        signatureUrl: uploaded.url || signature,
+        answers,
+        signatureUrl: uploaded.url || siteManagerSignature,
       });
     } catch (cause) {
       setLocalError(
@@ -523,11 +555,24 @@ export default function ConfinedSpaceForm({
               />
             </section>
 
-            <section>
-              <p className={labelClass}>Authoriser signature *</p>
-              <div className="mt-1">
-                <SignatureCanvas onChange={(value) => setSignature(value ?? "")} />
-              </div>
+            <section className="space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                Authorisation Signatures
+              </h3>
+              <SignaturePad
+                label="Site Manager"
+                required
+                disabled={busy}
+                value={siteManagerSignature}
+                onChange={setSiteManagerSignature}
+              />
+              <SignaturePad
+                label="Competent Person"
+                required
+                disabled={busy}
+                value={competentPersonSignature}
+                onChange={setCompetentPersonSignature}
+              />
             </section>
 
             {localError || error ? (

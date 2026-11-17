@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
 import FormBrandingHeader from "@/components/ui/FormBrandingHeader";
-import SignatureCanvas from "@/components/prestart/SignatureCanvas";
+import SignaturePad from "@/components/forms/SignaturePad";
 import {
   packHighFidelityAnswers,
   type HighFidelityFormKey,
@@ -127,7 +127,13 @@ export default function RiskAssessmentForm({
     Object.fromEntries(PPE_ITEMS.map((item) => [item, false]))
   );
   const [additionalControls, setAdditionalControls] = useState("");
-  const [signature, setSignature] = useState("");
+  const [assessorSignature, setAssessorSignature] = useState<string | null>(null);
+  const [siteManagerSignature, setSiteManagerSignature] = useState<string | null>(
+    null
+  );
+  const [buildersRepSignature, setBuildersRepSignature] = useState<string | null>(
+    null
+  );
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -145,15 +151,15 @@ export default function RiskAssessmentForm({
       setLocalError("Describe the task / activity before submitting.");
       return;
     }
-    if (!signature.trim()) {
-      setLocalError("Signature is required.");
+    if (!assessorSignature?.trim()) {
+      setLocalError("Assessor signature is required.");
       return;
     }
 
     setSubmitting(true);
     try {
       const uploaded = await uploadSignatureDataUrl(
-        signature,
+        assessorSignature,
         `custom-forms/risk-assessment/${Date.now()}`
       );
       if (uploaded.error && !uploaded.url) {
@@ -167,6 +173,12 @@ export default function RiskAssessmentForm({
       }).filter(Boolean);
 
       const selectedPpe = PPE_ITEMS.filter((item) => ppe[item]);
+
+      const signatures = {
+        assessor: assessorSignature,
+        siteManager: siteManagerSignature,
+        buildersRep: buildersRepSignature,
+      };
 
       const payload = {
         formKey: "risk_assessment" as HighFidelityFormKey,
@@ -185,39 +197,73 @@ export default function RiskAssessmentForm({
         ppe: selectedPpe,
         additionalControls: additionalControls.trim(),
         preparedBy: workerName,
+        signatures,
       };
 
+      const answers = packHighFidelityAnswers({
+        summaryLines: [
+          { id: "work_date", label: "Date", value: workDate },
+          { id: "location", label: "Location", value: location },
+          { id: "task", label: "Task / Activity", value: taskDescription },
+          {
+            id: "residual_risk",
+            label: "Residual Risk",
+            value: `${residualBand} (${LIKELIHOOD[selectedLikelihood]} × ${CONSEQUENCE[selectedConsequence]})`,
+          },
+          {
+            id: "hazards_summary",
+            label: "Hazards Identified",
+            value: hazardSummary.join(" | "),
+          },
+          {
+            id: "ppe",
+            label: "PPE Required",
+            value: selectedPpe.join(", "),
+          },
+          {
+            id: "additional_controls",
+            label: "Additional Controls",
+            value: additionalControls,
+          },
+          { id: "prepared_by", label: "Prepared By", value: workerName },
+          {
+            id: "signoff_complete",
+            label: "Sign-off",
+            value: [
+              assessorSignature ? "Assessor signed" : null,
+              siteManagerSignature ? "Site Manager signed" : null,
+              buildersRepSignature ? "Builder's Rep signed" : null,
+            ]
+              .filter(Boolean)
+              .join(", "),
+          },
+        ],
+        payload,
+      });
+
+      answers.signature_assessor = {
+        label: "Assessor Signature",
+        type: "signature",
+        value: { url: assessorSignature },
+      };
+      if (siteManagerSignature) {
+        answers.signature_site_manager = {
+          label: "Site Manager Signature",
+          type: "signature",
+          value: { url: siteManagerSignature },
+        };
+      }
+      if (buildersRepSignature) {
+        answers.signature_builders_rep = {
+          label: "Builder's Rep Signature",
+          type: "signature",
+          value: { url: buildersRepSignature },
+        };
+      }
+
       await onSubmit({
-        answers: packHighFidelityAnswers({
-          summaryLines: [
-            { id: "work_date", label: "Date", value: workDate },
-            { id: "location", label: "Location", value: location },
-            { id: "task", label: "Task / Activity", value: taskDescription },
-            {
-              id: "residual_risk",
-              label: "Residual Risk",
-              value: `${residualBand} (${LIKELIHOOD[selectedLikelihood]} × ${CONSEQUENCE[selectedConsequence]})`,
-            },
-            {
-              id: "hazards_summary",
-              label: "Hazards Identified",
-              value: hazardSummary.join(" | "),
-            },
-            {
-              id: "ppe",
-              label: "PPE Required",
-              value: selectedPpe.join(", "),
-            },
-            {
-              id: "additional_controls",
-              label: "Additional Controls",
-              value: additionalControls,
-            },
-            { id: "prepared_by", label: "Prepared By", value: workerName },
-          ],
-          payload,
-        }),
-        signatureUrl: uploaded.url || signature,
+        answers,
+        signatureUrl: uploaded.url || assessorSignature,
       });
     } catch (cause) {
       setLocalError(
@@ -472,11 +518,29 @@ export default function RiskAssessmentForm({
               />
             </section>
 
-            <section>
-              <p className={labelClass}>Worker signature *</p>
-              <div className="mt-1">
-                <SignatureCanvas onChange={(value) => setSignature(value ?? "")} />
-              </div>
+            <section className="space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                Sign Off
+              </h3>
+              <SignaturePad
+                label="Assessor"
+                required
+                disabled={busy}
+                value={assessorSignature}
+                onChange={setAssessorSignature}
+              />
+              <SignaturePad
+                label="Site Manager"
+                disabled={busy}
+                value={siteManagerSignature}
+                onChange={setSiteManagerSignature}
+              />
+              <SignaturePad
+                label="Builder's Rep"
+                disabled={busy}
+                value={buildersRepSignature}
+                onChange={setBuildersRepSignature}
+              />
             </section>
 
             {localError || error ? (
