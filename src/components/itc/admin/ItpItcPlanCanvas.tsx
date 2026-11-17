@@ -1,10 +1,23 @@
 "use client";
 
-import { useMemo, useRef, useState, type MouseEvent, type PointerEvent, type TouchEvent, type WheelEvent } from "react";
-import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type TouchEvent,
+} from "react";
+import { Loader2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import ItcPlanPinMarker from "@/components/itc/ItcPlanPinMarker";
 import { getRelativeCanvasCoordinates } from "@/lib/itc-drawing-upload";
-import { clampPlanZoom, ITC_PLAN_MAX_ZOOM, ITC_PLAN_MIN_ZOOM, ITC_PLAN_ZOOM_STEP } from "@/lib/itc-plan-zoom";
+import {
+  clampPlanZoom,
+  ITC_PLAN_MAX_ZOOM,
+  ITC_PLAN_MIN_ZOOM,
+  ITC_PLAN_ZOOM_STEP,
+} from "@/lib/itc-plan-zoom";
 import { isPlanPdf } from "@/components/itc/admin/itp-itc-admin-api";
 import type { ServiceRunPoint } from "@/components/itc/admin/itp-itc-admin-numbering";
 import { cn } from "@/lib/utils";
@@ -37,6 +50,7 @@ interface ItpItcPlanCanvasProps {
   onDrop?: (x: number, y: number) => void;
   onPinClick?: (pin: PlanCanvasPin) => void;
   onServiceRunChange?: (points: ServiceRunPoint[]) => void;
+  className?: string;
 }
 
 function pointsToSvg(points: ServiceRunPoint[]): string {
@@ -56,9 +70,12 @@ export default function ItpItcPlanCanvas({
   onDrop,
   onPinClick,
   onServiceRunChange,
+  className,
 }: ItpItcPlanCanvasProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const planRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef(1);
+  const offsetRef = useRef({ x: 0, y: 0 });
   const dragRef = useRef<{
     active: boolean;
     moved: boolean;
@@ -67,23 +84,82 @@ export default function ItpItcPlanCanvas({
     originX: number;
     originY: number;
   } | null>(null);
-  const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
+  const pinchRef = useRef<{
+    distance: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    midX: number;
+    midY: number;
+  } | null>(null);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [planLoaded, setPlanLoaded] = useState(false);
   const src = planPreview || planUrl;
   const pdf = isPlanPdf(src, mimeType);
   const interactive = dropEnabled || mode === "line";
+
+  scaleRef.current = scale;
+  offsetRef.current = offset;
 
   const orderedPins = useMemo(
     () => [...pins].sort((a, b) => a.number - b.number),
     [pins]
   );
 
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
-    setScale((current) => clampPlanZoom(current + delta));
+  useEffect(() => {
+    setPlanLoaded(false);
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+    scaleRef.current = 1;
+    offsetRef.current = { x: 0, y: 0 };
+    // PDF <object> load events are unreliable — clear the spinner after a short settle.
+    if (!src) return;
+    const timeout = window.setTimeout(() => setPlanLoaded(true), pdf ? 1200 : 8000);
+    return () => window.clearTimeout(timeout);
+  }, [src, pdf]);
+
+  const zoomAtClientPoint = (clientX: number, clientY: number, nextScale: number) => {
+    const viewport = viewportRef.current;
+    const currentScale = scaleRef.current;
+    const clamped = clampPlanZoom(nextScale);
+    if (!viewport || clamped === currentScale) {
+      setScale(clamped);
+      scaleRef.current = clamped;
+      return;
+    }
+
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
+    const ratio = clamped / currentScale;
+    const currentOffset = offsetRef.current;
+    const nextOffset = {
+      x: mx - centerX - (mx - centerX - currentOffset.x) * ratio,
+      y: my - centerY - (my - centerY - currentOffset.y) * ratio,
+    };
+
+    scaleRef.current = clamped;
+    offsetRef.current = nextOffset;
+    setScale(clamped);
+    setOffset(nextOffset);
   };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !src) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
+      zoomAtClientPoint(event.clientX, event.clientY, scaleRef.current + delta);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [src]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("[data-plan-pin]")) return;
@@ -104,10 +180,12 @@ export default function ItpItcPlanCanvas({
     const dx = event.clientX - dragRef.current.startX;
     const dy = event.clientY - dragRef.current.startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
-    setOffset({
+    const nextOffset = {
       x: dragRef.current.originX + dx,
       y: dragRef.current.originY + dy,
-    });
+    };
+    offsetRef.current = nextOffset;
+    setOffset(nextOffset);
   };
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -117,6 +195,7 @@ export default function ItpItcPlanCanvas({
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!interactive || !planRef.current || !src) return;
+    if (dragRef.current?.moved) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-pin]")) return;
     const coords = getRelativeCanvasCoordinates(
@@ -132,12 +211,21 @@ export default function ItpItcPlanCanvas({
   };
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length === 2) {
-      const [a, b] = [event.touches[0], event.touches[1]];
-      if (!a || !b) return;
-      const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-      pinchRef.current = { distance, scale };
-    }
+    if (event.touches.length !== 2) return;
+    const [a, b] = [event.touches[0], event.touches[1]];
+    if (!a || !b) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+    pinchRef.current = {
+      distance,
+      scale: scaleRef.current,
+      offsetX: offsetRef.current.x,
+      offsetY: offsetRef.current.y,
+      midX: (a.clientX + b.clientX) / 2 - rect.left,
+      midY: (a.clientY + b.clientY) / 2 - rect.top,
+    };
   };
 
   const handleTouchMove = (event: TouchEvent<HTMLDivElement>) => {
@@ -145,26 +233,64 @@ export default function ItpItcPlanCanvas({
     event.preventDefault();
     const [a, b] = [event.touches[0], event.touches[1]];
     if (!a || !b) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
     const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-    const next = pinchRef.current.scale * (distance / Math.max(pinchRef.current.distance, 1));
-    setScale(clampPlanZoom(next));
+    const next = clampPlanZoom(
+      pinchRef.current.scale * (distance / Math.max(pinchRef.current.distance, 1))
+    );
+    // Recompute from the gesture start so successive frames do not compound.
+    scaleRef.current = pinchRef.current.scale;
+    offsetRef.current = {
+      x: pinchRef.current.offsetX,
+      y: pinchRef.current.offsetY,
+    };
+    zoomAtClientPoint(
+      rect.left + pinchRef.current.midX,
+      rect.top + pinchRef.current.midY,
+      next
+    );
   };
+
+  const handleTouchEnd = () => {
+    if (pinchRef.current) pinchRef.current = null;
+  };
+
+  const markPlanLoaded = () => setPlanLoaded(true);
 
   if (!src) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+      <div
+        className={cn(
+          "flex h-full min-h-[320px] w-full items-center justify-center bg-slate-50 p-6 text-sm text-slate-500",
+          className
+        )}
+      >
         {emptyHint}
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
-      <div className="flex items-center justify-end gap-1 border-b border-slate-200 bg-white px-2 py-1.5">
+    <div className={cn("relative h-full min-h-[min(70vh,640px)] w-full", className)}>
+      <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur">
         <button
           type="button"
-          onClick={() => setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP))}
-          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"
+          onClick={() => {
+            const viewport = viewportRef.current;
+            if (!viewport) {
+              setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP));
+              return;
+            }
+            const rect = viewport.getBoundingClientRect();
+            zoomAtClientPoint(
+              rect.left + rect.width / 2,
+              rect.top + rect.height / 2,
+              scaleRef.current - ITC_PLAN_ZOOM_STEP
+            );
+          }}
+          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
           aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
@@ -174,8 +300,20 @@ export default function ItpItcPlanCanvas({
         </span>
         <button
           type="button"
-          onClick={() => setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP))}
-          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"
+          onClick={() => {
+            const viewport = viewportRef.current;
+            if (!viewport) {
+              setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP));
+              return;
+            }
+            const rect = viewport.getBoundingClientRect();
+            zoomAtClientPoint(
+              rect.left + rect.width / 2,
+              rect.top + rect.height / 2,
+              scaleRef.current + ITC_PLAN_ZOOM_STEP
+            );
+          }}
+          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
           aria-label="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
@@ -183,50 +321,71 @@ export default function ItpItcPlanCanvas({
         <button
           type="button"
           onClick={() => {
+            scaleRef.current = 1;
+            offsetRef.current = { x: 0, y: 0 };
             setScale(1);
             setOffset({ x: 0, y: 0 });
           }}
-          className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"
+          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
           aria-label="Reset zoom"
         >
           <RotateCcw className="h-4 w-4" />
         </button>
       </div>
+
       <div
         ref={viewportRef}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         className={cn(
-          "relative h-[min(70vh,640px)] overflow-hidden bg-slate-100",
+          "relative h-full w-full touch-none select-none overflow-hidden bg-slate-100",
           interactive ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
         )}
+        style={{ userSelect: "none" }}
       >
+        {!planLoaded ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90">
+            <div className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-200">
+              <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+              Loading plan…
+            </div>
+          </div>
+        ) : null}
+
         <div
-          className="absolute left-1/2 top-1/2 origin-center"
+          className="absolute left-1/2 top-1/2 origin-center will-change-transform"
           style={{
             transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
           }}
         >
-          <div ref={planRef} onClick={handleClick} className="relative inline-block">
+          <div ref={planRef} onClick={handleClick} className="relative inline-block select-none">
             {pdf ? (
               <object
                 data={src}
                 type="application/pdf"
-                className="pointer-events-none h-[min(70vh,640px)] w-[min(92vw,960px)]"
+                onLoad={markPlanLoaded}
+                className="pointer-events-none block h-[min(70vh,640px)] w-[min(100%,1100px)] max-w-none select-none"
               >
-                <p className="p-4 text-sm text-slate-500">PDF plan loaded. Markup is active on this canvas.</p>
+                <p className="p-4 text-sm text-slate-500">
+                  PDF plan loaded. Markup is active on this canvas.
+                </p>
               </object>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={src}
                 alt="ITP plan drawing"
-                className="pointer-events-none block h-auto max-w-[min(92vw,960px)] select-none"
+                decoding="async"
+                loading="eager"
+                onLoad={markPlanLoaded}
+                onError={markPlanLoaded}
+                className="pointer-events-none block h-auto w-auto max-h-[min(70vh,720px)] max-w-none select-none"
                 draggable={false}
               />
             )}
@@ -283,9 +442,11 @@ export default function ItpItcPlanCanvas({
           </div>
         </div>
       </div>
-      <p className="border-t border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-500">
-        Scroll or pinch to zoom up to {ITC_PLAN_MAX_ZOOM}x ({ITC_PLAN_MIN_ZOOM}x–{ITC_PLAN_MAX_ZOOM}x). Drag to pan when zoomed.
-      </p>
+
+      <span className="sr-only">
+        Scroll or pinch to zoom up to {ITC_PLAN_MAX_ZOOM}x ({ITC_PLAN_MIN_ZOOM}x–
+        {ITC_PLAN_MAX_ZOOM}x). Drag to pan when zoomed.
+      </span>
     </div>
   );
 }

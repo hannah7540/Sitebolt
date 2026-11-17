@@ -378,15 +378,24 @@ export default function ItpMasterDrawer({
                     ))}
                   </select>
                 </label>
-                <label className="inline-flex cursor-pointer items-end">
+                <label className={cn("inline-flex items-end", uploading && "pointer-events-none opacity-80")}>
                   <span className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-                    <Upload className="h-4 w-4" />
-                    {uploading ? "Uploading…" : planUrl ? "Replace plan drawing" : "Upload plan drawing"}
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {uploading
+                      ? "Uploading plan..."
+                      : planUrl
+                        ? "Replace plan drawing"
+                        : "Upload plan drawing"}
                   </span>
                   <input
                     type="file"
                     accept="application/pdf,image/png,image/jpeg"
                     className="hidden"
+                    disabled={uploading}
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       if (file) void handlePlan(file);
@@ -436,20 +445,22 @@ export default function ItpMasterDrawer({
                   </button>
                 </div>
               </div>
-              <ItpItcPlanCanvas
-                planUrl={planUrl}
-                pins={pins}
-                dropEnabled={dropMode}
-                mode={canvasMode}
-                serviceRunPoints={serviceRunPoints}
-                serviceRuns={localItcs
-                  .filter((row) => row.service_run_coordinates?.length)
-                  .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
-                onServiceRunChange={setServiceRunPoints}
-                emptyHint="No plan drawing uploaded for this ITP."
-                onDrop={(x, y) => void handleDrop(x, y)}
-                onPinClick={(pin) => onOpenItc(pin.id)}
-              />
+              <div className="h-[min(75vh,720px)] w-full overflow-hidden rounded-xl">
+                <ItpItcPlanCanvas
+                  planUrl={planUrl}
+                  pins={pins}
+                  dropEnabled={dropMode}
+                  mode={canvasMode}
+                  serviceRunPoints={serviceRunPoints}
+                  serviceRuns={localItcs
+                    .filter((row) => row.service_run_coordinates?.length)
+                    .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
+                  onServiceRunChange={setServiceRunPoints}
+                  emptyHint="No plan drawing uploaded for this ITP."
+                  onDrop={(x, y) => void handleDrop(x, y)}
+                  onPinClick={(pin) => onOpenItc(pin.id)}
+                />
+              </div>
               </>
               ) : (
               <div>

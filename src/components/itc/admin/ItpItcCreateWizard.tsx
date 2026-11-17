@@ -67,6 +67,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
   const [canvasMode, setCanvasMode] = useState<"pin" | "line">("pin");
   const [nextSequence, setNextSequence] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -123,25 +124,31 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
       setMessage("Upload a PDF, PNG, or JPG plan drawing.");
       return;
     }
+    setIsUploading(true);
     setBusy(true);
     setMessage(null);
     setPlanFile(file);
     setDrawingRef((current) => current.trim() || drawingNameFromUploadFile(file.name));
-    const uploaded = await uploadItpPlan({
-      projectId: projectId || "unassigned",
-      file,
-    });
-    setBusy(false);
-    setPlanUrl(uploaded.url);
-    setPlanPreview(uploaded.preview);
-    if (uploaded.error && !uploaded.url && !uploaded.preview) {
-      setMessage(uploaded.error);
+    try {
+      const uploaded = await uploadItpPlan({
+        projectId: projectId || "unassigned",
+        file,
+      });
+      setPlanUrl(uploaded.url);
+      setPlanPreview(uploaded.preview);
+      if (uploaded.error && !uploaded.url && !uploaded.preview) {
+        setMessage(uploaded.error);
+      }
+    } finally {
+      setIsUploading(false);
+      setBusy(false);
     }
   };
 
   const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setDragOver(false);
+    if (isUploading) return;
     const file = event.dataTransfer.files?.[0];
     if (file) void acceptPlan(file);
   };
@@ -332,26 +339,40 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
           <label
             onDragOver={(event) => {
               event.preventDefault();
-              setDragOver(true);
+              if (!isUploading) setDragOver(true);
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             className={cn(
               "flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center",
+              isUploading && "pointer-events-none opacity-80",
               dragOver ? "border-orange-500 bg-orange-50" : "border-slate-300 bg-slate-50"
             )}
           >
-            <Upload className="mb-2 h-6 w-6 text-orange-500" />
-            <span className="text-sm font-semibold text-slate-800">
-              Drop PDF or high-res PNG/JPG plan
-            </span>
-            <span className="text-xs text-slate-500">
-              {planFile ? planFile.name : "Uploads to the itp-plans bucket"}
-            </span>
+            {isUploading ? (
+              <>
+                <Loader2 className="mb-2 h-6 w-6 animate-spin text-orange-500" />
+                <span className="text-sm font-semibold text-slate-800">Uploading plan...</span>
+                <span className="text-xs text-slate-500">
+                  {planFile?.name ?? "Please wait"}
+                </span>
+              </>
+            ) : (
+              <>
+                <Upload className="mb-2 h-6 w-6 text-orange-500" />
+                <span className="text-sm font-semibold text-slate-800">
+                  Drop PDF or high-res PNG/JPG plan
+                </span>
+                <span className="text-xs text-slate-500">
+                  {planFile ? planFile.name : "Uploads to the itp-plans bucket"}
+                </span>
+              </>
+            )}
             <input
               type="file"
               accept="application/pdf,image/png,image/jpeg"
               className="hidden"
+              disabled={isUploading}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) void acceptPlan(file);
@@ -366,9 +387,17 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
             <button
               type="button"
               onClick={goStep2}
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+              disabled={isUploading}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Next
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uploading plan...
+                </>
+              ) : (
+                "Next"
+              )}
             </button>
           </div>
         </div>
@@ -469,23 +498,25 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
               </>
             ) : null}
           </div>
-          <ItpItcPlanCanvas
-            planUrl={planUrl}
-            planPreview={planPreview}
-            mimeType={planFile?.type}
-            pins={canvasPins}
-            dropEnabled={canvasMode === "pin"}
-            mode={canvasMode}
-            serviceRunPoints={serviceRunPoints}
-            serviceRuns={pins
-              .filter((row) => row.service_run_coordinates?.length)
-              .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
-            onServiceRunChange={setServiceRunPoints}
-            onDrop={(x, y) => {
-              setPendingPin({ x, y });
-              setMessage(null);
-            }}
-          />
+          <div className="h-[min(75vh,720px)] w-full overflow-hidden rounded-xl">
+            <ItpItcPlanCanvas
+              planUrl={planUrl}
+              planPreview={planPreview}
+              mimeType={planFile?.type}
+              pins={canvasPins}
+              dropEnabled={canvasMode === "pin"}
+              mode={canvasMode}
+              serviceRunPoints={serviceRunPoints}
+              serviceRuns={pins
+                .filter((row) => row.service_run_coordinates?.length)
+                .map((row) => ({ id: row.id, points: row.service_run_coordinates }))}
+              onServiceRunChange={setServiceRunPoints}
+              onDrop={(x, y) => {
+                setPendingPin({ x, y });
+                setMessage(null);
+              }}
+            />
+          </div>
           <div className="flex justify-between">
             <button
               type="button"

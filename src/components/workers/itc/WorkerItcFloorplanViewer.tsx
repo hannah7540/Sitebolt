@@ -52,8 +52,13 @@ export default function WorkerItcFloorplanViewer({
   const [checklistItcId, setChecklistItcId] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [planImageLoaded, setPlanImageLoaded] = useState(false);
   const dragRef = useRef<{ active: boolean; startX: number; startY: number; originX: number; originY: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const scaleRef = useRef(1);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  scaleRef.current = scale;
+  offsetRef.current = offset;
 
   const loadProjectData = async (projectId: string) => {
     setLoading(true);
@@ -66,8 +71,11 @@ export default function WorkerItcFloorplanViewer({
     setItcs(registerResult.itcs);
     setError(planResult.error ?? registerResult.error);
     setLoading(false);
+    setPlanImageLoaded(false);
     setScale(1);
     setOffset({ x: 0, y: 0 });
+    scaleRef.current = 1;
+    offsetRef.current = { x: 0, y: 0 };
   };
 
   useEffect(() => {
@@ -109,11 +117,43 @@ export default function WorkerItcFloorplanViewer({
 
   useMobileBackHandler(handleMobileBack, !checklistItcId);
 
-  const handleWheel: React.WheelEventHandler<HTMLDivElement> = (event) => {
-    event.preventDefault();
-    const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
-    setScale((current) => clampPlanZoom(current + delta));
+  const zoomAtClientPoint = (clientX: number, clientY: number, nextScale: number) => {
+    const viewport = viewportRef.current;
+    const currentScale = scaleRef.current;
+    const clamped = clampPlanZoom(nextScale);
+    if (!viewport || clamped === currentScale) {
+      setScale(clamped);
+      scaleRef.current = clamped;
+      return;
+    }
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
+    const ratio = clamped / currentScale;
+    const currentOffset = offsetRef.current;
+    const nextOffset = {
+      x: mx - centerX - (mx - centerX - currentOffset.x) * ratio,
+      y: my - centerY - (my - centerY - currentOffset.y) * ratio,
+    };
+    scaleRef.current = clamped;
+    offsetRef.current = nextOffset;
+    setScale(clamped);
+    setOffset(nextOffset);
   };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !plan) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const delta = event.deltaY > 0 ? -ITC_PLAN_ZOOM_STEP : ITC_PLAN_ZOOM_STEP;
+      zoomAtClientPoint(event.clientX, event.clientY, scaleRef.current + delta);
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [plan]);
 
   const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (event) => {
     if ((event.target as HTMLElement).closest("[data-itc-pin]")) return;
@@ -129,10 +169,12 @@ export default function WorkerItcFloorplanViewer({
 
   const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (event) => {
     if (!dragRef.current?.active) return;
-    setOffset({
+    const nextOffset = {
       x: dragRef.current.originX + (event.clientX - dragRef.current.startX),
       y: dragRef.current.originY + (event.clientY - dragRef.current.startY),
-    });
+    };
+    offsetRef.current = nextOffset;
+    setOffset(nextOffset);
   };
 
   const handlePointerUp: React.PointerEventHandler<HTMLDivElement> = (event) => {
@@ -244,24 +286,48 @@ export default function WorkerItcFloorplanViewer({
         </div>
       ) : (
         <div className={cn(cardClass, "overflow-hidden")}>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{plan.plan_name}</p>
-              <p className="text-xs text-slate-500">{selectedProject?.name}</p>
+          <div className="relative h-[min(75vh,640px)] w-full">
+            <div className="absolute left-3 top-3 z-20 max-w-[60%] rounded-lg bg-white/90 px-3 py-2 shadow-sm ring-1 ring-slate-200 backdrop-blur">
+              <p className="truncate text-sm font-semibold text-slate-900">{plan.plan_name}</p>
+              <p className="truncate text-xs text-slate-500">{selectedProject?.name}</p>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur">
               <button
                 type="button"
-                onClick={() => setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP))}
-                className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                onClick={() => {
+                  const viewport = viewportRef.current;
+                  if (!viewport) {
+                    setScale((current) => clampPlanZoom(current - ITC_PLAN_ZOOM_STEP));
+                    return;
+                  }
+                  const rect = viewport.getBoundingClientRect();
+                  zoomAtClientPoint(
+                    rect.left + rect.width / 2,
+                    rect.top + rect.height / 2,
+                    scaleRef.current - ITC_PLAN_ZOOM_STEP
+                  );
+                }}
+                className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
                 aria-label="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
               </button>
               <button
                 type="button"
-                onClick={() => setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP))}
-                className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                onClick={() => {
+                  const viewport = viewportRef.current;
+                  if (!viewport) {
+                    setScale((current) => clampPlanZoom(current + ITC_PLAN_ZOOM_STEP));
+                    return;
+                  }
+                  const rect = viewport.getBoundingClientRect();
+                  zoomAtClientPoint(
+                    rect.left + rect.width / 2,
+                    rect.top + rect.height / 2,
+                    scaleRef.current + ITC_PLAN_ZOOM_STEP
+                  );
+                }}
+                className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
                 aria-label="Zoom in"
               >
                 <ZoomIn className="h-4 w-4" />
@@ -269,62 +335,76 @@ export default function WorkerItcFloorplanViewer({
               <button
                 type="button"
                 onClick={() => {
+                  scaleRef.current = 1;
+                  offsetRef.current = { x: 0, y: 0 };
                   setScale(1);
                   setOffset({ x: 0, y: 0 });
                 }}
-                className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
                 aria-label="Reset zoom"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
             </div>
-          </div>
 
-          <div
-            ref={viewportRef}
-            className="relative h-[min(70vh,520px)] cursor-grab overflow-hidden bg-slate-100 active:cursor-grabbing"
-            onWheel={handleWheel}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-          >
             <div
-              className="absolute left-1/2 top-1/2 origin-center"
-              style={{
-                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
-              }}
+              ref={viewportRef}
+              className="relative h-full w-full cursor-grab touch-none select-none overflow-hidden bg-slate-100 active:cursor-grabbing"
+              style={{ userSelect: "none" }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
             >
-              <div className="relative inline-block">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={plan.image_url}
-                  alt={plan.plan_name}
-                  className="max-h-[480px] max-w-[min(92vw,880px)] select-none object-contain"
-                  draggable={false}
-                />
-                {pinnedItcs.map((itc, index) => (
-                  <ItcPlanPinMarker
-                    key={itc.id}
-                    x={itc.pin_x ?? 0.5}
-                    y={itc.pin_y ?? 0.5}
-                    label={String(index + 1)}
-                    selected={previewItcId === itc.id}
-                    colorClass={
-                      itc.status === "completed" || itc.status === "complete"
-                        ? "text-emerald-500"
-                        : itc.status === "in_progress"
-                          ? "text-amber-500"
-                          : "text-slate-500"
-                    }
-                    onClick={() => setPreviewItcId(itc.id)}
+              {!planImageLoaded ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90">
+                  <div className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-200">
+                    <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+                    Loading plan…
+                  </div>
+                </div>
+              ) : null}
+              <div
+                className="absolute left-1/2 top-1/2 origin-center will-change-transform"
+                style={{
+                  transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+                }}
+              >
+                <div className="relative inline-block select-none">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={plan.image_url}
+                    alt={plan.plan_name}
+                    decoding="async"
+                    loading="eager"
+                    onLoad={() => setPlanImageLoaded(true)}
+                    onError={() => setPlanImageLoaded(true)}
+                    className="pointer-events-none block h-auto max-h-[min(70vh,640px)] w-auto max-w-none select-none object-contain"
+                    draggable={false}
                   />
-                ))}
+                  {pinnedItcs.map((itc, index) => (
+                    <ItcPlanPinMarker
+                      key={itc.id}
+                      x={itc.pin_x ?? 0.5}
+                      y={itc.pin_y ?? 0.5}
+                      label={String(index + 1)}
+                      selected={previewItcId === itc.id}
+                      colorClass={
+                        itc.status === "completed" || itc.status === "complete"
+                          ? "text-emerald-500"
+                          : itc.status === "in_progress"
+                            ? "text-amber-500"
+                            : "text-slate-500"
+                      }
+                      onClick={() => setPreviewItcId(itc.id)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+          <div className="flex flex-wrap gap-3 px-4 py-3 text-xs text-slate-600">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-slate-400" /> Not Started
             </span>

@@ -203,7 +203,7 @@ export default function ItpDrawingUploader({
             className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Upload Drawing
+            {loading ? "Uploading plan..." : "Upload Drawing"}
           </button>
         </div>
       </div>
