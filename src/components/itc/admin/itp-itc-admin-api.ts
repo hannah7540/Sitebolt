@@ -70,6 +70,10 @@ export interface AdminChecklistItem {
   remarks: string;
   /** Photos attached to this checklist step (inline uploads). */
   photos: string[];
+  /** Authenticated user who marked this step complete. */
+  completed_by_name: string | null;
+  /** ISO timestamp when this step was marked complete. */
+  completed_at: string | null;
 }
 
 export interface AdminItcPhoto {
@@ -211,6 +215,23 @@ function mapChecklistPhotos(raw: unknown): string[] {
     .filter(Boolean);
 }
 
+function emptyChecklistItem(
+  key: string,
+  text: string,
+  partial?: Partial<AdminChecklistItem>
+): AdminChecklistItem {
+  return {
+    key,
+    text,
+    result: "",
+    remarks: "",
+    photos: [],
+    completed_by_name: null,
+    completed_at: null,
+    ...partial,
+  };
+}
+
 function mapChecklist(
   raw: unknown,
   fallbackQuestions: AdminChecklistQuestion[] = []
@@ -218,22 +239,22 @@ function mapChecklist(
   if (Array.isArray(raw) && raw.length) {
     return raw.map((item, index) => {
       const row = asRecord(item);
-      return {
-        key: str(row, "key") ?? `item_${index + 1}`,
-        text: str(row, "text") ?? str(row, "description") ?? `Item ${index + 1}`,
-        result: (str(row, "result") as ChecklistResult) ?? "",
-        remarks: str(row, "remarks") ?? "",
-        photos: mapChecklistPhotos(row.photos ?? row.photo_urls),
-      };
+      return emptyChecklistItem(
+        str(row, "key") ?? `item_${index + 1}`,
+        str(row, "text") ?? str(row, "description") ?? `Item ${index + 1}`,
+        {
+          result: (str(row, "result") as ChecklistResult) ?? "",
+          remarks: str(row, "remarks") ?? "",
+          photos: mapChecklistPhotos(row.photos ?? row.photo_urls),
+          completed_by_name: str(row, "completed_by_name"),
+          completed_at: str(row, "completed_at"),
+        }
+      );
     });
   }
-  return fallbackQuestions.map((question) => ({
-    key: question.key,
-    text: question.text,
-    result: "",
-    remarks: "",
-    photos: [],
-  }));
+  return fallbackQuestions.map((question) =>
+    emptyChecklistItem(question.key, question.text)
+  );
 }
 
 /** Reorder/rename checklist items to match the current template while preserving answers. */
@@ -248,16 +269,71 @@ export function syncChecklistWithTemplate(
   return template.questions.map((question) => {
     const existing = byKey.get(question.key);
     if (existing) {
-      return { ...existing, text: question.text, photos: existing.photos ?? [] };
+      return {
+        ...existing,
+        text: question.text,
+        photos: existing.photos ?? [],
+        completed_by_name: existing.completed_by_name ?? null,
+        completed_at: existing.completed_at ?? null,
+      };
     }
-    return {
-      key: question.key,
-      text: question.text,
-      result: "" as ChecklistResult,
-      remarks: "",
-      photos: [],
-    };
+    return emptyChecklistItem(question.key, question.text);
   });
+}
+
+/** Apply a checklist result and stamp step-level completion audit fields. */
+export function withChecklistStepCompletion(
+  item: AdminChecklistItem,
+  result: ChecklistResult,
+  actor: { completed_by_name: string | null; completed_at: string | null }
+): AdminChecklistItem {
+  if (result === "yes") {
+    return {
+      ...item,
+      result,
+      completed_by_name: actor.completed_by_name,
+      completed_at: actor.completed_at ?? new Date().toISOString(),
+    };
+  }
+  return {
+    ...item,
+    result,
+    completed_by_name: null,
+    completed_at: null,
+  };
+}
+
+/** Most recent ITC on the same project with usable contract sign-off details. */
+export async function fetchLatestAdminItcSignoffs(
+  projectId: string,
+  excludeItcId?: string | null
+): Promise<{
+  subcontractor: AdminItcSignoff;
+  contractor: AdminItcSignoff;
+  client: AdminItcSignoff;
+} | null> {
+  if (!projectId.trim()) return null;
+  const rows = await listAdminItcs(projectId);
+  const candidates = rows
+    .filter((row) => row.id !== excludeItcId)
+    .filter(
+      (row) =>
+        Boolean(row.subcontractor_sign?.full_name?.trim()) ||
+        Boolean(row.contractor_sign?.full_name?.trim()) ||
+        Boolean(row.client_sign?.full_name?.trim())
+    )
+    .sort((a, b) => {
+      const left = Date.parse(a.created_at ?? "") || 0;
+      const right = Date.parse(b.created_at ?? "") || 0;
+      return right - left;
+    });
+  const latest = candidates[0];
+  if (!latest) return null;
+  return {
+    subcontractor: latest.subcontractor_sign,
+    contractor: latest.contractor_sign,
+    client: latest.client_sign,
+  };
 }
 
 function mapPhotos(raw: unknown): AdminItcPhoto[] {
@@ -881,13 +957,9 @@ export async function createAdminItcFromPin(input: {
     reservedNumbers: input.reservedNumbers,
   });
   const itcNumber = allocated.number;
-  const checklist: AdminChecklistItem[] = (template?.questions ?? []).map((question) => ({
-    key: question.key,
-    text: question.text,
-    result: "" as ChecklistResult,
-    remarks: "",
-    photos: [],
-  }));
+  const checklist: AdminChecklistItem[] = (template?.questions ?? []).map((question) =>
+    emptyChecklistItem(question.key, question.text)
+  );
 
   const photoSlots = emptyAdminPhotoSlots();
   const specValues = input.specValues ?? null;

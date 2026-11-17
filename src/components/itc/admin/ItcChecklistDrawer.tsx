@@ -8,15 +8,18 @@ import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpe
 import AdminItcSignoffTiers from "@/components/itc/admin/AdminItcSignoffTiers";
 import AdminItcStructureSelect from "@/components/itc/admin/AdminItcStructureSelect";
 import Toast from "@/components/ui/Toast";
+import { toggleItcChecklistStepActor } from "@/app/actions/itc-checklist-step";
 import {
   ADMIN_STATUS_CLASSES,
   ADMIN_STATUS_LABELS,
   deriveAdminItcStatus,
+  fetchLatestAdminItcSignoffs,
   getAdminItp,
   listAdminItcs,
   saveAdminItcRecord,
   syncChecklistWithTemplate,
   uploadAdminRedlineDrawing,
+  withChecklistStepCompletion,
   type AdminChecklistItem,
   type AdminItcRecord,
   type ChecklistResult,
@@ -146,6 +149,76 @@ export default function ItcChecklistDrawer({
   const [clientSign, setClientSign] = useState(
     itc.client_sign ?? emptyAdminSignoff({ company: DEFAULT_ITC_CLIENT })
   );
+  const [signoffAutofillNote, setSignoffAutofillNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const needsAutofill =
+      !contractorSign.full_name?.trim() ||
+      !clientSign.full_name?.trim() ||
+      !(subcontractorSign.full_name?.trim() || itc.completed_by_name);
+
+    if (!needsAutofill) return;
+
+    void fetchLatestAdminItcSignoffs(itc.project_id, itc.id).then((latest) => {
+      if (cancelled || !latest) return;
+      let filled = false;
+      setSubcontractorSign((current) => {
+        if (current.full_name?.trim() || !latest.subcontractor.full_name?.trim()) {
+          return current;
+        }
+        filled = true;
+        return {
+          ...current,
+          company: current.company || latest.subcontractor.company || DEFAULT_SUBCONTRACTOR,
+          full_name: latest.subcontractor.full_name,
+          position: current.position || latest.subcontractor.position,
+          // Do not copy signatures — only names/details for typing convenience.
+          signature_url: current.signature_url,
+          signed_at: current.signed_at,
+        };
+      });
+      setContractorSign((current) => {
+        if (current.full_name?.trim() || !latest.contractor.full_name?.trim()) {
+          return current;
+        }
+        filled = true;
+        return {
+          ...current,
+          company: current.company || latest.contractor.company || DEFAULT_MANAGING_CONTRACTOR,
+          full_name: latest.contractor.full_name,
+          position: current.position || latest.contractor.position,
+          signature_url: current.signature_url,
+          signed_at: current.signed_at,
+        };
+      });
+      setClientSign((current) => {
+        if (current.full_name?.trim() || !latest.client.full_name?.trim()) {
+          return current;
+        }
+        filled = true;
+        return {
+          ...current,
+          company: current.company || latest.client.company || DEFAULT_ITC_CLIENT,
+          full_name: latest.client.full_name,
+          position: current.position || latest.client.position,
+          signature_url: current.signature_url,
+          signed_at: current.signed_at,
+        };
+      });
+      if (filled) {
+        setSignoffAutofillNote(
+          "Contract sign-offs pre-filled from the most recent ITC on this site. Confirm or change before signing."
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally once on open for this ITC.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itc.id, itc.project_id]);
   const requiredKpa = requiredPressureKpaForItc({ template_key: itc.template_key });
   const diameterM = parsePipeDiameterMm(pipeSize);
   const [pressureTest, setPressureTest] = useState(
@@ -240,15 +313,41 @@ export default function ItcChecklistDrawer({
   ]);
 
   const updateResult = (key: string, result: ChecklistResult) => {
-    setChecklist((rows) =>
-      rows.map((row) => (row.key === key ? { ...row, result } : row))
-    );
+    void (async () => {
+      const actor = await toggleItcChecklistStepActor({
+        result,
+        fallbackName: defaultSignerName,
+      });
+      setChecklist((rows) =>
+        rows.map((row) =>
+          row.key === key
+            ? withChecklistStepCompletion(row, result, {
+                completed_by_name: actor.completed_by_name,
+                completed_at: actor.completed_at,
+              })
+            : row
+        )
+      );
+    })();
   };
 
   const updateRemarks = (key: string, remarks: string) => {
     setChecklist((rows) =>
       rows.map((row) => (row.key === key ? { ...row, remarks } : row))
     );
+  };
+
+  const formatStepCompletedAt = (value: string | null | undefined): string => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString("en-AU", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const handleRedlineUpload = async (file: File) => {
@@ -480,6 +579,14 @@ export default function ItcChecklistDrawer({
                       />
                     </>
                   )}
+                  {item.result === "yes" && item.completed_by_name ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Completed by {item.completed_by_name}
+                      {item.completed_at
+                        ? ` on ${formatStepCompletedAt(item.completed_at)}`
+                        : ""}
+                    </p>
+                  ) : null}
                   <AdminItcChecklistStepPhotos
                     projectId={itc.project_id}
                     itcId={itc.id}
@@ -580,13 +687,27 @@ export default function ItcChecklistDrawer({
             </label>
           </section>
 
+          {signoffAutofillNote ? (
+            <p className="mt-6 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              {signoffAutofillNote}
+            </p>
+          ) : null}
           <AdminItcSignoffTiers
             subcontractor={subcontractorSign}
             contractor={contractorSign}
             client={clientSign}
-            onSubcontractorChange={setSubcontractorSign}
-            onContractorChange={setContractorSign}
-            onClientChange={setClientSign}
+            onSubcontractorChange={(next) => {
+              setSignoffAutofillNote(null);
+              setSubcontractorSign(next);
+            }}
+            onContractorChange={(next) => {
+              setSignoffAutofillNote(null);
+              setContractorSign(next);
+            }}
+            onClientChange={(next) => {
+              setSignoffAutofillNote(null);
+              setClientSign(next);
+            }}
           />
           {message ? <p className="mt-4 text-sm text-rose-600">{message}</p> : null}
         </div>

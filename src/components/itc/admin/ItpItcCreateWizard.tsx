@@ -30,6 +30,7 @@ import {
   getAdminItpTemplate,
   type AdminItcSpecValues,
 } from "@/components/itc/admin/itp-itc-admin-types";
+import { parseItpPlanFilename } from "@/lib/itp-plan-filename";
 import { cardClass, inputClass, modalClass, modalOverlayClass } from "@/lib/ui-classes";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,7 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
   const [busy, setBusy] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [filenameHint, setFilenameHint] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const template = getAdminItpTemplate(templateKey);
@@ -128,7 +130,15 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
     setBusy(true);
     setMessage(null);
     setPlanFile(file);
-    setDrawingRef((current) => current.trim() || drawingNameFromUploadFile(file.name));
+    const parsed = parseItpPlanFilename(file.name);
+    setDrawingRef((current) => current.trim() || parsed.drawingName || drawingNameFromUploadFile(file.name));
+    if (parsed.area) {
+      setArea((current) => current.trim() || parsed.area!);
+    }
+    if (parsed.templateKey) {
+      setTemplateKey(parsed.templateKey);
+    }
+    setFilenameHint(parsed.message);
     try {
       const uploaded = await uploadItpPlan({
         projectId: projectId || "unassigned",
@@ -289,7 +299,10 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
               </span>
               <input
                 value={area}
-                onChange={(event) => setArea(event.target.value)}
+                onChange={(event) => {
+                  setArea(event.target.value);
+                  setFilenameHint(null);
+                }}
                 placeholder='e.g. "MP2", "WP7", "Level 4 Pour 3"'
                 className={inputClass}
               />
@@ -383,6 +396,11 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
             // eslint-disable-next-line @next/next/no-img-element
             <img src={planPreview} alt="Plan preview" className="max-h-48 rounded-lg border" />
           ) : null}
+          {filenameHint ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {filenameHint}
+            </p>
+          ) : null}
           <div className="flex justify-end">
             <button
               type="button"
@@ -405,13 +423,21 @@ export default function ItpItcCreateWizard({ projects, onCreated }: ItpItcCreate
 
       {step === 2 ? (
         <div className={`${cardClass} space-y-4 p-5`}>
+          {filenameHint ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {filenameHint}
+            </p>
+          ) : null}
           <label>
             <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
               Built-in A Plus Plumbing template
             </span>
             <select
               value={templateKey}
-              onChange={(event) => setTemplateKey(event.target.value)}
+              onChange={(event) => {
+                setTemplateKey(event.target.value);
+                setFilenameHint(null);
+              }}
               className={inputClass}
             >
               {sortedTemplates.map((row) => (
