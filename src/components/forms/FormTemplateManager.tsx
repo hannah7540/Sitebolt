@@ -26,6 +26,10 @@ import {
   type CustomFormTemplate,
   type CustomFormTemplateInput,
 } from "@/lib/custom-forms";
+import {
+  ensureHighFidelityFormTemplates,
+  isHighFidelityFormTemplate,
+} from "@/lib/high-fidelity-forms";
 import { cn } from "@/lib/utils";
 import { cardClass, inputClass } from "@/lib/ui-classes";
 
@@ -57,6 +61,13 @@ export default function FormTemplateManager() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+    const ensured = await ensureHighFidelityFormTemplates();
+    if (ensured.error) {
+      setLoadError(ensured.error);
+      setTemplates([]);
+      setLoading(false);
+      return;
+    }
     const { data, error } = await fetchCustomFormTemplates();
     if (error) {
       setLoadError(error);
@@ -226,7 +237,16 @@ export default function FormTemplateManager() {
             <tbody>
               {filtered.map((template) => (
                 <tr key={template.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">{template.title}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{template.title}</span>
+                      {isHighFidelityFormTemplate(template) ? (
+                        <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          System Template
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {templateTargetLabels(template).map((label) => (
@@ -267,14 +287,16 @@ export default function FormTemplateManager() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => openEdit(template)}
-                        className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-                        aria-label="Edit template"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      {!isHighFidelityFormTemplate(template) ? (
+                        <button
+                          type="button"
+                          onClick={() => openEdit(template)}
+                          className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
+                          aria-label="Edit template"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void handleDuplicate(template)}
@@ -283,14 +305,16 @@ export default function FormTemplateManager() {
                       >
                         <Copy className="h-4 w-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingDelete(template)}
-                        className="rounded-md p-2 text-red-500 hover:bg-red-50"
-                        aria-label="Delete template"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {!isHighFidelityFormTemplate(template) ? (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(template)}
+                          className="rounded-md p-2 text-red-500 hover:bg-red-50"
+                          aria-label="Delete template"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

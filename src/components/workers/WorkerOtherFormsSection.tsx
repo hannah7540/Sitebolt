@@ -6,6 +6,8 @@ import { ChevronRight, ClipboardList, Loader2, Search, X } from "lucide-react";
 import WorkerMobileBackButton from "@/components/layout/WorkerMobileBackButton";
 import Toast from "@/components/ui/Toast";
 import FormFillDrawer from "@/components/forms/FormFillDrawer";
+import RiskAssessmentForm from "@/components/forms/RiskAssessmentForm";
+import ConfinedSpaceForm from "@/components/forms/ConfinedSpaceForm";
 import { useFormToast } from "@/hooks/useFormToast";
 import { useMobileBackHandler } from "@/hooks/useMobileBackHandler";
 import { useWorkerHistoryLayer } from "@/hooks/useWorkerHistoryLayer";
@@ -17,6 +19,12 @@ import {
   type CustomFormEntityType,
   type CustomFormTemplate,
 } from "@/lib/custom-forms";
+import {
+  ensureHighFidelityFormTemplates,
+  HIGH_FIDELITY_FORM_KEYS,
+  isHighFidelityFormTemplate,
+  resolveHighFidelityFormKey,
+} from "@/lib/high-fidelity-forms";
 import { fetchOrganizationFleet, type OrganizationFleetVehicle } from "@/lib/organization-fleet";
 import type { DbProject } from "@/lib/project-resolver";
 import {
@@ -146,6 +154,7 @@ export default function WorkerOtherFormsSection({
     const load = async () => {
       setLoading(true);
       setLoadError(null);
+      await ensureHighFidelityFormTemplates();
       const { data, error } = await fetchCustomFormTemplates();
       if (cancelled) return;
       if (error) {
@@ -169,6 +178,10 @@ export default function WorkerOtherFormsSection({
       cancelled = true;
     };
   }, [worker]);
+
+  const highFidelityKey = filling
+    ? resolveHighFidelityFormKey(filling.title)
+    : null;
 
   const filteredTemplates = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -348,6 +361,13 @@ export default function WorkerOtherFormsSection({
     }
     return binding.projectId || null;
   }, [assets, binding, fleet, plants]);
+
+  const projectLabelForFill = useMemo(() => {
+    if (!resolvedProjectId) return null;
+    return (
+      projects.find((project) => project.id === resolvedProjectId)?.name ?? null
+    );
+  }, [projects, resolvedProjectId]);
 
   const handleSubmit = async (payload: {
     answers: CustomFormAnswers;
@@ -554,7 +574,16 @@ export default function WorkerOtherFormsSection({
                             onClick={() => void handleSelectTemplate(template)}
                             className="flex w-full flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-orange-300 hover:bg-orange-50/40"
                           >
-                            <p className="font-semibold text-slate-900">{template.title}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-semibold text-slate-900">
+                                {template.title}
+                              </p>
+                              {isHighFidelityFormTemplate(template) ? (
+                                <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                  System
+                                </span>
+                              ) : null}
+                            </div>
                             {template.description ? (
                               <p className="line-clamp-2 text-xs text-slate-500">
                                 {template.description}
@@ -750,19 +779,41 @@ export default function WorkerOtherFormsSection({
           )
         : null}
 
+      {filling && highFidelityKey === HIGH_FIDELITY_FORM_KEYS.riskAssessment ? (
+        <RiskAssessmentForm
+          open
+          template={filling}
+          workerName={getWorkerDisplayName(worker, worker.full_name || "Worker")}
+          projectLabel={projectLabelForFill}
+          saving={saving}
+          error={fillError}
+          onClose={closeFill}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+
+      {filling && highFidelityKey === HIGH_FIDELITY_FORM_KEYS.confinedSpace ? (
+        <ConfinedSpaceForm
+          open
+          template={filling}
+          workerName={getWorkerDisplayName(worker, worker.full_name || "Worker")}
+          projectLabel={projectLabelForFill}
+          saving={saving}
+          error={fillError}
+          onClose={closeFill}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+
       <FormFillDrawer
-        open={Boolean(filling)}
+        open={Boolean(filling) && !highFidelityKey}
         template={filling}
         entityType={fillEntity.type as CustomFormEntityType}
         entityId={fillEntity.id}
         projectId={resolvedProjectId}
         submittedByName={getWorkerDisplayName(worker, worker.full_name || "Worker")}
         contextPills={[
-          resolvedProjectId
-            ? projects.find((project) => project.id === resolvedProjectId)?.name
-              ? `Project · ${projects.find((project) => project.id === resolvedProjectId)?.name}`
-              : ""
-            : "",
+          projectLabelForFill ? `Project · ${projectLabelForFill}` : "",
         ].filter(Boolean)}
         saving={saving}
         error={fillError}
