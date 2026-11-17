@@ -106,6 +106,12 @@ export interface AdminItcRecord {
   run_number: string | null;
   service: string | null;
   lines_count: number | null;
+  /** Pin / structure zone labelling mode — Letters or Numbers. */
+  zones_mode: string | null;
+  /** Plan revision number tracked on the ITC. */
+  revision: string | null;
+  /** As-builts file name (replaces WAE file upload). */
+  as_builts_file_name: string | null;
   area: string | null;
   upstream_structure: string | null;
   downstream_structure: string | null;
@@ -123,6 +129,7 @@ export interface AdminItcRecord {
   spec_values: AdminItcSpecValues | null;
   pressure_test_data: AdminPressureTestData | null;
   wae_url: string | null;
+  redline_url: string | null;
   completed_by_name: string | null;
   completed_by_signature: string | null;
   completed_at: string | null;
@@ -227,6 +234,30 @@ function mapChecklist(
     remarks: "",
     photos: [],
   }));
+}
+
+/** Reorder/rename checklist items to match the current template while preserving answers. */
+export function syncChecklistWithTemplate(
+  checklist: AdminChecklistItem[],
+  templateKey: string | null | undefined
+): AdminChecklistItem[] {
+  const template = getAdminItpTemplate(templateKey);
+  if (!template?.questions.length) return checklist;
+
+  const byKey = new Map(checklist.map((item) => [item.key, item]));
+  return template.questions.map((question) => {
+    const existing = byKey.get(question.key);
+    if (existing) {
+      return { ...existing, text: question.text, photos: existing.photos ?? [] };
+    }
+    return {
+      key: question.key,
+      text: question.text,
+      result: "" as ChecklistResult,
+      remarks: "",
+      photos: [],
+    };
+  });
 }
 
 function mapPhotos(raw: unknown): AdminItcPhoto[] {
@@ -416,6 +447,15 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
       num(hydrated, "lines_count") ??
       num(form, "lines_count") ??
       (parseLinesCount(str(form, "run_number") ?? str(hydrated, "start_location")) || null),
+    zones_mode: str(form, "zones_mode") ?? str(hydrated, "zones_mode"),
+    revision:
+      str(form, "revision") ??
+      str(hydrated, "revision") ??
+      str(hydrated, "drawing_rev"),
+    as_builts_file_name:
+      str(form, "as_builts_file_name") ??
+      str(hydrated, "as_builts_file_name") ??
+      str(form, "wae_file_name"),
     area: str(hydrated, "building") ?? str(form, "area"),
     upstream_structure:
       str(hydrated, "upstream_structure") ??
@@ -437,15 +477,23 @@ export function mapItcRow(row: Record<string, unknown>): AdminItcRecord {
     template_key: templateKey,
     pin_x: num(hydrated, "pin_x") ?? num(hydrated, "map_x") ?? num(form, "pin_x"),
     pin_y: num(hydrated, "pin_y") ?? num(hydrated, "map_y") ?? num(form, "pin_y"),
-    checklist: mapChecklist(
-      form.checklist ?? form.checklist_answers ?? hydrated.checklist ?? hydrated.checklist_answers,
-      template?.questions ?? []
+    checklist: syncChecklistWithTemplate(
+      mapChecklist(
+        form.checklist ?? form.checklist_answers ?? hydrated.checklist ?? hydrated.checklist_answers,
+        template?.questions ?? []
+      ),
+      templateKey
     ),
     photos: photosFromSlots(photoSlots, photos),
     photo_slots: photoSlots,
     spec_values: mapSpecValues(form.spec_values ?? hydrated.spec_values, hydrated, pipeSize, pipeMaterial),
     pressure_test_data: pressureRaw ? mapAdminPressureTest(pressureRaw) : null,
     wae_url: str(form, "wae_url") ?? str(form, "wae_plan_markup_url"),
+    redline_url:
+      str(form, "redline_url") ??
+      str(form, "redline_markup_url") ??
+      str(hydrated, "redline_markup_url") ??
+      str(hydrated, "redline_image_url"),
     completed_by_name: subcontractorSign.full_name,
     completed_by_signature: subcontractorSign.signature_url,
     completed_at: subcontractorSign.signed_at,
@@ -1114,6 +1162,9 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     template_key: itc.template_key,
     run_number: itc.run_number,
     lines_count: itc.lines_count,
+    zones_mode: itc.zones_mode,
+    revision: itc.revision,
+    as_builts_file_name: itc.as_builts_file_name,
     service: itc.service,
     service_type: itc.service,
     pipe_size: itc.pipe_size,
@@ -1136,6 +1187,8 @@ function buildItcFormData(itc: AdminItcRecord): Record<string, unknown> {
     pressure_test_data: itc.pressure_test_data,
     wae_url: itc.wae_url,
     wae_plan_markup_url: itc.wae_url,
+    redline_url: itc.redline_url,
+    redline_markup_url: itc.redline_url,
     completed_by: itc.subcontractor_sign.full_name,
     completed_by_name: itc.subcontractor_sign.full_name,
     completed_by_signature: itc.subcontractor_sign.signature_url,
@@ -1187,6 +1240,9 @@ export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: 
     service_type: itc.service,
     lines_count: itc.lines_count,
     run_number: itc.run_number,
+    zones_mode: itc.zones_mode,
+    revision: itc.revision,
+    as_builts_file_name: itc.as_builts_file_name,
     service_run_coordinates: itc.service_run_coordinates,
     pipe_size: itc.pipe_size,
     pipe_material: itc.pipe_material,
@@ -1197,6 +1253,8 @@ export async function saveAdminItcRecord(itc: AdminItcRecord): Promise<{ error: 
     spec_values: itc.spec_values,
     pressure_test_data: itc.pressure_test_data,
     wae_plan_markup_url: itc.wae_url,
+    redline_markup_url: itc.redline_url,
+    redline_image_url: itc.redline_url,
     status: toDbItcStatus(status),
     progress_percent: itc.checklist.length
       ? Math.round((answered / itc.checklist.length) * 100)
@@ -1308,6 +1366,23 @@ export async function uploadAdminWaeMarkup(input: {
   const uploaded = await uploadToStorageBucket({
     bucket: "itc-photos",
     pathPrefix: `${input.projectId}/${input.itcId}/wae`,
+    file: input.file,
+    fileName: buildUniqueStorageFileName(input.file.name),
+    contentType: input.file.type || "application/octet-stream",
+    fallbackBuckets: [ITP_ATTACHMENTS_BUCKET, ITP_DRAWINGS_BUCKET, "itp-uploads"],
+  });
+  if (!uploaded.url) return { error: uploaded.error ?? "Upload failed" };
+  return { error: null, url: uploaded.url };
+}
+
+export async function uploadAdminRedlineDrawing(input: {
+  projectId: string;
+  itcId: string;
+  file: File;
+}): Promise<{ error: string | null; url?: string }> {
+  const uploaded = await uploadToStorageBucket({
+    bucket: "itc-photos",
+    pathPrefix: `${input.projectId}/${input.itcId}/redline`,
     file: input.file,
     fileName: buildUniqueStorageFileName(input.file.name),
     contentType: input.file.type || "application/octet-stream",

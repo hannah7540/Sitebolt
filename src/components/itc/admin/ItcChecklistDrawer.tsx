@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, Loader2, Trash2, X } from "lucide-react";
+import { FileDown, Loader2, Upload, X } from "lucide-react";
 import AdminItcChecklistStepPhotos from "@/components/itc/admin/AdminItcChecklistStepPhotos";
 import AdminItcPressureTestSection from "@/components/itc/admin/AdminItcPressureTestSection";
 import AdminItcServiceSpecFields from "@/components/itc/admin/AdminItcServiceSpecFields";
@@ -15,7 +15,8 @@ import {
   getAdminItp,
   listAdminItcs,
   saveAdminItcRecord,
-  uploadAdminWaeMarkup,
+  syncChecklistWithTemplate,
+  uploadAdminRedlineDrawing,
   type AdminChecklistItem,
   type AdminItcRecord,
   type ChecklistResult,
@@ -35,6 +36,8 @@ import {
   parseLinesCount,
 } from "@/components/itc/admin/itp-itc-admin-numbering";
 import {
+  ADMIN_ITC_MARK_COMPLETE_KEYS,
+  ADMIN_ITC_ZONE_MODES,
   DEFAULT_ITC_CLIENT,
   DEFAULT_MANAGING_CONTRACTOR,
   DEFAULT_SUBCONTRACTOR,
@@ -74,6 +77,11 @@ export default function ItcChecklistDrawer({
   const [runNumber, setRunNumber] = useState(
     String(itc.lines_count ?? itc.run_number ?? "1")
   );
+  const [zonesMode, setZonesMode] = useState(itc.zones_mode ?? "Letters");
+  const [revision, setRevision] = useState(itc.revision ?? "");
+  const [asBuiltsFileName, setAsBuiltsFileName] = useState(
+    itc.as_builts_file_name ?? ""
+  );
   const [service, setService] = useState(itc.service ?? "");
   const [pipeSize, setPipeSize] = useState(itc.pipe_size ?? "");
   const [pipeMaterial, setPipeMaterial] = useState(itc.pipe_material ?? "");
@@ -86,12 +94,16 @@ export default function ItcChecklistDrawer({
     itc.downstream_structure ?? ""
   );
   const [structureOptions, setStructureOptions] = useState<string[]>([]);
-  const [checklist, setChecklist] = useState<AdminChecklistItem[]>(
-    itc.checklist.map((item) => ({ ...item, photos: item.photos ?? [] }))
+  const [checklist, setChecklist] = useState<AdminChecklistItem[]>(() =>
+    syncChecklistWithTemplate(
+      itc.checklist.map((item) => ({ ...item, photos: item.photos ?? [] })),
+      itc.template_key
+    )
   );
   const [specValues, setSpecValues] = useState<AdminItcSpecValues | null>(itc.spec_values);
   const [photoSlots] = useState(itc.photo_slots ?? emptyAdminPhotoSlots());
-  const [waeUrl, setWaeUrl] = useState(itc.wae_url);
+  const [waeUrl] = useState(itc.wae_url);
+  const [redlineUrl, setRedlineUrl] = useState(itc.redline_url);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +157,7 @@ export default function ItcChecklistDrawer({
   );
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingRedline, setUploadingRedline] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -160,6 +172,9 @@ export default function ItcChecklistDrawer({
       ...itc,
       run_number: parseLinesCount(runNumber) ? String(parseLinesCount(runNumber)) : null,
       lines_count: parseLinesCount(runNumber) || null,
+      zones_mode: zonesMode.trim() || null,
+      revision: revision.trim() || null,
+      as_builts_file_name: asBuiltsFileName.trim() || null,
       service: service.trim() || null,
       pipe_size: pipeSize.trim() || null,
       pipe_material: pipeMaterial.trim() || null,
@@ -180,6 +195,7 @@ export default function ItcChecklistDrawer({
           }
         : pressureTest,
       wae_url: waeUrl,
+      redline_url: redlineUrl,
       subcontractor_sign: {
         ...subcontractorSign,
         full_name: subcontractorSign.full_name || defaultSignerName,
@@ -198,11 +214,16 @@ export default function ItcChecklistDrawer({
   }, [
     itc,
     runNumber,
+    zonesMode,
+    revision,
+    asBuiltsFileName,
     service,
     pipeSize,
     pipeMaterial,
     drawingRef,
     area,
+    upstreamStructure,
+    downstreamStructure,
     checklist,
     specValues,
     photoSlots,
@@ -211,6 +232,7 @@ export default function ItcChecklistDrawer({
     requiredKpa,
     diameterM,
     waeUrl,
+    redlineUrl,
     subcontractorSign,
     contractorSign,
     clientSign,
@@ -229,20 +251,20 @@ export default function ItcChecklistDrawer({
     );
   };
 
-  const handleWae = async (file: File) => {
-    setUploading(true);
+  const handleRedlineUpload = async (file: File) => {
+    setUploadingRedline(true);
     setMessage(null);
-    const uploaded = await uploadAdminWaeMarkup({
+    const uploaded = await uploadAdminRedlineDrawing({
       projectId: itc.project_id,
       itcId: itc.id,
       file,
     });
-    setUploading(false);
+    setUploadingRedline(false);
     if (uploaded.error || !uploaded.url) {
-      setMessage(uploaded.error ?? "WAE upload failed");
+      setMessage(uploaded.error ?? "Redline upload failed");
       return;
     }
-    setWaeUrl(uploaded.url);
+    setRedlineUrl(uploaded.url);
   };
 
   const handleSave = async () => {
@@ -256,6 +278,7 @@ export default function ItcChecklistDrawer({
     }
     setToast("Changes saved successfully");
     onSaved(currentItc);
+    onClose();
   };
 
   const handleExportPdf = async () => {
@@ -340,6 +363,22 @@ export default function ItcChecklistDrawer({
                 className={inputClass}
               />
             </label>
+            <label>
+              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                Zones
+              </span>
+              <select
+                value={zonesMode}
+                onChange={(event) => setZonesMode(event.target.value)}
+                className={inputClass}
+              >
+                {ADMIN_ITC_ZONE_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </label>
             <AdminItcStructureSelect
               id={`itc-upstream-${itc.id}`}
               label="Upstream Structure"
@@ -380,51 +419,84 @@ export default function ItcChecklistDrawer({
                 value={drawingRef}
                 onChange={(event) => setDrawingRef(event.target.value)}
                 className={inputClass}
-                placeholder='e.g. "C0604 Rev B"'
+                placeholder='e.g. "C0604"'
+              />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                Revision
+              </span>
+              <input
+                value={revision}
+                onChange={(event) => setRevision(event.target.value)}
+                className={inputClass}
+                placeholder='e.g. "B"'
               />
             </label>
           </div>
 
           <div className="space-y-3">
-            {checklist.map((item) => (
-              <div key={item.key} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-medium text-slate-900">{item.text}</p>
-                <div className="mt-2 flex flex-wrap gap-3">
-                  {RESULTS.map((result) => (
-                    <label key={result} className="inline-flex items-center gap-1.5 text-sm">
+            {checklist.map((item) => {
+              const markComplete = ADMIN_ITC_MARK_COMPLETE_KEYS.has(item.key);
+              return (
+                <div key={item.key} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-medium text-slate-900">{item.text}</p>
+                  {markComplete ? (
+                    <label className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
                       <input
-                        type="radio"
-                        name={`check-${itc.id}-${item.key}`}
-                        checked={item.result === result}
-                        onChange={() => updateResult(item.key, result)}
-                        className="text-orange-500 focus:ring-orange-500"
+                        type="checkbox"
+                        checked={item.result === "yes"}
+                        onChange={(event) =>
+                          updateResult(item.key, event.target.checked ? "yes" : "")
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
                       />
-                      {result.toUpperCase()}
+                      Mark as Complete
                     </label>
-                  ))}
-                </div>
-                <input
-                  value={item.remarks}
-                  onChange={(event) => updateRemarks(item.key, event.target.value)}
-                  placeholder="Remarks / notes"
-                  className={`${inputClass} mt-2`}
-                />
-                <AdminItcChecklistStepPhotos
-                  projectId={itc.project_id}
-                  itcId={itc.id}
-                  stepKey={item.key}
-                  stepLabel={item.text}
-                  photos={item.photos ?? []}
-                  onChange={(photos) =>
-                    setChecklist((current) =>
-                      current.map((row) =>
-                        row.key === item.key ? { ...row, photos } : row
+                  ) : (
+                    <>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {RESULTS.map((result) => (
+                          <label
+                            key={result}
+                            className="inline-flex items-center gap-1.5 text-sm"
+                          >
+                            <input
+                              type="radio"
+                              name={`check-${itc.id}-${item.key}`}
+                              checked={item.result === result}
+                              onChange={() => updateResult(item.key, result)}
+                              className="text-orange-500 focus:ring-orange-500"
+                            />
+                            {result.toUpperCase()}
+                          </label>
+                        ))}
+                      </div>
+                      <input
+                        value={item.remarks}
+                        onChange={(event) => updateRemarks(item.key, event.target.value)}
+                        placeholder="Remarks / notes"
+                        className={`${inputClass} mt-2`}
+                      />
+                    </>
+                  )}
+                  <AdminItcChecklistStepPhotos
+                    projectId={itc.project_id}
+                    itcId={itc.id}
+                    stepKey={item.key}
+                    stepLabel={item.text}
+                    photos={item.photos ?? []}
+                    onChange={(photos) =>
+                      setChecklist((current) =>
+                        current.map((row) =>
+                          row.key === item.key ? { ...row, photos } : row
+                        )
                       )
-                    )
-                  }
-                />
-              </div>
-            ))}
+                    }
+                  />
+                </div>
+              );
+            })}
           </div>
 
           {pressurised ? (
@@ -445,38 +517,63 @@ export default function ItcChecklistDrawer({
             />
           ) : null}
 
-          <section className="mt-6">
+          <section className="mt-6 space-y-3">
             <h3 className="text-sm font-semibold text-slate-900">Plan markup (WAE)</h3>
-            {waeUrl ? (
+            <label>
+              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                As-builts file name
+              </span>
+              <input
+                value={asBuiltsFileName}
+                onChange={(event) => setAsBuiltsFileName(event.target.value)}
+                className={inputClass}
+                placeholder='e.g. "C0604-WAE-RevB.pdf"'
+              />
+            </label>
+          </section>
+
+          <section className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-900">Redline drawing</h3>
+            {redlineUrl ? (
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <a
-                  href={waeUrl}
+                  href={redlineUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-sm font-semibold text-orange-600"
                 >
-                  View current WAE
+                  View current redline
                 </a>
                 <button
                   type="button"
-                  onClick={() => setWaeUrl(null)}
+                  onClick={() => setRedlineUrl(null)}
                   className="text-sm font-semibold text-rose-600"
                 >
                   Remove
                 </button>
               </div>
             ) : (
-              <p className="mt-1 text-xs text-slate-500">No WAE uploaded yet.</p>
+              <p className="mt-1 text-xs text-slate-500">No redline drawing uploaded yet.</p>
             )}
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-              {uploading ? "Uploading…" : waeUrl ? "Replace plan markup (WAE)" : "Upload plan markup (WAE)"}
+              {uploadingRedline ? (
+                <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              {uploadingRedline
+                ? "Uploading…"
+                : redlineUrl
+                  ? "Update/Upload Redline Drawing"
+                  : "Update/Upload Redline Drawing"}
               <input
                 type="file"
                 accept="image/*,application/pdf"
                 className="hidden"
+                disabled={uploadingRedline}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
-                  if (file) void handleWae(file);
+                  if (file) void handleRedlineUpload(file);
                   event.target.value = "";
                 }}
               />

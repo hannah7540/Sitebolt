@@ -44,7 +44,15 @@ export const ADMIN_PIPE_MATERIALS = [
   "HDPE",
   "HV",
   "Copper",
+  "DWV",
+  "Conduit",
 ] as const;
+
+export const ADMIN_ITC_ZONE_MODES = ["Letters", "Numbers"] as const;
+export type AdminItcZoneMode = (typeof ADMIN_ITC_ZONE_MODES)[number];
+
+/** Checklist steps that are a simple Mark as Complete control (specs shown at top). */
+export const ADMIN_ITC_MARK_COMPLETE_KEYS = new Set(["trench", "bedding"]);
 
 export const ADMIN_ITC_SERVICES = [
   "HV",
@@ -199,11 +207,11 @@ export const ADMIN_ITP_TEMPLATES: AdminItpTemplate[] = [
       { key: "setout", text: "Pit and conduit setout matches electrical / comms drawings" },
       {
         key: "trench",
-        text: "Trench width, depth, and separation distances verified (Enter measurements: ______)",
+        text: "Trench width, depth, and separation distances verified",
       },
       {
         key: "bedding",
-        text: "Sand bedding and overlay installed to spec (Enter measurements: ______)",
+        text: "Sand bedding and overlay installed to spec",
       },
       {
         key: "config",
@@ -217,9 +225,10 @@ export const ADMIN_ITP_TEMPLATES: AdminItpTemplate[] = [
         key: "tape",
         text: "Warning tape / marker installed at specified cover (Generally 100mm)",
       },
-      { key: "mandrel", text: "Mandrel / draw-cord prove completed" },
-      { key: "sponged", text: "Lines have been sponged" },
-      { key: "ccv", text: "Conduits requiring CCV identified and prepped" },
+      { key: "sponged", text: "Sponging/Cleaning completed" },
+      { key: "mandrel", text: "Mandreling completed" },
+      { key: "ccv", text: "Services CCTV has been complete" },
+      { key: "draw_rope", text: "Draw rope install completed" },
       { key: "asbuilt", text: "As-built pits and conduits recorded" },
     ],
   },
