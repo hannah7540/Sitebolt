@@ -36,8 +36,8 @@ import {
 } from "@/lib/worker-revocation";
 
 const loginFieldClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#FF6B00] focus:ring-2 focus:ring-[#FF6B00]/20";
-const loginLabelClass = "text-xs font-semibold uppercase tracking-wider text-slate-500";
+  "w-full rounded-lg border border-[rgba(148,163,184,0.28)] bg-[#0F172A]/80 px-3 py-2.5 text-sm text-[#F8FAFC] placeholder:text-[#64748B] outline-none transition focus:border-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/20";
+const loginLabelClass = "text-xs font-semibold uppercase tracking-wider text-[#94A3B8]";
 
 async function waitForAuthSession(
   supabase: ReturnType<typeof createSupabaseBrowserClient>
@@ -365,18 +365,18 @@ function LoginPageContent() {
             aria-hidden
             className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[#FF6B00]/10 blur-3xl"
           />
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="relative rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[#1E293B]/80 p-8 shadow-sm backdrop-blur-md">
             <div className="mb-6 flex items-center gap-3">
               <SiteBoltMark className="h-11 w-11" />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FF6B00]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#F97316]">
                   SiteBolt
                 </p>
-                <h1 className="text-xl font-bold text-slate-900">Log In</h1>
+                <h1 className="text-xl font-bold text-[#F8FAFC]">Log In</h1>
               </div>
             </div>
 
-            <p className="mb-6 text-sm text-slate-500">Sign in to your account.</p>
+            <p className="mb-6 text-sm text-[#94A3B8]">Sign in to your account.</p>
 
             {resetSuccess || passwordSetMessage ? (
               <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -428,7 +428,7 @@ function LoginPageContent() {
                   <button
                     type="button"
                     onClick={() => setShowForgotPassword(true)}
-                    className="text-xs font-semibold text-[#FF6B00] hover:text-[#E66000]"
+                    className="text-xs font-semibold text-[#38BDF8] hover:text-[#7DD3FC]"
                     disabled={submitting}
                   >
                     Forgot password?
@@ -461,7 +461,7 @@ function LoginPageContent() {
                 type="submit"
                 disabled={submitting}
                 aria-busy={submitting}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6B00] py-3 text-sm font-semibold text-white transition hover:bg-[#E66000] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#F97316] py-3 text-sm font-semibold text-white transition hover:bg-[#EA580C] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? (
                   <>
@@ -478,8 +478,8 @@ function LoginPageContent() {
               <Toast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
             ) : null}
 
-            <p className="mt-6 text-center text-sm text-slate-500">
-              <Link href="/worker-dashboard" className="font-medium text-[#FF6B00] hover:text-[#E66000]">
+            <p className="mt-6 text-center text-sm text-[#94A3B8]">
+              <Link href="/worker-dashboard" className="font-medium text-[#38BDF8] hover:text-[#7DD3FC]">
                 Back to SiteBolt
               </Link>
             </p>
@@ -495,8 +495,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-white p-6">
-          <Loader2 className="h-8 w-8 animate-spin text-[#FF6B00]" />
+        <div className="flex min-h-screen items-center justify-center bg-[#0B1120] p-6">
+          <Loader2 className="h-8 w-8 animate-spin text-[#F97316]" />
         </div>
       }
     >

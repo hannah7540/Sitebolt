@@ -7,7 +7,7 @@ const LEGAL_LINKS = [
 ] as const;
 
 export default function SiteFooter({
-  variant = "light",
+  variant = "dark",
 }: {
   variant?: "light" | "dark";
 }) {
@@ -17,11 +17,11 @@ export default function SiteFooter({
       className={cn(
         "px-4 py-8 text-center text-sm",
         dark
-          ? "border-t border-white/10 bg-[#1F2429] text-zinc-400"
+          ? "border-t border-[rgba(148,163,184,0.16)] bg-[#0B1120] text-[#94A3B8]"
           : "border-t border-slate-200 bg-white/80 text-slate-500"
       )}
     >
-      <p className={cn("mb-3 leading-relaxed", dark ? "text-zinc-400" : "text-slate-500")}>
+      <p className={cn("mb-3 leading-relaxed", dark ? "text-[#94A3B8]" : "text-slate-500")}>
         &copy; 2026 Site-Bolt Software Solutions. All rights reserved. | ABN: 21 852 687 427
       </p>
       <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
@@ -32,7 +32,7 @@ export default function SiteFooter({
             className={cn(
               "font-medium transition-colors duration-200",
               dark
-                ? "text-zinc-300 hover:text-[#FF6B00]"
+                ? "text-[#CBD5E1] hover:text-[#38BDF8]"
                 : "text-slate-600 hover:text-[#FF6B00]"
             )}
           >
@@ -44,7 +44,7 @@ export default function SiteFooter({
           className={cn(
             "font-medium transition-colors duration-200",
             dark
-              ? "text-zinc-300 hover:text-[#FF6B00]"
+              ? "text-[#CBD5E1] hover:text-[#38BDF8]"
               : "text-slate-600 hover:text-[#FF6B00]"
           )}
         >

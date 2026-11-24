@@ -20,6 +20,12 @@ import {
   Truck,
   Users,
 } from "lucide-react";
+import {
+  marketingBadgeClass,
+  marketingBodyClass,
+  marketingHeadingClass,
+  marketingSectionClass,
+} from "@/components/marketing/marketing-theme";
 import SiteBoltMark from "@/components/marketing/SiteBoltMark";
 import { cn } from "@/lib/utils";
 
@@ -72,15 +78,13 @@ export default function TakeALookAround() {
   const callout = CALLOUTS[tab];
 
   return (
-    <section id="preview" className="border-t border-slate-200 bg-white px-4 pb-8 pt-16">
+    <section id="preview" className={`${marketingSectionClass} pb-8 pt-16`}>
       <div className="mx-auto max-w-6xl">
-        <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
-          Interactive Preview
-        </p>
-        <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+        <p className={marketingBadgeClass}>Interactive Preview</p>
+        <h2 className={`mt-4 text-3xl sm:text-4xl ${marketingHeadingClass}`}>
           Take a Look Around
         </h2>
-        <p className="mt-3 max-w-3xl text-base leading-relaxed text-slate-500">
+        <p className={`mt-3 max-w-3xl text-base ${marketingBodyClass}`}>
           Explore how SiteBolt unifies field data, compliance, and asset management in one
           intuitive command center.
         </p>
@@ -103,8 +107,8 @@ export default function TakeALookAround() {
                 className={cn(
                   "inline-flex shrink-0 snap-start items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition",
                   selected
-                    ? "bg-[#FF6B00] text-white hover:bg-[#E66000]"
-                    : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                    ? "bg-[#F97316] text-white hover:bg-[#EA580C]"
+                    : "border border-[rgba(148,163,184,0.28)] bg-[#1E293B]/60 text-[#CBD5E1] backdrop-blur-md hover:border-sky-400/50 hover:text-[#38BDF8]"
                 )}
               >
                 <Icon className="h-4 w-4" />

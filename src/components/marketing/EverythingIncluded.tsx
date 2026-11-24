@@ -8,6 +8,15 @@ import {
   Timer,
   Tractor,
 } from "lucide-react";
+import {
+  marketingBodyClass,
+  marketingGhostButtonClass,
+  marketingGlassCardClass,
+  marketingHeadingClass,
+  marketingOrangeBadgeClass,
+  marketingPrimaryButtonClass,
+  marketingSectionAltClass,
+} from "@/components/marketing/marketing-theme";
 
 const PILLARS = [
   {
@@ -72,9 +81,6 @@ const PILLARS = [
   },
 ] as const;
 
-const pillarCardClass =
-  "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#FF6B00]/50";
-
 export default function EverythingIncluded({
   onStartReady,
   onOpenCustomBuild,
@@ -83,15 +89,13 @@ export default function EverythingIncluded({
   onOpenCustomBuild: () => void;
 }) {
   return (
-    <section id="included" className="border-t border-slate-200 bg-slate-50 px-4 py-16">
+    <section id="included" className={marketingSectionAltClass}>
       <div className="mx-auto max-w-6xl">
-        <p className="inline-flex rounded-full border border-[#FF6B00]/40 bg-[#FF6B00]/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
-          Uncompromising Value
-        </p>
-        <h2 className="mt-4 text-3xl font-extrabold text-slate-900 sm:text-4xl">
+        <p className={marketingOrangeBadgeClass}>Uncompromising Value</p>
+        <h2 className={`mt-4 text-3xl sm:text-4xl ${marketingHeadingClass}`}>
           Everything Included. Turn On What You Need.
         </h2>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-500">
+        <p className={`mt-4 max-w-3xl text-base ${marketingBodyClass}`}>
           No locked modules, no surprise paywalls, and no hidden add-ons. SiteBolt is priced as a
           single, all-inclusive platform. Whether you only need digital plant pre-starts today or
           run all six operational modules across your entire fleet, your price remains the same.
@@ -99,9 +103,9 @@ export default function EverythingIncluded({
           ready.
         </p>
 
-        <div className="mt-8 flex items-start gap-3 rounded-2xl border border-[#FF6B00]/35 bg-[#FF6B00]/10 px-4 py-4 sm:px-5">
-          <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#FF6B00]" />
-          <p className="text-sm font-medium leading-relaxed text-slate-800">
+        <div className="mt-8 flex items-start gap-3 rounded-2xl border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-4 sm:px-5">
+          <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#F97316]" />
+          <p className="text-sm font-medium leading-relaxed text-[#F8FAFC]">
             One Transparent License: Use 2 modules or use all 20+ features—you get full platform
             access from day one.
           </p>
@@ -111,15 +115,15 @@ export default function EverythingIncluded({
           {PILLARS.map((pillar) => {
             const Icon = pillar.icon;
             return (
-              <article key={pillar.title} className={pillarCardClass}>
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#FF6B00]/15 text-[#FF6B00]">
+              <article key={pillar.title} className={marketingGlassCardClass}>
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#F97316]/15 text-[#F97316]">
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-lg font-bold text-slate-900">{pillar.title}</h3>
-                <ul className="mt-4 space-y-2.5 text-sm text-slate-600">
+                <h3 className="mt-4 text-lg font-bold text-[#F8FAFC]">{pillar.title}</h3>
+                <ul className="mt-4 space-y-2.5 text-sm text-[#CBD5E1]">
                   {pillar.points.map((point) => (
                     <li key={point} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F97316]" />
                       <span>{point}</span>
                     </li>
                   ))}
@@ -129,22 +133,22 @@ export default function EverythingIncluded({
           })}
         </div>
 
-        <div className="mt-10 rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm sm:px-8">
-          <p className="text-xl font-extrabold text-slate-900 sm:text-2xl">
+        <div className={`${marketingGlassCardClass} mt-10 px-5 py-8 text-center sm:px-8`}>
+          <p className="text-xl font-extrabold text-[#F8FAFC] sm:text-2xl">
             Ready to streamline your field operations?
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onStartReady}
-              className="rounded-lg bg-[#FF6B00] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#E66000]"
+              className={marketingPrimaryButtonClass}
             >
               Start with Ready Modules
             </button>
             <button
               type="button"
               onClick={onOpenCustomBuild}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-[#FF6B00] hover:text-[#FF6B00]"
+              className={marketingGhostButtonClass}
             >
               Need Custom Software Instead?
             </button>

@@ -30,13 +30,13 @@ export default function CampMapPreview() {
   );
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+    <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[#1E293B]/60 p-4 shadow-sm backdrop-blur-md sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-[#FF6B00]">
+          <p className="text-xs font-bold uppercase tracking-wider text-[#38BDF8]">
             Modular Camp Grid Preview
           </p>
-          <h3 className="mt-1 text-lg font-bold text-slate-900">Interactive site schematic</h3>
+          <h3 className="mt-1 text-lg font-bold text-[#F8FAFC]">Interactive site schematic</h3>
         </div>
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((item) => (
@@ -47,8 +47,8 @@ export default function CampMapPreview() {
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-semibold transition",
                 filter === item.id
-                  ? "bg-[#FF6B00] text-white"
-                  : "border border-slate-200 bg-white text-slate-600 hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                  ? "bg-[#F97316] text-white"
+                  : "border border-[rgba(148,163,184,0.28)] bg-[#0F172A]/70 text-[#CBD5E1] hover:border-sky-400/50 hover:text-[#38BDF8]"
               )}
             >
               {item.label}
@@ -57,7 +57,7 @@ export default function CampMapPreview() {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-600">
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-[#94A3B8]">
         {(Object.keys(POD_STATUS_STYLES) as PodStatus[]).map((status) => (
           <span key={status} className="inline-flex items-center gap-1.5">
             <span
@@ -70,9 +70,9 @@ export default function CampMapPreview() {
       </div>
 
       <div className="relative mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="overflow-hidden rounded-xl border border-[rgba(148,163,184,0.16)] bg-[#0B1120]/80 p-4">
           <svg viewBox="0 0 640 360" className="h-auto w-full" role="img" aria-label="Camp zone grid">
-            <rect x="0" y="0" width="640" height="360" fill="#F8FAFC" />
+            <rect x="0" y="0" width="640" height="360" fill="#0B1120" />
             {CAMP_ZONES.map((zone, zoneIndex) => {
               const zonePods = visiblePods.filter((pod) => pod.zone === zone);
               const x0 = 24 + zoneIndex * 210;
@@ -84,15 +84,15 @@ export default function CampMapPreview() {
                     width="196"
                     height="304"
                     rx="14"
-                    fill="#FFFFFF"
-                    stroke="#E2E8F0"
+                    fill="#1E293B"
+                    stroke="rgba(148,163,184,0.24)"
                     strokeWidth="2"
                   />
                   <text
                     x={x0 + 98}
                     y="54"
                     textAnchor="middle"
-                    fill="#0F172A"
+                    fill="#F8FAFC"
                     fontSize="14"
                     fontWeight="700"
                   >
@@ -127,7 +127,7 @@ export default function CampMapPreview() {
                           rx="8"
                           fill={style.fill}
                           opacity={isSelected ? 1 : 0.92}
-                          stroke={isSelected ? "#0F172A" : "transparent"}
+                          stroke={isSelected ? "#F8FAFC" : "transparent"}
                           strokeWidth={isSelected ? 2.5 : 0}
                         />
                         <text
@@ -149,20 +149,20 @@ export default function CampMapPreview() {
           </svg>
         </div>
 
-        <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <aside className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[#0F172A]/80 p-4">
           {selected ? (
             <div>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#FF6B00]">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#38BDF8]">
                     Suite details
                   </p>
-                  <h4 className="mt-1 text-lg font-bold text-slate-900">{selected.label}</h4>
+                  <h4 className="mt-1 text-lg font-bold text-[#F8FAFC]">{selected.label}</h4>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded-md p-1 text-[#94A3B8] hover:bg-[#1E293B] hover:text-[#F8FAFC]"
                   aria-label="Close suite details"
                 >
                   <X className="h-4 w-4" />
@@ -170,50 +170,50 @@ export default function CampMapPreview() {
               </div>
               <dl className="mt-4 space-y-3 text-sm">
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase text-slate-500">Status</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900">
+                  <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">Status</dt>
+                  <dd className="mt-0.5 font-semibold text-[#F8FAFC]">
                     {POD_STATUS_STYLES[selected.status].label}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase text-slate-500">Occupancy</dt>
-                  <dd className="mt-0.5 text-slate-700">
+                  <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">Occupancy</dt>
+                  <dd className="mt-0.5 text-[#CBD5E1]">
                     {selected.resident
                       ? `${selected.resident} · ${selected.company}`
                       : "No current resident"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase text-slate-500">
+                  <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">
                     Gender separation
                   </dt>
-                  <dd className="mt-0.5 text-slate-700">{selected.genderWing} wing</dd>
+                  <dd className="mt-0.5 text-[#CBD5E1]">{selected.genderWing} wing</dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase text-slate-500">
+                  <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">
                     Cleaning status
                   </dt>
-                  <dd className="mt-0.5 text-slate-700">{selected.cleaningStatus}</dd>
+                  <dd className="mt-0.5 text-[#CBD5E1]">{selected.cleaningStatus}</dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase text-slate-500">
+                  <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">
                     Emergency contact
                   </dt>
-                  <dd className="mt-0.5 text-slate-700">{selected.emergencyContact}</dd>
+                  <dd className="mt-0.5 text-[#CBD5E1]">{selected.emergencyContact}</dd>
                 </div>
                 {selected.vehicleRego ? (
                   <div>
-                    <dt className="text-[11px] font-semibold uppercase text-slate-500">
+                    <dt className="text-[11px] font-semibold uppercase text-[#94A3B8]">
                       Vehicle rego
                     </dt>
-                    <dd className="mt-0.5 font-mono text-slate-900">{selected.vehicleRego}</dd>
+                    <dd className="mt-0.5 font-mono text-[#F8FAFC]">{selected.vehicleRego}</dd>
                   </div>
                 ) : null}
               </dl>
             </div>
           ) : (
-            <div className="flex h-full min-h-[220px] flex-col justify-center text-sm text-slate-500">
-              <p className="font-semibold text-slate-900">Select a pod</p>
+            <div className="flex h-full min-h-[220px] flex-col justify-center text-sm text-[#94A3B8]">
+              <p className="font-semibold text-[#F8FAFC]">Select a pod</p>
               <p className="mt-2 leading-relaxed">
                 Click any suite on the schematic to preview occupancy, cleaning status, and
                 emergency contact details from sample data.
@@ -223,7 +223,7 @@ export default function CampMapPreview() {
         </aside>
       </div>
 
-      <p className="mt-4 text-xs leading-relaxed text-slate-500">
+      <p className="mt-4 text-xs leading-relaxed text-[#94A3B8]">
         Interactive schematic demo using sample data. Production deployments are mapped directly
         to your exact site plan and numbering.
       </p>

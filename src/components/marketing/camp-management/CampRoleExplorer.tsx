@@ -140,7 +140,7 @@ function MockPanel({ role }: { role: RoleId }) {
     case "camp_manager":
       return (
         <div className="space-y-3 p-4 text-xs">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[#FF6B00]">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[#F97316]">
             Camp Manager · KPI Board
           </p>
           <div className="grid grid-cols-3 gap-2">
@@ -308,12 +308,12 @@ export default function CampRoleExplorer() {
   const role = ROLES.find((item) => item.id === active) ?? ROLES[0];
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+    <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[#1E293B]/60 p-4 shadow-sm backdrop-blur-md sm:p-6">
       <div className="mb-5">
-        <p className="text-xs font-bold uppercase tracking-wider text-[#FF6B00]">
+        <p className="text-xs font-bold uppercase tracking-wider text-[#38BDF8]">
           Six-role portal explorer
         </p>
-        <h3 className="mt-1 text-lg font-bold text-slate-900">
+        <h3 className="mt-1 text-lg font-bold text-[#F8FAFC]">
           Every team sees the workflow that fits their job
         </h3>
       </div>
@@ -329,8 +329,8 @@ export default function CampRoleExplorer() {
             className={cn(
               "rounded-full px-3 py-1.5 text-xs font-semibold transition",
               active === item.id
-                ? "bg-[#FF6B00] text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                ? "bg-[#F97316] text-white"
+                : "border border-[rgba(148,163,184,0.28)] bg-[#0F172A]/70 text-[#CBD5E1] hover:border-sky-400/50 hover:text-[#38BDF8]"
             )}
           >
             {item.label}
@@ -344,18 +344,18 @@ export default function CampRoleExplorer() {
         </DeviceChrome>
 
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
             {role.frame === "mobile"
               ? "Mobile web"
               : role.frame === "ipad"
                 ? "iPad console"
                 : "Desktop dashboard"}
           </p>
-          <h4 className="mt-1 text-xl font-bold text-slate-900">{role.label}</h4>
+          <h4 className="mt-1 text-xl font-bold text-[#F8FAFC]">{role.label}</h4>
           <ul className="mt-4 space-y-3">
             {role.bullets.map((bullet) => (
-              <li key={bullet} className="flex items-start gap-2 text-sm text-slate-700">
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6B00]" />
+              <li key={bullet} className="flex items-start gap-2 text-sm text-[#CBD5E1]">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F97316]" />
                 {bullet}
               </li>
             ))}
