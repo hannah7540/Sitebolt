@@ -7,6 +7,7 @@ export const PRODUCTION_APP_LOGIN_URL = `${PRODUCTION_APP_ORIGIN}/login`;
 const MARKETING_PUBLIC_PATHS = [
   "/",
   "/marketing",
+  "/modules",
   "/enquire",
   "/privacy",
   "/terms",

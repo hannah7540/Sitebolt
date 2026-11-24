@@ -34,6 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/download") ||
     pathname.startsWith("/support") ||
     pathname.startsWith("/marketing") ||
+    pathname.startsWith("/modules") ||
     pathname.startsWith("/enquire") ||
     pathname === "/" ||
     pathname.startsWith("/scan/") ||

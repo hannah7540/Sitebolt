@@ -74,6 +74,7 @@ export function isExemptFromAuthRedirect(pathname?: string | null): boolean {
     path.startsWith("/download") ||
     path.startsWith("/support") ||
     path.startsWith("/marketing") ||
+    path.startsWith("/modules") ||
     path.startsWith("/enquire") ||
     path.startsWith("/scan/") ||
     path.startsWith("/guest") ||

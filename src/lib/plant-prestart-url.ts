@@ -93,3 +93,16 @@ export function isPlantPrestartPath(pathname: string | null | undefined): boolea
   if (path === "/pre-start" || path.startsWith("/pre-start/")) return true;
   return /^\/plant\/[^/]+\/pre-start\/?$/.test(path);
 }
+
+/**
+ * Plant pre-start forms and machine/asset QR targets.
+ * Hired labour must be able to open and submit these even when the rest of the app is locked.
+ */
+export function isMachineQrRoute(pathname: string | null | undefined): boolean {
+  const path = (pathname ?? "").split("?")[0] || "";
+  if (!path) return false;
+  if (isPlantPrestartPath(path)) return true;
+  if (path === "/scan" || path.startsWith("/scan/")) return true;
+  if (path === "/plant" || path.startsWith("/plant/")) return true;
+  return false;
+}

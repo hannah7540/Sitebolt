@@ -1,0 +1,22 @@
+---
+description: A Plus Plumbing is a locked live production tenant — never default queries to it, never mutate it unless the user explicitly asks.
+alwaysApply: true
+---
+
+# A Plus Plumbing production lockdown
+
+Live tenant: `A Plus Plumbing (ACT) PTY LTD` (`00000000-0000-0000-0000-000000000001`).
+
+1. **Read-only unless named.** Do not write, update, migrate, seed, truncate, delete, or override A Plus data, documents, or settings unless the user explicitly and verbatim asks for a change to A Plus.
+2. **New work goes elsewhere.** Features, mock/demo seed data, tests, onboarding sandboxes, and UI experiments target Demo (`00000000-0000-0000-0000-000000000002`) or newly created subscriber orgs only.
+3. **Do not touch working A Plus operations.** Leave payroll rules, MYOB mappings, timesheet calculations, SWMS review cycles, and ITP/ITC workflows unchanged.
+4. **No A Plus query fallback.** Every fetch/mutation must use the active organisation (`activeOrgId` from `sitebolt_active_org_id`). Never hardcode `00000000-0000-0000-0000-000000000001` as a default when the cookie/session org is missing — fail closed (empty result), do not load A Plus.
+
+```typescript
+// BAD
+const orgId = getActiveOrganisationId() || A_PLUS_ORGANISATION_ID;
+
+// GOOD
+const orgId = resolveActiveOrganisationId();
+if (!orgId) return [];
+```

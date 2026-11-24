@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  ArrowRight,
   Check,
   Factory,
   HardHat,
@@ -118,6 +119,12 @@ export default function MarketingLandingPage() {
                 {item.label}
               </button>
             ))}
+            <Link
+              href="/modules/camp-management"
+              className="text-sm font-semibold text-slate-500 transition hover:text-[#FF6B00]"
+            >
+              Camp Management
+            </Link>
           </nav>
           <div className="flex items-center gap-2">
             <Link href="/login" className={ghostButtonClass + " !px-3 !py-2"}>
@@ -348,6 +355,29 @@ export default function MarketingLandingPage() {
               Built by trade tech specialists who understand civil, mechanical, hydraulic, and
               commercial contracting.
             </p>
+
+            <Link
+              href="/modules/camp-management"
+              className="mt-8 flex flex-col gap-4 rounded-2xl border-2 border-[#FF6B00]/40 bg-gradient-to-br from-[#FF6B00]/10 via-white to-slate-50 p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-[#FF6B00] sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="max-w-3xl">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FF6B00]">
+                  Custom Module Showcase
+                </p>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">
+                  Workforce Accommodation &amp; Camp Management
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Need something specific? See how we built a complete 500-room Camp Management
+                  Module inside Site-Bolt — bookings, check-ins, site mapping, gatehouse, catering,
+                  housekeeping, and progress claims.
+                </p>
+              </div>
+              <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-lg bg-[#FF6B00] px-4 py-2.5 text-sm font-semibold text-white sm:self-center">
+                View showcase
+                <ArrowRight className="h-4 w-4" />
+              </span>
+            </Link>
           </div>
         </section>
 

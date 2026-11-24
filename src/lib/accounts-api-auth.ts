@@ -29,47 +29,7 @@ type CallerWorkerRow = {
 const CALLER_WORKER_SELECT =
   "id, first_name, last_name, full_name, worker_name, email, security_role, accounts_access_role, can_access_accounts";
 
-async function fetchCallerWorkerById(
-  admin: SupabaseClient,
-  workerId: string
-): Promise<CallerWorkerRow | null> {
-  const { data, error } = await admin
-    .from("workers")
-    .select(CALLER_WORKER_SELECT)
-    .eq("id", workerId)
-    .maybeSingle();
-
-  if (error || !data?.id) return null;
-  return data as CallerWorkerRow;
-}
-
-async function fetchProfileForAuthUser(
-  admin: SupabaseClient,
-  authUserId: string
-): Promise<{ role: string | null; worker_id: string | null } | null> {
-  const { data, error } = await admin
-    .from("profiles")
-    .select("role, worker_id")
-    .eq("id", authUserId)
-    .maybeSingle();
-
-  if (error) {
-    const message = error.message.toLowerCase();
-    if (message.includes("profiles") && message.includes("does not exist")) {
-      return null;
-    }
-    return null;
-  }
-
-  if (!data) return null;
-
-  return {
-    role: data.role ? String(data.role) : null,
-    worker_id: data.worker_id ? String(data.worker_id) : null,
-  };
-}
-
-/** Resolve the signed-in user's worker row (auth link, email, or profiles.worker_id). */
+/** Resolve the signed-in user's worker row (auth_user_id or email on public.workers). */
 export async function fetchAccountsCallerWorkerRow(
   admin: SupabaseClient,
   user: User
@@ -95,11 +55,6 @@ export async function fetchAccountsCallerWorkerRow(
     if (!emailLookup.error && emailLookup.data?.id) {
       return emailLookup.data as CallerWorkerRow;
     }
-  }
-
-  const profile = await fetchProfileForAuthUser(admin, user.id);
-  if (profile?.worker_id) {
-    return fetchCallerWorkerById(admin, profile.worker_id);
   }
 
   return null;
@@ -148,30 +103,28 @@ export async function resolveAccountsTimesheetCallerContext(
   admin: SupabaseClient,
   user: User
 ): Promise<AccountsTimesheetCallerContext> {
-  const profile = await fetchProfileForAuthUser(admin, user.id);
   const callerWorker = await fetchAccountsCallerWorkerRow(admin, user);
 
   const metadataRole = extractRoleFromAuthMetadata(
     user.user_metadata as Record<string, unknown> | undefined
   );
-  const profileRole = profile?.role ?? metadataRole ?? null;
-  const profileRoleNormalized = normalizeProfileRole(profileRole);
+  const workerRole = callerWorker?.security_role ?? metadataRole ?? null;
+  const workerRoleNormalized = normalizeProfileRole(workerRole);
 
   const securityRole = resolveCallerSecurityRole(
     callerWorker,
-    profileRole,
+    null,
     metadataRole
   );
 
   const accountsAccessRole = callerWorker?.accounts_access_role
     ? normalizeAccountsAccessRole(callerWorker.accounts_access_role)
-    : profileRoleToAccountsAccessRole(profileRoleNormalized);
+    : profileRoleToAccountsAccessRole(workerRoleNormalized);
 
-  const rawSecurityRole =
-    callerWorker?.security_role ?? profileRole ?? metadataRole ?? null;
+  const rawSecurityRole = callerWorker?.security_role ?? metadataRole ?? null;
 
   const canManage =
-    ROLE_PERMISSIONS[profileRoleNormalized]?.manageAccounts === true ||
+    ROLE_PERMISSIONS[workerRoleNormalized]?.manageAccounts === true ||
     canManageAccountsActions(accountsAccessRole, {
       securityRole: rawSecurityRole,
       canAccessAccounts: callerWorker?.can_access_accounts === true ? true : null,
@@ -186,7 +139,7 @@ export async function resolveAccountsTimesheetCallerContext(
   return {
     canManage,
     approverName,
-    callerWorkerId: callerWorker?.id ?? profile?.worker_id ?? null,
+    callerWorkerId: callerWorker?.id ?? null,
     securityRole,
     accountsAccessRole,
   };
